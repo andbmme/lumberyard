@@ -15,6 +15,8 @@
 #include <AzCore/Component/EntityId.h>
 #include <AzCore/Asset/AssetCommon.h>
 
+#include <ScriptCanvas/Core/Core.h>
+
 namespace ScriptCanvasEditor
 {
     class ScriptCanvasAsset;
@@ -44,8 +46,9 @@ namespace ScriptCanvasEditor
 
         void SetAsset(const AZ::Data::Asset<ScriptCanvasAsset>& asset);
         AZ::Data::Asset<ScriptCanvasAsset> GetAsset() const;
+        AZ::Data::AssetId GetAssetId() const;
 
-        AZ::EntityId GetGraphId() const;
+        ScriptCanvas::ScriptCanvasId GetScriptCanvasId() const;
 
         void LaunchScriptCanvasEditor(const AZ::Data::AssetId&, const AZ::Data::AssetType&) const;
         void OpenEditor() const;

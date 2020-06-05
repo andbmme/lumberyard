@@ -25,7 +25,6 @@
 #include "ICryAnimation.h"
 #include "ISourceControl.h"
 
-#include "Util/BoostPythonHelpers.h"
 #include "ShaderEnum.h"
 
 #include "Terrain/Layer.h"
@@ -43,6 +42,7 @@
 #include <AzCore/Component/TickBus.h>
 #include <AzCore/std/string/wildcard.h>
 #include <AzFramework/Asset/AssetSystemBus.h>
+#include <AzFramework/StringFunc/StringFunc.h>
 #include <AzToolsFramework/AssetBrowser/EBusFindAssetTypeByName.h>
 #include <AzToolsFramework/API/EditorAssetSystemAPI.h>
 #include <AzToolsFramework/AssetBrowser/AssetBrowserEntry.h>
@@ -222,47 +222,6 @@ void CMaterialHighlighter::GetHighlightColor(ColorF* color, float* intensity, in
     }
 }
 
-boost::python::list PyGetMaterials(QString materialName = "", bool selectedOnly = false)
-{
-    boost::python::list result;
-
-    GetIEditor()->OpenDataBaseLibrary(EDB_TYPE_MATERIAL, NULL);
-    CMaterialManager* pMaterialMgr = GetIEditor()->GetMaterialManager();
-
-    if (!materialName.isEmpty())
-    {
-        result.append(PyScript::CreatePyGameMaterial((CMaterial*)pMaterialMgr->FindItemByName(materialName)));
-    }
-    else if (selectedOnly)
-    {
-        if (materialName.isEmpty() && pMaterialMgr->GetSelectedItem() != NULL)
-        {
-            result.append(PyScript::CreatePyGameMaterial((CMaterial*)pMaterialMgr->GetSelectedItem()));
-        }
-    }
-    else
-    {
-        // Acquire all of the materials via iterating across the objects.
-        CBaseObjectsArray objects;
-        GetIEditor()->GetObjectManager()->GetObjects(objects);
-        for (int i = 0; i < objects.size(); i++)
-        {
-            result.append(PyScript::CreatePyGameMaterial(objects[i]->GetMaterial()));
-        }
-    }
-    return result;
-}
-
-#pragma warning(disable: 4068)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wunused-local-typedef"
-
-BOOST_PYTHON_FUNCTION_OVERLOADS(pyGetMaterialsOverload, PyGetMaterials, 0, 2);
-REGISTER_PYTHON_OVERLOAD_COMMAND(PyGetMaterials, general, get_materials, pyGetMaterialsOverload,
-    "Get all, subgroup, or selected materials in the material editor.",
-    "general.get_materials(str materialName=\'\', selectedOnly=False, levelOnly=False)");
-
-#pragma clang diagnostic pop
 
 //////////////////////////////////////////////////////////////////////////
 // CMaterialManager implementation.
@@ -579,7 +538,7 @@ void CMaterialManager::ReloadDirtyMaterials()
 
     if (mtlCount > 0)
     {
-        std::vector<_smart_ptr<IMaterial>> allMaterials;
+        AZStd::vector<_smart_ptr<IMaterial>> allMaterials;
 
         allMaterials.reserve(mtlCount);
 
@@ -693,7 +652,7 @@ void CMaterialManager::AddSourceFileOpeners(const char* fullSourceFileName, cons
         // we can handle these!  
         auto materialCallback = [this](const char* fullSourceFileNameInCall, const AZ::Uuid& sourceUUIDInCall)
         {
-            const SourceAssetBrowserEntry* fullDetails = SourceAssetBrowserEntry::GetSourceByAssetId(sourceUUIDInCall);
+            const SourceAssetBrowserEntry* fullDetails = SourceAssetBrowserEntry::GetSourceByUuid(sourceUUIDInCall);
             if (fullDetails)
             {
                 CMaterial* materialFile = LoadMaterialWithFullSourcePath(QString::fromUtf8(fullDetails->GetRelativePath().c_str()), QString::fromUtf8(fullSourceFileNameInCall), false);
@@ -1080,7 +1039,7 @@ void CMaterialManager::RegisterCommands(CRegistrationContext& regCtx)
 }
 
 //////////////////////////////////////////////////////////////////////////
-bool CMaterialManager::SelectSaveMaterial(QString& itemName, const char* defaultStartPath)
+bool CMaterialManager::SelectSaveMaterial(QString& itemName, QString& fullSourcePath, const char* defaultStartPath)
 {
     QString startPath;
     if (defaultStartPath && defaultStartPath[0] != '\0')
@@ -1092,16 +1051,12 @@ bool CMaterialManager::SelectSaveMaterial(QString& itemName, const char* default
         startPath = GetIEditor()->GetSearchPath(EDITOR_PATH_MATERIALS);
     }
 
-    QString filename;
-    if (!CFileUtil::SelectSaveFile("Material Files (*.mtl)", "mtl", startPath, filename))
+    if (!CFileUtil::SelectSaveFile("Material Files (*.mtl)", "mtl", startPath, fullSourcePath))
     {
         return false;
     }
 
-    // KDAB Not sure why Path::GamePathToFullPath is being used here & filename should be an
-    // KDAB absolute path under Qt: suspect this should be removed.
-    itemName = Path::GamePathToFullPath(filename);
-    itemName = FilenameToMaterial(itemName);
+    itemName = FilenameToMaterial(fullSourcePath);
     if (itemName.isEmpty())
     {
         return false;
@@ -1115,7 +1070,8 @@ CMaterial* CMaterialManager::SelectNewMaterial(int nMtlFlags, const char* sStart
 {
     QString path = m_pCurrentMaterial ? Path::GetPath(m_pCurrentMaterial->GetFilename()) : m_currentFolder;
     QString itemName;
-    if (!SelectSaveMaterial(itemName, path.toUtf8().data()))
+    QString fullPath;
+    if (!SelectSaveMaterial(itemName, fullPath, path.toUtf8().data()))
     {
         return 0;
     }
@@ -1128,7 +1084,8 @@ CMaterial* CMaterialManager::SelectNewMaterial(int nMtlFlags, const char* sStart
 
     _smart_ptr<CMaterial> mtl = CreateMaterial(itemName, XmlNodeRef(), nMtlFlags);
     mtl->Update();
-    mtl->Save();
+    bool skipReadOnly = true;
+    mtl->Save(skipReadOnly, fullPath);
     SetCurrentMaterial(mtl);
     return mtl;
 }
@@ -1166,7 +1123,7 @@ void CMaterialManager::Command_ConvertToMulti()
     }
     else
     {
-        Warning(pMaterial ? "material.convert_to_multi called on invalid material setup" : "material.convert_to_multi called while no material selected");
+        Warning(pMaterial ? "azlmbr.legacy.material.convert_to_multi called on invalid material setup" : "azlmbr.legacy.material.convert_to_multi called while no material selected");
     }
 }
 
@@ -1178,7 +1135,7 @@ void CMaterialManager::Command_Duplicate()
     if (!pSrcMtl)
     {
         CErrorRecord err;
-        err.error = "material.duplicate called while no materials selected";
+        err.error = "azlmbr.legacy.material.duplicate called while no materials selected";
         GetIEditor()->GetErrorReport()->ReportError(err);
         return;
     }
@@ -1196,12 +1153,26 @@ void CMaterialManager::Command_Duplicate()
 
     if (pSrcMtl != 0 && !pSrcMtl->IsPureChild())
     {
-        QString name = MakeUniqueItemName(pSrcMtl->GetName());
+        QString newUniqueRelativePath = MakeUniqueItemName(pSrcMtl->GetName());
+
         // Create a new material.
-        _smart_ptr<CMaterial> pMtl = DuplicateMaterial(name.toUtf8().data(), pSrcMtl);
+        _smart_ptr<CMaterial> pMtl = DuplicateMaterial(newUniqueRelativePath.toUtf8().data(), pSrcMtl);
         if (pMtl)
         {
-            pMtl->Save();
+            // Get the new filename from the relative path
+            AZStd::string newFileName;
+            AzFramework::StringFunc::Path::GetFileName(newUniqueRelativePath.toUtf8().data(), newFileName);
+
+            // Get the full path to the original material, so we know which folder to put the new material in
+            AZStd::string newFullFilePath = pSrcMtl->GetFilename().toUtf8().data();
+
+            // Replace the original material filename with the filename from the new relative path + the material file extension to get the new full file path
+            AzFramework::StringFunc::Path::ReplaceFullName(newFullFilePath, newFileName.c_str(), MATERIAL_FILE_EXT);
+
+            AzFramework::StringFunc::Path::Normalize(newFullFilePath);
+
+            const bool skipReadOnly = true;
+            pMtl->Save(skipReadOnly, newFullFilePath.c_str());
             SetSelectedItem(pMtl);
         }
     }
@@ -1288,12 +1259,13 @@ bool CMaterialManager::DuplicateAsSubMaterialAtIndex(CMaterial* pSourceMaterial,
 void CMaterialManager::Command_Merge()
 {
     QString itemName;
+    QString fullPath;
     QString defaultMaterialPath;
     if (m_pCurrentMaterial)
     {
         defaultMaterialPath = Path::GetPath(m_pCurrentMaterial->GetFilename());
     }
-    if (!SelectSaveMaterial(itemName, defaultMaterialPath.toUtf8().data()))
+    if (!SelectSaveMaterial(itemName, fullPath, defaultMaterialPath.toUtf8().data()))
     {
         return;
     }
@@ -1340,7 +1312,8 @@ void CMaterialManager::Command_Merge()
     }
 
     pNewMaterial->Update();
-    pNewMaterial->Save();
+    const bool skipReadOnly = true;
+    pNewMaterial->Save(skipReadOnly, fullPath);
     SetCurrentMaterial(pNewMaterial);
 }
 
@@ -1785,7 +1758,7 @@ void CMaterialManager::GatherResources(_smart_ptr<IMaterial> pMaterial, CUsedRes
 
             for (auto& iter : res.m_TexturesResourcesMap )
             {
-                SEfResTexture*  	pTexture = &(iter.second);
+                SEfResTexture* pTexture = &(iter.second);
                 if (!pTexture->m_Name.empty())
                 {
                     resources.Add(pTexture->m_Name.c_str());
@@ -1969,7 +1942,7 @@ void CMaterialManager::DccMaterialSourceControlCheck(const AZStd::string& relati
         }
         else
         {
-            QString errorMessage = QObject::tr("Could not check out read-only file %s in source control. Either check your source control configuration or disable source control.", fullSourcePath.c_str());
+            QString errorMessage = QObject::tr("Could not check out read-only file %1 in source control. Either check your source control configuration or disable source control.").arg(QString::fromUtf8(fullSourcePath.c_str()));
 
             // Alter error message slightly if source control is disabled
             bool isSourceControlActive = false;
@@ -1977,7 +1950,7 @@ void CMaterialManager::DccMaterialSourceControlCheck(const AZStd::string& relati
 
             if (!isSourceControlActive)
             {
-                errorMessage = QObject::tr("Could not check out read-only file %s because source control is disabled. Either enable source control or check out the file manually to make it writable.", fullSourcePath.c_str());
+                errorMessage = QObject::tr("Could not check out read-only file %1 because source control is disabled. Either enable source control or check out the file manually to make it writable.").arg(QString::fromUtf8(fullSourcePath.c_str()));
             }
 
             // Pop open an error message box if this is the first error we encounter

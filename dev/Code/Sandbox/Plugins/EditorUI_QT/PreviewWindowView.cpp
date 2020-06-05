@@ -9,7 +9,7 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
-#include "Stdafx.h"
+#include "EditorUI_QT_Precompiled.h"
 
 //Cry
 #include <IParticles.h>

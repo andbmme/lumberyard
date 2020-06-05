@@ -24,27 +24,6 @@ public:
     int i_debug;
     int i_debugDigitalButtons;
 
-    int i_kinSkeletonSmoothType;
-    int i_kinectDebug;
-    int i_useKinect;
-    int i_seatedTracking;
-
-
-    float i_kinSkeletonMovedDistance;
-
-    //Double exponential smoothing parameters
-    float i_kinGlobalExpSmoothFactor;
-    float i_kinGlobalExpCorrectionFactor;
-    float i_kinGlobalExpPredictionFactor;
-    float i_kinGlobalExpJitterRadius;
-    float i_kinGlobalExpDeviationRadius;
-
-#if defined(WIN32) || defined(WIN64)
-    int i_kinectXboxConnect;
-    int i_kinectXboxConnectPort;
-    ICVar* i_kinectXboxConnectIP;
-#endif
-
     ICVar* i_synergyServer;
     ICVar* i_synergyScreenName;
 

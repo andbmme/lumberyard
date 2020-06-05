@@ -15,8 +15,8 @@
 #pragma once
 
 #include <AzCore/base.h>
-#include <AzCore/Memory/systemallocator.h>
-#include <AzToolsFramework/Ui/PropertyEditor/PropertyEditorAPI.h>
+#include <AzCore/Memory/SystemAllocator.h>
+#include <AzToolsFramework/UI/PropertyEditor/PropertyEditorAPI.h>
 #include "ReflectedVar.h"
 #include "Util/VariablePropertyType.h"
 #include <QtWidgets/QWidget>
@@ -64,7 +64,7 @@ public:
     virtual QWidget* CreateGUI(QWidget* pParent) override
     {
         GenericPopupPropertyEditor* newCtrl = aznew T(pParent);
-        connect(newCtrl, &GenericPopupPropertyEditor::ValueChanged, [newCtrl]()
+        connect(newCtrl, &GenericPopupPropertyEditor::ValueChanged, newCtrl, [newCtrl]()
             {
                 EBUS_EVENT(AzToolsFramework::PropertyEditorGUIMessages::Bus, RequestWrite, newCtrl);
             });
@@ -138,15 +138,6 @@ class SOStatePatternPropertyEditor
 {
 public:
     SOStatePatternPropertyEditor(QWidget* pParent = nullptr)
-        : GenericPopupPropertyEditor(pParent){}
-    void onEditClicked() override;
-};
-
-class SOActionPropertyEditor
-    : public GenericPopupPropertyEditor
-{
-public:
-    SOActionPropertyEditor(QWidget* pParent = nullptr)
         : GenericPopupPropertyEditor(pParent){}
     void onEditClicked() override;
 };
@@ -246,24 +237,6 @@ public:
     void onEditClicked() override;
 };
 
-class CustomActionPropertyEditor
-    : public GenericPopupPropertyEditor
-{
-public:
-    CustomActionPropertyEditor(QWidget* pParent = nullptr)
-        : GenericPopupPropertyEditor(pParent){}
-    void onEditClicked() override;
-};
-
-class GameTokenPropertyEditor
-    : public GenericPopupPropertyEditor
-{
-public:
-    GameTokenPropertyEditor(QWidget* pParent = nullptr)
-        : GenericPopupPropertyEditor(pParent){}
-    void onEditClicked() override;
-};
-
 class MissionObjPropertyEditor
     : public GenericPopupPropertyEditor
 {
@@ -329,7 +302,6 @@ using SOClassesPropertyHandler = GenericPopupWidgetHandler<SOClassesPropertyEdit
 using SOStatePropertyHandler = GenericPopupWidgetHandler<SOStatePropertyEditor, CONST_AZ_CRC("ePropertySOState", 0x23cb1d7d)>;
 using SOStatesPropertyHandler = GenericPopupWidgetHandler<SOStatesPropertyEditor, CONST_AZ_CRC("ePropertySOStates", 0x35990997)>;
 using SOStatePatternPropertyHandler = GenericPopupWidgetHandler<SOStatePatternPropertyEditor, CONST_AZ_CRC("ePropertySOStatePattern", 0xbd09853a) >;
-using SOActionPropertyHandler = GenericPopupWidgetHandler<SOActionPropertyEditor, CONST_AZ_CRC("ePropertySOAction", 0x4397f248)>;
 using SOHelperPropertyHandler = GenericPopupWidgetHandler<SOHelperPropertyEditor, CONST_AZ_CRC("ePropertySOHelper", 0x836c056a)>;
 using SONavHelperPropertyHandler = GenericPopupWidgetHandler<SOHelperPropertyEditor, CONST_AZ_CRC("ePropertySONavHelper", 0x1abfbd59)>;
 using SOAnimHelperPropertyHandler = GenericPopupWidgetHandler<SOHelperPropertyEditor, CONST_AZ_CRC("ePropertySOAnimHelper", 0x139a4d89)>;
@@ -344,8 +316,6 @@ using AiCharacterPropertyHandler = GenericPopupWidgetHandler<AiCharacterProperty
 #endif
 using EquipPropertyHandler = GenericPopupWidgetHandler<EquipPropertyEditor, CONST_AZ_CRC("ePropertyEquip", 0x66ffd290)>;
 using ReverbPresetPropertyHandler = GenericPopupWidgetHandler<ReverbPresetPropertyEditor, CONST_AZ_CRC("ePropertyReverbPreset", 0x51469f38)>;
-using CustomActionPropertyHandler = GenericPopupWidgetHandler<CustomActionPropertyEditor, CONST_AZ_CRC("ePropertyCustomAction", 0x4ffa5ba5)>;
-using GameTokenPropertyHandler = GenericPopupWidgetHandler<GameTokenPropertyEditor, CONST_AZ_CRC("ePropertyGameToken", 0x34855b6f)>;
 using MissionObjPropertyHandler = GenericPopupWidgetHandler<MissionObjPropertyEditor, CONST_AZ_CRC("ePropertyMissionObj", 0x4a2d0dc8)>;
 using SequencePropertyHandler = GenericPopupWidgetHandler<SequencePropertyEditor, CONST_AZ_CRC("ePropertySequence", 0xdd1c7d44)>;
 using SequenceIdPropertyHandler = GenericPopupWidgetHandler<SequenceIdPropertyEditor, CONST_AZ_CRC("ePropertySequenceId", 0x05983dcc)>;
@@ -406,7 +376,7 @@ public:
     virtual QWidget* CreateGUI(QWidget *pParent) override
     {
         ListEditWidget* newCtrl = aznew T(pParent);
-        connect(newCtrl, &ListEditWidget::ValueChanged, [newCtrl]()
+        connect(newCtrl, &ListEditWidget::ValueChanged, newCtrl, [newCtrl]()
         {
             EBUS_EVENT(AzToolsFramework::PropertyEditorGUIMessages::Bus, RequestWrite, newCtrl);
         });

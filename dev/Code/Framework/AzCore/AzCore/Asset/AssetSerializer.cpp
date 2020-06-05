@@ -9,7 +9,6 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
-#ifndef AZ_UNITY_BUILD
 
 #include <AzCore/Serialization/SerializeContext.h>
 #include <AzCore/Asset/AssetManager.h>
@@ -54,6 +53,8 @@ namespace AZ {
 
     bool AssetSerializer::Load(void* classPtr, IO::GenericStream& stream, unsigned int version, bool isDataBigEndian)
     {
+        AZ_Assert(classPtr, "AssetSerializer::Load received invalid data pointer.");
+
         using namespace AZ::Data;
 
         (void)isDataBigEndian;
@@ -107,6 +108,32 @@ namespace AZ {
 
     //-------------------------------------------------------------------------
 
+    bool AssetSerializer::LoadWithFilter(void* classPtr, IO::GenericStream& stream, unsigned int version, const Data::AssetFilterCB& assetFilterCallback, bool isDataBigEndian)
+    {
+        if (Load(classPtr, stream, version, isDataBigEndian))
+        {
+            Data::Asset<Data::AssetData>* asset = reinterpret_cast<Data::Asset<Data::AssetData>*>(classPtr);
+            return PostSerializeAssetReference(*asset, assetFilterCallback);
+        }
+
+        return false;
+    }
+
+    //-------------------------------------------------------------------------
+
+    void AssetSerializer::Clone(const void* sourcePtr, void* destPtr)
+    {
+        AZ_Assert(sourcePtr, "AssetSerializer::Clone received invalid source pointer.");
+        AZ_Assert(destPtr, "AssetSerializer::Clone received invalid destination pointer.");
+            
+        const Data::Asset<Data::AssetData>* sourceAsset = reinterpret_cast<const Data::Asset<Data::AssetData>*>(sourcePtr);
+        Data::Asset<Data::AssetData>* destAsset = reinterpret_cast<Data::Asset<Data::AssetData>*>(destPtr);
+
+        *destAsset = *sourceAsset;
+    }
+
+    //-------------------------------------------------------------------------
+
     size_t  AssetSerializer::TextToData(const char* text, unsigned int textVersion, IO::GenericStream& stream, bool isDataBigEndian)
     {
         (void)isDataBigEndian;
@@ -144,6 +171,8 @@ namespace AZ {
         return Save(&asset, stream, isDataBigEndian);
     }
 
+    //-------------------------------------------------------------------------
+
     size_t AssetSerializer::Save(const void* classPtr, IO::GenericStream& stream, bool isDataBigEndian)
     {
         (void)isDataBigEndian;
@@ -169,12 +198,95 @@ namespace AZ {
         return bytesWritten;
     }
 
+    //-------------------------------------------------------------------------
+
+    bool AssetSerializer::PostSerializeAssetReference(AZ::Data::Asset<AZ::Data::AssetData>& asset, const Data::AssetFilterCB& assetFilterCallback)
+    {
+        if (!asset.GetId().IsValid())
+        {
+            // The asset reference is null, so there's no additional processing required.
+            return true;
+        }
+        
+        if (assetFilterCallback && !assetFilterCallback(asset))
+        {
+            // This asset reference is filtered out for further processing/loading.
+            return true;
+        }
+
+        RemapLegacyIds(asset);
+
+        if (asset.Get())
+        {
+            // Asset reference is already fully populated.
+            return true;
+        }
+
+        const Data::AssetLoadBehavior loadBehavior = asset.GetAutoLoadBehavior();
+
+        if (loadBehavior == Data::AssetLoadBehavior::NoLoad)
+        {
+            // Asset reference is flagged to never load unless explicitly by user code.
+            return true;
+        }
+
+        // Save this in case GetAsset() fails
+        Data::AssetId assetId = asset.GetId();
+
+        asset = Data::AssetManager::Instance().GetAsset(asset.GetId(), asset.GetType(), false /*don't queue load*/);
+
+        if (!asset.GetId().IsValid()) // This will happen if there is no asset handler registered
+        {
+            AZ_Error("Serialization", false, "Dependent asset (%s) could not be loaded.", assetId.ToString<AZStd::string>().c_str());
+            return false;
+        }
+
+        // If the asset is flagged to pre-load, kick off a blocking load.
+        if (loadBehavior == Data::AssetLoadBehavior::PreLoad)
+        {
+            // Conduct a blocking load within the current thread.
+            AZ_Assert(Data::AssetManager::IsReady(), "AssetManager has not been started!");
+            asset = Data::AssetManager::Instance().GetAsset(asset.GetId(), asset.GetType(), true, assetFilterCallback, true /*blocking*/);
+
+            if (asset.IsError())
+            {
+                AZ_Error("Serialization", false, "Dependent asset (%s:%s) could not be loaded.",
+                    asset.GetId().ToString<AZStd::string>().c_str(),
+                    asset.GetHint().c_str());
+                return false;
+            }
+        }
+
+        // Otherwise queue the load.
+        if (loadBehavior == Data::AssetLoadBehavior::QueueLoad)
+        {
+            // Queue asynchronous load.
+            asset.QueueLoad(assetFilterCallback);
+        }
+
+        asset.SetAutoLoadBehavior(loadBehavior);
+
+        return true;
+    }
+
+    //-------------------------------------------------------------------------
+
+    void AssetSerializer::RemapLegacyIds(AZ::Data::Asset<AZ::Data::AssetData>& asset)
+    {
+        AZ::Data::AssetInfo assetInfo;
+        AZ::Data::AssetCatalogRequestBus::BroadcastResult(assetInfo, &AZ::Data::AssetCatalogRequests::GetAssetInfoById, asset.GetId());
+        if (assetInfo.m_assetId.IsValid())
+        {
+            asset.m_assetId = assetInfo.m_assetId;
+            asset.m_assetHint = assetInfo.m_relativePath;
+        }
+    }
+    //-------------------------------------------------------------------------
+
     bool AssetSerializer::CompareValueData(const void* lhs, const void* rhs)
     {
         return SerializeContext::EqualityCompareHelper<Data::Asset<Data::AssetData>>::CompareValues(lhs, rhs);
     }
 
-
     //-------------------------------------------------------------------------
 }   // namespace AZ
-#endif // #ifndef AZ_UNITY_BUILD

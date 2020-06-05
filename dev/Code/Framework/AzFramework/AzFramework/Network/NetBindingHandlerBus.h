@@ -17,6 +17,7 @@
 #include <AzCore/Component/EntityId.h>
 #include <AzCore/std/parallel/mutex.h>
 #include <GridMate/Replica/ReplicaCommon.h>
+#include <AzCore/Slice/SliceComponent.h>
 
 namespace AzFramework
 {
@@ -65,6 +66,11 @@ namespace AzFramework
         virtual void MarkAsLevelSliceEntity() = 0;
 
         /**
+         * Set the slice instance id that this entity was spawned by and belongs to.
+         */
+        virtual void SetSliceInstanceId(const AZ::SliceComponent::SliceInstanceId& sliceInstanceId) = 0;
+
+        /**
         * Sets the Replica Priority
         */
         virtual void SetReplicaPriority(GridMate::ReplicaPriority replicaPriority) = 0;
@@ -88,6 +94,10 @@ namespace AzFramework
     class NetQuery
     {
     public:
+        AZ_RTTI(NetQuery, "{AA4C5699-889D-4A73-9AD2-53EB03D8BB99}");
+
+        virtual ~NetQuery() = default;
+
         static AZ_FORCE_INLINE bool IsEntityAuthoritative(AZ::EntityId entityId)
         {
             bool result = true;

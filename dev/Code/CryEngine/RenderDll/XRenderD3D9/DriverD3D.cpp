@@ -20,6 +20,7 @@
 #include "I3DEngine.h"
 #include "IStatoscope.h"
 #include "AnimKey.h"
+#include <Terrain/Bus/LegacyTerrainBus.h>
 
 #include <AzCore/Math/MathUtils.h>
 #include <IEngineModule.h>
@@ -38,6 +39,26 @@
 
 #include "ScopeGuard.h"
 #include "IImageHandler.h"
+
+#if defined(AZ_RESTRICTED_PLATFORM)
+#undef AZ_RESTRICTED_SECTION
+#define DRIVERD3D_CPP_SECTION_1 1
+#define DRIVERD3D_CPP_SECTION_3 3
+#define DRIVERD3D_CPP_SECTION_4 4
+#define DRIVERD3D_CPP_SECTION_5 5
+#define DRIVERD3D_CPP_SECTION_6 6
+#define DRIVERD3D_CPP_SECTION_7 7
+#define DRIVERD3D_CPP_SECTION_8 8
+#define DRIVERD3D_CPP_SECTION_9 9
+#define DRIVERD3D_CPP_SECTION_10 10
+#define DRIVERD3D_CPP_SECTION_11 11
+#define DRIVERD3D_CPP_SECTION_12 12
+#define DRIVERD3D_CPP_SECTION_13 13
+#define DRIVERD3D_CPP_SECTION_14 14
+#define DRIVERD3D_CPP_SECTION_15 15
+#define DRIVERD3D_CPP_SECTION_16 16
+#endif
+
 #if defined(FEATURE_SVO_GI)
 #include "D3D_SVO.h"
 #endif
@@ -49,7 +70,8 @@
 #if defined(WIN32) && !defined(OPENGL)
     #pragma warning(push)
     #pragma warning(disable:4819)   // Invalid character not in default code page
-    #include <NVAPI/nvapi.h>                // NVAPI
+    #pragma warning(disable:4828)
+    #include <nvapi.h>                // NVAPI
     #pragma warning(pop)
 #endif
 
@@ -62,88 +84,119 @@
 #include <windows.h>
 #endif
 #if RENDERER_ENABLE_BREAK_ON_ERROR
+#include <d3d9.h>
 namespace detail
 {
     const char* ToString(long const hr)
     {
-        switch (hr)
-        {
-        case D3DOK_NOAUTOGEN:
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DRIVERD3D_CPP_SECTION_1
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DriverD3D_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DriverD3D_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DriverD3D_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+# else
+        if (D3DOK_NOAUTOGEN == hr)
             return "D3DOK_NOAUTOGEN This is a success code. However, the autogeneration of mipmaps is not supported for this format. This means that resource creation will succeed but the mipmap levels will not be automatically generated";
-        case D3DERR_CONFLICTINGRENDERSTATE:
+        else if (D3DERR_CONFLICTINGRENDERSTATE == hr)
             return "D3DERR_CONFLICTINGRENDERSTATE The currently set render states cannot be used together";
-        case D3DERR_CONFLICTINGTEXTUREFILTER:
+        else if (D3DERR_CONFLICTINGTEXTUREFILTER == hr)
             return "D3DERR_CONFLICTINGTEXTUREFILTER The current texture filters cannot be used together";
-        case D3DERR_CONFLICTINGTEXTUREPALETTE:
+        else if (D3DERR_CONFLICTINGTEXTUREPALETTE == hr)
             return "D3DERR_CONFLICTINGTEXTUREPALETTE The current textures cannot be used simultaneously.";
-        case D3DERR_DEVICEHUNG:
+        else if (D3DERR_DEVICEHUNG == hr)
             return "D3DERR_DEVICEHUNG The device that returned this code caused the hardware adapter to be reset by the OS. Most applications should destroy the device and quit. Applications that must continue should destroy all video memory objects (surfaces, textures, state blocks etc) and call Reset() to put the device in a default state. If the application then continues rendering in the same way, the device will return to this state";
-
-        case D3DERR_DEVICELOST:
+        else if (D3DERR_DEVICELOST == hr)
             return "D3DERR_DEVICELOST The device has been lost but cannot be reset at this time. Therefore, rendering is not possible.A Direct 3D device object other than the one that returned this code caused the hardware adapter to be reset by the OS. Delete all video memory objects (surfaces, textures, state blocks) and call Reset() to return the device to a default state. If the application continues rendering without a reset, the rendering calls will succeed.";
-        case D3DERR_DEVICENOTRESET:
+        else if (D3DERR_DEVICENOTRESET == hr)
             return "D3DERR_DEVICENOTRESET The device has been lost but can be reset at this time.";
-        case D3DERR_DEVICEREMOVED:
+        else if (D3DERR_DEVICEREMOVED == hr)
             return "D3DERR_DEVICEREMOVED The hardware adapter has been removed. Application must destroy the device, do enumeration of adapters and create another Direct3D device. If application continues rendering without calling Reset, the rendering calls will succeed";
-
-        case D3DERR_DRIVERINTERNALERROR:
+        else if (D3DERR_DRIVERINTERNALERROR == hr)
             return "D3DERR_DRIVERINTERNALERROR Internal driver error. Applications should destroy and recreate the device when receiving this error. For hints on debugging this error, see Driver Internal Errors (Direct3D 9).";
-        case D3DERR_DRIVERINVALIDCALL:
+        else if (D3DERR_DRIVERINVALIDCALL == hr)
             return "D3DERR_DRIVERINVALIDCALL Not used.";
-        case D3DERR_INVALIDCALL:
+        else if (D3DERR_INVALIDCALL == hr)
             return "D3DERR_INVALIDCALL The method call is invalid. For example, a method's parameter may not be a valid pointer.";
-        case D3DERR_INVALIDDEVICE:
+        else if (D3DERR_INVALIDDEVICE == hr)
             return "D3DERR_INVALIDDEVICE The requested device type is not valid.";
-        case D3DERR_MOREDATA:
+        else if (D3DERR_MOREDATA == hr)
             return "D3DERR_MOREDATA There is more data available than the specified buffer size can hold.";
-        case D3DERR_NOTAVAILABLE:
+        else if (D3DERR_NOTAVAILABLE == hr)
             return "D3DERR_NOTAVAILABLE This device does not support the queried technique.";
-        case D3DERR_NOTFOUND:
+        else if (D3DERR_NOTFOUND == hr)
             return "D3DERR_NOTFOUND The requested item was not found.";
-        case D3D_OK:
+        else if (D3D_OK == hr)
             return "D3D_OK No error occurred.";
-        case D3DERR_OUTOFVIDEOMEMORY:
+        else if (D3DERR_OUTOFVIDEOMEMORY == hr)
             return "D3DERR_OUTOFVIDEOMEMORY Direct3D does not have enough display memory to perform the operation. The device is using more resources in a single scene than can fit simultaneously into video memory. Present, PresentEx, or CheckDeviceState can return this error. Recovery is similar to D3DERR_DEVICEHUNG, though the application may want to reduce its per-frame memory usage as well to avoid having the error recur.";
-        case D3DERR_TOOMANYOPERATIONS:
+        else if (D3DERR_TOOMANYOPERATIONS == hr)
             return "D3DERR_TOOMANYOPERATIONS The application is requesting more texture-filtering operations than the device supports.";
-        case D3DERR_UNSUPPORTEDALPHAARG:
+        else if (D3DERR_UNSUPPORTEDALPHAARG == hr)
             return "D3DERR_UNSUPPORTEDALPHAARG The device does not support a specified texture-blending argument for the alpha channel.";
-        case D3DERR_UNSUPPORTEDALPHAOPERATION:
+        else if (D3DERR_UNSUPPORTEDALPHAOPERATION == hr)
             return "D3DERR_UNSUPPORTEDALPHAOPERATION The device does not support a specified texture-blending operation for the alpha channel.";
-        case D3DERR_UNSUPPORTEDCOLORARG:
+        else if (D3DERR_UNSUPPORTEDCOLORARG == hr)
             return "D3DERR_UNSUPPORTEDCOLORARG The device does not support a specified texture-blending argument for color values.";
-        case D3DERR_UNSUPPORTEDCOLOROPERATION:
+        else if (D3DERR_UNSUPPORTEDCOLOROPERATION == hr)
             return "D3DERR_UNSUPPORTEDCOLOROPERATION The device does not support a specified texture-blending operation for color values.";
-        case D3DERR_UNSUPPORTEDFACTORVALUE:
+        else if (D3DERR_UNSUPPORTEDFACTORVALUE == hr)
             return "D3DERR_UNSUPPORTEDFACTORVALUE The device does not support the specified texture factor value. Not used; provided only to support older drivers.";
-        case D3DERR_UNSUPPORTEDTEXTUREFILTER:
+        else if (D3DERR_UNSUPPORTEDTEXTUREFILTER == hr)
             return "D3DERR_UNSUPPORTEDTEXTUREFILTER The device does not support the specified texture filter.";
-        case D3DERR_WASSTILLDRAWING:
+        else if (D3DERR_WASSTILLDRAWING == hr)
             return "D3DERR_WASSTILLDRAWING The previous blit operation that is transferring information to or from this surface is incomplete.";
-        case D3DERR_WRONGTEXTUREFORMAT:
+        else if (D3DERR_WRONGTEXTUREFORMAT == hr)
             return "D3DERR_WRONGTEXTUREFORMAT The pixel format of the texture surface is not valid.";
-        case E_FAIL:
+        else if (E_FAIL == hr)
             return "E_FAIL An undetermined error occurred inside the Direct3D subsystem.";
-        case E_INVALIDARG:
+        else if (E_INVALIDARG == hr)
             return "E_INVALIDARG An invalid parameter was passed to the returning function.";
-        case E_NOINTERFACE:
+        else if (E_NOINTERFACE == hr)
             return "E_NOINTERFACE No object interface is available.";
-        case E_NOTIMPL:
+        else if (E_NOTIMPL == hr)
             return "E_NOTIMPL Not implemented.";
-        case E_OUTOFMEMORY:
+        else if (E_OUTOFMEMORY == hr)
             return "E_OUTOFMEMORY Direct3D could not allocate sufficient memory to complete the call.";
-
-        case D3DERR_UNSUPPORTEDOVERLAY:
+        else if (D3DERR_UNSUPPORTEDOVERLAY == hr)
             return "D3DERR_UNSUPPORTEDOVERLAY The device does not support overlay for the specified size or display mode.";
-        case D3DERR_UNSUPPORTEDOVERLAYFORMAT:
+        else if (D3DERR_UNSUPPORTEDOVERLAYFORMAT == hr)
             return "D3DERR_UNSUPPORTEDOVERLAYFORMAT The device does not support overlay for the specified surface format.";
-        case D3DERR_CANNOTPROTECTCONTENT:
+        else if (D3DERR_CANNOTPROTECTCONTENT == hr)
             return "D3DERR_CANNOTPROTECTCONTENT The specified content cannot be protected";
-        case D3DERR_UNSUPPORTEDCRYPTO:
+        else if (D3DERR_UNSUPPORTEDCRYPTO == hr)
             return "D3DERR_UNSUPPORTEDCRYPTO The specified cryptographic algorithm is not supported.";
-        default:
-            break;
+        else if (DXGI_ERROR_DEVICE_REMOVED == hr)
+        {
+            HRESULT subResult = gcpRendD3D->GetDevice().GetDeviceRemovedReason();
+            if (DXGI_ERROR_DEVICE_HUNG == subResult)
+            {
+                return "DXGI_ERROR_DEVICE_HUNG. The device was removed as it hung";
+            }
+            else if (DXGI_ERROR_DEVICE_REMOVED == subResult)
+            {
+                return "DXGI_ERROR_DEVICE_REMOVED. The device was removed";
+            }
+            else if (DXGI_ERROR_DEVICE_RESET == subResult)
+            {
+                return "DXGI_ERROR_DEVICE_RESET. The device was reset";
+            }
+            else if (DXGI_ERROR_DRIVER_INTERNAL_ERROR == subResult)
+            {
+                return "DXGI_ERROR_DRIVER_INTERNAL_ERROR. The device was removed due to an internal error";
+            }
+            else if (DXGI_ERROR_INVALID_CALL == subResult)
+            {
+                return "DXGI_ERROR_INVALID_CALL. The device was removed due to an invalid call";
+            }
         }
+#endif
         return "Unknown HRESULT CODE!";
     }
     bool CheckHResult(long const hr
@@ -155,7 +208,7 @@ namespace detail
         {
             return true;
         }
-        CryLogAlways("[%s:%d] d3d error: '%s'", file, line, ToString(hr));
+        CryLogAlways("%s(%d): d3d error: '%s'", file, line, ToString(hr));
         IF (breakOnError, 0)
         {
             __debugbreak();
@@ -205,8 +258,7 @@ CCryNameTSCRC CHWShader::s_sClassNamePS = CCryNameTSCRC("CHWShader_PS");
 
 CCryNameTSCRC CShader::s_sClassName = CCryNameTSCRC("CShader");
 
-
-CD3D9Renderer gcpRendD3D;
+StaticInstance<CD3D9Renderer> gcpRendD3D;
 
 int CD3D9Renderer::CV_d3d11_CBUpdateStats;
 ICVar* CD3D9Renderer::CV_d3d11_forcedFeatureLevel;
@@ -272,7 +324,10 @@ CD3D9Renderer::CD3D9Renderer()
     , m_nConnectedMonitors(1)
 #endif // defined(WIN32)
 {
+    m_screenshotFilepathCache[0] = '\0';
+
     m_bDraw2dImageStretchMode = false;
+    m_techShadowGen = CCryNameTSCRC("ShadowGen");
 
     CreateDeferredUnitBox(m_arrDeferredInds, m_arrDeferredVerts);
 }
@@ -295,8 +350,18 @@ void CD3D9Renderer::InitRenderer()
     m_pTiledShading = new CTiledShading();
 
     m_pPipelineProfiler = NULL;
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DRIVERD3D_CPP_SECTION_3
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DriverD3D_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DriverD3D_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DriverD3D_cpp_salem.inl"
+    #endif
+#endif
 
-#if defined(ENABLE_SIMPLE_GPU_TIMERS)
+#if defined(ENABLE_PROFILING_GPU_TIMERS)
     m_pPipelineProfiler = new CRenderPipelineProfiler();
 #endif
 
@@ -450,6 +515,16 @@ void CD3D9Renderer::InitRenderer()
     gEnv->pStatoscope->RegisterDataGroup(m_pGraphicsDG);
     gEnv->pStatoscope->RegisterDataGroup(m_pPerformanceOverviewDG);
 #endif
+
+    m_gmemDepthStencilMode = eGDSM_Invalid;
+    AZ::RenderNotificationsBus::Handler::BusConnect();
+    AZ::RenderScreenshotRequestBus::Handler::BusConnect();
+
+    // Ensure tiled shading is disabled on initialization for OpenGL as HLSLcc does not properly support our tiled lighting shaders
+    if (gRenDev->GetRenderType() == eRT_OpenGL)
+    {
+        gRenDev->CV_r_DeferredShadingTiled = 0;
+    }
 }
 
 CD3D9Renderer::~CD3D9Renderer()
@@ -466,6 +541,9 @@ void CD3D9Renderer::StaticCleanup()
 
 void CD3D9Renderer::Release()
 {
+
+    AZ::RenderNotificationsBus::Handler::BusDisconnect();
+    AZ::RenderScreenshotRequestBus::Handler::BusDisconnect();
     //FreeResources(FRR_ALL);
     ShutDown();
 
@@ -496,6 +574,8 @@ void CD3D9Renderer::Release()
     }
 #endif
 
+    m_2dImages.clear();
+
     CRenderer::Release();
 
     DestroyWindow();
@@ -522,7 +602,7 @@ void CD3D9Renderer::RT_Reset(void)
     }
 }
 
-void CD3D9Renderer::ChangeViewport(unsigned int x, unsigned int y, unsigned int width, unsigned int height, bool bMainViewport)
+void CD3D9Renderer::ChangeViewport(unsigned int x, unsigned int y, unsigned int width, unsigned int height, bool bMainViewport, float scaleWidth, float scaleHeight)
 {
     if (m_bDeviceLost)
     {
@@ -534,31 +614,43 @@ void CD3D9Renderer::ChangeViewport(unsigned int x, unsigned int y, unsigned int 
     m_CurrContext->m_nViewportHeight = height;
     m_CurrContext->m_bMainViewport = bMainViewport;
 
+    const int nMaxRes = GetMaxSquareRasterDimension();
+    const float fMaxRes = aznumeric_cast<float>(nMaxRes);
+    float fWidth = aznumeric_cast<float>(width);
+    float fHeight = aznumeric_cast<float>(height);
+
     if (bMainViewport)
     {
-        const int nMaxRes = GetMaxSquareRasterDimension();
-
         if (CV_r_CustomResWidth && CV_r_CustomResHeight)
         {
             width = clamp_tpl(CV_r_CustomResWidth, 32, nMaxRes);
             height = clamp_tpl(CV_r_CustomResHeight, 32, nMaxRes);
+            fWidth = aznumeric_cast<float>(width);
+            fHeight = aznumeric_cast<float>(height);
         }
+        m_CurrContext->m_fPixelScaleX = 1.0f;
+        m_CurrContext->m_fPixelScaleY = 1.0f;
+
         if (CV_r_Supersampling > 1)
         {
-            const int nMaxSSX = nMaxRes / width;
-            const int nMaxSSY = nMaxRes / height;
-            m_CurrContext->m_nSSSamplesX = clamp_tpl(CV_r_Supersampling, 1, nMaxSSX);
-            m_CurrContext->m_nSSSamplesY = clamp_tpl(CV_r_Supersampling, 1, nMaxSSY);
+            m_CurrContext->m_fPixelScaleX *= aznumeric_cast<float>(CV_r_Supersampling);
+            m_CurrContext->m_fPixelScaleY *= aznumeric_cast<float>(CV_r_Supersampling);
         }
-        else
+        if ( scaleWidth > 1.0f || scaleHeight > 1.0f )
         {
-            m_CurrContext->m_nSSSamplesX = 1;
-            m_CurrContext->m_nSSSamplesY = 1;
+            m_CurrContext->m_fPixelScaleX *= scaleWidth;
+            m_CurrContext->m_fPixelScaleY *= scaleHeight;
         }
+
+        const float nMaxSSX = fMaxRes / fWidth;
+        const float nMaxSSY = fMaxRes / fHeight;
+        m_CurrContext->m_fPixelScaleX = clamp_tpl(m_CurrContext->m_fPixelScaleX, 1.0f, nMaxSSX);
+        m_CurrContext->m_fPixelScaleY = clamp_tpl(m_CurrContext->m_fPixelScaleY, 1.0f, nMaxSSY);
+
     }
 
-    width  *= m_CurrContext->m_nSSSamplesX;
-    height *= m_CurrContext->m_nSSSamplesY;
+    width  = aznumeric_cast<int>(fWidth * m_CurrContext->m_fPixelScaleX);
+    height = aznumeric_cast<int>(fHeight * m_CurrContext->m_fPixelScaleY);
 
     DXGI_FORMAT fmt = DXGI_FORMAT_R8G8B8A8_UNORM;
 
@@ -578,13 +670,40 @@ void CD3D9Renderer::ChangeViewport(unsigned int x, unsigned int y, unsigned int 
 
         scDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT | DXGI_USAGE_SHADER_INPUT;
         scDesc.BufferCount = 1;
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DRIVERD3D_CPP_SECTION_4
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DriverD3D_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DriverD3D_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DriverD3D_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#else
         scDesc.OutputWindow = m_CurrContext->m_hWnd;
+#endif
         scDesc.Windowed = TRUE;
         scDesc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
         scDesc.Flags = 0;
 
 #if defined(SUPPORT_DEVICE_INFO)
         HRESULT hr = m_devInfo.Factory()->CreateSwapChain(&GetDevice(), &scDesc, &m_CurrContext->m_pSwapChain);
+#define AZ_RESTRICTED_SECTION_IMPLEMENTED
+#elif defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DRIVERD3D_CPP_SECTION_5
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DriverD3D_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DriverD3D_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DriverD3D_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
 #else
     #error UNKNOWN PLATFORM TRYING TO CREATE SWAP CHAIN
 #endif
@@ -671,7 +790,7 @@ void CD3D9Renderer::ChangeViewport(unsigned int x, unsigned int y, unsigned int 
         m_CurrContext->m_pCurrentBackBufferIndex = GetCurrentBackBufferIndex(m_CurrContext->m_pSwapChain);
         m_CurrContext->m_pBackBuffer = m_CurrContext->m_pBackBuffers[m_CurrContext->m_pCurrentBackBufferIndex];
         m_pBackBuffer = m_CurrContext->m_pBackBuffer;
-        m_pBackBuffers = m_CurrContext->m_pBackBuffers;
+        m_pBackBuffers = decltype(m_pBackBuffers)(m_CurrContext->m_pBackBuffers.data(), m_CurrContext->m_pBackBuffers.data() + m_CurrContext->m_pBackBuffers.size());
         m_pCurrentBackBufferIndex = m_CurrContext->m_pCurrentBackBufferIndex;
         FX_SetRenderTarget(0, m_CurrContext->m_pBackBuffer, &m_DepthBufferOrig);
     }
@@ -736,8 +855,8 @@ void CD3D9Renderer::ChangeLog()
             char time[128];
             char date[128];
 
-            _strtime(time);
-            _strdate(date);
+            azstrtime(time);
+            azstrdate(date);
 
             AZ::IO::Print(m_logFileHandle, "\n==========================================\n");
             AZ::IO::Print(m_logFileHandle, "Direct3D Log file opened: %s (%s)\n", date, time);
@@ -754,8 +873,8 @@ void CD3D9Renderer::ChangeLog()
     {
         char time[128];
         char date[128];
-        _strtime(time);
-        _strdate(date);
+        azstrtime(time);
+        azstrdate(date);
 
         AZ::IO::Print(m_logFileHandle, "\n==========================================\n");
         AZ::IO::Print(m_logFileHandle, "Direct3D Log file closed: %s (%s)\n", date, time);
@@ -775,8 +894,8 @@ void CD3D9Renderer::ChangeLog()
             char time[128];
             char date[128];
 
-            _strtime(time);
-            _strdate(date);
+            azstrtime(time);
+            azstrdate(date);
 
             AZ::IO::Print(m_logFileStrHandle, "\n==========================================\n");
             AZ::IO::Print(m_logFileStrHandle, "Direct3D Textures streaming Log file opened: %s (%s)\n", date, time);
@@ -788,8 +907,8 @@ void CD3D9Renderer::ChangeLog()
     {
         char time[128];
         char date[128];
-        _strtime(time);
-        _strdate(date);
+        azstrtime(time);
+        azstrdate(date);
 
         AZ::IO::Print(m_logFileStrHandle, "\n==========================================\n");
         AZ::IO::Print(m_logFileStrHandle, "Direct3D Textures streaming Log file closed: %s (%s)\n", date, time);
@@ -809,8 +928,8 @@ void CD3D9Renderer::ChangeLog()
             char time[128];
             char date[128];
 
-            _strtime(time);
-            _strdate(date);
+            azstrtime(time);
+            azstrdate(date);
 
             AZ::IO::Print(m_logFileShHandle, "\n==========================================\n");
             AZ::IO::Print(m_logFileShHandle, "Direct3D Shaders Log file opened: %s (%s)\n", date, time);
@@ -822,8 +941,8 @@ void CD3D9Renderer::ChangeLog()
     {
         char time[128];
         char date[128];
-        _strtime(time);
-        _strdate(date);
+        azstrtime(time);
+        azstrdate(date);
 
         AZ::IO::Print(m_logFileShHandle, "\n==========================================\n");
         AZ::IO::Print(m_logFileShHandle, "Direct3D Textures streaming Log file closed: %s (%s)\n", date, time);
@@ -901,20 +1020,11 @@ void CD3D9Renderer::PostMeasureOverdraw()
             {
                 STexState TexStatePoint = STexState(FILTER_POINT, true);
                 FX_Commit();
-                SDynTexture* pRT = new SDynTexture(m_width, m_height, eTF_R8G8B8A8, eTT_2D,  FT_STATE_CLAMP, "TempDebugRT");
-                if (pRT)
-                {
-                    pRT->Update(m_width, m_height);
-                    PostProcessUtils().CopyScreenToTexture(pRT->m_pTexture);
+                
+                CTexture::s_ptexSceneDiffuse->Apply(0, CTexture::GetTexState(TexStatePoint));
+                CTextureManager::Instance()->GetDefaultTexture("PaletteDebug")->Apply(1, CTexture::GetTexState(TexStateLinear));
 
-                    pRT->Apply(0, CTexture::GetTexState(TexStatePoint));
-                    CTextureManager::Instance()->GetDefaultTexture("PaletteDebug")->Apply(1, CTexture::GetTexState(TexStateLinear));
-
-                    FX_DrawPrimitive(eptTriangleStrip, 0, 4);
-
-                    delete pRT;
-                    pRT = 0;
-                }
+                FX_DrawPrimitive(eptTriangleStrip, 0, 4);
             }
 
             Unset2DMode(backupSceneMatrices);
@@ -981,7 +1091,7 @@ void CD3D9Renderer::PostMeasureOverdraw()
                 for (int i = 0; i < 8; i++)
                 {
                     char str[256];
-                    sprintf(str, "-- >%d instructions --", n);
+                    azsprintf(str, "-- >%d instructions --", n);
 
                     Draw2dLabel(nX + nW, nY + nH * (i + 1), 1.2f, color, false,  str);
                     n += FtoI(32.0f * CV_r_measureoverdrawscale);
@@ -1038,6 +1148,16 @@ void CD3D9Renderer::DrawTexelsPerMeterInfo()
 #endif
 }
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DRIVERD3D_CPP_SECTION_6
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DriverD3D_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DriverD3D_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DriverD3D_cpp_salem.inl"
+    #endif
+#endif
 
 void CD3D9Renderer::RT_ForceSwapBuffers()
 {
@@ -1045,6 +1165,16 @@ void CD3D9Renderer::RT_ForceSwapBuffers()
 
 void CD3D9Renderer::SwitchToNativeResolutionBackbuffer()
 {
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DRIVERD3D_CPP_SECTION_7
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DriverD3D_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DriverD3D_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DriverD3D_cpp_salem.inl"
+    #endif
+#endif
 
     m_pRT->RC_SwitchToNativeResolutionBackbuffer();
 }
@@ -1246,10 +1376,6 @@ void CD3D9Renderer::BeginFrame()
     g_SelectedTechs.resize(0);
     m_RP.m_SysVertexPool[m_RP.m_nFillThreadID].SetUse(0);
     m_RP.m_SysIndexPool[m_RP.m_nFillThreadID].SetUse(0);
-    if (gEnv->p3DEngine)
-    {
-        gEnv->p3DEngine->ResetCoverageBufferSignalVariables();
-    }
 
 #ifdef DO_RENDERLOG
     if (CRenderer::CV_r_log)
@@ -1356,20 +1482,13 @@ void CD3D9Renderer::RT_BeginFrame()
         }
         bool bVolumetricFog = pCVarVolumetricFog && pCVarVolumetricFog->GetIVal();
         CRenderer::CV_r_VolumetricFog = bVolumetricFog && GetVolumetricFog().IsEnableInFrame();
-        if (pCVarVolumetricFog && bVolumetricFog && (CRenderer::CV_r_DeferredShadingTiled == 0))
-        {
-#if !defined(_RELEASE)
-            gEnv->pLog->LogWarning("e_VolumetricFog is set to 0 when r_DeferredShadingTiled is 0.");
-#endif
-            pCVarVolumetricFog->Set((const int)0);
-        }
     }
 
 #if defined(SUPPORT_D3D_DEBUG_RUNTIME)
     if (m_bUpdateD3DDebug)
     {
         m_d3dDebug.Update(ESeverityCombination(CV_d3d11_debugMuteSeverity->GetIVal()), CV_d3d11_debugMuteMsgID->GetString(), CV_d3d11_debugBreakOnMsgID->GetString());
-        if (_stricmp(CV_d3d11_debugBreakOnMsgID->GetString(), "0") != 0 && CV_d3d11_debugBreakOnce)
+        if (azstricmp(CV_d3d11_debugBreakOnMsgID->GetString(), "0") != 0 && CV_d3d11_debugBreakOnce)
         {
             CV_d3d11_debugBreakOnMsgID->Set("0");
         }
@@ -1489,7 +1608,10 @@ void CD3D9Renderer::RT_BeginFrame()
     }
 
 #if !defined(_RELEASE)
+    m_RP.m_pRNDrawCallsInfoPerNode[m_RP.m_nProcessThreadID].swap(m_RP.m_pRNDrawCallsInfoPerNodePreviousFrame[m_RP.m_nProcessThreadID]);
     m_RP.m_pRNDrawCallsInfoPerNode[m_RP.m_nProcessThreadID].clear();
+
+    m_RP.m_pRNDrawCallsInfoPerMesh[m_RP.m_nProcessThreadID].swap(m_RP.m_pRNDrawCallsInfoPerMeshPreviousFrame[m_RP.m_nProcessThreadID]);
     m_RP.m_pRNDrawCallsInfoPerMesh[m_RP.m_nProcessThreadID].clear();
 #endif
 
@@ -1554,7 +1676,12 @@ void CD3D9Renderer::RT_BeginFrame()
     }
 
 #if defined(SUPPORT_DEVICE_INFO)
+
+#if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
+    if (m_bEditor && !IsRenderToTextureActive())
+#else
     if (m_bEditor)
+#endif //if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
     {
         const int width = GetWidth();
         const int height = GetHeight();
@@ -1574,8 +1701,6 @@ void CD3D9Renderer::RT_BeginFrame()
             OnD3D11PostCreateDevice(m_devInfo.Device());
 
             ChangeViewport(0, 0, width, height, true);
-
-            GetS3DRend().OnResolutionChanged();
         }
     }
 #endif
@@ -1703,8 +1828,179 @@ void CD3D9Renderer::FlushHardware(bool bIssueBeforeSync)
     }
 }
 
+bool CD3D9Renderer::PrepFrameCapture(FrameBufferDescription& frameBufDesc, CTexture* pRenderTarget)
+{
+    assert(m_pBackBuffer);
+    assert(!IsEditorMode() || (m_CurrContext && m_CurrContext->m_pBackBuffer == m_pBackBuffer));
+
+    ID3D11Resource* pBackBufferRsrc(0);
+
+    if (!pRenderTarget)
+    {
+        m_pBackBuffer->GetResource(&pBackBufferRsrc);
+    }
+    else
+    {
+        D3DSurface* pSurface = pRenderTarget->GetSurface(0, 0);
+        assert(pSurface);
+        pSurface->GetResource(&pBackBufferRsrc);
+    }
+
+    frameBufDesc.pBackBufferTex = (ID3D11Texture2D*)pBackBufferRsrc;
+
+    if (!frameBufDesc.pBackBufferTex)
+    {
+        return false;
+    }
+        
+    ////////////////////////////////////////////////////////////////////////////////////////////////////
+    //get size of image
+    frameBufDesc.pBackBufferTex->GetDesc(&frameBufDesc.backBufferDesc);
+    if (frameBufDesc.backBufferDesc.Format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB
+        || (m_CurrContext
+            && (m_CurrContext->m_fPixelScaleX > 1.0f
+                || m_CurrContext->m_fPixelScaleY > 1.0f)))
+    {
+        const int nResolvedWidth = aznumeric_cast<int>(aznumeric_cast<float>(m_width) / m_CurrContext->m_fPixelScaleX);
+        const int nResolvedHeight = aznumeric_cast<int>(aznumeric_cast<float>(m_height) / m_CurrContext->m_fPixelScaleY);
+        frameBufDesc.backBufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        frameBufDesc.backBufferDesc.Width = nResolvedWidth;
+        frameBufDesc.backBufferDesc.Height = nResolvedHeight;
+        CTexture* pTempCopyTex = CTexture::Create2DTexture("TempCopyTex", nResolvedWidth, nResolvedHeight, 1, FT_USAGE_RENDERTARGET, nullptr, eTF_Unknown, eTF_R8G8B8A8, false);
+        if (pTempCopyTex)
+        {
+            CTexture* pSrc = pRenderTarget;
+            RT_SetViewport(0, 0, nResolvedWidth, nResolvedHeight);
+            if (!pSrc)
+            {
+                PostProcessUtils().CopyScreenToTexture(CTexture::s_ptexBackBuffer);
+                pSrc = CTexture::s_ptexBackBuffer;
+            }
+            assert(pSrc);
+            PostProcessUtils().StretchRect(pSrc, pTempCopyTex, false, false, false, false, SPostEffectsUtils::eDepthDownsample_None, false, nullptr);
+
+            frameBufDesc.pBackBufferTex->Release();
+            CDeviceTexture* pTempDeviceTex = pTempCopyTex->GetDevTexture();
+            frameBufDesc.pBackBufferTex = pTempDeviceTex->Get2DTexture();
+            // we're holding on to pTempCopyTex's d3dSurface. IncRef so releasing pTempCopyTex doesn't invalidate.
+            // pBackBufferTex will release in frameBufDesc destructor.
+            frameBufDesc.pBackBufferTex->AddRef();
+            pTempCopyTex->Release();
+        }
+    }
+    
+    ////////////////////////////////////////////////////////////////////////////////////////////////////
+    // set up resources and textures for generating alpha channel from ZTarget texture, if needed
+    ID3D11RenderTargetView* rtv = CTexture::s_ptexZTarget->GetSurface(0, 0);
+    ID3D11Resource* zResource = nullptr;
+    rtv->GetResource(&zResource);
+    ID3D11Texture2D* zTargetTex = static_cast<ID3D11Texture2D*>(zResource);
+
+    D3D11_TEXTURE2D_DESC zDesc;
+    zTargetTex->GetDesc(&zDesc);
+
+    D3D11_TEXTURE2D_DESC tmpZdesc = zDesc;
+    tmpZdesc.Usage = D3D11_USAGE_STAGING;
+    tmpZdesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    tmpZdesc.BindFlags = 0;
+
+
+    HRESULT hrZ = GetDevice().CreateTexture2D(&tmpZdesc, NULL, &frameBufDesc.tempZtex);
+    D3D11_MAPPED_SUBRESOURCE zMappedResource;
+    
+    frameBufDesc.includeAlpha = ((CV_capture_buffer->GetIVal() == ICaptureKey::ColorWithAlpha) && frameBufDesc.tempZtex && (tmpZdesc.Width == frameBufDesc.backBufferDesc.Width) && (tmpZdesc.Height == frameBufDesc.backBufferDesc.Height));
+
+    if (frameBufDesc.includeAlpha)
+    {
+        gcpRendD3D->GetDeviceContext().CopyResource(frameBufDesc.tempZtex, zTargetTex);
+        hrZ = gcpRendD3D->GetDeviceContext().Map(frameBufDesc.tempZtex, 0, D3D11_MAP_READ, 0, &zMappedResource);
+
+        frameBufDesc.depthData = reinterpret_cast<float*>(zMappedResource.pData);
+        if (!frameBufDesc.depthData)
+        {
+            SAFE_RELEASE(frameBufDesc.tempZtex);
+            frameBufDesc.includeAlpha = false;
+        }
+    }
+
+    SAFE_RELEASE(zResource);
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////
+    // set up resources and textures for backbuffer - uses passed in pointer
+    D3D11_TEXTURE2D_DESC tmpDesc = frameBufDesc.backBufferDesc;
+    tmpDesc.Usage = D3D11_USAGE_STAGING;
+    tmpDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    tmpDesc.BindFlags = 0;
+
+    
+    HRESULT hr = GetDevice().CreateTexture2D(&tmpDesc, NULL, &frameBufDesc.pTmpTexture);
+    if (!frameBufDesc.pTmpTexture)
+    {
+        return false;
+    }
+
+    gcpRendD3D->GetDeviceContext().CopyResource(frameBufDesc.pTmpTexture, frameBufDesc.pBackBufferTex);
+
+    hr = gcpRendD3D->GetDeviceContext().Map(frameBufDesc.pTmpTexture, 0, D3D11_MAP_READ, 0, &frameBufDesc.resource);
+    
+    frameBufDesc.outputBytesPerPixel = frameBufDesc.includeAlpha ? 4 : 3;
+    frameBufDesc.texSize = frameBufDesc.backBufferDesc.Width * frameBufDesc.backBufferDesc.Height * frameBufDesc.outputBytesPerPixel;
+
+    
+    assert(frameBufDesc.pDest == nullptr);
+    frameBufDesc.pDest = new byte[frameBufDesc.texSize + sizeof(uint32)];  // Extra space required since we always copy 32 bits
+    assert(frameBufDesc.pDest);
+
+    return(SUCCEEDED(hr));
+}
+
+void CD3D9Renderer::FillFrameBuffer(FrameBufferDescription& frameBufDesc, bool redBlueSwap)
+{
+    // copy, flip red with blue if needed
+    byte* dst = frameBufDesc.pDest;
+    const byte* pSrc = reinterpret_cast<const byte*>(frameBufDesc.resource.pData);
+
+    for (int i = 0; i < frameBufDesc.backBufferDesc.Height; i++)
+    {
+        for (int j = 0; j < frameBufDesc.backBufferDesc.Width; j++)
+        {
+            *(uint32*)&dst[j * frameBufDesc.outputBytesPerPixel] = *(uint32*)&pSrc[j * frameBufDesc.inputBytesPerPixel];
+        }
+        if (redBlueSwap)
+        {
+            PREFAST_ASSUME(texsize == frameBufDesc.backBufferDesc.Width * 4);
+            for (int j = 0; j < frameBufDesc.backBufferDesc.Width; j++)
+            {
+                Exchange(dst[j * frameBufDesc.outputBytesPerPixel + 0], dst[j * frameBufDesc.outputBytesPerPixel + 2]);
+            }
+        }
+        pSrc += frameBufDesc.resource.RowPitch;
+        dst += frameBufDesc.backBufferDesc.Width * frameBufDesc.outputBytesPerPixel;
+    }
+
+    // re-loop over the image to process Alpha, if needed
+    if (frameBufDesc.includeAlpha)
+    {
+        dst = frameBufDesc.pDest;
+        const int numPx = frameBufDesc.backBufferDesc.Height * frameBufDesc.backBufferDesc.Width;
+
+        const int alphaIDX = 3;
+        const byte alphaOn = 255;
+        const byte alphaOff = 0;
+
+        for (int px = 0; px < numPx; px++)
+        {
+            // depthData is normalized - set alpha to 0 where depthData is 1.0f, 255 otherwise
+            dst[px *  frameBufDesc.outputBytesPerPixel + alphaIDX] = (AZ::IsClose(frameBufDesc.depthData[px], 1.0f, FLT_EPSILON) ? alphaOff : alphaOn);
+        }
+    }
+}
+
+
+
 bool CD3D9Renderer::CaptureFrameBufferToFile(const char* pFilePath, CTexture* pRenderTarget)
 {
+    //file prep
     assert(pFilePath);
     if (!pFilePath)
     {
@@ -1735,7 +2031,7 @@ bool CD3D9Renderer::CaptureFrameBufferToFile(const char* pFilePath, CTexture* pR
         for (int i(0); i < sizeof(captureFormats) / sizeof(captureFormats[0]); ++i)
         {
             PREFAST_SUPPRESS_WARNING(6387)
-            if (!_stricmp(pReqFileFormatExt, captureFormats[i].pExt))
+            if (!azstricmp(pReqFileFormatExt, captureFormats[i].pExt))
             {
                 fmtIdx = i;
                 break;
@@ -1761,194 +2057,64 @@ bool CD3D9Renderer::CaptureFrameBufferToFile(const char* pFilePath, CTexture* pR
         return false;
     }
 
-    assert(m_pBackBuffer);
-    assert(!IsEditorMode() || (m_CurrContext && m_CurrContext->m_pBackBuffer == m_pBackBuffer));
+    //prep frame Buffer
+    FrameBufferDescription frameBufDesc;
+    bool framePrepSuccessful = PrepFrameCapture(frameBufDesc, pRenderTarget);
+    bool writeToDiskSuccessful = false;
 
-    bool frameCaptureSuccessful(false);
-    ID3D11Resource* pBackBufferRsrc(0);
-    if (!pRenderTarget)
+    if (!framePrepSuccessful)
     {
-        m_pBackBuffer->GetResource(&pBackBufferRsrc);
+        return writeToDiskSuccessful;
+    }
+
+    //console code
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DRIVERD3D_CPP_SECTION_8
+#if defined(AZ_PLATFORM_XENIA)
+#include "Xenia/DriverD3D_cpp_xenia.inl"
+#elif defined(AZ_PLATFORM_PROVO)
+#include "Provo/DriverD3D_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DriverD3D_cpp_salem.inl"
+#endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#else
+    bool formatBGRA = false;
+#endif
+
+    bool needRBSwap = captureFormats[fmtIdx].fmt == EFF_FILE_TGA ? !formatBGRA : formatBGRA;
+
+    //copy the frame buffer
+    FillFrameBuffer(frameBufDesc, needRBSwap);
+
+
+    //file capture
+    if (captureFormats[fmtIdx].fmt == EFF_FILE_TGA)
+    {
+        writeToDiskSuccessful = ::WriteTGA(frameBufDesc.pDest, frameBufDesc.backBufferDesc.Width, frameBufDesc.backBufferDesc.Height, pFilePath, 8 * frameBufDesc.outputBytesPerPixel, 8 * frameBufDesc.outputBytesPerPixel);
+    }
+    else if (captureFormats[fmtIdx].fmt == EFF_FILE_JPG)
+    {
+        writeToDiskSuccessful = ::WriteJPG(frameBufDesc.pDest, frameBufDesc.backBufferDesc.Width, frameBufDesc.backBufferDesc.Height, pFilePath, 8 * frameBufDesc.outputBytesPerPixel, 90);
     }
     else
     {
-        D3DSurface* pSurface = pRenderTarget->GetSurface(0, 0);
-        assert(pSurface);
-        pSurface->GetResource(&pBackBufferRsrc);
+        //If saving as tiff use our built in tiff saver.
+        CRY_ASSERT_MESSAGE(captureFormats[fmtIdx].fmt == EFF_FILE_TIF, ("Error - unknown image extension"));
+        writeToDiskSuccessful = InternalSaveToTIFF(frameBufDesc.pBackBufferTex, pFilePath);
     }
 
-    ID3D11Texture2D* pBackBufferTex = (ID3D11Texture2D*)pBackBufferRsrc;
-    if (pBackBufferTex)
-    {
-        D3D11_TEXTURE2D_DESC bbDesc;
-        pBackBufferTex->GetDesc(&bbDesc);
-        if (bbDesc.Format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB
-            || (m_CurrContext
-                && (m_CurrContext->m_nSSSamplesX > 1
-                    || m_CurrContext->m_nSSSamplesY > 1)))
-        {
-            const int nResolvedWidth = m_width / m_CurrContext->m_nSSSamplesX;
-            const int nResolvedHeight = m_height / m_CurrContext->m_nSSSamplesY;
-            bbDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-            bbDesc.Width = nResolvedWidth;
-            bbDesc.Height = nResolvedHeight;
-            ID3D11Texture2D* pTempCopyTex = NULL;
-            if (SUCCEEDED(GetDevice().CreateTexture2D(&bbDesc, 0, &pTempCopyTex)))
-            {
-                D3D11_BOX srcRegion;
-                srcRegion.left = 0;
-                srcRegion.right = nResolvedWidth;
-                srcRegion.top = 0;
-                srcRegion.bottom = nResolvedHeight;
-                srcRegion.front = 0;
-                srcRegion.back = 1;
-                // copy resolved part of backbuffer to temporary target
-                GetDeviceContext().CopySubresourceRegion(pTempCopyTex, 0, 0, 0, 0, pBackBufferTex, 0, &srcRegion);
-                pBackBufferTex->Release();
-                pBackBufferTex = pTempCopyTex;
-            }
-        }
-
-        ////////////////////////////////////////////////////////////////////////////////////////////////////
-        // set up resources and textures for generating alpha channel from ZTarget texture, if needed
-        const int ALPHA_IDX = 3;
-        const byte ALPHA_ON = 255;
-        const byte ALPHA_OFF = 0;
-        ID3D11RenderTargetView* rtv = CTexture::s_ptexZTarget->GetSurface(0, 0);
-        ID3D11Resource* zResource = nullptr;
-        rtv->GetResource(&zResource);
-        ID3D11Texture2D* zTargetTex = static_cast<ID3D11Texture2D*>(zResource);
-
-        D3D11_TEXTURE2D_DESC zDesc;
-        zTargetTex->GetDesc(&zDesc);
-
-        D3D11_TEXTURE2D_DESC tmpZdesc = zDesc;
-        tmpZdesc.Usage = D3D11_USAGE_STAGING;
-        tmpZdesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-        tmpZdesc.BindFlags = 0;
-
-        ID3D11Texture2D* tempZtex = NULL;
-        HRESULT hrZ = GetDevice().CreateTexture2D(&tmpZdesc, NULL, &tempZtex);
-        D3D11_MAPPED_SUBRESOURCE zMappedResource;
-        float* depthData = nullptr;
-        bool includeAlpha = ((CV_capture_buffer->GetIVal() == ICaptureKey::ColorWithAlpha) && tempZtex && (tmpZdesc.Width == bbDesc.Width) && (tmpZdesc.Height == bbDesc.Height));
-
-        if (includeAlpha)
-        {
-            gcpRendD3D->GetDeviceContext().CopyResource(tempZtex, zTargetTex);
-            hrZ = gcpRendD3D->GetDeviceContext().Map(tempZtex, 0, D3D11_MAP_READ, 0, &zMappedResource);
-
-            depthData = reinterpret_cast<float*>(zMappedResource.pData);
-            if (!depthData)
-            {
-                SAFE_RELEASE(tempZtex);
-                includeAlpha = false;
-            }
-        }
-
-        SAFE_RELEASE(zResource);
-
-        ////////////////////////////////////////////////////////////////////////////////////////////////////
-        // set up resources and textures for backbuffer
-        D3D11_TEXTURE2D_DESC tmpDesc = bbDesc;
-        tmpDesc.Usage = D3D11_USAGE_STAGING;
-        tmpDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-        tmpDesc.BindFlags = 0;
-
-        ID3D11Texture2D* pTmpTexture = NULL;
-        HRESULT hr = GetDevice().CreateTexture2D(&tmpDesc, NULL, &pTmpTexture);
-        if (!pTmpTexture)
-        {
-            return false;
-        }
-
-        D3D11_MAPPED_SUBRESOURCE resource;
-        gcpRendD3D->GetDeviceContext().CopyResource(pTmpTexture, pBackBufferTex);
-        hr = gcpRendD3D->GetDeviceContext().Map(pTmpTexture, 0, D3D11_MAP_READ, 0, &resource);
-        const byte* pSrc = reinterpret_cast<const byte*>(resource.pData);
-
-        const int INPUT_BYTES_PER_PIXEL = 4;
-        const int OUTPUT_BYTES_PER_PIXEL = includeAlpha ? 4 : 3;
-        const int texsize =  bbDesc.Width * bbDesc.Height * OUTPUT_BYTES_PER_PIXEL;
-        byte* pDest = new byte[texsize + sizeof(uint32)];  // Extra space required since we always copy 32 bits
-        assert(pDest);
-
-        bool formatBGRA = false;
-        bool needRBSwap = captureFormats[fmtIdx].fmt == EFF_FILE_TGA ? !formatBGRA : formatBGRA;
-
-        // copy, flip red with blue if needed
-        byte* dst = pDest;
-        const byte* src = pSrc;
-        for (int i = 0; i < bbDesc.Height; i++)
-        {
-            for (int j = 0; j < bbDesc.Width; j++)
-            {
-                *(uint32*)&dst[j * OUTPUT_BYTES_PER_PIXEL] = *(uint32*)&src[j * INPUT_BYTES_PER_PIXEL];
-            }
-            if (needRBSwap)
-            {
-                PREFAST_ASSUME(texsize == bbDesc.Width * 4);
-                for (int j = 0; j < bbDesc.Width; j++)
-                {
-                    Exchange(dst[j * OUTPUT_BYTES_PER_PIXEL + 0], dst[j * OUTPUT_BYTES_PER_PIXEL + 2]);
-                }
-            }
-            src += resource.RowPitch;
-            dst += bbDesc.Width * OUTPUT_BYTES_PER_PIXEL;
-        }
-
-        // re-loop over the image to process Alpha, if needed
-        if (includeAlpha)
-        {
-            dst = pDest;
-            const int numPx = bbDesc.Height * bbDesc.Width;
-            for (int px = 0; px < numPx; px++)
-            {
-                // depthData is normalized - set alpha to 0 where depthData is 1.0f, 255 otherwise
-                dst[px * OUTPUT_BYTES_PER_PIXEL + ALPHA_IDX] = (AZ::IsClose(depthData[px], 1.0f, FLT_EPSILON) ? ALPHA_OFF : ALPHA_ON);
-            }
-        }
-
-        if (captureFormats[fmtIdx].fmt == EFF_FILE_TGA)
-        {
-            frameCaptureSuccessful = ::WriteTGA(pDest, bbDesc.Width, bbDesc.Height, pFilePath, 8 * OUTPUT_BYTES_PER_PIXEL, 8 * OUTPUT_BYTES_PER_PIXEL);
-        }
-        else if (captureFormats[fmtIdx].fmt == EFF_FILE_JPG)
-        {
-            frameCaptureSuccessful = ::WriteJPG(pDest, bbDesc.Width, bbDesc.Height, pFilePath, 8 * OUTPUT_BYTES_PER_PIXEL, 90);
-        }
-        else
-        {
-            //If saving as tiff use our built in tiff saver.
-            CRY_ASSERT_MESSAGE(captureFormats[fmtIdx].fmt == EFF_FILE_TIF, ("Error - unknown image extension"));
-            frameCaptureSuccessful = InternalSaveToTIFF(pBackBufferTex, pFilePath);
-        }
-
-        delete[] pDest;
-
-        if (includeAlpha)
-        {
-            gcpRendD3D->GetDeviceContext().Unmap(tempZtex, 0);
-        }
-        SAFE_RELEASE(tempZtex);
-
-        gcpRendD3D->GetDeviceContext().Unmap(pTmpTexture, 0);
-        SAFE_RELEASE(pTmpTexture);
-
-        frameCaptureSuccessful = SUCCEEDED(hr);
-    }
-
-    SAFE_RELEASE(pBackBufferTex);
-
-    return frameCaptureSuccessful;
+    return writeToDiskSuccessful;
 }
 
 bool CD3D9Renderer::InternalSaveToTIFF(ID3D11Texture2D* backBuffer, const char* filePath)
 {
     bool result = false;
     //Have to copy from GPU to staging texture first.
-    const int nResolvedWidth = m_width / m_CurrContext->m_nSSSamplesX;
-    const int nResolvedHeight = m_height / m_CurrContext->m_nSSSamplesY;
+    const int nResolvedWidth = aznumeric_cast<int>(aznumeric_cast<float>(m_width) / m_CurrContext->m_fPixelScaleX);
+    const int nResolvedHeight = aznumeric_cast<int>(aznumeric_cast<float>(m_height) / m_CurrContext->m_fPixelScaleY);
     D3D11_TEXTURE2D_DESC bbDesc;
     backBuffer->GetDesc(&bbDesc);
     bbDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -2057,12 +2223,12 @@ void CD3D9Renderer::CaptureFrameBuffer()
         const char* capture_file_name = CV_capture_file_name->GetString();
         if (capture_file_name && capture_file_name[0])
         {
-            gEnv->pCryPak->AdjustFileName(capture_file_name, path, ICryPak::FLAGS_PATH_REAL | ICryPak::FLAGS_FOR_WRITING);
+            gEnv->pCryPak->AdjustFileName(capture_file_name, path, AZ_ARRAY_SIZE(path), ICryPak::FLAGS_PATH_REAL | ICryPak::FLAGS_FOR_WRITING);
         }
 
         if (path[0] == '\0')
         {
-            gEnv->pCryPak->AdjustFileName(CV_capture_folder->GetString(), path, ICryPak::FLAGS_PATH_REAL | ICryPak::FLAGS_FOR_WRITING);
+            gEnv->pCryPak->AdjustFileName(CV_capture_folder->GetString(), path, AZ_ARRAY_SIZE(path), ICryPak::FLAGS_PATH_REAL | ICryPak::FLAGS_FOR_WRITING);
             gEnv->pCryPak->MakeDir(path);
 
             char prefix[64] = "Frame";
@@ -2099,7 +2265,7 @@ void CD3D9Renderer::CaptureFrameBuffer()
 
 void CD3D9Renderer::ResolveSupersampledBackbuffer()
 {
-    if (IsEditorMode() && (m_CurrContext->m_nSSSamplesX <= 1 || m_CurrContext->m_nSSSamplesY <= 1))
+    if (IsEditorMode() && CV_r_Supersampling <= 1 )
     {
         return;
     }
@@ -2122,11 +2288,13 @@ void CD3D9Renderer::ResolveSupersampledBackbuffer()
 
     if (IsEditorMode())
     {
+        const int nResolvedWidth = aznumeric_cast<int>(aznumeric_cast<float>(m_width) / m_CurrContext->m_fPixelScaleX);
+        const int nResolvedHeight = aznumeric_cast<int>(aznumeric_cast<float>(m_height) / m_CurrContext->m_fPixelScaleY);
         RT_SetViewport(0, 0, m_width, m_height);
         PostProcessUtils().CopyScreenToTexture(CTexture::s_ptexBackBuffer);
         PostProcessUtils().Downsample(CTexture::s_ptexBackBuffer, NULL,
             m_width, m_height,
-            m_width / m_CurrContext->m_nSSSamplesX, m_height / m_CurrContext->m_nSSSamplesY,
+            nResolvedWidth, nResolvedHeight,
             eFilter, false);
     }
     else
@@ -2140,12 +2308,13 @@ void CD3D9Renderer::ResolveSupersampledBackbuffer()
 
 void CD3D9Renderer::ScaleBackbufferToViewport()
 {
-    if (m_CurrContext->m_nSSSamplesX > 1 || m_CurrContext->m_nSSSamplesY > 1)
+    // fPixelScale comes from OS screen scale as well as super sampling, so check both are active before scaling backbuffer
+    if ( CV_r_Supersampling > 1 && (m_CurrContext->m_fPixelScaleX > 1.0f || m_CurrContext->m_fPixelScaleY > 1.0f))
     {
         PROFILE_LABEL_SCOPE("STRETCH_TO_VIEWPORT");
 
-        const int nResolvedWidth = m_width / m_CurrContext->m_nSSSamplesX;
-        const int nResolvedHeight = m_height / m_CurrContext->m_nSSSamplesY;
+        const int nResolvedWidth = aznumeric_cast<int>(aznumeric_cast<float>(m_width) / m_CurrContext->m_fPixelScaleX);
+        const int nResolvedHeight = aznumeric_cast<int>(aznumeric_cast<float>(m_height) / m_CurrContext->m_fPixelScaleY);
 
         RECT srcRegion;
         srcRegion.left = 0;
@@ -2344,10 +2513,11 @@ void CD3D9Renderer::DebugDrawStats1()
     Draw2dLabel(nX, nY += nYstep, fFSize, &col.r, false, "Shadow-gen: %d (%d polys, %.3fms)", m_RP.m_PS[m_RP.m_nProcessThreadID].m_nDIPs[EFSLIST_SHADOW_GEN], m_RP.m_PS[m_RP.m_nProcessThreadID].m_nPolygons[EFSLIST_SHADOW_GEN], m_RP.m_PS[m_RP.m_nProcessThreadID].m_fTimeDIPs[EFSLIST_SHADOW_GEN] * 1000.0f);
     Draw2dLabel(nX, nY += nYstep, fFSize, &col.r, false, "Shadow-pass: %d (%d polys)", m_RP.m_PS[m_RP.m_nProcessThreadID].m_nDIPs[EFSLIST_SHADOW_PASS], m_RP.m_PS[m_RP.m_nProcessThreadID].m_nPolygons[EFSLIST_SHADOW_PASS]);
     Draw2dLabel(nX, nY += nYstep, fFSize, &col.r, false, "Water: %d (%d polys, %.3fms)", m_RP.m_PS[m_RP.m_nProcessThreadID].m_nDIPs[EFSLIST_WATER], m_RP.m_PS[m_RP.m_nProcessThreadID].m_nPolygons[EFSLIST_WATER], m_RP.m_PS[m_RP.m_nProcessThreadID].m_fTimeDIPs[EFSLIST_WATER_VOLUMES] * 1000.0f);
+    Draw2dLabel(nX, nY += nYstep, fFSize, &col.r, false, "Refractive Surface: %d (%d polys, %.3fms)", m_RP.m_PS[m_RP.m_nProcessThreadID].m_nDIPs[EFSLIST_REFRACTIVE_SURFACE], m_RP.m_PS[m_RP.m_nProcessThreadID].m_nPolygons[EFSLIST_REFRACTIVE_SURFACE], m_RP.m_PS[m_RP.m_nProcessThreadID].m_fTimeDIPs[EFSLIST_REFRACTIVE_SURFACE] * 1000.0f);
     Draw2dLabel(nX, nY += nYstep, fFSize, &col.r, false, "Imposters: %d (Updates: %d)", m_RP.m_PS[m_RP.m_nProcessThreadID].m_NumCloudImpostersDraw, m_RP.m_PS[m_RP.m_nProcessThreadID].m_NumCloudImpostersUpdates);
     Draw2dLabel(nX, nY += nYstep, fFSize, &col.r, false, "Sprites: %d (%d dips, %d updates, %d altases, %d cells, %d polys)", m_RP.m_PS[m_RP.m_nProcessThreadID].m_NumSprites, m_RP.m_PS[m_RP.m_nProcessThreadID].m_NumSpriteDIPS, m_RP.m_PS[m_RP.m_nProcessThreadID].m_NumSpriteUpdates, m_RP.m_PS[m_RP.m_nProcessThreadID].m_NumSpriteAltasesUsed, m_RP.m_PS[m_RP.m_nProcessThreadID].m_NumSpriteCellsUsed, m_RP.m_PS[m_RP.m_nProcessThreadID].m_NumSpritePolys /*, m_RP.m_PS[m_RP.m_nProcessThreadID].m_fTimeDIPsSprites*1000.0f*/);
 
-    Draw2dLabel(nX - 5, nY + 20, 1.4f, &col.r, false, "Total: %d (%d polys)", GetCurrentNumberOfDrawCalls(), RT_GetPolyCount());
+    Draw2dLabel(nX - 5, nY + 20, 1.4f, &col.r, false, "Total: %d (%d polys)", GetCurrentNumberOfDrawCalls(), GetPolyCount());
 
     col = Col_Yellow;
     nX -= 5;
@@ -3117,6 +3287,12 @@ void CD3D9Renderer::DebugPerfBars(int nX, int nY)
     DrawQuad(nX + fOffs, nY + 4, nX + fOffs + fTimeDIP[EFSLIST_WATER_VOLUMES] / fFrameTime * fMaxBar, nY + 12, Col_Green, 1.0f);
     nY += nYst;
 
+    fTimeDIP[EFSLIST_REFRACTIVE_SURFACE] = (m_RP.m_PS[m_RP.m_nProcessThreadID].m_fTimeDIPs[EFSLIST_REFRACTIVE_SURFACE] + fTimeDIP[EFSLIST_REFRACTIVE_SURFACE] * fSmooth) / (fSmooth + 1.0f);
+    Draw2dLabel(nX, nY, fFSize, &col.r, false, "Refractive Surfaces: %.3fms", fTimeDIP[EFSLIST_REFRACTIVE_SURFACE] * 1000.0f);
+    CTextureManager::Instance()->GetWhiteTexture()->Apply(0);
+    DrawQuad(nX + fOffs, nY + 4, nX + fOffs + fTimeDIP[EFSLIST_REFRACTIVE_SURFACE] / fFrameTime * fMaxBar, nY + 12, Col_Green, 1.0f);
+    nY += nYst;
+
     fTimeDIP[EFSLIST_TRANSP] = (m_RP.m_PS[m_RP.m_nProcessThreadID].m_fTimeDIPs[EFSLIST_TRANSP] + fTimeDIP[EFSLIST_TRANSP] * fSmooth) / (fSmooth + 1.0f);
     Draw2dLabel(nX, nY, fFSize, &col.r, false, "Transparent: %.3fms", fTimeDIP[EFSLIST_TRANSP] * 1000.0f);
     CTextureManager::Instance()->GetWhiteTexture()->Apply(0);
@@ -3257,8 +3433,8 @@ void CD3D9Renderer::VidMemLog()
         char time[128];
         char date[128];
 
-        _strtime(time);
-        _strdate(date);
+        azstrtime(time);
+        azstrdate(date);
 
         AZ::IO::Print(fileHandle, "\n==========================================\n");
         AZ::IO::Print(fileHandle, "VidMem Log file opened: %s (%s)\n", date, time);
@@ -3304,6 +3480,19 @@ void CD3D9Renderer::VidMemLog()
 
 void CD3D9Renderer::DebugPrintShader(CHWShader_D3D* pSH, void* pI, int nX, int nY, ColorF colSH)
 {
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DRIVERD3D_CPP_SECTION_9
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DriverD3D_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DriverD3D_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DriverD3D_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#else
     if (!pSH)
     {
         return;
@@ -3316,7 +3505,7 @@ void CD3D9Renderer::DebugPrintShader(CHWShader_D3D* pSH, void* pI, int nX, int n
 
     char str[512];
     pSH->m_pCurInst = pInst;
-    strcpy(str, pSH->m_EntryFunc.c_str());
+    azstrcpy(str, AZ_ARRAY_SIZE(str), pSH->m_EntryFunc.c_str());
     uint32 nSize = strlen(str);
     pSH->mfGenName(pInst, &str[nSize], 512 - nSize, 1);
 
@@ -3363,6 +3552,7 @@ void CD3D9Renderer::DebugPrintShader(CHWShader_D3D* pSH, void* pI, int nX, int n
 
     SAFE_RELEASE(pAsm);
     SAFE_DELETE_ARRAY(pData);
+#endif
 }
 
 void CD3D9Renderer::DebugDrawStats8()
@@ -4064,14 +4254,16 @@ void CD3D9Renderer::RT_RenderDebug(bool bRenderStats)
 
         if (CV_r_DeferredShadingDebug == 1 || CV_r_DeferredShadingDebug == 3)
         {
-            rt.pTexture = CTexture::s_ptexZTarget;
+            AZ_Assert(CTexture::s_ptexZTarget, "Z (depth) render target is NULL");
+            rt.textureID = CTexture::s_ptexZTarget->GetID();
             rt.channelWeight = Vec4(10.0f, 10.0f, 10.0f, 1.0f);
             m_showRenderTargetInfo.rtList.push_back(rt);
         }
         if (CV_r_DeferredShadingDebug == 1 || CV_r_DeferredShadingDebug == 4)
         {
             rt.channelWeight = Vec4(1.0f, 1.0f, 1.0f, 1.0f);
-            rt.pTexture = CTexture::s_ptexSceneNormalsMap;
+            AZ_Assert(CTexture::s_ptexSceneNormalsMap, "Scene normals render target is NULL");
+            rt.textureID = CTexture::s_ptexSceneNormalsMap->GetID();
             m_showRenderTargetInfo.rtList.push_back(rt);
         }
         // DiffuseAccuMap and SpecularAccMap are only calculated when CV_r_DeferredShadingTiled == 0 or 1.
@@ -4079,12 +4271,14 @@ void CD3D9Renderer::RT_RenderDebug(bool bRenderStats)
         {
             if (CV_r_DeferredShadingDebug == 1 || CV_r_DeferredShadingDebug == 5)
             {
-                rt.pTexture = CTexture::s_ptexCurrentSceneDiffuseAccMap;
+                AZ_Assert(CTexture::s_ptexCurrentSceneDiffuseAccMap, "Current scene diffuse accumulator render target is NULL");
+                rt.textureID = CTexture::s_ptexCurrentSceneDiffuseAccMap->GetID();
                 m_showRenderTargetInfo.rtList.push_back(rt);
             }
             if (CV_r_DeferredShadingDebug == 1 || CV_r_DeferredShadingDebug == 6)
             {
-                rt.pTexture = CTexture::s_ptexSceneSpecularAccMap;
+                AZ_Assert(CTexture::s_ptexSceneSpecularAccMap, "Current scene specular accumulator render target is NULL");
+                rt.textureID = CTexture::s_ptexSceneSpecularAccMap->GetID();
                 m_showRenderTargetInfo.rtList.push_back(rt);
             }
         }
@@ -4105,7 +4299,8 @@ void CD3D9Renderer::RT_RenderDebug(bool bRenderStats)
         rt.bAliased = false;
         rt.channelWeight = Vec4(1.0f, 1.0f, 1.0f, 1.0f);
 
-        rt.pTexture = CTexture::s_ptexStereoR;
+        AZ_Assert(CTexture::s_ptexStereoR, "Right stereo render target is NULL");
+        rt.textureID = CTexture::s_ptexStereoR->GetID();
         m_showRenderTargetInfo.rtList.push_back(rt);
 
         DebugShowRenderTarget();
@@ -4125,14 +4320,14 @@ void CD3D9Renderer::RT_RenderDebug(bool bRenderStats)
         iLog->Log("RenderTargets:\n");
         for (size_t i = 0; i < m_showRenderTargetInfo.rtList.size(); ++i)
         {
-            CTexture* pTex = m_showRenderTargetInfo.rtList[i].pTexture;
-            if (pTex)
+            CTexture* pTex = CTexture::GetByID(m_showRenderTargetInfo.rtList[i].textureID);
+            if (pTex && pTex != CTextureManager::Instance()->GetNoTexture())
             {
                 iLog->Log("\t%" PRISIZE_T "  %s\t--------------%s  %d x %d\n",  i, pTex->GetName(), pTex->GetFormatName(), pTex->GetWidth(), pTex->GetHeight());
             }
             else
             {
-                iLog->Log("\t%" PRISIZE_T "  %s\t--------------(NOT INITIALIZED)\n", i, pTex->GetName());
+                iLog->Log("\t%" PRISIZE_T "  %d\t--------------(NOT AVAILABLE)\n", i, m_showRenderTargetInfo.rtList[i].textureID);
             }
         }
 
@@ -4230,7 +4425,8 @@ void CD3D9Renderer::RT_RenderDebug(bool bRenderStats)
                 char* nameListCh = (char*)nameListStr.c_str();
 
                 std::vector<string> nameList;
-                char* p = strtok(nameListCh, " ");
+                char* nextToken = nullptr;
+                char* p = azstrtok(nameListCh, 0, " ", &nextToken);
                 while (p)
                 {
                     string s(p);
@@ -4240,7 +4436,7 @@ void CD3D9Renderer::RT_RenderDebug(bool bRenderStats)
                         const char* curName = s.c_str();
                         nameList.push_back(s);
                     }
-                    p = strtok(NULL, " ");
+                    p = azstrtok(NULL, 0, " ", &nextToken);
                 }
 
                 // render them in a tiled fashion
@@ -4355,6 +4551,11 @@ static uint32 ComputePresentInterval(bool vsync, uint32 refreshNumerator, uint32
 
 void CD3D9Renderer::RT_EndFrame()
 {
+    RT_EndFrame(false);
+}
+
+void CD3D9Renderer::RT_EndFrame(bool isLoading)
+{
     FUNCTION_PROFILER_FAST(GetISystem(), PROFILE_RENDERER, g_bProfilerEnabled);
 
     if (!m_SceneRecurseCount)
@@ -4373,7 +4574,20 @@ void CD3D9Renderer::RT_EndFrame()
 
     CTimeValue TimeEndF = iTimer->GetAsyncTime();
 
-    CTexture::Update();
+    if (isLoading)
+    {
+        // Call loading-safe texture update which only applies the schedule. The render loading thread will handle the update.
+        CTexture::RT_LoadingUpdate();
+    }
+    else
+    {
+        CTexture::Update();
+    }
+
+    if (CV_r_VRAMDebug == 1)
+    {
+        m_DevMan.DisplayMemoryUsage();
+    }
 
     if (m_CVDisplayInfo && m_CVDisplayInfo->GetIVal() && iSystem && iSystem->IsDevMode())
     {
@@ -4402,9 +4616,15 @@ void CD3D9Renderer::RT_EndFrame()
 
         // indicate terrain texture streaming activity
         pDefTexture = CTextureManager::Instance()->GetDefaultTexture("IconStreamingTerrainTexture");
-        if (gEnv->p3DEngine && pDefTexture && gEnv->p3DEngine->IsTerrainTextureStreamingInProgress())
+        if (pDefTexture)
         {
-            Push2dImage(nIconSize * nIconIndex + overscanOffset.x, overscanOffset.y, nIconSize, nIconSize, pDefTexture->GetID(), 0, 1, 1, 0);
+            bool isTerrainTextureStreamingInProgress = false;
+            LegacyTerrain::LegacyTerrainDataRequestBus::BroadcastResult(isTerrainTextureStreamingInProgress
+                , &LegacyTerrain::LegacyTerrainDataRequests::IsTextureStreamingInProgress);
+            if (isTerrainTextureStreamingInProgress)
+            {
+                Push2dImage(nIconSize * nIconIndex + overscanOffset.x, overscanOffset.y, nIconSize, nIconSize, pDefTexture->GetID(), 0, 1, 1, 0);
+            }
         }
 
         ++nIconIndex;
@@ -4468,7 +4688,7 @@ void CD3D9Renderer::RT_EndFrame()
     m_SceneRecurseCount--;
 
 #if !defined(RELEASE)
-    if (m_DevMan.GetNumInvalidDrawcalls() > 0 && m_cEF.m_ShaderCacheStats.m_nNumShaderAsyncCompiles == 0)
+    if (m_DevMan.GetNumInvalidDrawcalls() > 0)
     {
         // If drawcalls are skipped although there are no pending shaders, something is going wrong
         iLog->LogError("Renderer: Skipped %i drawcalls", m_DevMan.GetNumInvalidDrawcalls());
@@ -4530,7 +4750,19 @@ void CD3D9Renderer::RT_EndFrame()
                 }
             }
 #endif
-#if   defined(SUPPORT_DEVICE_INFO)
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DRIVERD3D_CPP_SECTION_10
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DriverD3D_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DriverD3D_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DriverD3D_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#elif defined(SUPPORT_DEVICE_INFO)
 #if defined(WIN32) || defined(WIN64)
             m_devInfo.EnforceFullscreenPreemption();
     #ifdef CRY_INTEGRATE_DX12
@@ -4662,8 +4894,19 @@ void CD3D9Renderer::RT_EndFrame()
 #if !defined(_RELEASE) || defined(WIN32) || defined(WIN64) || defined(ENABLE_LW_PROFILERS)
     if (CV_r_GetScreenShot)
     {
-        ScreenShot();
-        CV_r_GetScreenShot = 0;
+        if (CV_r_GetScreenShot == static_cast<int>(ScreenshotType::NormalToBuffer))
+        {
+            ScreenShot();
+        }
+        else if (CV_r_GetScreenShot == static_cast<int>(ScreenshotType::NormalWithFilepath))
+        {
+            ScreenShot(m_screenshotFilepathCache);
+        }
+        else
+        {
+            ScreenShot(nullptr);
+        }
+        CV_r_GetScreenShot = static_cast<int>(ScreenshotType::None);
     }
 #endif
 #ifndef CONSOLE_CONST_CVAR_MODE
@@ -4714,9 +4957,22 @@ void CD3D9Renderer::RT_EndFrame()
 
     m_fTimeWaitForGPU[m_RP.m_nProcessThreadID] += iTimer->GetAsyncTime().GetDifferenceInSeconds(Time);
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DRIVERD3D_CPP_SECTION_11
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DriverD3D_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DriverD3D_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DriverD3D_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#else
     m_fTimeGPUIdlePercent[m_RP.m_nProcessThreadID] = 0;
 
-  #if !defined(ENABLE_SIMPLE_GPU_TIMERS)
+  #if !defined(ENABLE_PROFILING_GPU_TIMERS)
     // BK: We need a way of getting gpu frame time in release, without gpu timers
     // for now we just use overall frame time
     m_fTimeProcessedGPU[m_RP.m_nProcessThreadID] = m_fTimeProcessedRT[m_RP.m_nProcessThreadID];
@@ -4724,6 +4980,7 @@ void CD3D9Renderer::RT_EndFrame()
     RPProfilerStats profileStats = m_pPipelineProfiler->GetBasicStats(eRPPSTATS_OverallFrame, m_RP.m_nProcessThreadID);
     m_fTimeProcessedGPU[m_RP.m_nProcessThreadID] = profileStats.gpuTime / 1000.0f;
   #endif
+#endif
 
 #if defined(USE_GEOM_CACHES)
     if (m_SceneRecurseCount == 1)
@@ -4746,7 +5003,19 @@ void CD3D9Renderer::RT_EndFrame()
 void CD3D9Renderer::RT_PresentFast()
 {
     HRESULT hReturn = S_OK;
-#if   defined(SUPPORT_DEVICE_INFO)
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DRIVERD3D_CPP_SECTION_12
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DriverD3D_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DriverD3D_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DriverD3D_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#elif defined(SUPPORT_DEVICE_INFO)
 
     GetS3DRend().DisplayStereo();
 #if defined(WIN32) || defined(WIN64)
@@ -4764,10 +5033,42 @@ void CD3D9Renderer::RT_PresentFast()
     assert(m_nRTStackLevel[0] == 0);
 
     FX_ClearTarget(m_pBackBuffer, Clr_Transparent, 0, nullptr);
-    FX_SetRenderTarget(0, m_pBackBuffer, &m_DepthBufferOrig);
+    FX_SetRenderTarget(0, m_pBackBuffer, nullptr, 0);
     FX_SetActiveRenderTargets(true);
 
     m_RP.m_TI[m_RP.m_nProcessThreadID].m_nFrameUpdateID++;
+}
+
+void CD3D9Renderer::WriteScreenshotToFile(const char* filepath)
+{
+    CV_r_GetScreenShot = static_cast<int>(ScreenshotType::NormalWithFilepath);
+    // If filepath is a nullptr, m_screenshotFilepathCache will be empty string.
+    cry_strcpy(m_screenshotFilepathCache, filepath);
+}
+
+void CD3D9Renderer::WriteScreenshotToBuffer()
+{
+    CV_r_GetScreenShot = static_cast<int>(ScreenshotType::NormalToBuffer);
+}
+
+bool CD3D9Renderer::CopyScreenshotToBuffer(unsigned char* imageBuffer, unsigned int width, unsigned int height)
+{
+    AZ_Assert(m_frameBufDesc, "Frame Buffer Description is nullptr");
+    AZ_Assert(imageBuffer, "Image Buffer is nullptr");
+
+    if (!(m_frameBufDesc->pDest))
+    {
+        return false;
+    }
+
+    if ((width != m_frameBufDesc->backBufferDesc.Width) || (height != m_frameBufDesc->backBufferDesc.Height))
+    {
+        return false;
+    }
+
+    memcpy(imageBuffer, m_frameBufDesc->pDest, m_frameBufDesc->texSize);
+
+    return true;
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -4791,7 +5092,7 @@ bool CD3D9Renderer::ScreenShotInternal(const char* filename, int iPreWidth)
     char path[ICryPak::g_nMaxPath];
 
     path[sizeof(path) - 1] = 0;
-    gEnv->pCryPak->AdjustFileName(filename != 0 ? filename : "@user@/ScreenShots", path, ICryPak::FLAGS_PATH_REAL | ICryPak::FLAGS_FOR_WRITING);
+    gEnv->pCryPak->AdjustFileName(filename != 0 ? filename : "@user@/ScreenShots", path, AZ_ARRAY_SIZE(path), ICryPak::FLAGS_PATH_REAL | ICryPak::FLAGS_FOR_WRITING);
 
     if (!filename)
     {
@@ -4801,12 +5102,40 @@ bool CD3D9Renderer::ScreenShotInternal(const char* filename, int iPreWidth)
         int i = 0;
         for (; i < 10000; i++)
         {
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DRIVERD3D_CPP_SECTION_13
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DriverD3D_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DriverD3D_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DriverD3D_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#else
             snprintf(&path[pathLen], sizeof(path) - 1 - pathLen, "%sScreenShot%04d.jpg", pSlash, i);
+#endif
             // HACK
             // CaptureFrameBufferToFile must be fixed for 64-bit stereo screenshots
             if (GetS3DRend().IsStereoEnabled())
             {
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DRIVERD3D_CPP_SECTION_14
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DriverD3D_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DriverD3D_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DriverD3D_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#else
                 snprintf(&path[pathLen], sizeof(path) - 1 - pathLen, "%sScreenShot%04d_L.jpg", pSlash, i);
+#endif
             }
 
             AZ::IO::HandleType fileHandle = fxopen(path, "rb");
@@ -4819,7 +5148,21 @@ bool CD3D9Renderer::ScreenShotInternal(const char* filename, int iPreWidth)
         }
 
         // HACK: DONT REMOVE Stereo3D will add _L and _R suffix later
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DRIVERD3D_CPP_SECTION_15
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DriverD3D_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DriverD3D_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DriverD3D_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#else
         snprintf(&path[pathLen], sizeof(path) - 1 - pathLen, "%sScreenShot%04d.jpg", pSlash, i);
+#endif
 
         if (i == 10000)
         {
@@ -4885,13 +5228,62 @@ bool CD3D9Renderer::ScreenShotInternal(const char* filename, int iPreWidth)
 
 bool CD3D9Renderer::ScreenShot(const char* filename, int iPreWidth)
 {
+#if defined(AZ_PLATFORM_LINUX)
+    // TODO Linux: Development hack for the time being.
+    // The screenshot system works with absolute paths, which crypak tries to lower case by default.
+    // This breaks any root paths that have upper case letters.
+    // There are many path casing issues though, so somewhere we are probably missing some code to handle this properly on linux.
+    // Ensure we preserve all file casing for the screenshot system to work properly.
+    ICVar* pCaseSensitivityCVar = gEnv->pConsole->GetCVar("sys_FilesystemCaseSensitivity");
+    int previousCasingValue = 0;
+    if (pCaseSensitivityCVar)
+    {
+        previousCasingValue = pCaseSensitivityCVar->GetIVal();
+        pCaseSensitivityCVar->Set(1);
+    }
+    bool res = ScreenShotInternal(filename, iPreWidth);
+
+    if (pCaseSensitivityCVar)
+    {
+        pCaseSensitivityCVar->Set(previousCasingValue);
+    }
+    return res;
+#else
     return ScreenShotInternal(filename, iPreWidth);
+#endif
+}
+
+bool CD3D9Renderer::ScreenShot()
+{
+    FrameBufferDescription frameBufDesc;
+    m_frameBufDesc = &frameBufDesc;  //set the pointer so GetScreenshot has access later
+
+    bool framePrepSuccessful = PrepFrameCapture(frameBufDesc);
+
+    if (!framePrepSuccessful)
+    {
+        return false;
+    }
+
+    FillFrameBuffer(frameBufDesc, false);
+
+    AZ::RenderScreenshotNotificationBus::Broadcast(&AZ::RenderScreenshotNotifications::OnScreenshotReady);
+
+    m_frameBufDesc = nullptr;
+
+    return true;
 }
 
 int CD3D9Renderer::CreateRenderTarget(const char* name, int nWidth, int nHeight, const ColorF& clearColor, ETEX_Format eTF)
 {
     // check if parameters are valid
     if (!nWidth || !nHeight)
+    {
+        return -1;
+    }
+
+    const int maxTextureSize = GetMaxTextureSize();
+    if (maxTextureSize > 0 && (nWidth > maxTextureSize || nHeight > maxTextureSize))
     {
         return -1;
     }
@@ -4905,6 +5297,40 @@ bool CD3D9Renderer::DestroyRenderTarget(int nHandle)
 {
     CTexture* pTex = CTexture::GetByID(nHandle);
     SAFE_RELEASE(pTex);
+    return true;
+}
+
+bool CD3D9Renderer::ResizeRenderTarget(int nHandle, int nWidth, int nHeight)
+{
+    // check if parameters are valid
+    if (!nWidth || !nHeight)
+    {
+        return false;
+    }
+
+    const int maxTextureSize = GetMaxTextureSize();
+    if (maxTextureSize > 0 && (nWidth > maxTextureSize || nHeight > maxTextureSize))
+    {
+        return false;
+    }
+    
+    CTexture* pTex = CTexture::GetByID(nHandle);
+    if (!pTex || !(pTex->GetFlags() & FT_USAGE_RENDERTARGET))
+    {
+        return false;
+    }    
+    m_pRT->EnqueueRenderCommand(
+        [nHandle, nWidth, nHeight]() mutable 
+        {
+            CTexture* pTex = CTexture::GetByID(nHandle);
+            if (pTex && pTex->GetFlags() & FT_USAGE_RENDERTARGET)
+            {
+                pTex->SetWidth(nWidth);
+                pTex->SetHeight(nHeight);
+                pTex->CreateRenderTarget(pTex->GetDstFormat(), pTex->GetClearColor());
+            }
+        });
+
     return true;
 }
 
@@ -4928,14 +5354,74 @@ bool CD3D9Renderer::SetRenderTarget(int nHandle, SDepthTexture* pDepthSurf)
     return true;
 }
 
-SDepthTexture* CD3D9Renderer::CreateDepthSurface(int nWidth, int nHeight, bool bAA)
+SDepthTexture* CD3D9Renderer::CreateDepthSurface(int nWidth, int nHeight, bool shaderResourceView)
 {
-    return FX_CreateDepthSurface(nWidth, nHeight, bAA);
+    SDepthTexture* pDepthTexture = new SDepthTexture;
+    pDepthTexture->nWidth = nWidth;
+    pDepthTexture->nHeight = nHeight;
+
+    m_pRT->EnqueueRenderCommand([this, pDepthTexture, shaderResourceView]() 
+    {
+        AZ_TRACE_METHOD_NAME("CreateDepthSurface");
+
+        D3D11_TEXTURE2D_DESC descDepth;
+        ZeroStruct(descDepth);
+        descDepth.Width = pDepthTexture->nWidth;
+        descDepth.Height = pDepthTexture->nHeight;
+        descDepth.MipLevels = 1;
+        descDepth.ArraySize = 1;
+        descDepth.Format = shaderResourceView ? m_ZFormat : CTexture::ConvertToDepthStencilFmt(m_ZFormat);;
+        descDepth.SampleDesc.Count = 1;
+        descDepth.SampleDesc.Quality = 0;
+        descDepth.Usage = D3D11_USAGE_DEFAULT;
+        descDepth.BindFlags = shaderResourceView ? D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE : D3D11_BIND_DEPTH_STENCIL;
+        descDepth.CPUAccessFlags = 0;
+        descDepth.MiscFlags = 0;
+
+        const float clearDepth = (gRenDev->m_RP.m_TI[gRenDev->m_RP.m_nProcessThreadID].m_PersFlags & RBPF_REVERSE_DEPTH) ? 0.f : 1.f;
+        const uint clearStencil = 0;
+        const FLOAT clearValues[4] = { clearDepth, FLOAT(clearStencil) };
+
+        HRESULT hr = gcpRendD3D->m_DevMan.CreateD3D11Texture2D(&descDepth, clearValues, nullptr, &pDepthTexture->pTarget, "TempDepthBuffer");
+        if (hr == S_OK)
+        {
+            D3D11_DEPTH_STENCIL_VIEW_DESC descDSV;
+            ZeroStruct(descDSV);
+            descDSV.Format = CTexture::ConvertToDepthStencilFmt(m_ZFormat);
+            descDSV.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
+            descDSV.Texture2D.MipSlice = 0;
+
+            // Create the depth stencil view
+            hr = GetDevice().CreateDepthStencilView(pDepthTexture->pTarget, &descDSV, &pDepthTexture->pSurf);
+            if (hr == S_OK)
+            {
+#if !defined(RELEASE) && defined(WIN64)
+                pDepthTexture->pTarget->SetPrivateData(WKPDID_D3DDebugObjectName, strlen("Dynamically requested Depth-Buffer"), "Dynamically requested Depth-Buffer");
+#endif
+                const float clearValue = (gRenDev->m_RP.m_TI[gRenDev->m_RP.m_nProcessThreadID].m_PersFlags & RBPF_REVERSE_DEPTH) ? 0.f : 1.f;
+                GetDeviceContext().ClearDepthStencilView(pDepthTexture->pSurf, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, clearValue, 0);
+            }
+        }
+        else
+        {
+            AZ_Assert(false, "Failed to create temporary 2D depth buffer during depth surface resource creation.");
+        }
+    });
+
+    return pDepthTexture;
 }
 
-void CD3D9Renderer::DestroyDepthSurface(SDepthTexture* pDepthSurf)
+void CD3D9Renderer::DestroyDepthSurface(SDepthTexture* pDepthTexture)
 {
-    SAFE_RELEASE(pDepthSurf);
+    if (pDepthTexture)
+    {
+        m_pRT->EnqueueRenderCommand([=]() mutable 
+        {
+            // passing in true indicates we want to release the associated texture resource as well 
+            pDepthTexture->Release(true);
+            SAFE_DELETE(pDepthTexture);
+        });
+    }
 }
 
 void CD3D9Renderer::ReadFrameBuffer(unsigned char* pRGB, int nImageX, int nSizeX, int nSizeY, ERB_Type eRBType, bool bRGBA, int nScaledX, int nScaledY)
@@ -5062,7 +5548,7 @@ void CD3D9Renderer::ReadFrameBufferFast(uint32* pDstARGBA8, int dstWidth, int ds
         return;
     }
 
-#if defined (WIN32)
+#if defined (AZ_PLATFORM_WINDOWS) || defined(AZ_PLATFORM_MAC)
     gRenDev->ForceFlushRTCommands();
     assert(m_pBackBuffer);
 
@@ -5103,6 +5589,7 @@ void CD3D9Renderer::ReadFrameBufferFast(uint32* pDstARGBA8, int dstWidth, int ds
             srcBox.bottom = dstDesc.Height;
             srcBox.front = 0;
             srcBox.back = 1;
+
             GetDeviceContext().CopySubresourceRegion(pDstTex, 0, 0, 0, 0, pBackBufferTex, 0, &srcBox);
 
             D3D11_MAPPED_SUBRESOURCE mappedTex;
@@ -6825,69 +7312,7 @@ int s_In2DMode[RT_COMMAND_BUF_COUNT];
 
 void CD3D9Renderer::Set2DMode(uint32 orthoX, uint32 orthoY, TransformationMatrices& backupMatrices, float znear, float zfar)
 {
-    int nThreadID = m_pRT->GetThreadList();
-
-#ifdef _DEBUG
-    assert(s_In2DMode[nThreadID]++ >= 0);
-#endif
-
-    backupMatrices.m_projectMatrix = m_RP.m_TI[nThreadID].m_matProj;
-    Matrix44A* m = &m_RP.m_TI[nThreadID].m_matProj;
-
-    //Move the zfar a bit away from the znear if they're the same.
-    if (AZ::IsClose(znear, zfar, .001f))
-    {
-        zfar += .01f;
-    }
-
-    float left = 0.0f;
-    float right = orthoX;
-    float top = 0.0f;
-    float bottom = orthoY;
-
-    // If we are doing tiled rendering (e.g. for a hi-res screenshot) then adjust the viewport
-    const SRenderTileInfo* rti = GetRenderTileInfo();
-    if (rti->nGridSizeX > 1.0f || rti->nGridSizeY > 1.0f)
-    {
-        // The tile size includes a transition border around it. This has all been pre-calculated by
-        // the code that sets up the tiling.
-        float halfTileWidth = (orthoX / rti->nGridSizeX) * 0.5f;
-        float halfTileHeight = (orthoY / rti->nGridSizeY) * 0.5f;
-
-        // This is the normalized offset from the center of the (non-tiled) viewport to the center of the tile.
-        // Again the numbers in the struct have been pre-calculated to make setting a 3D matrix easier.
-        float normalizedOffsetX = (rti->nGridSizeX - 1.f) - rti->nPosX * 2.0f;
-        float normalizedOffsetY = (rti->nGridSizeY - 1.f) - rti->nPosY * 2.0f;
-
-        // calculate the midpoint of this tile
-        float midX = (orthoX * 0.5f) + (halfTileWidth * normalizedOffsetX);
-        float midY = (orthoY * 0.5f) + (halfTileHeight * normalizedOffsetY);
-
-        left = midX - halfTileWidth;
-        right = midX + halfTileWidth;
-        top = midY - halfTileHeight;
-        bottom = midY + halfTileHeight;
-    }
-
-    mathMatrixOrthoOffCenterLH(m, left, right, bottom, top, znear, zfar);
-
-    if (m_RP.m_TI[nThreadID].m_PersFlags & RBPF_REVERSE_DEPTH)
-    {
-        (*m) = ReverseDepthHelper::Convert(*m);
-    }
-#if defined(ENABLE_RENDER_AUX_GEOM)
-    if (m_pRenderAuxGeomD3D)
-    {
-        m_pRenderAuxGeomD3D->SetOrthoMode(true, m);
-    }
-
-#endif
-
-    backupMatrices.m_viewMatrix = m_RP.m_TI[nThreadID].m_matView;
-    m = &m_RP.m_TI[nThreadID].m_matView;
-    m_RP.m_TI[nThreadID].m_matView.SetIdentity();
-
-    EF_SetCameraInfo();
+    Set2DModeNonZeroTopLeft(0.0f, 0.0f, orthoX, orthoY, backupMatrices, znear, zfar);
 }
 
 void CD3D9Renderer::Unset2DMode(const TransformationMatrices& restoringMatrices)
@@ -6907,6 +7332,72 @@ void CD3D9Renderer::Unset2DMode(const TransformationMatrices& restoringMatrices)
 
     m_RP.m_TI[nThreadID].m_matView = restoringMatrices.m_viewMatrix;
     m_RP.m_TI[nThreadID].m_matProj = restoringMatrices.m_projectMatrix;
+    EF_SetCameraInfo();
+}
+
+void CD3D9Renderer::Set2DModeNonZeroTopLeft(float orthoLeft, float orthoTop, float orthoWidth, float orthoHeight, TransformationMatrices& backupMatrices, float znear, float zfar)
+{
+    int nThreadID = m_pRT->GetThreadList();
+
+#ifdef _DEBUG
+    assert(s_In2DMode[nThreadID]++ >= 0);
+#endif
+
+    backupMatrices.m_projectMatrix = m_RP.m_TI[nThreadID].m_matProj;
+    Matrix44A* m = &m_RP.m_TI[nThreadID].m_matProj;
+
+    //Move the zfar a bit away from the znear if they're the same.
+    if (AZ::IsClose(znear, zfar, .001f))
+    {
+        zfar += .01f;
+    }
+
+    float left = orthoLeft;
+    float right = left + orthoWidth;
+    float top = orthoTop;
+    float bottom = top + orthoHeight;
+
+    // If we are doing tiled rendering (e.g. for a hi-res screenshot) then adjust the viewport
+    const SRenderTileInfo* rti = GetRenderTileInfo();
+    if (rti->nGridSizeX > 1.0f || rti->nGridSizeY > 1.0f)
+    {
+        // The tile size includes a transition border around it. This has all been pre-calculated by
+        // the code that sets up the tiling.
+        float halfTileWidth = (orthoWidth / rti->nGridSizeX) * 0.5f;
+        float halfTileHeight = (orthoHeight / rti->nGridSizeY) * 0.5f;
+
+        // This is the normalized offset from the center of the (non-tiled) viewport to the center of the tile.
+        // Again the numbers in the struct have been pre-calculated to make setting a 3D matrix easier.
+        float normalizedOffsetX = (rti->nGridSizeX - 1.f) - rti->nPosX * 2.0f;
+        float normalizedOffsetY = (rti->nGridSizeY - 1.f) - rti->nPosY * 2.0f;
+
+        // calculate the midpoint of this tile
+        float midX = (orthoWidth * 0.5f) + (halfTileWidth * normalizedOffsetX);
+        float midY = (orthoHeight * 0.5f) + (halfTileHeight * normalizedOffsetY);
+
+        left = midX - halfTileWidth;
+        right = midX + halfTileWidth;
+        top = midY - halfTileHeight;
+        bottom = midY + halfTileHeight;
+    }
+
+    mathMatrixOrthoOffCenterLH(m, left, right, bottom, top, znear, zfar);
+
+    if (m_RP.m_TI[nThreadID].m_PersFlags & RBPF_REVERSE_DEPTH)
+    {
+        (*m) = ReverseDepthHelper::Convert(*m);
+    }
+#if defined(ENABLE_RENDER_AUX_GEOM)
+    if (m_pRenderAuxGeomD3D)
+    {
+        m_pRenderAuxGeomD3D->SetOrthoMode(true, m);
+    }
+#endif
+
+    backupMatrices.m_viewMatrix = m_RP.m_TI[nThreadID].m_matView;
+    m = &m_RP.m_TI[nThreadID].m_matView;
+    m_RP.m_TI[nThreadID].m_matView.SetIdentity();
+
     EF_SetCameraInfo();
 }
 
@@ -7042,7 +7533,7 @@ unsigned int CD3D9Renderer::DownLoadToVideoMemory(const byte* data, int w, int h
         }
         else
         {
-            strcpy(name, szCacheName);
+            azstrcpy(name, AZ_ARRAY_SIZE(name), szCacheName);
         }
     }
 
@@ -7234,16 +7725,6 @@ void CD3D9Renderer::GetMemoryUsage(ICrySizer* Sizer)
 
     uint32 i, j;
 
-#ifndef AZ_MONOLITHIC_BUILD // Only when compiling as dynamic library
-    {
-        SIZER_COMPONENT_NAME(Sizer, "STL Allocator Waste");
-        CryModuleMemoryInfo meminfo;
-        ZeroStruct(meminfo);
-        CryGetMemoryInfoForModule(&meminfo);
-        Sizer->AddObject((this + 2), meminfo.STL_wasted);
-    }
-#endif
-
     //SIZER_COMPONENT_NAME(Sizer, "GLRenderer");
     {
         SIZER_COMPONENT_NAME(Sizer, "Renderer dynamic");
@@ -7407,6 +7888,14 @@ void CD3D9Renderer::PostLevelUnload()
 
         m_pRT->FlushAndWait();
 
+        //In the level unload event shaders may get deleted. If that's the case any PSOs
+        //that point to those deleted shaders will be invalid and will cause a crash if used.
+        //Most shaders will be unloaded so invalidate the entire PSO cache and reset the pipeline.
+        
+        CDeviceObjectFactory::GetInstance().InvalidatePSOCache();
+        //Tell the graphics pipeline to reset and throw out existing PSOs since they're now invalid
+        gcpRendD3D->GetGraphicsPipeline().Reset();
+
         StaticCleanup();
         if (m_pColorGradingControllerD3D)
         {
@@ -7508,8 +7997,8 @@ void CD3D9Renderer::DebugShowRenderTarget()
     size_t col2 = m_showRenderTargetInfo.col * m_showRenderTargetInfo.col;
     for (size_t i = 0; i < min(m_showRenderTargetInfo.rtList.size(), col2); ++i)
     {
-        CTexture* pTex = m_showRenderTargetInfo.rtList[i].pTexture;
-        if (NULL == pTex)
+        CTexture* pTex = CTexture::GetByID(m_showRenderTargetInfo.rtList[i].textureID);
+        if (!pTex)
         {
             continue;
         }
@@ -7541,8 +8030,8 @@ void CD3D9Renderer::DebugShowRenderTarget()
     // Draw overlay texts.
     for (size_t i = 0; i < min(m_showRenderTargetInfo.rtList.size(), col2); ++i)
     {
-        CTexture* pTex = m_showRenderTargetInfo.rtList[i].pTexture;
-        if (NULL == pTex)
+        CTexture* pTex = CTexture::GetByID(m_showRenderTargetInfo.rtList[i].textureID);
+        if (!pTex)
         {
             continue;
         }
@@ -7592,14 +8081,6 @@ public:
         case ESYSTEM_EVENT_LEVEL_LOAD_RESUME_GAME:
         case ESYSTEM_EVENT_LEVEL_LOAD_PREPARE:
         {
-            if (gRenDev)
-            {
-                if (gRenDev->m_pRT)
-                {
-                    gRenDev->m_pRT->RC_PrepareLevelTexStreaming();
-                    gRenDev->m_pRT->FlushAndWait();
-                }
-            }
         }
         break;
 
@@ -7823,8 +8304,53 @@ void CD3D9Renderer::InsertParticleVideoMemoryFence(int nThreadId)
 #ifdef SUPPORT_HW_MOUSE_CURSOR
 IHWMouseCursor* CD3D9Renderer::GetIHWMouseCursor()
 {
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DRIVERD3D_CPP_SECTION_16
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DriverD3D_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DriverD3D_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DriverD3D_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#else
     #error Need implementation of IHWMouseCursor
+#endif
 }
 
 #endif
 
+CD3D9Renderer::FrameBufferDescription::~FrameBufferDescription()
+{
+    if (pDest)
+    {
+        delete[] pDest;
+    }
+
+    if (includeAlpha)
+    {
+        if (tempZtex)
+        {
+            gcpRendD3D->GetDeviceContext().Unmap(tempZtex, 0);
+        } 
+    }
+    SAFE_RELEASE(tempZtex);
+
+    if (pTmpTexture)
+    {
+        gcpRendD3D->GetDeviceContext().Unmap(pTmpTexture, 0);
+    }
+    
+    SAFE_RELEASE(pTmpTexture);
+
+    SAFE_RELEASE(pBackBufferTex);
+}
+
+void CD3D9Renderer::RT_DrawVideoRenderer(AZ::VideoRenderer::IVideoRenderer* pVideoRenderer, const AZ::VideoRenderer::DrawArguments& drawArguments)
+{
+    AZ_Assert(pVideoRenderer != nullptr, "Expected video player to be passed in");
+    GetGraphicsPipeline().RenderVideo(drawArguments);
+}

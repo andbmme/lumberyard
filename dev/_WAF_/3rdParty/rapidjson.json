@@ -1,9 +1,9 @@
 {
     "name": "rapidjson",
-    "source": "@ROOT@/Code/SDKs/rapidjson",
+    "source": "@3P:rapidjson@",
     "description": "Rapid JSON header only library",
     "header_only": "True",
-    "includes": [
+    "system_includes": [
         "include"
     ],
     "defines": [],

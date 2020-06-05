@@ -26,6 +26,9 @@
 
 namespace EMStudio
 {
+    AZ_CLASS_ALLOCATOR_IMPL(CommandBarPlugin::ProgressHandler, EMotionFX::EventHandlerAllocator, 0)
+
+
     // constructor
     CommandBarPlugin::CommandBarPlugin()
         : EMStudio::ToolBarPlugin()
@@ -53,12 +56,18 @@ namespace EMStudio
         delete mLockEnabledIcon;
         delete mLockDisabledIcon;
 
-        GetCommandManager()->RemoveCommandCallback(mToggleLockSelectionCallback, false);
-        delete mToggleLockSelectionCallback;
+        if (mToggleLockSelectionCallback)
+        {
+            GetCommandManager()->RemoveCommandCallback(mToggleLockSelectionCallback, false);
+            delete mToggleLockSelectionCallback;
+        }
 
         // remove the event handler again
-        EMotionFX::GetEventManager().RemoveEventHandler(mProgressHandler);
-        mProgressHandler = nullptr;
+        if (mProgressHandler)
+        {
+            EMotionFX::GetEventManager().RemoveEventHandler(mProgressHandler);
+            delete mProgressHandler;
+        }
     }
 
 
@@ -111,12 +120,12 @@ namespace EMStudio
         mToggleLockSelectionCallback = new CommandToggleLockSelectionCallback(false);
         GetCommandManager()->RegisterCommandCallback("ToggleLockSelection", mToggleLockSelectionCallback);
 
-        mLockEnabledIcon    = new QIcon(MCore::String(MysticQt::GetDataDir() + "/Images/Icons/LockEnabled.png").AsChar());
-        mLockDisabledIcon   = new QIcon(MCore::String(MysticQt::GetDataDir() + "/Images/Icons/LockDisabled.png").AsChar());
+        mLockEnabledIcon    = new QIcon(AZStd::string(MysticQt::GetDataDir() + "/Images/Icons/LockEnabled.png").c_str());
+        mLockDisabledIcon   = new QIcon(AZStd::string(MysticQt::GetDataDir() + "/Images/Icons/LockDisabled.png").c_str());
 
         mCommandEdit = new QLineEdit();
         mCommandEdit->setPlaceholderText("Enter command");
-        connect(mCommandEdit, SIGNAL(returnPressed()), this, SLOT(OnEnter()));
+        connect(mCommandEdit, &QLineEdit::returnPressed, this, &CommandBarPlugin::OnEnter);
         mCommandEditAction = mBar->addWidget(mCommandEdit);
 
         mResultEdit = new QLineEdit();
@@ -128,13 +137,13 @@ namespace EMStudio
         mSpeedSlider->setMinimumWidth(30);
         mSpeedSlider->setRange(0, 100);
         mSpeedSlider->setValue(50);
-        mSpeedSlider->setToolTip("The global simulation speed factor, ranging from 0 to 2.0\nThe value of 1.0 is the normal speed, which is when it is in the center\nPress the R button next to this slider to reset it to 1.0");
-        connect(mSpeedSlider, SIGNAL(valueChanged(int)), this, SLOT(OnSpeedSliderValueChanged(int)));
+        mSpeedSlider->setToolTip("The global simulation speed factor.\nA value of 1.0 means the normal speed, which is when the slider handle is in the center.\nPress the button on the right of this slider to reset to the normal speed.");
+        connect(mSpeedSlider, &MysticQt::Slider::valueChanged, this, &CommandBarPlugin::OnSpeedSliderValueChanged);
         mBar->addWidget(mSpeedSlider);
 
         mSpeedResetButton = CreateButton("/Images/Icons/Reset.png");
         mSpeedResetButton->setToolTip("Reset the global simulation speed factor to its normal speed");
-        connect(mSpeedResetButton, SIGNAL(clicked()), this, SLOT(ResetGlobalSpeed()));
+        connect(mSpeedResetButton, &QPushButton::clicked, this, &CommandBarPlugin::ResetGlobalSpeed);
 
         mProgressText = new QLabel();
         mProgressText->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
@@ -153,31 +162,31 @@ namespace EMStudio
 
         mLockSelectionButton = CreateButton();
         mLockSelectionButton->setToolTip("Lock or unlock the selection of actor instances");
-        connect(mLockSelectionButton, SIGNAL(clicked()), this, SLOT(OnLockSelectionButton()));
+        connect(mLockSelectionButton, &QPushButton::clicked, this, &CommandBarPlugin::OnLockSelectionButton);
 
         mSeekBackwardButton = CreateButton("/Images/Icons/SkipBackward.png");
         mSeekBackwardButton->setToolTip("Seek backward the selected motions");
-        connect(mSeekBackwardButton, SIGNAL(clicked()), this, SLOT(OnSeekBackwardButton()));
+        connect(mSeekBackwardButton, &QPushButton::clicked, this, &CommandBarPlugin::OnSeekBackwardButton);
 
         mPauseButton = CreateButton("/Images/Icons/Pause.png");
         mPauseButton->setToolTip("Pause the selected motions");
-        connect(mPauseButton, SIGNAL(clicked()), this, SLOT(OnPauseButton()));
+        connect(mPauseButton, &QPushButton::clicked, this, &CommandBarPlugin::OnPauseButton);
 
         mStopButton = CreateButton("/Images/Icons/Stop.png");
         mStopButton->setToolTip("Stop all motions");
-        connect(mStopButton, SIGNAL(clicked()), this, SLOT(OnStopButton()));
+        connect(mStopButton, &QPushButton::clicked, this, &CommandBarPlugin::OnStopButton);
 
         mPlayForwardButton = CreateButton("/Images/Icons/PlayForward.png");
         mPlayForwardButton->setToolTip("Play the selected motions");
-        connect(mPlayForwardButton, SIGNAL(clicked()), this, SLOT(OnPlayForwardButton()));
+        connect(mPlayForwardButton, &QPushButton::clicked, this, &CommandBarPlugin::OnPlayForwardButton);
 
         mSeekForwardButton = CreateButton("/Images/Icons/SkipForward.png");
         mSeekForwardButton->setToolTip("Seek forward the selected motions");
-        connect(mSeekForwardButton, SIGNAL(clicked()), this, SLOT(OnSeekForwardButton()));
+        connect(mSeekForwardButton, &QPushButton::clicked, this, &CommandBarPlugin::OnSeekForwardButton);
 
         UpdateLockSelectionIcon();
 
-        mProgressHandler = new ProgressHandler(this);
+        mProgressHandler = aznew ProgressHandler(this);
         EMotionFX::GetEventManager().AddEventHandler(mProgressHandler);
 
         return true;
@@ -261,7 +270,7 @@ namespace EMStudio
 
     void CommandBarPlugin::OnStopButton()
     {
-        MCore::String outResult;
+        AZStd::string outResult;
         GetCommandManager()->ExecuteCommand("StopAllMotionInstances", outResult);
     }
 
@@ -334,32 +343,32 @@ namespace EMStudio
         assert(edit == mCommandEdit);
 
         // get the command string trimmed
-        MCore::String command = FromQtString(edit->text());
-        command.Trim();
+        AZStd::string command = FromQtString(edit->text());
+        AzFramework::StringFunc::TrimWhiteSpace(command, true, true);
 
         // don't do anything on an empty command
-        if (command.GetLength() == 0)
+        if (command.size() == 0)
         {
             edit->clear();
             return;
         }
 
         // execute the command
-        MCore::String resultString;
-        const bool success = EMStudio::GetCommandManager()->ExecuteCommand(command.AsChar(), resultString);
+        AZStd::string resultString;
+        const bool success = EMStudio::GetCommandManager()->ExecuteCommand(command.c_str(), resultString);
 
         // there was an error
         if (success == false)
         {
-            MCore::LogError(resultString.AsChar());
+            MCore::LogError(resultString.c_str());
             mResultEdit->setStyleSheet("color: red;");
-            mResultEdit->setText(resultString.AsChar());
-            mResultEdit->setToolTip(resultString.AsChar());
+            mResultEdit->setText(resultString.c_str());
+            mResultEdit->setToolTip(resultString.c_str());
         }
         else // no error
         {
             mResultEdit->setStyleSheet("color: rgb(0,255,0);");
-            mResultEdit->setText(resultString.AsChar());
+            mResultEdit->setText(resultString.c_str());
         }
 
         // clear the text of the edit box
@@ -414,7 +423,7 @@ namespace EMStudio
     // adjust the main progress bar
     void CommandBarPlugin::OnProgressValue(float percentage)
     {
-        mProgressBar->setValue(percentage);
+        mProgressBar->setValue(aznumeric_cast<int>(percentage));
         EMStudio::GetApp()->processEvents(QEventLoop::ExcludeUserInputEvents);
     }
 

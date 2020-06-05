@@ -48,10 +48,6 @@
             "CGA/ControllerTCB.h",
             "CGA/QuatQuantization.h",
             "CGA/TCBSpline.h"
-        ],
-        "AnimationCompiler/CryAnimation":
-        [
-            "../../../CryEngine/CryAnimation/ControllerOpt.h"
         ]
     },
     "ResourceCompilerPC_uber_2.cpp":
@@ -141,13 +137,17 @@
             "../../CryCommonTools/PropertyHelpers.cpp",
             "../../CryCommonTools/StringHelpers.cpp",
             "../../CryCommonTools/TempFilePakExtraction.cpp",
+            "../../CryCommonTools/ColladaShared.h",
             "../../CryCommonTools/Decompose.cpp",
             "../../CryCommonTools/Decompose.h",
             "../../CryCommonTools/FileUtil.h",
             "../../CryCommonTools/PathHelpers.h",
             "../../CryCommonTools/PropertyHelpers.h",
             "../../CryCommonTools/StringHelpers.h",
-            "../../CryCommonTools/TempFilePakExtraction.h"
+            "../../CryCommonTools/TempFilePakExtraction.h",
+            "../../CryCommonTools/Export/ExportHelpers.h",
+            "../../CryCommonTools/Export/HelperData.h",
+            "../../CryCommonTools/Export/MeshUtils.h"
         ]
     },
     "none":
@@ -170,26 +170,29 @@
             "../../../CryEngine/Cry3DEngine/MeshCompiler/MeshCompiler.cpp",
             "../../../CryEngine/Cry3DEngine/MeshCompiler/ForsythFaceReorderer.cpp",
             "../../../CryEngine/Cry3DEngine/MeshCompiler/TangentSpaceCalculation.cpp",
-            "../../../SDKs/TangentBasisComputation/mikkelsen/mikktspace.cpp",
+            "@3P:mikkt@/mikkelsen/mikktspace_stdafx.cpp",
             "../../../CryEngine/Cry3DEngine/MeshCompiler/MeshCompiler.h",
             "../../../CryEngine/Cry3DEngine/MeshCompiler/TangentSpaceCalculation.h",
             "../../../CryEngine/Cry3DEngine/MeshCompiler/ForsythFaceReorderer.h",
-            "../../../SDKs/TangentBasisComputation/mikkelsen/mikktspace.h",
+            "@3P:mikkt@/mikkelsen/mikktspace.h",
             "../../../CryEngine/Cry3DEngine/MeshCompiler/PVRTTriStrip/PVRTTriStrip.cpp"
 
         ],
-        "Root":
+        "Root": 
         [
             "../../../CryEngine/Cry3DEngine/CGF/CGFSaver.cpp",
             "../../../CryEngine/Cry3DEngine/CGF/CGFLoader.cpp",
             "../../../CryEngine/Cry3DEngine/CGF/ChunkFile.cpp",
+            "../ResourceCompiler/Config.cpp",
             "../ResourceCompiler/IConfig.cpp",
+            "../ResourceCompiler/PropertyVars.cpp",
             "ResourceCompilerPC.cpp",
             "../../../CryEngine/Cry3DEngine/CGF/ChunkFileWriters.cpp",
             "../../../CryEngine/Cry3DEngine/CGF/ChunkFileReaders.cpp",
             "../../../CryEngine/Cry3DEngine/CGF/ChunkFile.h",
             "ResourceCompilerPC.h",
-            "stdafx.h",
+            "PCH/StdAfx.cpp",
+            "PCH/StdAfx.h",
             "../../../CryEngine/Cry3DEngine/CGF/ChunkFileComponents.h",
             "../../../CryEngine/Cry3DEngine/CGF/ChunkFileWriters.h",
             "../../../CryEngine/Cry3DEngine/CGF/CGFSaver.h",

@@ -18,7 +18,12 @@
 #include "RoadObject.h"
 #include "RoadPanel.h"
 #include "Viewport.h"
+
+#ifdef LY_TERRAIN_EDITOR
 #include "Terrain/Heightmap.h"
+#endif //#ifdef LY_TERRAIN_EDITOR
+#include <AzFramework/Terrain/TerrainDataRequestBus.h>
+
 #include "Material/Material.h"
 #include "../VegetationMap.h"
 #include "../VegetationObject.h"
@@ -546,8 +551,22 @@ void CRoadObject::AlignHeightMap()
         GetIEditor()->BeginUndo();
     }
 
+#ifdef LY_TERRAIN_EDITOR
     CHeightmap* heightmap = GetIEditor()->GetHeightmap();
-    int unitSize = heightmap->GetUnitSize();
+    const int unitSizeX = heightmap->GetUnitSize();
+    const int unitSizeY = unitSizeX;
+#else
+    const float defaultTerrainHeight = AzFramework::Terrain::TerrainDataRequests::GetDefaultTerrainHeight();
+    auto terrain = AzFramework::Terrain::TerrainDataRequestBus::FindFirstHandler();
+    const AZ::Vector2 terrainGridResolution = terrain ? terrain->GetTerrainGridResolution() : AZ::Vector2::CreateOne();
+    const AZ::Aabb terrainAabb = terrain ? terrain->GetTerrainAabb() : AZ::Aabb::CreateFromPoint(AZ::Vector3::CreateZero());
+
+    const int unitSizeX = static_cast<int>(terrainGridResolution.GetX());
+    const int unitSizeY = static_cast<int>(terrainGridResolution.GetY());
+    const int heightMapHeight = static_cast<int>(terrainAabb.GetHeight()) / unitSizeY;
+    const int heightMapWidth = static_cast<int>(terrainAabb.GetWidth()) / unitSizeX;
+#endif //#ifdef LY_TERRAIN_EDITOR
+
     const Matrix34& wtm = GetWorldTM();
 
     int minx = 0, miny = 0, maxx = 0, maxy = 0;
@@ -575,8 +594,8 @@ void CRoadObject::AlignHeightMap()
                 fWidth = 2;
             }
 
-            Vec3 p1 = p - (0.5f * fWidth + mv_borderWidth + 0.5f * unitSize) * n;
-            Vec3 p2 = p + (0.5f * fWidth + mv_borderWidth + 0.5f * unitSize) * n;
+            Vec3 p1 = p - (0.5f * fWidth + mv_borderWidth + 0.5f * unitSizeX) * n;
+            Vec3 p2 = p + (0.5f * fWidth + mv_borderWidth + 0.5f * unitSizeX) * n;
 
             p1 = wtm.TransformPoint(p1);
             p2 = wtm.TransformPoint(p2);
@@ -601,15 +620,25 @@ void CRoadObject::AlignHeightMap()
             fmaxy = max(fmaxy, p2.y);
         }
 
-        heightmap->RecordUndo(int(fminy / unitSize) - 1, int(fminx / unitSize) - 1, int(fmaxy / unitSize) + unitSize - int(fminy / unitSize) + 1, int(fmaxx / unitSize) + unitSize - int(fminx / unitSize) + 1);
+#ifdef LY_TERRAIN_EDITOR
+        heightmap->RecordUndo(int(fminy / unitSizeY) - 1
+            , int(fminx / unitSizeX) - 1
+            , int(fmaxy / unitSizeY) + unitSizeY - int(fminy / unitSizeY) + 1
+            , int(fmaxx / unitSizeX) + unitSizeX - int(fminx / unitSizeX) + 1);
 
         // Note: Heightmap is rotated compared to world coordinates.
-        for (int ty = int(fminx / unitSize); ty <= int(fmaxx / unitSize) + unitSize && ty < heightmap->GetHeight(); ++ty)
+        for (int ty = int(fminx / unitSizeX); ty <= int(fmaxx / unitSizeX) + unitSizeX && ty < heightmap->GetHeight(); ++ty)
         {
-            for (int tx = int(fminy / unitSize); tx <= int(fmaxy / unitSize) + unitSize && tx < heightmap->GetWidth(); ++tx)
+            for (int tx = int(fminy / unitSizeY); tx <= int(fmaxy / unitSizeY) + unitSizeY && tx < heightmap->GetWidth(); ++tx)
+#else
+        for (int ty = int(fminx / unitSizeX); ty <= int(fmaxx / unitSizeX) + unitSizeX && ty < heightMapHeight; ++ty)
+        {
+            for (int tx = int(fminy / unitSizeY); tx <= int(fmaxy / unitSizeY) + unitSizeY && tx < heightMapWidth; ++tx)
+#endif //#ifdef LY_TERRAIN_EDITOR
             {
-                int x = ty * unitSize;
-                int y = tx * unitSize;
+                // Note: Heightmap is rotated compared to world coordinates.
+                int x = ty * unitSizeY;
+                int y = tx * unitSizeX;
 
                 Vec3 p3 = Vec3(x, y, 0.0f);
 
@@ -620,7 +649,7 @@ void CRoadObject::AlignHeightMap()
                 {
                     fWidth = fWidth1;
                 }
-                float mind = 0.5f * fWidth + mv_borderWidth + 0.5f * unitSize;
+                float mind = 0.5f * fWidth + mv_borderWidth + 0.5f * unitSizeX;
 
                 for (int k = 0; k < kn; ++k)
                 {
@@ -716,26 +745,32 @@ void CRoadObject::AlignHeightMap()
                     }
 
                     float fWidth = GetLocalWidth(i, t);
-                    if (length <= fWidth / 2 + mv_borderWidth + 0.5 * unitSize)
+                    if (length <= fWidth / 2 + mv_borderWidth + 0.5 * unitSizeX)
                     {
-                        //int tx = RoundFloatToInt(y / unitSize);
-                        //int ty = RoundFloatToInt(x / unitSize);
-
                         float z;
-                        if (length <= fWidth / 2 + 0.5 * unitSize)
+                        if (length <= fWidth / 2 + 0.5 * unitSizeX)
                         {
                             z = pos.z;
                         }
                         else
                         {
                             //continue;
-                            float kof = (length - (fWidth / 2 + 0.5 * unitSize)) / mv_borderWidth;
+                            float kof = (length - (fWidth / 2 + 0.5 * unitSizeX)) / mv_borderWidth;
                             kof = 1.0f - (cos(kof * 3.141593f) + 1.0f) / 2;
+#ifdef LY_TERRAIN_EDITOR
                             float z1 = heightmap->GetXY(tx, ty);
+#else
+                            //Please note we are using x and y, instead of tx, ty.
+                            float z1 = terrain
+                                ? terrain->GetHeightFromFloats((float)x, (float)y, AzFramework::Terrain::TerrainDataRequests::Sampler::CLAMP)
+                                : defaultTerrainHeight;
+#endif //#ifdef LY_TERRAIN_EDITOR
                             z = kof * z1 + (1.0f - kof) * pos.z;
                         }
 
+#ifdef LY_TERRAIN_EDITOR
                         heightmap->SetXY(tx, ty, clamp_tpl(z, 0.0f, heightmap->GetMaxHeight()));
+#endif
 
                         if (!bIsInitMinMax)
                         {
@@ -768,6 +803,7 @@ void CRoadObject::AlignHeightMap()
         //break;
     }
 
+#ifdef LY_TERRAIN_EDITOR
     int w = maxx - minx;
     if (w < maxy - miny)
     {
@@ -779,6 +815,7 @@ void CRoadObject::AlignHeightMap()
     {
         GetIEditor()->AcceptUndo("Heightmap Aligning");
     }
+#endif //#ifdef LY_TERRAIN_EDITOR
 
     SetRoadSectors();
 }

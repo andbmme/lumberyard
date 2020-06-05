@@ -12,11 +12,11 @@
 
 #pragma once
 
-// include the required headers
+#include <AzCore/std/containers/vector.h>
+#include <AzCore/Math/Transform.h>
 #include "EMotionFXConfig.h"
 #include "MeshDeformer.h"
-#include <MCore/Source/Vector.h>
-#include <MCore/Source/Matrix4.h>
+
 
 namespace EMotionFX
 {
@@ -37,6 +37,8 @@ namespace EMotionFX
     class EMFX_API SoftSkinDeformer
         : public MeshDeformer
     {
+        AZ_CLASS_ALLOCATOR_DECL
+
     public:
         // the type id of the deformer, returned by GetType()
         enum
@@ -63,7 +65,7 @@ namespace EMotionFX
          * @param node The node to use for the update, so the node where the mesh belongs to during this update.
          * @param timeDelta The time (in seconds) passed since the last call.
          */
-        virtual void Update(ActorInstance* actorInstance, Node* node, float timeDelta) override;
+        void Update(ActorInstance* actorInstance, Node* node, float timeDelta) override;
 
         /**
          * Reinitialize the mesh deformer.
@@ -72,20 +74,20 @@ namespace EMotionFX
          * @param node The node where the mesh belongs to during this initialization.
          * @param lodLevel The LOD level of the mesh the mesh deformer works on.
          */
-        virtual void Reinitialize(Actor* actor, Node* node, uint32 lodLevel) override;
+        void Reinitialize(Actor* actor, Node* node, uint32 lodLevel) override;
 
         /**
          * Creates an exact clone (copy) of this deformer, and returns a pointer to it.
          * @param mesh The mesh to apply the deformer on.
          * @result A pointer to the newly created clone of this deformer.
          */
-        virtual MeshDeformer* Clone(Mesh* mesh) override;
+        MeshDeformer* Clone(Mesh* mesh) override;
 
         /**
          * Returns the unique type ID of the deformer.
          * @result The type ID of the deformer.
          */
-        virtual uint32 GetType() const override;
+        uint32 GetType() const override;
 
         /**
          * Returns the unique subtype ID of this deformer.
@@ -94,14 +96,14 @@ namespace EMotionFX
          * version would have a sub type of 1 for example.
          * @result The sub type identification number.
          */
-        virtual uint32 GetSubType() const override;
+        uint32 GetSubType() const override;
 
         /**
          * Get the number of bones used by this deformer.
          * This is the number of different bones that the skinning information of the mesh where this deformer works on uses.
          * @result The number of bones.
          */
-        MCORE_INLINE uint32 GetNumLocalBones() const                        { return mNodeNumbers.GetLength(); }
+        MCORE_INLINE size_t GetNumLocalBones() const                        { return mNodeNumbers.size(); }
 
         /**
          * Get the node number of a given local bone.
@@ -115,12 +117,12 @@ namespace EMotionFX
          * This does not alter the value returned by GetNumLocalBones().
          * @param numBones The number of bones to pre-allocate space for.
          */
-        MCORE_INLINE void ReserveLocalBones(uint32 numBones)                { mNodeNumbers.Reserve(numBones); mBoneMatrices.Reserve(numBones); }
+        MCORE_INLINE void ReserveLocalBones(uint32 numBones)                { mNodeNumbers.reserve(numBones); mBoneMatrices.reserve(numBones); }
 
 
     protected:
-        MCore::Array<MCore::Matrix>     mBoneMatrices;
-        MCore::Array<uint32>            mNodeNumbers;
+        AZStd::vector<AZ::Transform>    mBoneMatrices;
+        AZStd::vector<uint32>           mNodeNumbers;
 
         /**
          * Default constructor.
@@ -140,18 +142,18 @@ namespace EMotionFX
          */
         MCORE_INLINE uint32 FindLocalBoneIndex(uint32 nodeIndex) const
         {
-            const uint32 numBones = mNodeNumbers.GetLength();
-            for (uint32 i = 0; i < numBones; ++i)
+            const size_t numBones = mNodeNumbers.size();
+            for (size_t i = 0; i < numBones; ++i)
             {
                 if (mNodeNumbers[i] == nodeIndex)
                 {
-                    return i;
+                    return static_cast<uint32>(i);
                 }
             }
 
             return MCORE_INVALIDINDEX32;
         }
 
-        void SkinVertexRange(uint32 startVertex, uint32 endVertex, AZ::PackedVector3f* positions, AZ::PackedVector3f* normals, AZ::Vector4* tangents, uint32* orgVerts, SkinningInfoVertexAttributeLayer* layer);
+        void SkinVertexRange(uint32 startVertex, uint32 endVertex, AZ::Vector3* positions, AZ::Vector3* normals, AZ::Vector4* tangents, AZ::Vector3* bitangents, uint32* orgVerts, SkinningInfoVertexAttributeLayer* layer);
     };
 } // namespace EMotionFX

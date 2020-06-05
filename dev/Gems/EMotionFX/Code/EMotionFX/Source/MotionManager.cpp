@@ -10,23 +10,34 @@
 *
 */
 
-// include the required headers
+#include <AzCore/RTTI/RTTI.h>
+#include <AzCore/std/string/string.h>
 #include <AzFramework/StringFunc/StringFunc.h>
-#include "EMotionFXConfig.h"
-#include "MotionManager.h"
-#include "Motion.h"
-#include "MotionSet.h"
-#include "SkeletalMotion.h"
-#include "ActorInstance.h"
-#include "ActorManager.h"
-#include "MotionSystem.h"
-#include "MotionInstance.h"
-#include "AnimGraph.h"
-#include "AnimGraphMotionNode.h"
-#include "AnimGraphManager.h"
+#include <EMotionFX/Source/ActorInstance.h>
+#include <EMotionFX/Source/ActorManager.h>
+#include <EMotionFX/Source/AnimGraph.h>
+#include <EMotionFX/Source/AnimGraphInstance.h>
+#include <EMotionFX/Source/AnimGraphManager.h>
+#include <EMotionFX/Source/AnimGraphMotionNode.h>
+#include <EMotionFX/Source/AnimGraphNode.h>
+#include <EMotionFX/Source/AnimGraphNodeData.h>
+#include <EMotionFX/Source/BaseObject.h>
+#include <EMotionFX/Source/EMotionFXManager.h>
+#include <EMotionFX/Source/MemoryCategories.h>
+#include <EMotionFX/Source/Motion.h>
+#include <EMotionFX/Source/MotionEventTable.h>
+#include <EMotionFX/Source/MotionInstance.h>
+#include <EMotionFX/Source/MotionManager.h>
+#include <EMotionFX/Source/MotionSet.h>
+#include <EMotionFX/Source/MotionSystem.h>
+#include <MCore/Source/Array.h>
+#include <MCore/Source/MultiThreadManager.h>
 
 namespace EMotionFX
 {
+    AZ_CLASS_ALLOCATOR_IMPL(MotionManager, MotionManagerAllocator, 0)
+
+
     // constructor
     MotionManager::MotionManager()
         : BaseObject()
@@ -39,17 +50,10 @@ namespace EMotionFX
     }
 
 
-    // destructor
-    MotionManager::~MotionManager()
-    {
-        //Clear();
-    }
-
-
     // create
     MotionManager* MotionManager::Create()
     {
-        return new MotionManager();
+        return aznew MotionManager();
     }
 
 
@@ -61,7 +65,7 @@ namespace EMotionFX
             // destroy all motion sets, they will internally call RemoveMotionSet(this) in their destructor
             while (mMotionSets.GetLength() > 0)
             {
-                mMotionSets[0]->Destroy();
+                delete mMotionSets[0];
             }
 
             // destroy all motions, they will internally call RemoveMotion(this) in their destructor
@@ -98,7 +102,7 @@ namespace EMotionFX
             }
 
             // compare the motion names
-            if (mMotions[i]->GetNameString().CheckIfIsEqual(motionName))
+            if (mMotions[i]->GetNameString() == motionName)
             {
                 return mMotions[i];
             }
@@ -121,7 +125,7 @@ namespace EMotionFX
             }
 
             // compare the motion names
-            if (mMotions[i]->GetFileNameString().CheckIfIsEqualNoCase(fileName))
+            if (AzFramework::StringFunc::Equal(mMotions[i]->GetFileNameString().c_str(), fileName, false /* no case */))
             {
                 return mMotions[i];
             }
@@ -156,7 +160,7 @@ namespace EMotionFX
 
 
     // find the motion set and return a pointer, nullptr if the motion set has not been found
-    MotionSet* MotionManager::FindMotionSetByName(const char* name, bool isTool) const
+    MotionSet* MotionManager::FindMotionSetByName(const char* name, bool isOwnedByRuntime) const
     {
         // get the number of motion sets and iterate through them
         const uint32 numMotionSets = mMotionSets.GetLength();
@@ -164,15 +168,13 @@ namespace EMotionFX
         {
             MotionSet* motionSet = mMotionSets[i];
 
-            if (motionSet->GetIsOwnedByRuntime() == isTool)
+            if (motionSet->GetIsOwnedByRuntime() == isOwnedByRuntime)
             {
-                continue;
-            }
-
-            // compare the motion set names
-            if (AzFramework::StringFunc::Equal(motionSet->GetName(), name))
-            {
-                return motionSet;
+                // compare the motion set names
+                if (AzFramework::StringFunc::Equal(motionSet->GetName(), name))
+                {
+                    return motionSet;
+                }
             }
         }
 
@@ -193,7 +195,7 @@ namespace EMotionFX
             }
 
             // compare the motion names
-            if (mMotions[i]->GetNameString().CheckIfIsEqual(motionName))
+            if (mMotions[i]->GetNameString() == motionName)
             {
                 return i;
             }
@@ -415,7 +417,7 @@ namespace EMotionFX
             }
 
             // compare the motions
-            if (mMotions[i]->GetFileNameString().CheckIfIsEqual(fileName))
+            if (mMotions[i]->GetFileNameString() == fileName)
             {
                 return i;
             }
@@ -443,29 +445,29 @@ namespace EMotionFX
     // recursively reset all motion nodes
     void MotionManager::ResetMotionNodes(AnimGraph* animGraph, Motion* motion)
     {
-        const uint32 numAnimGraphInstances = animGraph->GetNumAnimGraphInstances();
-        for (uint32 b = 0; b < numAnimGraphInstances; ++b)
+        const size_t numAnimGraphInstances = animGraph->GetNumAnimGraphInstances();
+        for (size_t b = 0; b < numAnimGraphInstances; ++b)
         {
             AnimGraphInstance* animGraphInstance = animGraph->GetAnimGraphInstance(b);
-            /*
-                    // get the motion set
-                    MotionSet* motionSet = animGraphInstance->GetMotionSet();
-                    if (motionSet == nullptr)
-                        continue;
-
-                    // if the motion set doesn't contain this motion, skip it
-                    if (motionSet->FindMotionEntry(motion) == nullptr)
-                        continue;*/
 
             // reset all motion nodes that use this motion
-            const uint32 numMotionNodes = animGraph->GetNumMotionNodes();
-            for (uint32 m = 0; m < numMotionNodes; ++m)
+            const uint32 numNodes = animGraph->GetNumNodes();
+            for (uint32 m = 0; m < numNodes; ++m)
             {
-                AnimGraphMotionNode* motionNode = animGraph->GetMotionNode(m);
-                MotionInstance* motionInstance = motionNode->FindMotionInstance(animGraphInstance);
-                if (motionInstance && motionInstance->GetMotion() == motion)
+                AnimGraphNode* node = animGraph->GetNode(m);
+                AnimGraphNodeData* uniqueData = node->FindUniqueNodeData(animGraphInstance);
+                if (motion->GetEventTable()->GetSyncTrack() == uniqueData->GetSyncTrack())
                 {
-                    motionNode->ResetUniqueData(animGraphInstance);
+                    uniqueData->SetSyncTrack(nullptr);
+                }
+                if (azrtti_istypeof<AnimGraphMotionNode>(node))
+                {
+                    AnimGraphMotionNode::UniqueData* motionNodeData = static_cast<AnimGraphMotionNode::UniqueData*>(uniqueData);
+                    const MotionInstance* motionInstance = motionNodeData->mMotionInstance;
+                    if (motionInstance && motionInstance->GetMotion() == motion)
+                    {
+                        motionNodeData->Reset();
+                    }
                 }
             }
         }
@@ -513,7 +515,7 @@ namespace EMotionFX
         {
             MotionSet* motionSet = mMotionSets[i];
 
-            const EMotionFX::MotionSet::EntryMap& motionEntries = motionSet->GetMotionEntries();
+            const EMotionFX::MotionSet::MotionEntries& motionEntries = motionSet->GetMotionEntries();
             for (const auto& item : motionEntries)
             {
                 EMotionFX::MotionSet::MotionEntry* motionEntry = item.second;
@@ -571,8 +573,8 @@ namespace EMotionFX
         mSetLock.Lock();
 
         // reset all anim graph instance motion sets that use the motion set to delete
-        const uint32 numAnimGraphInstances = GetAnimGraphManager().GetNumAnimGraphInstances();
-        for (uint32 i = 0; i < numAnimGraphInstances; ++i)
+        const size_t numAnimGraphInstances = GetAnimGraphManager().GetNumAnimGraphInstances();
+        for (size_t i = 0; i < numAnimGraphInstances; ++i)
         {
             AnimGraphInstance* animGraphInstance = GetAnimGraphManager().GetAnimGraphInstance(i);
             if (animGraphInstance->GetMotionSet() == motionSet)
@@ -586,7 +588,7 @@ namespace EMotionFX
             motionSet->SetAutoUnregister(false);
             if (motionSet)
             {
-                motionSet->Destroy();
+                delete motionSet;
             }
         }
 

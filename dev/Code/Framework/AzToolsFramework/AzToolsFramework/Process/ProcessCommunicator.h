@@ -19,8 +19,10 @@
 
 #if defined(AZ_PLATFORM_WINDOWS)
     #include <AzToolsFramework/Process/internal/ProcessCommon_Win.h>
-#elif defined(AZ_PLATFORM_APPLE)
+#elif AZ_TRAIT_OS_PLATFORM_APPLE
     #include <AzToolsFramework/Process/internal/ProcessCommon_OSX.h>
+#elif defined(AZ_PLATFORM_LINUX)
+    #include <AzToolsFramework/Process/internal/ProcessCommon_Linux.h>
 #endif
 
 namespace AzToolsFramework

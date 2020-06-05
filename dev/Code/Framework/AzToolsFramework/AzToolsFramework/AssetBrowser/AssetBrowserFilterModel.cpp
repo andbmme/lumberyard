@@ -9,13 +9,18 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
+#include <AzToolsFramework/AssetBrowser/Search/Filter.h>
+#include <AzToolsFramework/AssetBrowser/Entries/FolderAssetBrowserEntry.h>
+#include <AzToolsFramework/AssetBrowser/Entries/SourceAssetBrowserEntry.h>
+
+AZ_PUSH_DISABLE_WARNING(4251, "-Wunknown-warning-option")
 #include <AzToolsFramework/AssetBrowser/AssetBrowserFilterModel.h>
 #include <AzToolsFramework/AssetBrowser/AssetBrowserModel.h>
-#include <AzToolsFramework/AssetBrowser/Search/Filter.h>
 
 #include <QSharedPointer>
 #include <QTimer>
 #include <QCollator>
+AZ_POP_DISABLE_WARNING
 
 namespace AzToolsFramework
 {
@@ -27,15 +32,36 @@ namespace AzToolsFramework
             : QSortFilterProxyModel(parent)
         {
             m_showColumn.insert(AssetBrowserModel::m_column);
+            m_collator.setNumericMode(true);
+            AssetBrowserComponentNotificationBus::Handler::BusConnect();
         }
 
-        AssetBrowserFilterModel::~AssetBrowserFilterModel() = default;
+        AssetBrowserFilterModel::~AssetBrowserFilterModel()
+        {
+            AssetBrowserComponentNotificationBus::Handler::BusDisconnect();
+        }
 
         void AssetBrowserFilterModel::SetFilter(FilterConstType filter)
         {
             connect(filter.data(), &AssetBrowserEntryFilter::updatedSignal, this, &AssetBrowserFilterModel::filterUpdatedSlot);
             m_filter = filter;
-            invalidateFilter();
+            m_invalidateFilter = true;
+            // asset browser entries are not guaranteed to have populated when the filter is set, delay filtering until they are
+            bool isAssetBrowserComponentReady = false;
+            AssetBrowserComponentRequestBus::BroadcastResult(isAssetBrowserComponentReady, &AssetBrowserComponentRequests::AreEntriesReady);
+            if (isAssetBrowserComponentReady)
+            {
+                OnAssetBrowserComponentReady();
+            }
+        }
+
+        void AssetBrowserFilterModel::OnAssetBrowserComponentReady()
+        {
+            if (m_invalidateFilter)
+            {
+                invalidateFilter();
+                m_invalidateFilter = false;
+            }
         }
 
         bool AssetBrowserFilterModel::filterAcceptsRow(int source_row, const QModelIndex& source_parent) const
@@ -91,12 +117,39 @@ namespace AzToolsFramework
                     }
 
                     // if both entries are of same type, sort alphabetically
-                    QCollator collator;
-                    collator.setNumericMode(true);
-                    return collator.compare(leftEntry->GetDisplayName().c_str(), rightEntry->GetDisplayName().c_str()) > 0;
+                    return m_collator.compare(leftEntry->GetDisplayName(), rightEntry->GetDisplayName()) > 0;
                 }
             }
             return QSortFilterProxyModel::lessThan(source_left, source_right);
+        }
+
+        void AssetBrowserFilterModel::FilterUpdatedSlotImmediate()
+        {
+            auto compFilter = qobject_cast<QSharedPointer<const CompositeFilter> >(m_filter);
+            if (compFilter)
+            {
+                auto& subFilters = compFilter->GetSubFilters();
+                auto it = AZStd::find_if(subFilters.begin(), subFilters.end(), [subFilters](FilterConstType filter) -> bool
+                {
+                    auto assetTypeFilter = qobject_cast<QSharedPointer<const CompositeFilter> >(filter);
+                    return !assetTypeFilter.isNull();
+                });
+                if (it != subFilters.end())
+                {
+                    m_assetTypeFilter = qobject_cast<QSharedPointer<const CompositeFilter> >(*it);
+                }
+                it = AZStd::find_if(subFilters.begin(), subFilters.end(), [subFilters](FilterConstType filter) -> bool
+                {
+                    auto stringFilter = qobject_cast<QSharedPointer<const StringFilter> >(filter);
+                    return !stringFilter.isNull();
+                });
+                if (it != subFilters.end())
+                {
+                    m_stringFilter = qobject_cast<QSharedPointer<const StringFilter> >(*it);
+                }
+            }
+            invalidateFilter();
+            Q_EMIT filterChanged();
         }
 
         void AssetBrowserFilterModel::filterUpdatedSlot()
@@ -108,30 +161,7 @@ namespace AzToolsFramework
                 QTimer::singleShot(0, this, [this]()
                 {
                     m_alreadyRecomputingFilters = false;
-                    auto compFilter = qobject_cast<QSharedPointer<const CompositeFilter> >(m_filter);
-                    if (compFilter)
-                    {
-                        auto& subFilters = compFilter->GetSubFilters();
-                        auto it = AZStd::find_if(subFilters.begin(), subFilters.end(), [subFilters](FilterConstType filter) -> bool
-                        {
-                            auto assetTypeFilter = qobject_cast<QSharedPointer<const CompositeFilter> >(filter);
-                            return !assetTypeFilter.isNull();
-                        });
-                        if (it != subFilters.end())
-                        {
-                            m_assetTypeFilter = qobject_cast<QSharedPointer<const CompositeFilter> >(*it);
-                        }
-                        it = AZStd::find_if(subFilters.begin(), subFilters.end(), [subFilters](FilterConstType filter) -> bool
-                        {
-                            auto stringFilter = qobject_cast<QSharedPointer<const StringFilter> >(filter);
-                            return !stringFilter.isNull();
-                        });
-                        if (it != subFilters.end())
-                        {
-                            m_stringFilter = qobject_cast<QSharedPointer<const StringFilter> >(*it);
-                        }
-                    }
-                    invalidateFilter();
+                    FilterUpdatedSlotImmediate();
                 }
                 );
             }

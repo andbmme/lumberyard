@@ -13,8 +13,10 @@
 #define CRYINCLUDE_EDITOR_LOGIN_H
 #pragma once
 
+#if !defined(AZ_PLATFORM_LINUX)
+
 #include <QDialog>
-#include <QWebView>
+#include <QWebEngineView>
 #include <QVBoxLayout>
 #include <QLabel>
 #include <QMovie>
@@ -22,9 +24,13 @@
 #include <QSpacerItem>
 
 #include <memory>
+#include <AzCore/PlatformDef.h>
+#include <AzFramework/AzFramework_Traits_Platform.h>
+AZ_PUSH_DISABLE_WARNING(4251 4355 4996, "-Wunknown-warning-option")
 #include <aws/core/http/HttpClientFactory.h>
 #include <aws/core/client/ClientConfiguration.h>
 #include <aws/core/utils/json/JsonSerializer.h>
+AZ_POP_DISABLE_WARNING
 
 namespace Amazon {
     class QWidgetWinWrapper
@@ -50,24 +56,24 @@ namespace Amazon {
         QString m_accessToken;
     };
 
-    /* This simple QWebPage subclass handles opening links in either the editor webview OR invoking the desktop browser*/
+    /* This simple QWebEnginePage subclass handles opening links in either the editor webview OR invoking the desktop browser*/
     class AmazonLoginWebPage
-        : public QWebPage
+        : public QWebEnginePage
     {
     public:
         AmazonLoginWebPage()
             : m_page(nullptr){}
 
-        AmazonLoginWebPage(QWebPage* page)
+        AmazonLoginWebPage(QWebEnginePage* page)
             : m_page(page)
         {}
 
 
-        bool acceptNavigationRequest(QWebFrame* frame, const QNetworkRequest& request, NavigationType type) override;
-        QWebPage* createWindow(WebWindowType type) override;
+        bool acceptNavigationRequest(const QUrl& url, QWebEnginePage::NavigationType type, bool isMainFrame) override;
+        QWebEnginePage* createWindow(QWebEnginePage::WebWindowType type) override;
 
     private:
-        QWebPage* m_page;
+        QWebEnginePage* m_page;
     };
 
     class LoginWelcomeTitle
@@ -80,6 +86,11 @@ namespace Amazon {
         : public QLabel
     {
         Q_OBJECT
+
+    public:
+        explicit LoginWelcomeText(QWidget* parent = nullptr)
+            : QLabel(parent)
+        {}
     };
 
     class LoginFooterText
@@ -95,7 +106,7 @@ namespace Amazon {
     };
 
     class LoginWebView
-        : public QWebView
+        : public QWebEngineView
     {
         Q_OBJECT;
     };
@@ -110,7 +121,7 @@ namespace Amazon {
         ~LoginDialog();
     public slots:
         void urlChanged(const QUrl& url);
-        void networkFinished(QNetworkReply* reply);
+        void networkFinished(bool ok);
         void init();
 
     private:
@@ -122,7 +133,6 @@ namespace Amazon {
         LoginFooterText m_footerText;
         QVBoxLayout m_layout;
         AmazonLoginWebPage m_page;
-        QNetworkAccessManager* m_nam;
         LoginWelcomeText m_loadingInfoLbl;
         LoginWelcomeText m_loadingLbl;
         QPushButton m_loadingRetry;
@@ -135,9 +145,12 @@ namespace Amazon {
     {
     public:
         LoginManager(QWidget& parent)
-            : m_httpClient(Aws::Http::CreateHttpClient(Aws::Client::ClientConfiguration()))
-            , m_parent(parent)
-        {};
+            : m_parent(parent)
+        {
+            Aws::Client::ClientConfiguration config;
+            config.enableTcpKeepAlive = AZ_TRAIT_AZFRAMEWORK_AWS_ENABLE_TCP_KEEP_ALIVE_SUPPORTED;
+            m_httpClient = Aws::Http::CreateHttpClient(config);
+        }
 
         std::shared_ptr<AmazonIdentity> GetLoggedInUser();
         void LogOut() { m_identity.reset(); }
@@ -156,6 +169,10 @@ namespace Amazon {
         QWidget& m_parent;
     };
 } // namespace Amazon
+
+#endif // #if !defined(AZ_PLATFORM_LINUX)
+
+
 #endif // CRYINCLUDE_EDITOR_LOGIN_H
 
 

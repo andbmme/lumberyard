@@ -9,13 +9,17 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
-#ifndef AZSTD_THREAD_H
-#define AZSTD_THREAD_H 1
+#pragma once
 
 #include <AzCore/std/parallel/config.h>
 #include <AzCore/std/allocator.h>
 #include <AzCore/std/typetraits/alignment_of.h>
 #include <AzCore/std/chrono/types.h>
+
+#define AFFINITY_MASK_ALL          AZ_TRAIT_THREAD_AFFINITY_MASK_ALLTHREADS
+#define AFFINITY_MASK_MAINTHREAD   AZ_TRAIT_THREAD_AFFINITY_MASK_MAINTHREAD
+#define AFFINITY_MASK_RENDERTHREAD AZ_TRAIT_THREAD_AFFINITY_MASK_RENDERTHREAD
+#define AFFINITY_MASK_USERTHREADS  AZ_TRAIT_THREAD_AFFINITY_MASK_WORKERTHREADS
 
 namespace AZStd
 {
@@ -55,12 +59,12 @@ namespace AZStd
             : m_stack(0)
             , m_stackSize(-1)
             , m_priority(-100000)
-            , m_cpuId(-1)
+            , m_cpuId(AFFINITY_MASK_ALL)
             , m_isJoinable(true)
             , m_name("AZStd::thread")
         {}
 
-        void*           m_stack;        ///< Stack memory pointer (required for Wii)
+        void*           m_stack;        ///< Stack memory pointer
 
         /**
         *  Thread stack size.
@@ -76,18 +80,21 @@ namespace AZStd
          *      THREAD_PRIORITY_NORMAL  (This is the default)
          *      THREAD_PRIORITY_ABOVE_NORMAL
          *      THREAD_PRIORITY_TIME_CRITICAL
+         *
+         *  UnixLike platforms inherit calling thread priority by default,
+         *      see platform specific implementations for more details
          */
         int             m_priority;
 
         /**
-         *  The CPU id that this thread will be running on, see \ref AZStd::thread_desc::m_cpuId.
+         *  The CPU ids (as a bitfield) that this thread will be running on, see \ref AZStd::thread_desc::m_cpuId.
          *  Windows: This parameter is ignored.
-         *  On other platforms, this maps directly to the core number [0-n], default is 0
+         *  On other platforms, each bit maps directly to the core numbers [0-n], default is 0
          */
         int             m_cpuId;
 
         bool            m_isJoinable;   ///< If we can join the thread.
-        const char*    m_name;          ///< Debug thread name.
+        const char*     m_name;         ///< Debug thread name.
     };
 
 
@@ -105,11 +112,10 @@ namespace AZStd
          * \note thread_desc is AZStd extension.
          */
         template <class F>
-        explicit thread(F f, const thread_desc* desc = 0);
+        explicit thread(F&& f, const thread_desc* desc = 0);
 
         ~thread();
 
-#ifdef AZ_HAS_RVALUE_REFS
         thread(thread&& rhs)
             : m_thread(rhs.m_thread)
         {
@@ -122,7 +128,7 @@ namespace AZStd
             rhs.m_thread = AZStd::thread().m_thread; // set default value
             return *this;
         }
-#endif
+
         // Till we fully have RVALUES
         template <class F>
         explicit thread(Internal::thread_move_t<F> f);
@@ -151,7 +157,7 @@ namespace AZStd
 
         // Extensions
         //thread(AZStd::delegate<void ()> d,const thread_desc* desc = 0);
-
+        
     private:
         thread(thread&);
         thread& operator=(thread&);
@@ -183,11 +189,9 @@ namespace AZStd
         public:
             virtual ~thread_info() {}
             virtual void execute() = 0;
-#if defined(AZ_PLATFORM_APPLE)
             thread_info()
                 : m_name(nullptr) {}
             const char* m_name;
-#endif
         };
 
         /**
@@ -198,8 +202,10 @@ namespace AZStd
             : public thread_info
         {
         public:
-            thread_info_impl(F f)
+            thread_info_impl(const F& f)
                 : m_f(f) {}
+            thread_info_impl(F&& f)
+                : m_f(AZStd::move(f)) {}
             thread_info_impl(Internal::thread_move_t<F> f)
                 : m_f(f) {}
             virtual void execute() { m_f(); }
@@ -239,20 +245,21 @@ namespace AZStd
         };
 
         template<typename F>
-        static AZ_INLINE thread_info*           create_thread_info(F f)
+        static AZ_INLINE thread_info* create_thread_info(F&& f)
         {
+            using FunctorType = AZStd::decay_t<F>;
             AZStd::allocator a;
-            return new (a.allocate(sizeof(thread_info_impl<F>), AZStd::alignment_of< thread_info_impl<F> >::value))thread_info_impl<F>(f);
+            return new (a.allocate(sizeof(thread_info_impl<FunctorType>), AZStd::alignment_of< thread_info_impl<FunctorType> >::value))thread_info_impl<FunctorType>(AZStd::forward<F>(f));
         }
 
         template<typename F>
-        static AZ_INLINE thread_info*           create_thread_info(thread_move_t<F> f)
+        static AZ_INLINE thread_info* create_thread_info(thread_move_t<F> f)
         {
             AZStd::allocator a;
             return new (a.allocate(sizeof(thread_info_impl<F>), AZStd::alignment_of< thread_info_impl<F> >::value))thread_info_impl<F>(f);
         }
 
-        static AZ_INLINE void                   destroy_thread_info(thread_info*& ti)
+        static AZ_INLINE void destroy_thread_info(thread_info*& ti)
         {
             if (ti)
             {
@@ -263,15 +270,20 @@ namespace AZStd
             }
         }
     }
+    
+    template <>
+    struct hash<thread_id>
+    {
+        size_t operator()(const thread_id& value) const
+        {
+            static_assert(sizeof(thread_id) <= sizeof(size_t), "thread_id should less than size_t");
+            size_t hash{};
+            *reinterpret_cast<thread_id*>(&hash) = value;
+            return hash;
+        }
+    };
+
 }
 
-#if defined(AZ_PLATFORM_WINDOWS)
-    #include <AzCore/std/parallel/internal/thread_win.h>
-#elif defined(AZ_PLATFORM_LINUX) || defined(AZ_PLATFORM_ANDROID) || defined(AZ_PLATFORM_APPLE)
-    #include <AzCore/std/parallel/internal/thread_linux.h>
-#else
-    #error Platform not supported
-#endif
+#include <AzCore/std/parallel/internal/thread_Platform.h>
 
-#endif // AZSTD_THREAD_H
-#pragma once

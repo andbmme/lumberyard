@@ -17,13 +17,14 @@
 #include "StdAfx.h"
 #include "terrain_sector.h"
 #include "terrain.h"
-#include "ObjMan.h"
 #include <AzCore/std/functional.h>
 #include "Terrain/Texture/MacroTextureImporter.h"
+#include <Terrain/Bus/LegacyTerrainBus.h>
+
 
 uint8 CTerrainNode::GetTextureLOD(float fDistance, const SRenderingPassInfo& passInfo)
 {
-    const int rootTreeLevel = GetTerrain()->GetRootNode()->m_nTreeLevel;
+    const int rootTreeLevel = CTerrain::GetTerrain()->GetRootNode()->m_nTreeLevel;
     const int maxLOD = m_bForceHighDetail ? 0 : rootTreeLevel;
 
     if (!bMacroTextureExists())
@@ -44,7 +45,7 @@ uint8 CTerrainNode::GetTextureLOD(float fDistance, const SRenderingPassInfo& pas
     {
         return maxLOD;
     }
-    float pixelsPerMeter = float(sectorSizeInPixels) / float(GetTerrain()->GetSectorSize());
+    float pixelsPerMeter = float(sectorSizeInPixels) / float(CTerrain::GetTerrain()->GetSectorSize());
 
     //
     // (bethelz) I honestly don't think these magic numbers mean anything. It seems completely ad hoc.
@@ -53,7 +54,7 @@ uint8 CTerrainNode::GetTextureLOD(float fDistance, const SRenderingPassInfo& pas
     // compares against another ad-hoc LOD switch distance.
     //
 
-    int magicDistance = int(pixelsPerMeter * 0.05f * (fDistance * passInfo.GetZoomFactor()) * GetFloatCVar(e_TerrainTextureLodRatio));
+    int magicDistance = int(pixelsPerMeter * 0.05f * (fDistance * passInfo.GetZoomFactor()) * GetCVars()->e_TerrainTextureLodRatio);
     for (int lod = 0; lod < maxLOD; lod++)
     {
         const int step = 48;
@@ -82,12 +83,12 @@ bool CTerrainNode::bMacroTextureExists() const
 
 MacroTexture* CTerrainNode::GetMacroTexture()
 {
-    return GetTerrain()->m_MacroTexture.get();
+    return CTerrain::GetTerrain()->m_MacroTexture.get();
 }
 
 const MacroTexture* CTerrainNode::GetMacroTexture() const
 {
-    return GetTerrain()->m_MacroTexture.get();
+    return CTerrain::GetTerrain()->m_MacroTexture.get();
 }
 
 static void InitSectorTextureSet(
@@ -118,7 +119,7 @@ void CTerrainNode::RequestTextures(const SRenderingPassInfo& passInfo)
     }
 }
 
-void CTerrainNode::SetSectorTexture(unsigned int nEditorDiffuseTex)
+void CTerrainNode::SetSectorTexture(unsigned int nEditorDiffuseTex, unsigned int nEditorDiffuseTexSizeX, unsigned int nEditorDiffuseTexSizeY)
 {
     FUNCTION_PROFILER_3DENGINE;
 
@@ -127,6 +128,11 @@ void CTerrainNode::SetSectorTexture(unsigned int nEditorDiffuseTex)
 
     // disable texture streaming
     m_nEditorDiffuseTex = nEditorDiffuseTex;
+
+    AZ_Assert((nEditorDiffuseTex == 0) || (nEditorDiffuseTexSizeX > 0), "Texture size is invalid");
+    AZ_Assert((nEditorDiffuseTexSizeX == nEditorDiffuseTexSizeY), "Texture size is invalid");
+
+    m_nEditorDiffuseTexSize = nEditorDiffuseTexSizeX;
 }
 
 void CTerrainNode::SetupTexturing(const SRenderingPassInfo& passInfo)
@@ -144,12 +150,13 @@ void CTerrainNode::SetupTexturing(const SRenderingPassInfo& passInfo)
 
     if (bMacroTextureExists())
     {
-        float tileSizeInPixels = (float)GetMacroTexture()->GetTileSizeInPixels();
         float nodeSizeInUnits = (float)(CTerrain::GetSectorSize() << m_nTreeLevel);
-        InitSectorTextureSet(tileSizeInPixels, nodeSizeInUnits, m_nOriginX, m_nOriginY, m_TextureSet);
 
         if (!m_nEditorDiffuseTex)
         {
+            float tileSizeInPixels = (float)GetMacroTexture()->GetTileSizeInPixels();
+            InitSectorTextureSet(tileSizeInPixels, nodeSizeInUnits, m_nOriginX, m_nOriginY, m_TextureSet);
+
             MacroTexture::TextureTile tile;
             if (GetMacroTexture()->TryGetTextureTile(GetTextureRegion(), m_TextureLOD, tile))
             {
@@ -157,17 +164,21 @@ void CTerrainNode::SetupTexturing(const SRenderingPassInfo& passInfo)
                 float tileSize = tile.region.Size   * terrainSize;
                 float tileX    = tile.region.Left   * terrainSize;
                 float tileY    = tile.region.Bottom * terrainSize;
-                InitSectorTextureSet(tileSizeInPixels, tileSize, tileX, tileY, renderSet);
+                InitSectorTextureSet(tileSizeInPixels, tileSize, tileX, tileY, m_TextureSet);
 
-                renderSet.nTex0 = m_TextureSet.nTex0 = tile.textureId;
+                m_TextureSet.nTex0 = tile.textureId;
+                renderSet = m_TextureSet;
             }
             else // Engine tile lookup failed, revert to white
             {
-                renderSet = m_TextureSet = SSectorTextureSet(GetTerrain()->m_nWhiteTexId);
+                renderSet = m_TextureSet = SSectorTextureSet(CTerrain::GetTerrain()->m_nWhiteTexId);
             }
         }
         else // Using editor override texture instead.
         {
+            // Set up the UVs based on the size of the Editor override texture instead of the size stored in the Macro Texture.
+            InitSectorTextureSet(static_cast<float>(m_nEditorDiffuseTexSize), nodeSizeInUnits, m_nOriginX, m_nOriginY, m_TextureSet);
+
             m_TextureSet.nTex0 = m_nEditorDiffuseTex;
 
             renderSet = m_TextureSet;
@@ -183,7 +194,7 @@ void CTerrainNode::SetupTexturing(const SRenderingPassInfo& passInfo)
     switch (GetCVars()->e_TerrainTextureDebug)
     {
     case DEBUG_MATERIAL_WHITE:
-        pRenderMesh->SetCustomTexID(m_pTerrain->m_nWhiteTexId);
+        pRenderMesh->SetCustomTexID(CTerrain::GetTerrain()->m_nWhiteTexId);
         break;
 
     case DEBUG_MATERIAL_DEFAULT:
@@ -195,11 +206,21 @@ void CTerrainNode::SetupTexturing(const SRenderingPassInfo& passInfo)
         pRenderMesh->SetCustomTexID(textureId);
     }
 
+#if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
+    // Use m_TextureParams for double buffering to prevent flickering of terrain texture due to threading issues
+    const int fillThreadId = passInfo.ThreadID();
+    leafData.m_TextureParams[fillThreadId].Set(renderSet);
+#else
     leafData.m_TextureParams[0].Set(renderSet);
-    pRenderMesh->GetChunks()[0].pRE->m_CustomData = leafData.m_TextureParams;
+#endif // if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
+
+    if (!pRenderMesh->GetChunks().empty())
+    {
+        pRenderMesh->GetChunks()[0].pRE->m_CustomData = leafData.m_TextureParams;
+    }
 }
 
-void CTerrain::SetTerrainSectorTexture(int nTexSectorX, int nTexSectorY, unsigned int textureId, bool bMergeNotAllowed)
+void CTerrain::SetTerrainSectorTexture(int nTexSectorX, int nTexSectorY, unsigned int textureId, unsigned int textureSizeX, unsigned int textureSizeY, bool bMergeNotAllowed)
 {
     int nDiffTexTreeLevelOffset = 0;
 
@@ -208,12 +229,12 @@ void CTerrain::SetTerrainSectorTexture(int nTexSectorX, int nTexSectorY, unsigne
         nTexSectorX >= CTerrain::GetSectorsTableSize() >> nDiffTexTreeLevelOffset ||
         nTexSectorY >= CTerrain::GetSectorsTableSize() >> nDiffTexTreeLevelOffset)
     {
-        Warning("CTerrain::LockSectorTexture: (nTexSectorX, nTexSectorY) values out of range");
+        AZ_Warning("LegacyTerrain", false, "CTerrain::LockSectorTexture: (nTexSectorX, nTexSectorY) values out of range");
         return;
     }
 
     CTerrainNode* pNode = m_NodePyramid[nDiffTexTreeLevelOffset][nTexSectorX][nTexSectorY];
-    pNode->SetSectorTexture(textureId);
+    pNode->SetSectorTexture(textureId, textureSizeX, textureSizeY);
 
     while (pNode)
     {
@@ -258,6 +279,11 @@ void CTerrain::CloseTerrainTextureFile()
         });
 }
 
+bool CTerrain::ReadMacroTextureFile(const char* filepath, LegacyTerrain::MacroTextureConfiguration& configuration) const
+{
+    return MacroTextureImporter::ReadMacroTextureFile(filepath, configuration);
+}
+
 bool CTerrain::OpenTerrainTextureFile(const char* szFileName)
 {
     FUNCTION_PROFILER_3DENGINE;
@@ -268,6 +294,7 @@ bool CTerrain::OpenTerrainTextureFile(const char* szFileName)
     TraverseTree([this](CTerrainNode* node)
         {
             node->m_nEditorDiffuseTex = 0;
+            node->m_nEditorDiffuseTexSize = 0;
             node->m_bForceHighDetail = false;
             node->m_TextureSet = SSectorTextureSet(m_nWhiteTexId);
         });
@@ -280,12 +307,15 @@ bool CTerrain::OpenTerrainTextureFile(const char* szFileName)
         return false;
     }
 
-    if (!m_bEditor)
+    // Notify the Editor that it might need to refresh any unsaved data overrides to the macro texture.
+    LegacyTerrain::LegacyTerrainEditorDataRequestBus::Broadcast(&LegacyTerrain::LegacyTerrainEditorDataRequests::RefreshEngineMacroTexture);
+
+    if (!IsEditor())
     {
         FRAME_PROFILER("CTerrain::OpenTerrainTextureFile: ReleaseHoleNodes & UpdateTerrainNodes", GetSystem(), PROFILE_3DENGINE);
         if (Get3DEngine()->IsObjectTreeReady())
         {
-            Get3DEngine()->GetObjectTree()->UpdateTerrainNodes();
+            Get3DEngine()->GetIObjectTree()->UpdateTerrainNodes();
         }
     }
 
@@ -294,7 +324,7 @@ bool CTerrain::OpenTerrainTextureFile(const char* szFileName)
 
 bool CTerrain::IsTextureStreamingInProgress() const
 {
-    MacroTexture::TileStatistics statistics;
+    LegacyTerrain::MacroTexture::TileStatistics statistics;
     if (TryGetTextureStatistics(statistics))
     {
         return statistics.streamingCount > 0;
@@ -302,7 +332,7 @@ bool CTerrain::IsTextureStreamingInProgress() const
     return false;
 }
 
-bool CTerrain::TryGetTextureStatistics(MacroTexture::TileStatistics& statistics) const
+bool CTerrain::TryGetTextureStatistics(LegacyTerrain::MacroTexture::TileStatistics& statistics) const
 {
     if (m_MacroTexture)
     {

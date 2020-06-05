@@ -10,20 +10,21 @@
 *
 */
 
-#include "TestTypes.h"
-
 #include <AzCore/IO/FileIO.h>
 #include <AzCore/std/string/string.h>
 #include <AzCore/PlatformIncl.h>
+#include <AzCore/UnitTest/TestTypes.h>
 #include <AzFramework/IO/LocalFileIO.h>
 #include <AzFramework/StringFunc/StringFunc.h>
 #include <AzFramework/IO/FileOperations.h>
 #include <time.h>
 
-#ifdef AZ_PLATFORM_WINDOWS
+#include <AzFrameworkTests_Traits_Platform.h>
+
+#if AZ_TRAIT_USE_WINDOWS_FILE_API
 #include <sys/stat.h>
 #include <io.h>
-#endif // AZ_PLATFORM_WINDOWS
+#endif
 
 using namespace AZ;
 using namespace AZ::IO;
@@ -111,13 +112,23 @@ namespace UnitTest
 
         FileIOStreamTest()
         {
+        }
+
+        void SetUp() override
+        {
+            AllocatorsFixture::SetUp();
             m_prevFileIO = AZ::IO::FileIOBase::GetInstance();
             AZ::IO::FileIOBase::SetInstance(&m_fileIO);
         }
 
         ~FileIOStreamTest()
         {
+        }
+
+        void TearDown() override
+        {
             AZ::IO::FileIOBase::SetInstance(m_prevFileIO);
+            AllocatorsFixture::TearDown();
         }
 
         void run()
@@ -145,12 +156,9 @@ namespace UnitTest
     namespace LocalFileIOTest
     {
         class FolderFixture
-            : public AllocatorsFixture
+            : public ScopedAllocatorSetupFixture
         {
         public:
-            // Contains random folder name, but needs to be same for all tests
-            static int randomFolderKey;
-
             AZStd::string m_root;
             AZStd::string folderName;
             AZStd::string deepFolder;
@@ -160,16 +168,15 @@ namespace UnitTest
             AZStd::string file01Name;
             AZStd::string file02Name;
             AZStd::string file03Name;
+            int m_randomFolderKey = 0;
 
             FolderFixture()
             {
-                if (randomFolderKey == 0)
-                {
-                    // lets use a random temp folder name
-                    srand(clock());
-                    randomFolderKey = rand();
-                }
+            }
 
+
+            void ChooseRandomFolder()
+            {
                 char currentDir[AZ_MAX_PATH_LEN];
 #if AZ_TRAIT_USE_WINDOWS_FILE_API
                 GetCurrentDirectoryA(AZ_MAX_PATH_LEN, currentDir);
@@ -185,7 +192,7 @@ namespace UnitTest
                     folderName = PathUtil::AddSlash(folderName);
                 }
 
-                AZStd::string tempName = AZStd::string::format("tmp%08x", randomFolderKey);
+                AZStd::string tempName = AZStd::string::format("tmp%08x", m_randomFolderKey);
                 folderName.append(tempName.c_str());
                 folderName = PathUtil::AddSlash(folderName);
                 AZStd::replace(folderName.begin(), folderName.end(), '\\', '/');
@@ -211,13 +218,53 @@ namespace UnitTest
 
                 // make a couple files there, and in the root:
                 fileRoot = PathUtil::AddSlash(extraFolder);
+            }
+
+            void SetUp() override
+            {
+                // lets use a random temp folder name
+                srand(clock());
+                m_randomFolderKey = rand();
+
+                LocalFileIO local;
+                do
+                {
+                    ChooseRandomFolder();
+                    ++m_randomFolderKey;
+                } while (local.IsDirectory(fileRoot.c_str()));
 
                 file01Name = fileRoot + "file01.txt";
                 file02Name = fileRoot + "file02.asdf";
                 file03Name = fileRoot + "test123.wha";
             }
+        
+            void TearDown() override
+            {
+                if ((!folderName.empty())&&(strstr(folderName.c_str(), "/temp") != nullptr))
+                {
+                    // cleanup!
+                    LocalFileIO local;
+                    local.DestroyPath(folderName.c_str());
+                }
+            }
+            void CreateTestFiles()
+            {
+                LocalFileIO local;
+                AZ_TEST_ASSERT(local.CreatePath(fileRoot.c_str()));
+                AZ_TEST_ASSERT(local.IsDirectory(fileRoot.c_str()));
+                for (const AZStd::string& filename : { file01Name, file02Name, file03Name })
+                {
+#ifdef AZ_COMPILER_MSVC
+                    FILE* tempFile;
+                    fopen_s(&tempFile, filename.c_str(), "wb");
+#else
+                    FILE* tempFile = fopen(filename.c_str(), "wb");
+#endif
+                    fwrite("this is just a test", 1, 19, tempFile);
+                    fclose(tempFile);
+                }
+            }
         };
-        int FolderFixture::randomFolderKey = 0;
 
         class DirectoryTest
             : public FolderFixture
@@ -270,12 +317,9 @@ namespace UnitTest
                 AZ_TEST_ASSERT(local.CreatePath(fileRoot.c_str()));
                 AZ_TEST_ASSERT(local.IsDirectory(fileRoot.c_str()));
 
-#ifdef AZ_COMPILER_MSVC
-                FILE* tempFile;
-                fopen_s(&tempFile, file01Name.c_str(), "wb");
-#else
-                FILE* tempFile = fopen(file01Name.c_str(), "wb");
-#endif
+                FILE* tempFile = nullptr;
+                azfopen(&tempFile, file01Name.c_str(), "wb");
+
                 fwrite("this is just a test", 1, 19, tempFile);
                 fclose(tempFile);
 
@@ -395,23 +439,25 @@ namespace UnitTest
             {
                 LocalFileIO local;
 
-#if !defined(AZ_PLATFORM_ANDROID) // CHMOD never works, ever, on android due to security constraints on internal storage.  You'd need root.
+                CreateTestFiles();
 
-#ifdef AZ_PLATFORM_WINDOWS
+#if AZ_TRAIT_AZFRAMEWORKTEST_PERFORM_CHMOD_TEST
+
+#if AZ_TRAIT_USE_WINDOWS_FILE_API
                 _chmod(file01Name.c_str(), _S_IREAD);
 #else
                 chmod(file01Name.c_str(), S_IRUSR | S_IRGRP | S_IROTH);
-#endif // windows
+#endif
 
                 AZ_TEST_ASSERT(local.IsReadOnly(file01Name.c_str()));
 
-#ifdef AZ_PLATFORM_WINDOWS
+#if AZ_TRAIT_USE_WINDOWS_FILE_API
                 _chmod(file01Name.c_str(), _S_IREAD | _S_IWRITE);
 #else
                 chmod(file01Name.c_str(), S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
-#endif // windows
+#endif
 
-#endif // CHMOD not working on android
+#endif
 
                 AZ_TEST_ASSERT(!local.IsReadOnly(file01Name.c_str()));
             }
@@ -429,6 +475,19 @@ namespace UnitTest
             void run()
             {
                 LocalFileIO local;
+                
+                AZ_TEST_ASSERT(local.CreatePath(fileRoot.c_str()));
+                AZ_TEST_ASSERT(local.IsDirectory(fileRoot.c_str()));
+                {
+#ifdef AZ_COMPILER_MSVC
+                    FILE* tempFile;
+                    fopen_s(&tempFile, file01Name.c_str(), "wb");
+#else
+                    FILE* tempFile = fopen(file01Name.c_str(), "wb");
+#endif
+                    fwrite("this is just a test", 1, 19, tempFile);
+                    fclose(tempFile);
+                }
 
                 // make sure attributes are copied (such as modtime) even if they're copied:
                 AZStd::this_thread::sleep_for(AZStd::chrono::milliseconds(1500));
@@ -469,6 +528,8 @@ namespace UnitTest
             void run()
             {
                 AZ::IO::LocalFileIO local;
+
+                CreateTestFiles();
 
                 AZ::u64 modTimeC = 0;
                 AZ::u64 modTimeD = 0;
@@ -520,6 +581,8 @@ namespace UnitTest
             void run()
             {
                 AZ::IO::LocalFileIO local;
+
+                CreateTestFiles();
 
                 AZStd::vector<AZStd::string> resultFiles;
                 bool foundOK = local.FindFiles(fileRoot.c_str(), "*.*",
@@ -613,7 +676,7 @@ namespace UnitTest
 
                 AZ::u64 f3s = 0;
                 AZ_TEST_ASSERT(local.Size(file04Name.c_str(), f3s));
-                AZ_TEST_ASSERT(f3s == 4);
+                AZ_TEST_ASSERT(f3s == 19);
 
                 // deep destroy directory:
                 AZ_TEST_ASSERT(local.DestroyPath(folderName.c_str()));
@@ -645,11 +708,37 @@ namespace UnitTest
 
                 // test resolving
                 const char* aliasTestPath = "@test@\\some\\path\\somefile.txt";
-                char aliasResolvedPath[MAX_PATH];
-                bool resolveDidWork = local.ResolvePath(aliasTestPath, aliasResolvedPath, MAX_PATH);
+                char aliasResolvedPath[AZ_MAX_PATH_LEN];
+                bool resolveDidWork = local.ResolvePath(aliasTestPath, aliasResolvedPath, AZ_MAX_PATH_LEN);
                 AZ_TEST_ASSERT(resolveDidWork);
                 AZStd::string expectedResolvedPath = folderName + "some/path/somefile.txt";
                 AZ_TEST_ASSERT(aliasResolvedPath == expectedResolvedPath);
+
+                // more resolve path tests with invalid inputs
+                const char* testPath = nullptr;
+                char* testResolvedPath = nullptr;
+                resolveDidWork = local.ResolvePath(testPath, aliasResolvedPath, AZ_MAX_PATH_LEN);
+                AZ_TEST_ASSERT(!resolveDidWork);
+                resolveDidWork = local.ResolvePath(aliasTestPath, testResolvedPath, AZ_MAX_PATH_LEN);
+                AZ_TEST_ASSERT(!resolveDidWork);
+                resolveDidWork = local.ResolvePath(aliasTestPath, aliasResolvedPath, 0);
+                AZ_TEST_ASSERT(!resolveDidWork);
+
+                // Test that sending in a too small output path fails,
+                // if the output buffer is smaller than the string being resolved
+                size_t SMALLER_THAN_PATH_BEING_RESOLVED = strlen(aliasTestPath) - 1;
+                AZ_TEST_START_TRACE_SUPPRESSION;
+                resolveDidWork = local.ResolvePath(aliasTestPath, aliasResolvedPath, SMALLER_THAN_PATH_BEING_RESOLVED);
+                AZ_TEST_STOP_TRACE_SUPPRESSION(1);
+                AZ_TEST_ASSERT(!resolveDidWork);
+
+                // Test that sending in a too small output path fails,
+                // if the output buffer is too small to hold the resolved path
+                size_t SMALLER_THAN_FINAL_RESOLVED_PATH = expectedResolvedPath.length() - 1;
+                AZ_TEST_START_TRACE_SUPPRESSION;
+                resolveDidWork = local.ResolvePath(aliasTestPath, aliasResolvedPath, SMALLER_THAN_FINAL_RESOLVED_PATH);
+                AZ_TEST_STOP_TRACE_SUPPRESSION(1);
+                AZ_TEST_ASSERT(!resolveDidWork);
 
                 // test clearing an alias
                 local.ClearAlias("@test@");
@@ -713,7 +802,7 @@ namespace UnitTest
                 localFileIO.Write(fileHandle, "TestFile", 8);
                 localFileIO.Close(fileHandle);
 
-#if defined(AZ_PLATFORM_WINDOWS)
+#if AZ_TRAIT_AZFRAMEWORKTEST_MOVE_WHILE_OPEN
                 fileHandle1 = AZ::IO::InvalidHandle;
                 localFileIO.Open(file02Name.c_str(), OpenMode::ModeRead | OpenMode::ModeText, fileHandle1);
                 testString[0] = '\0';

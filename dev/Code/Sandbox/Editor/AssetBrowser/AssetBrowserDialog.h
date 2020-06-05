@@ -39,11 +39,6 @@ namespace Ui
     class AssetBrowserDialog;
 }
 
-namespace AssetBrowser
-{
-    const UINT kMaxDatabaseCount = 100;
-};
-
 template<typename T>
 class CWidgetWrapper;
 
@@ -160,7 +155,6 @@ public:
     void OnUpdateAssetBrowserShowList();
     void OnUpdateAssetBrowserShowPreview();
     void OnUpdateAssetBrowserShowFilters();
-    void OnUpdateAssetBrowserEditTags();
     void OnAssetBrowserFromViewportSelection();
     void OnAssetBrowserSelectInViewport();
 

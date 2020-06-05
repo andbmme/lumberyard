@@ -10,11 +10,10 @@
 *
 */
 
-// include the required headers
-#include "AnimGraphConditionCommands.h"
+#include "AnimGraphConditionCommands.h" 
 #include "AnimGraphConnectionCommands.h"
-#include "CommandManager.h"
 
+#include <MCore/Source/ReflectionSerializer.h>
 #include <EMotionFX/Source/ActorInstance.h>
 #include <EMotionFX/Source/AnimGraph.h>
 #include <EMotionFX/Source/AnimGraphInstance.h>
@@ -24,396 +23,397 @@
 #include <EMotionFX/Source/AnimGraphStateMachine.h>
 #include <EMotionFX/Source/BlendTree.h>
 #include <EMotionFX/Source/ActorManager.h>
-
+#include <EMotionFX/CommandSystem/Source/CommandManager.h>
 
 namespace CommandSystem
 {
-    //-------------------------------------------------------------------------------------
-    // add a transition condition
-    //-------------------------------------------------------------------------------------
-    // constructor
-    CommandAnimGraphAddCondition::CommandAnimGraphAddCondition(MCore::Command* orgCommand)
-        : MCore::Command("AnimGraphAddCondition", orgCommand)
-    {
-        mOldConditionIndex = MCORE_INVALIDINDEX32;
-    }
+    AZ_CLASS_ALLOCATOR_IMPL(CommandAddTransitionCondition, EMotionFX::CommandAllocator, 0)
+    const char* CommandAddTransitionCondition::s_commandName = "AnimGraphAddCondition";
+    const char* CommandAddTransitionCondition::s_conditionTypeParameterName = "conditionType";
+    const char* CommandAddTransitionCondition::s_insertAtParameterName = "insertAt";
 
-
-    // destructor
-    CommandAnimGraphAddCondition::~CommandAnimGraphAddCondition()
+    CommandAddTransitionCondition::CommandAddTransitionCondition(MCore::Command* orgCommand)
+        : MCore::Command(s_commandName, orgCommand)
     {
     }
 
-
-    // execute
-    bool CommandAnimGraphAddCondition::Execute(const MCore::CommandLine& parameters, MCore::String& outResult)
+    CommandAddTransitionCondition::CommandAddTransitionCondition(
+        AZ::u32 animGraphId,
+        EMotionFX::AnimGraphConnectionId transitionId,
+        AZ::TypeId conditionType,
+        AZStd::optional<size_t> insertAt,
+        AZStd::optional<AZStd::string> contents,
+        Command* orgCommand)
+        : MCore::Command(s_commandName, orgCommand)
+        , m_insertAt(insertAt)
+        , m_conditionType(conditionType)
     {
-        // get the anim graph to work on
-        EMotionFX::AnimGraph* animGraph = CommandsGetAnimGraph(parameters, this, outResult);
-        if (animGraph == nullptr)
+        SetAnimGraphId(animGraphId);
+        SetTransitionId(transitionId);
+        SetContents(contents);
+    }
+
+    void CommandAddTransitionCondition::Reflect(AZ::ReflectContext* context)
+    {
+        AZ::SerializeContext* serializeContext = azrtti_cast<AZ::SerializeContext*>(context);
+        if (!serializeContext)
+        {
+            return;
+        }
+
+        serializeContext->Class<CommandAddTransitionCondition,
+                            MCore::Command,
+                            EMotionFX::ParameterMixinTransitionId,
+                            EMotionFX::ParameterMixinSerializedContents>()
+            ->Version(1)
+            ->Field("insertAt", &CommandAddTransitionCondition::m_insertAt)
+            ->Field("conditionType", &CommandAddTransitionCondition::m_conditionType)
+            ;
+    }
+
+    bool CommandAddTransitionCondition::Execute(const MCore::CommandLine& parameters, AZStd::string& outResult)
+    {
+        EMotionFX::AnimGraphStateTransition* transition = GetTransition(outResult);
+        if (!transition)
         {
             return false;
         }
+        EMotionFX::AnimGraph* animGraph = transition->GetAnimGraph();
 
-        // store the anim graph id for undo
-        mAnimGraphID = animGraph->GetID();
-
-        // get the name of the node
-        MCore::String name;
-        parameters.GetValue("stateMachineName", this, &name);
-
-        // find the node in the anim graph
-        EMotionFX::AnimGraphNode* node = animGraph->RecursiveFindNode(name.AsChar());
-        if (node == nullptr)
+        EMotionFX::AnimGraphTransitionCondition* newCondition = nullptr;
+        if (m_conditionType)
         {
-            outResult.Format("Cannot find node with name '%s' in anim graph '%s'.", name.AsChar(), animGraph->GetName());
+            newCondition = azdynamic_cast<EMotionFX::AnimGraphTransitionCondition*>(EMotionFX::AnimGraphObjectFactory::Create(m_conditionType.value(), animGraph));
+        }
+        if (!newCondition)
+        {
+            outResult = AZStd::string::format("Condition object invalid. The given transition type is either invalid or no object has been registered with type %s.",
+                m_conditionType.value().ToString<AZStd::string>().c_str());
             return false;
         }
 
-        // check if we are dealing with a state machine node
-        if (node->GetType() != EMotionFX::AnimGraphStateMachine::TYPE_ID)
+        // Deserialize the contents directly, else we might be overwriting things in the end.
+        if (m_contents)
         {
-            outResult.Format("Anim graph node with name '%s' is no state machine.", name.AsChar());
-            return false;
+            MCore::ReflectionSerializer::Deserialize(newCondition, m_contents.value());
         }
 
-        // convert the node into a state machine
-        EMotionFX::AnimGraphStateMachine* stateMachine = static_cast<EMotionFX::AnimGraphStateMachine*>(node);
-
-        // get the transition from the parameter list
-        const uint32 transitionID = parameters.GetValueAsInt("transitionID", this);
-        if (transitionID == MCORE_INVALIDINDEX32)
+        // Redo mode
+        if (m_oldContents)
         {
-            outResult = "Invalid transition id specified.";
-            return false;
+            MCore::ReflectionSerializer::Deserialize(newCondition, m_oldContents.value());
         }
 
-        // find the transition by its id and check if the result is valid
-        EMotionFX::AnimGraphStateTransition* transition = stateMachine->FindTransitionByID(transitionID);
-        if (transition == nullptr)
+        // Get the location and add the new condition.
+        if (m_insertAt && m_insertAt.value() < transition->GetNumConditions())
         {
-            outResult.Format("Cannot find transition with id %i.", transitionID);
-            return false;
-        }
-
-        // get the condition object
-        const uint32                    conditionType   = parameters.GetValueAsInt("conditionType", this);
-        EMotionFX::AnimGraphObject*    conditionObject = EMotionFX::GetAnimGraphManager().GetObjectFactory()->GetRegisteredObject(conditionType);
-        if (conditionObject == nullptr)
-        {
-            outResult.Format("Condition object invalid. The given transition type is either invalid or no object has been registered with type %i.", conditionType);
-            return false;
-        }
-
-        MCORE_ASSERT(conditionObject->GetBaseType() == EMotionFX::AnimGraphTransitionCondition::BASETYPE_ID);
-
-        // clone the condition
-        EMotionFX::AnimGraphObject*                newConditionObject  = EMotionFX::GetAnimGraphManager().GetObjectFactory()->CreateObject(animGraph, conditionObject);
-        EMotionFX::AnimGraphTransitionCondition*   newCondition        = static_cast<EMotionFX::AnimGraphTransitionCondition*>(newConditionObject);
-
-        // set the attributes from a string
-        if (parameters.CheckIfHasParameter("attributesString"))
-        {
-            MCore::String attributesString;
-            parameters.GetValue("attributesString", this, &attributesString);
-            newCondition->InitAttributesFromString(attributesString.AsChar());
-        }
-
-        // if we are in redo mode
-        if (mOldAttributesString.GetIsEmpty() == false)
-        {
-            newCondition->InitAttributesFromString(mOldAttributesString.AsChar());
-        }
-
-        // get the location where to add the new condition
-        uint32 insertAt = MCORE_INVALIDINDEX32;
-        if (parameters.CheckIfHasParameter("insertAt"))
-        {
-            insertAt = parameters.GetValueAsInt("insertAt", this);
-        }
-
-        // add it to the transition
-        if (insertAt == MCORE_INVALIDINDEX32)
-        {
-            transition->AddCondition(newCondition);
+            transition->InsertCondition(newCondition, m_insertAt.value());
         }
         else
         {
-            transition->InsertCondition(newCondition, insertAt);
+            transition->AddCondition(newCondition);
         }
 
         // store information for undo
-        mOldConditionIndex = transition->FindConditionIndex(newCondition);
+        m_oldConditionIndex = transition->FindConditionIndex(newCondition);
+        AZ_Assert(m_oldConditionIndex.IsSuccess(), "We should be able to find the newly added condition index.");
 
         // save the current dirty flag and tell the anim graph that something got changed
-        mOldDirtyFlag = animGraph->GetDirtyFlag();
+        m_oldDirtyFlag = animGraph->GetDirtyFlag();
         animGraph->SetDirtyFlag(true);
 
         // set the command result to the transition id and return success
-        //outResult.Format("%i", transitionID);
-        outResult = MCore::String(transitionID);
-        mOldAttributesString.Clear();
+        outResult = m_transitionId.ToString().c_str();
+        m_oldContents.reset();
 
-        // recursively update attributes of all nodes
-        animGraph->RecursiveUpdateAttributes();
-
-        // update unique datas recursively for all anim graph instances
-        const uint32 numActorInstances = EMotionFX::GetActorManager().GetNumActorInstances();
-        for (uint32 i = 0; i < numActorInstances; ++i)
-        {
-            EMotionFX::AnimGraphInstance* animGraphInstance = EMotionFX::GetActorManager().GetActorInstance(i)->GetAnimGraphInstance();
-            if (animGraphInstance && animGraphInstance->GetAnimGraph() == animGraph)
-            {
-                animGraphInstance->OnUpdateUniqueData();
-            }
-        }
+        newCondition->Reinit();
+        animGraph->UpdateUniqueData();
 
         return true;
     }
 
-
-    // undo the command
-    bool CommandAnimGraphAddCondition::Undo(const MCore::CommandLine& parameters, MCore::String& outResult)
+    bool CommandAddTransitionCondition::Undo(const MCore::CommandLine& parameters, AZStd::string& outResult)
     {
-        // get the anim graph
-        EMotionFX::AnimGraph* animGraph = EMotionFX::GetAnimGraphManager().FindAnimGraphByID(mAnimGraphID);
-        if (animGraph == nullptr)
+        AZ_UNUSED(parameters);
+
+        EMotionFX::AnimGraphStateTransition* transition = GetTransition(outResult);
+        if (!transition)
         {
-            outResult.Format("The anim graph with id '%i' does not exist anymore.", mAnimGraphID);
             return false;
         }
+        EMotionFX::AnimGraph* animGraph = transition->GetAnimGraph();
 
-        MCore::String stateMachineName;
-        parameters.GetValue("stateMachineName", this, &stateMachineName);
-
-        // find the node in the anim graph
-        EMotionFX::AnimGraphNode* node = animGraph->RecursiveFindNode(stateMachineName.AsChar());
-        if (node == nullptr)
+        if (!m_oldConditionIndex.IsSuccess())
         {
-            outResult.Format("Cannot find node with name '%s' in anim graph '%s'.", stateMachineName.AsChar(), animGraph->GetName());
+            outResult = "Cannot remove condition as its former index is invalid.";
             return false;
         }
-
-        // check if we are dealing with a state machine node
-        if (node->GetType() != EMotionFX::AnimGraphStateMachine::TYPE_ID)
-        {
-            outResult.Format("Anim graph node with name '%s' is no state machine.", stateMachineName.AsChar());
-            return false;
-        }
-
-        // convert the node into a state machine
-        EMotionFX::AnimGraphStateMachine* stateMachine = static_cast<EMotionFX::AnimGraphStateMachine*>(node);
-
-        // get the transition id
-        const uint32 transitionID = parameters.GetValueAsInt("transitionID", this);
-
-        // find the transition by its id and check if the result is valid
-        EMotionFX::AnimGraphStateTransition* transition = stateMachine->FindTransitionByID(transitionID);
-        if (transition == nullptr)
-        {
-            outResult.Format("Cannot find transition with id %i.", transitionID);
-            return false;
-        }
-
-        // get the transition condition
-        EMotionFX::AnimGraphTransitionCondition* condition = transition->GetCondition(mOldConditionIndex);
+        EMotionFX::AnimGraphTransitionCondition* condition = transition->GetCondition(m_oldConditionIndex.GetValue());
 
         // store the attributes string for redo
-        mOldAttributesString = condition->CreateAttributesString();
+        m_oldContents = MCore::ReflectionSerializer::Serialize(condition).GetValue();
 
-        MCore::String commandString;
-        commandString.Format("AnimGraphRemoveCondition -animGraphID %i -stateMachineName \"%s\" -transitionID %i -conditionIndex %i", animGraph->GetID(), stateMachineName.AsChar(), transitionID, mOldConditionIndex);
-        if (GetCommandManager()->ExecuteCommandInsideCommand(commandString.AsChar(), outResult) == false)
+        CommandRemoveTransitionCondition* removeConditionCommand = aznew CommandRemoveTransitionCondition(animGraph->GetID(), transition->GetId(), m_oldConditionIndex.GetValue());
+        if (!GetCommandManager()->ExecuteCommandInsideCommand(removeConditionCommand, outResult))
         {
             return false;
         }
 
         // set the dirty flag back to the old value
-        animGraph->SetDirtyFlag(mOldDirtyFlag);
+        animGraph->SetDirtyFlag(m_oldDirtyFlag.value());
+        return true;
+    }
 
-        // recursively update attributes of all nodes
-        animGraph->RecursiveUpdateAttributes();
+    const char* CommandAddTransitionCondition::GetDescription() const
+    {
+        return "Add a new a transition condition to a state machine transition.";
+    }
 
-        // update unique datas recursively for all anim graph instances
-        const uint32 numActorInstances = EMotionFX::GetActorManager().GetNumActorInstances();
-        for (uint32 i = 0; i < numActorInstances; ++i)
+    void CommandAddTransitionCondition::InitSyntax()
+    {
+        GetSyntax().ReserveParameters(5);
+
+        MCore::CommandSyntax& syntax = GetSyntax();
+        ParameterMixinTransitionId::InitSyntax(syntax);
+        ParameterMixinSerializedContents::InitSyntax(syntax);
+
+        syntax.AddRequiredParameter(s_conditionTypeParameterName, "The type id of the transition condition to add.", MCore::CommandSyntax::PARAMTYPE_STRING);
+        syntax.AddParameter(s_insertAtParameterName, "The index at which the transition condition will be added.", MCore::CommandSyntax::PARAMTYPE_INT, "-1");
+    }
+
+    bool CommandAddTransitionCondition::SetCommandParameters(const MCore::CommandLine& parameters)
+    {
+        ParameterMixinTransitionId::SetCommandParameters(parameters);
+        ParameterMixinSerializedContents::SetCommandParameters(parameters);
+
+        if (parameters.CheckIfHasParameter(s_conditionTypeParameterName))
         {
-            EMotionFX::AnimGraphInstance* animGraphInstance = EMotionFX::GetActorManager().GetActorInstance(i)->GetAnimGraphInstance();
-            if (animGraphInstance && animGraphInstance->GetAnimGraph() == animGraph)
-            {
-                animGraphInstance->OnUpdateUniqueData();
-            }
+            const AZStd::string& typeIdString = parameters.GetValue(s_conditionTypeParameterName, this);
+            m_conditionType = AZ::TypeId::CreateString(typeIdString.c_str(), typeIdString.size());
+        }
+
+        if (parameters.CheckIfHasParameter(s_insertAtParameterName))
+        {
+            m_insertAt = parameters.GetValueAsInt(s_insertAtParameterName, this);
         }
 
         return true;
     }
 
+    ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-    // init the syntax of the command
-    void CommandAnimGraphAddCondition::InitSyntax()
-    {
-        GetSyntax().ReserveParameters(6);
-        GetSyntax().AddRequiredParameter("stateMachineName",    "The name of the state machine.", MCore::CommandSyntax::PARAMTYPE_STRING);
-        GetSyntax().AddRequiredParameter("conditionType",       "The type id of the transition condition to add.", MCore::CommandSyntax::PARAMTYPE_INT);
-        GetSyntax().AddRequiredParameter("transitionID",        "The ID of the transition.", MCore::CommandSyntax::PARAMTYPE_INT);
-        GetSyntax().AddParameter("animGraphID",                "The id of the anim graph to work on.", MCore::CommandSyntax::PARAMTYPE_INT, "-1");
-        GetSyntax().AddParameter("insertAt",                    "The index at which the transition condition will be added.", MCore::CommandSyntax::PARAMTYPE_INT, "-1");
-        GetSyntax().AddParameter("attributesString",            "The node attributes as string.", MCore::CommandSyntax::PARAMTYPE_STRING, "");
-    }
+    AZ_CLASS_ALLOCATOR_IMPL(CommandRemoveTransitionCondition, EMotionFX::CommandAllocator, 0)
+    const char* CommandRemoveTransitionCondition::s_commandName = "AnimGraphRemoveCondition";
 
-
-    // get the description
-    const char* CommandAnimGraphAddCondition::GetDescription() const
-    {
-        return "Add a new a transition condition to a state machine transition.";
-    }
-
-
-    //-------------------------------------------------------------------------------------
-    // Remove a transition condition
-    //-------------------------------------------------------------------------------------
-    // constructor
-    CommandAnimGraphRemoveCondition::CommandAnimGraphRemoveCondition(MCore::Command* orgCommand)
-        : MCore::Command("AnimGraphRemoveCondition", orgCommand)
-    {
-        mOldConditionType   = MCORE_INVALIDINDEX32;
-        mOldConditionIndex  = MCORE_INVALIDINDEX32;
-    }
-
-
-    // destructor
-    CommandAnimGraphRemoveCondition::~CommandAnimGraphRemoveCondition()
+    CommandRemoveTransitionCondition::CommandRemoveTransitionCondition(MCore::Command* orgCommand)
+        : MCore::Command(s_commandName, orgCommand)
     {
     }
 
-
-    // execute
-    bool CommandAnimGraphRemoveCondition::Execute(const MCore::CommandLine& parameters, MCore::String& outResult)
+    CommandRemoveTransitionCondition::CommandRemoveTransitionCondition(AZ::u32 animGraphId, EMotionFX::AnimGraphConnectionId transitionId, size_t conditionIndex, Command* orgCommand)
+        : MCore::Command(s_commandName, orgCommand)
     {
-        // get the anim graph to work on
-        EMotionFX::AnimGraph* animGraph = CommandsGetAnimGraph(parameters, this, outResult);
-        if (animGraph == nullptr)
+        SetAnimGraphId(animGraphId);
+        SetTransitionId(transitionId);
+        SetConditionIndex(conditionIndex);
+    }
+
+    void CommandRemoveTransitionCondition::Reflect(AZ::ReflectContext* context)
+    {
+        AZ::SerializeContext* serializeContext = azrtti_cast<AZ::SerializeContext*>(context);
+        if (!serializeContext)
+        {
+            return;
+        }
+
+        serializeContext->Class<CommandAddTransitionCondition,
+            MCore::Command,
+            EMotionFX::ParameterMixinTransitionId,
+            EMotionFX::ParameterMixinSerializedContents>()
+            ->Version(1);
+    }
+
+    bool CommandRemoveTransitionCondition::Execute(const MCore::CommandLine& parameters, AZStd::string& outResult)
+    {
+        EMotionFX::AnimGraphTransitionCondition* condition = GetCondition(outResult);
+        if (!condition)
         {
             return false;
         }
-
-        // store the anim graph id for undo
-        mAnimGraphID = animGraph->GetID();
-
-        // get the name of the node
-        MCore::String name;
-        parameters.GetValue("stateMachineName", this, &name);
-
-        // find the node in the anim graph
-        EMotionFX::AnimGraphNode* node = animGraph->RecursiveFindNode(name.AsChar());
-        if (node == nullptr)
-        {
-            outResult.Format("Cannot find node with name '%s' in anim graph '%s'.", name.AsChar(), animGraph->GetName());
-            return false;
-        }
-
-        // check if we are dealing with a state machine node
-        if (node->GetType() != EMotionFX::AnimGraphStateMachine::TYPE_ID)
-        {
-            outResult.Format("Anim graph node with name '%s' is no state machine.", name.AsChar());
-            return false;
-        }
-
-        // convert the node into a state machine
-        EMotionFX::AnimGraphStateMachine* stateMachine = static_cast<EMotionFX::AnimGraphStateMachine*>(node);
-
-        // get the transition id
-        const uint32 transitionID = parameters.GetValueAsInt("transitionID", this);
-
-        // find the transition by its id and check if the result is valid
-        EMotionFX::AnimGraphStateTransition* transition = stateMachine->FindTransitionByID(transitionID);
-        if (transition == nullptr)
-        {
-            outResult.Format("Cannot find transition with id %i.", transitionID);
-            return false;
-        }
-
-        // get the transition condition
-        const uint32 conditionIndex = parameters.GetValueAsInt("conditionIndex", this);
-        MCORE_ASSERT(conditionIndex < transition->GetNumConditions());
-        EMotionFX::AnimGraphTransitionCondition* condition = transition->GetCondition(conditionIndex);
+        EMotionFX::AnimGraphStateTransition* transition = condition->GetTransition();
+        EMotionFX::AnimGraph* animGraph = transition->GetAnimGraph();
 
         // remove all unique datas for the condition
         animGraph->RemoveAllObjectData(condition, true);
 
         // store information for undo
-        mOldConditionType   = EMotionFX::GetAnimGraphManager().GetObjectFactory()->FindRegisteredObjectByTypeID(condition->GetType());
-        mOldConditionIndex  = conditionIndex;
-        mOldAttributesString = condition->CreateAttributesString();
+        m_oldConditionType = azrtti_typeid(condition);
+        m_oldContents = MCore::ReflectionSerializer::Serialize(condition).GetValue();
 
         // remove the transition condition
-        transition->RemoveCondition(conditionIndex);
+        transition->RemoveCondition(GetConditionIndex().value());
 
         // save the current dirty flag and tell the anim graph that something got changed
-        mOldDirtyFlag = animGraph->GetDirtyFlag();
+        m_oldDirtyFlag = animGraph->GetDirtyFlag();
         animGraph->SetDirtyFlag(true);
 
-        // recursively update attributes of all nodes
-        animGraph->RecursiveUpdateAttributes();
-
-        // update unique datas recursively for all anim graph instances
-        const uint32 numActorInstances = EMotionFX::GetActorManager().GetNumActorInstances();
-        for (uint32 i = 0; i < numActorInstances; ++i)
-        {
-            EMotionFX::AnimGraphInstance* animGraphInstance = EMotionFX::GetActorManager().GetActorInstance(i)->GetAnimGraphInstance();
-            if (animGraphInstance && animGraphInstance->GetAnimGraph() == animGraph)
-            {
-                animGraphInstance->OnUpdateUniqueData();
-            }
-        }
+        animGraph->UpdateUniqueData();
 
         return true;
     }
 
-
-    // undo the command
-    bool CommandAnimGraphRemoveCondition::Undo(const MCore::CommandLine& parameters, MCore::String& outResult)
+    bool CommandRemoveTransitionCondition::Undo(const MCore::CommandLine& parameters, AZStd::string& outResult)
     {
-        // get the anim graph
-        EMotionFX::AnimGraph* animGraph = EMotionFX::GetAnimGraphManager().FindAnimGraphByID(mAnimGraphID);
-        if (animGraph == nullptr)
+        AZ_UNUSED(parameters);
+
+        EMotionFX::AnimGraphStateTransition* transition = GetTransition(outResult);
+        if (!transition)
         {
-            outResult.Format("The anim graph with id '%i' does not exist anymore.", mAnimGraphID);
             return false;
         }
+        EMotionFX::AnimGraph* animGraph = transition->GetAnimGraph();
 
-        MCore::String stateMachineName;
-        parameters.GetValue("stateMachineName", this, &stateMachineName);
-
-        const uint32 transitionID = parameters.GetValueAsInt("transitionID", this);
-
-        MCore::String commandString;
-        commandString.Format("AnimGraphAddCondition -animGraphID %i -stateMachineName \"%s\" -transitionID %i -conditionType %i -insertAt %i -attributesString \"%s\"", mAnimGraphID, stateMachineName.AsChar(), transitionID, mOldConditionType, mOldConditionIndex, mOldAttributesString.AsChar());
-        if (GetCommandManager()->ExecuteCommandInsideCommand(commandString.AsChar(), outResult) == false)
+        CommandAddTransitionCondition* addConditionCommand = aznew CommandAddTransitionCondition(
+            animGraph->GetID(),
+            transition->GetId(),
+            m_oldConditionType.value(),
+            /*insertAt=*/GetConditionIndex().value(),
+            m_oldContents.value());
+        if (!GetCommandManager()->ExecuteCommandInsideCommand(addConditionCommand, outResult))
         {
             return false;
         }
 
         // set the dirty flag back to the old value
-        animGraph->SetDirtyFlag(mOldDirtyFlag);
+        animGraph->SetDirtyFlag(m_oldDirtyFlag.value());
         return true;
     }
 
-
-    // init the syntax of the command
-    void CommandAnimGraphRemoveCondition::InitSyntax()
-    {
-        GetSyntax().ReserveParameters(4);
-        GetSyntax().AddRequiredParameter("animGraphID",        "The id of the anim graph to work on.", MCore::CommandSyntax::PARAMTYPE_INT);
-        GetSyntax().AddRequiredParameter("stateMachineName",    "The name of the state machine.", MCore::CommandSyntax::PARAMTYPE_STRING);
-        GetSyntax().AddRequiredParameter("transitionID",        "The ID of the transition.", MCore::CommandSyntax::PARAMTYPE_INT);
-        GetSyntax().AddRequiredParameter("conditionIndex",      "The index of the transition condition to remove.", MCore::CommandSyntax::PARAMTYPE_INT);
-    }
-
-
-    // get the description
-    const char* CommandAnimGraphRemoveCondition::GetDescription() const
+    const char* CommandRemoveTransitionCondition::GetDescription() const
     {
         return "Remove a transition condition from a state machine transition.";
+    }
+
+    void CommandRemoveTransitionCondition::InitSyntax()
+    {
+        GetSyntax().ReserveParameters(3);
+        MCore::CommandSyntax& syntax = GetSyntax();
+        ParameterMixinConditionIndex::InitSyntax(syntax);
+    }
+
+    bool CommandRemoveTransitionCondition::SetCommandParameters(const MCore::CommandLine& parameters)
+    {
+        ParameterMixinConditionIndex::SetCommandParameters(parameters);
+        return true;
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+    AZ_CLASS_ALLOCATOR_IMPL(CommandAdjustTransitionCondition, EMotionFX::CommandAllocator, 0)
+    const char* CommandAdjustTransitionCondition::s_commandName = "AnimGraphAdjustCondition";
+
+    CommandAdjustTransitionCondition::CommandAdjustTransitionCondition(MCore::Command* orgCommand)
+        : MCore::Command(s_commandName, orgCommand)
+    {
+    }
+
+    CommandAdjustTransitionCondition::CommandAdjustTransitionCondition(AZ::u32 animGraphId, EMotionFX::AnimGraphConnectionId transitionId, size_t conditionIndex, const AZStd::string& attributesString, Command* orgCommand)
+        : MCore::Command(s_commandName, orgCommand)
+    {
+        SetAnimGraphId(animGraphId);
+        SetTransitionId(transitionId);
+        SetConditionIndex(conditionIndex);
+        SetAttributesString(attributesString);
+    }
+
+    void CommandAdjustTransitionCondition::Reflect(AZ::ReflectContext* context)
+    {
+        AZ::SerializeContext* serializeContext = azrtti_cast<AZ::SerializeContext*>(context);
+        if (!serializeContext)
+        {
+            return;
+        }
+
+        serializeContext->Class<CommandAdjustTransitionCondition,
+            MCore::Command,
+            EMotionFX::ParameterMixinConditionIndex,
+            EMotionFX::ParameterMixinAttributesString>()
+            ->Version(1)
+            ;
+    }
+
+    bool CommandAdjustTransitionCondition::Execute(const MCore::CommandLine& parameters, AZStd::string& outResult)
+    {
+        AZ_UNUSED(parameters);
+
+        EMotionFX::AnimGraphTransitionCondition* condition = GetCondition(outResult);
+        if (!condition)
+        {
+            return false;
+        }
+        EMotionFX::AnimGraphStateTransition* transition = condition->GetTransition();
+        EMotionFX::AnimGraph* animGraph = transition->GetAnimGraph();
+
+        AZ::Outcome<AZStd::string> serializedCondition = MCore::ReflectionSerializer::Serialize(condition);
+        if (serializedCondition)
+        {
+            m_oldContents = serializedCondition.GetValue();
+        }
+
+        if (m_attributesString.has_value())
+        {
+            MCore::ReflectionSerializer::Deserialize(condition, MCore::CommandLine(m_attributesString.value()));
+        }
+
+        // save the current dirty flag and tell the anim graph that something got changed
+        m_oldDirtyFlag = animGraph->GetDirtyFlag();
+        animGraph->SetDirtyFlag(true);
+
+        condition->Reinit();
+        animGraph->UpdateUniqueData();
+
+        return true;
+    }
+
+    bool CommandAdjustTransitionCondition::Undo(const MCore::CommandLine& parameters, AZStd::string& outResult)
+    {
+        AZ_UNUSED(parameters);
+
+        EMotionFX::AnimGraphTransitionCondition* condition = GetCondition(outResult);
+        if (!condition)
+        {
+            return false;
+        }
+        EMotionFX::AnimGraphStateTransition* transition = condition->GetTransition();
+        EMotionFX::AnimGraph* animGraph = transition->GetAnimGraph();
+
+        MCore::ReflectionSerializer::Deserialize(condition, m_oldContents.value());
+
+        condition->Reinit();
+        animGraph->UpdateUniqueData();
+
+        // set the dirty flag back to the old value
+        animGraph->SetDirtyFlag(m_oldDirtyFlag.value());
+        return true;
+    }
+
+    const char* CommandAdjustTransitionCondition::GetDescription() const
+    {
+        return "Remove a transition condition from a state machine transition.";
+    }
+
+    void CommandAdjustTransitionCondition::InitSyntax()
+    {
+        GetSyntax().ReserveParameters(4);
+        MCore::CommandSyntax& syntax = GetSyntax();
+        ParameterMixinConditionIndex::InitSyntax(syntax);
+        ParameterMixinAttributesString::InitSyntax(syntax);
+    }
+
+    bool CommandAdjustTransitionCondition::SetCommandParameters(const MCore::CommandLine& parameters)
+    {
+        ParameterMixinConditionIndex::SetCommandParameters(parameters);
+        ParameterMixinAttributesString::SetCommandParameters(parameters);
+        return true;
     }
 } // namesapce EMotionFX

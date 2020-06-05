@@ -15,15 +15,17 @@
 // include required headers
 #include "EMotionFXConfig.h"
 #include "BaseObject.h"
+#include <AzCore/Math/Vector2.h>
+#include <AzCore/std/string/string.h>
 #include <MCore/Source/Array.h>
 #include <MCore/Source/Endian.h>
-
+#include <EMotionFX/Source/Allocators.h>
 
 namespace EMotionFX
 {
     struct EMFX_API MeshBuilderVertexLookup
     {
-        MCORE_MEMORYOBJECTCATEGORY(MeshBuilderVertexLookup, EMFX_DEFAULT_ALIGNMENT, EMFX_MEMCATEGORY_MESHBUILDER_VERTEXLOOKUP);
+        AZ_CLASS_ALLOCATOR_DECL
 
         uint32  mOrgVtx;
         uint32  mDuplicateNr;
@@ -40,7 +42,7 @@ namespace EMotionFX
     class EMFX_API MeshBuilderVertexAttributeLayer
         : public BaseObject
     {
-        MCORE_MEMORYOBJECTCATEGORY(MeshBuilderVertexAttributeLayer, EMFX_DEFAULT_ALIGNMENT, EMFX_MEMCATEGORY_MESHBUILDER_VERTEXATTRIBUTELAYER);
+        AZ_CLASS_ALLOCATOR_DECL
 
     public:
         uint32  GetTypeID() const           { return mLayerTypeID; };
@@ -48,8 +50,8 @@ namespace EMotionFX
         bool    GetIsDeformable() const     { return mDeformable; }
 
         void SetName(const char* name)              { mName = name; }
-        const char* GetName() const                 { return mName.AsChar(); }
-        const MCore::String& GetNameString() const  { return mName; }
+        const char* GetName() const                 { return mName.c_str(); }
+        const AZStd::string& GetNameString() const  { return mName; }
 
         virtual uint32 GetAttributeSizeInBytes() const = 0;
         virtual uint32 GetNumOrgVertices() const = 0;
@@ -57,7 +59,7 @@ namespace EMotionFX
         virtual uint32 CalcLayerSizeInBytes() const     { return GetAttributeSizeInBytes() * CalcNumVertices(); }
         virtual uint32 CalcNumVertices() const = 0;
         virtual bool CheckIfIsVertexEqual(uint32 orgVtx, uint32 duplicate) const = 0;
-        virtual void SetCurrentVertexValue(void* value) = 0;
+        virtual void SetCurrentVertexValue(const void* value) = 0;
         virtual void AddVertex(uint32 orgVertexNr) = 0;
         virtual void AddVertexValue(uint32 orgVertexNr, void* value) = 0;
         virtual void OptimizeMemoryUsage() {};
@@ -67,7 +69,7 @@ namespace EMotionFX
 
     protected:
         uint32          mLayerTypeID;
-        MCore::String   mName;
+        AZStd::string   mName;
         bool            mIsScale;
         bool            mDeformable;
 
@@ -83,7 +85,7 @@ namespace EMotionFX
     class EMFX_API ClassName                                                                                                                               \
         : public MeshBuilderVertexAttributeLayer                                                                                                           \
     {                                                                                                                                                      \
-        MCORE_MEMORYOBJECTCATEGORY(ClassName, EMFX_DEFAULT_ALIGNMENT, EMFX_MEMCATEGORY_MESHBUILDER_VERTEXATTRIBUTELAYER);                                  \
+        AZ_CLASS_ALLOCATOR(ClassName, EMotionFX::MeshAllocator, 0);                                                                                        \
     public:                                                                                                                                                \
         struct EMFX_API Vertex                                                                                                                             \
         {                                                                                                                                                  \
@@ -113,7 +115,8 @@ namespace EMotionFX
                                                                                                                                                            \
         bool CheckIfIsVertexEqual(uint32 orgVtx, uint32 duplicate) const override;                                                                         \
                                                                                                                                                            \
-        MCORE_INLINE void SetCurrentVertexValue(void* value) override       { mVertexValue = *((AttribType*)value); }                                      \
+        MCORE_INLINE void SetCurrentVertexValue(const void* value) override       { mVertexValue = *((AttribType*)value); }                                \
+        MCORE_INLINE AttribType GetCurrentVertexValue() const                     { return mVertexValue; }                                                 \
                                                                                                                                                            \
         MCORE_INLINE void AddVertex(uint32 orgVertexNr) override                                                                                           \
         {                                                                                                                                                  \
@@ -168,7 +171,7 @@ namespace EMotionFX
 
     // some standard layer types
     DECLARE_MESHBUILDERATTRIBUTELAYER(MeshBuilderVertexAttributeLayerVector2,      AZ::Vector2)
-    DECLARE_MESHBUILDERATTRIBUTELAYER(MeshBuilderVertexAttributeLayerVector3,      AZ::PackedVector3f)
+    DECLARE_MESHBUILDERATTRIBUTELAYER(MeshBuilderVertexAttributeLayerVector3,      AZ::Vector3)
     DECLARE_MESHBUILDERATTRIBUTELAYER(MeshBuilderVertexAttributeLayerVector4,      AZ::Vector4)
     DECLARE_MESHBUILDERATTRIBUTELAYER(MeshBuilderVertexAttributeLayerUInt32,       uint32)
     DECLARE_MESHBUILDERATTRIBUTELAYER(MeshBuilderVertexAttributeLayerFloat,        float)

@@ -17,6 +17,10 @@
 
 #if defined(ENABLE_LOADING_PROFILER)
 
+#include <AzCore/std/string/string.h>
+#include <AzCore/std/containers/unordered_map.h>
+#include <AzCore/std/parallel/mutex.h>
+
 class CBootProfilerRecord;
 class CBootProfilerSession;
 
@@ -44,16 +48,17 @@ public:
 protected:
     // === ISystemEventListener
     virtual void OnSystemEvent(ESystemEvent event, UINT_PTR wparam, UINT_PTR lparam);
+    void SetFrameCount(int frameCount);
 
 private:
     CBootProfilerSession* m_pCurrentSession;
-    typedef std::map<string, CBootProfilerSession*> TSessionMap;
+    typedef AZStd::unordered_map<AZStd::string, CBootProfilerSession*> TSessionMap;
     TSessionMap m_sessions;
 
     static int                      CV_sys_bp_frames;
     static float                    CV_sys_bp_time_threshold;
     CBootProfilerRecord*    m_pFrameRecord;
-
+    AZStd::recursive_mutex            m_recordMutex;
     int m_levelLoadAdditionalFrames;
 };
 

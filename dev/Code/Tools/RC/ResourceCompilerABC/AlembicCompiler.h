@@ -20,7 +20,7 @@
 #include "../ResourceCompilerPC/PhysWorld.h"
 #include <AzCore/std/parallel/atomic.h>
 #include <AzCore/std/parallel/mutex.h>
-#include <AzCore/std/parallel/conditional_variable.h>
+#include <AzCore/std/parallel/condition_variable.h>
 
 #define RC_ABC_AUTOMATIC_UVMAX_DETECTION_VALUE .0f
 
@@ -188,6 +188,8 @@ private:
 
     string GetOutputFileNameOnly() const;
     string GetOutputPath() const;
+
+    uint32_t GetIndex(Alembic::AbcGeom::GeometryScope geomScope, const Alembic::Abc::UInt32ArraySamplePtr& normalIndices, size_t currentIndexArraysIndex, int32_t positionIndex);
 
     bool CheckTimeSampling(Alembic::Abc::IArchive& archive);
     void OutputTimeSamplingType(const Alembic::Abc::TimeSamplingType& timeSamplingType);

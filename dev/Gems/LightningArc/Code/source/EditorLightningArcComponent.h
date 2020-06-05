@@ -32,7 +32,7 @@ namespace Lightning
         : public LightningArcConfiguration
     {
     public:
-        AZ_TYPE_INFO(EditorLightningArcConfiguration, "{61810E84-F74E-4EFF-8B23-EB1097C6E1BB}", LightningArcConfiguration);
+        AZ_TYPE_INFO_LEGACY(EditorLightningArcConfiguration, "{61810E84-F74E-4EFF-8B23-EB1097C6E1BB}", LightningArcConfiguration);
         AZ_CLASS_ALLOCATOR(EditorLightningArcConfiguration, AZ::SystemAllocator, 0);
 
         static void Reflect(AZ::ReflectContext* context);
@@ -137,7 +137,9 @@ namespace Lightning
         _smart_ptr<IMaterial> GetMaterial();
 
         // EntityDebugDisplayBus
-        void DisplayEntity(bool& handled) override;
+        void DisplayEntityViewport(
+            const AzFramework::ViewportInfo& viewportInfo,
+            AzFramework::DebugDisplayRequests& debugDisplay) override;
 
     private:
         //Reflected data

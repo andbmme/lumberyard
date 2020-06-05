@@ -13,13 +13,9 @@
 
 // Description : Mission class definition.
 
-
-#ifndef CRYINCLUDE_EDITOR_MISSION_H
-#define CRYINCLUDE_EDITOR_MISSION_H
-
 #pragma once
 
-// forward declaratsion.
+// forward declaration.
 struct LightingSettings;
 class CMissionScript;
 
@@ -103,9 +99,6 @@ public:
     //! Export mission to game.
     void Export(XmlNodeRef& root, XmlNodeRef& objectsNode);
 
-    //! Export mission-animations to game.
-    void ExportLegacyAnimations(XmlNodeRef& root);
-
     //! Add shared objects to mission objects.
     void AddObjectsNode(XmlNodeRef& node);
     void SetLayersNode(XmlNodeRef& node);
@@ -164,7 +157,7 @@ private:
     int m_numCGFObjects;
 
     SMinimapInfo m_minimap;
+
+    bool m_reentrancyProtector;
 };
 
-
-#endif // CRYINCLUDE_EDITOR_MISSION_H

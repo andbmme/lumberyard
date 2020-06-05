@@ -14,7 +14,6 @@
 #include <Components/Slots/SlotComponent.h>
 
 #include <GraphCanvas/Components/Slots/Data/DataSlotBus.h>
-#include <GraphCanvas/Components/Nodes/Variable/VariableNodeBus.h>
 #include <GraphCanvas/Components/Nodes/NodeBus.h>
 
 namespace GraphCanvas
@@ -22,42 +21,21 @@ namespace GraphCanvas
     class DataSlotComponent
         : public SlotComponent
         , public DataSlotRequestBus::Handler
-        , public NodeNotificationBus::Handler
-        , public VariableNotificationBus::Handler
-        , public VariableReferenceSceneNotificationBus::Handler
     {
     public:
         AZ_COMPONENT(DataSlotComponent, "{DB13C73D-2453-44F8-BB38-316C90264B73}", SlotComponent);
-        static void Reflect(AZ::ReflectContext* reflectContext);		
+        static void Reflect(AZ::ReflectContext* reflectContext);
         
-        static AZ::Entity* CreateDataSlot(const AZ::EntityId& nodeId, const AZ::Uuid& dataTypeId, bool isReference, const SlotConfiguration& slotConfiguration);
-        static AZ::Entity* CreateVariableSlot(const AZ::EntityId& nodeId, const AZ::Uuid& dataTypeId, const AZ::EntityId& variableId, const SlotConfiguration& slotConfiguration);
+        static AZ::Entity* CreateDataSlot(const AZ::EntityId& nodeId, const DataSlotConfiguration& dataSlotConfiguration);
         
         DataSlotComponent();
-        DataSlotComponent(const AZ::Uuid& slotTypeId, const SlotConfiguration& slotConfiguration);
+        DataSlotComponent(const DataSlotConfiguration& dataSlotConfiguration);
         ~DataSlotComponent();
         
         // Component
         void Init();
         void Activate();
         void Deactivate();
-        ////
-
-        // VariableNotificationBus
-        using VariableNotificationBus::Handler::OnNameChanged;
-        void OnNameChanged() override;
-        void OnVariableActivated() override;
-        void OnVariableDestroyed() override;
-        ////
-
-        // VariableReferenceSceneNotificationBus
-        void ResolvePastedReferences() override;
-        ////
-
-        // NodeNotificationBus
-        using NodeNotificationBus::Handler::OnNameChanged;
-        void OnNodeAboutToSerialize(SceneSerialization& sceneSerialization) override;
-        void OnNodeDeserialized(const SceneSerialization& sceneSerialization) override;
         ////
 
         // SlotRequestBus
@@ -68,13 +46,11 @@ namespace GraphCanvas
         void RemoveConnectionId(const AZ::EntityId& connectionId, const Endpoint& endpoint) override;
 
         void SetNode(const AZ::EntityId& nodeId) override;
+
+        SlotConfiguration* CloneSlotConfiguration() const override;
         ////
 
         // DataSlotRequestBus
-        bool AssignVariable(const AZ::EntityId& variableId) override;
-
-        AZ::EntityId GetVariableId() const override;
-
         bool ConvertToReference() override;
         bool CanConvertToReference() const override;
 
@@ -82,14 +58,21 @@ namespace GraphCanvas
         bool CanConvertToValue() const override;
 
         DataSlotType GetDataSlotType() const override;
+        DataValueType GetDataValueType() const override;
 
-        const AZ::Uuid& GetDataTypeId() const override;
-        QColor GetDataColor() const override;
+        AZ::Uuid GetDataTypeId() const override;
+        void SetDataTypeId(AZ::Uuid typeId) override;
+
+        const Styling::StyleHelper* GetDataColorPalette() const override;
+        
+        size_t GetContainedTypesCount() const override;
+        AZ::Uuid GetContainedTypeId(size_t index) const override;
+        const Styling::StyleHelper* GetContainedTypeColorPalette(size_t index) const override;
+
+        void SetDataAndContainedTypeIds(AZ::Uuid typeId, const AZStd::vector<AZ::Uuid>& typeIds, DataValueType valueType) override;
         ////
 
     protected:
-        DataSlotComponent(DataSlotType dataSlotType, const AZ::Uuid& slotTypeId, const SlotConfiguration& slotConfiguration);
-
         void UpdateDisplay();
         void RestoreDisplay(bool updateDisplay = false);
 
@@ -97,21 +80,23 @@ namespace GraphCanvas
         void OnFinalizeDisplay() override;
         ////
 
+        void UpdatePropertyDisplayState();
+
     private:
+        DataSlotComponent(const DataSlotComponent&) = delete;
+        DataSlotComponent& operator=(const DataSlotComponent&) = delete;
+        AZ::Entity* ConstructConnectionEntity(const Endpoint& sourceEndpoint, const Endpoint& targetEndpoint, bool createModelConnection) override;
 
-        AZ::Entity* ConstructConnectionEntity(const Endpoint& sourceEndpoint, const Endpoint& targetEndpoint) const override;
-
-        bool            m_fixedType;
+        bool            m_canConvertSlotTypes;
         DataSlotType    m_dataSlotType;
-        AZ::Uuid        m_dataTypeId;
+        DataValueType   m_valueType;
 
-        AZ::EntityId    m_variableId;
-        AZ::u64         m_copiedVariableId;
+        AZ::Uuid                m_dataTypeId;
+        AZStd::vector<AZ::Uuid> m_containedTypeIds;
 
         AZ::EntityId    m_displayedConnection;
 
         // Cached information for the display
         DataSlotType    m_previousDataSlotType;
-        AZ::EntityId    m_cachedVariableId;
     };
 }

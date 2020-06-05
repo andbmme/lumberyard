@@ -11,8 +11,7 @@
 */
 
 // include required headers
-#include <AzCore/std/sort.h>
-#include <AzFramework/StringFunc/StringFunc.h>
+#include <AzCore/PlatformDef.h>
 #include "EMStudioManager.h"
 #include <MysticQt/Source/MysticQtConfig.h>
 #include "PluginManager.h"
@@ -27,13 +26,8 @@
 #include <QApplication>
 
 // include MCore related
+#include <MCore/Source/StringConversions.h>
 #include <MCore/Source/LogManager.h>
-
-// include mac reladed
-#ifdef MCORE_PLATFORM_POSIX
-    #include <dlfcn.h>
-#endif
-
 
 namespace EMStudio
 {
@@ -41,7 +35,6 @@ namespace EMStudio
     PluginManager::PluginManager()
     {
         mActivePlugins.reserve(50);
-        mPluginLibs.reserve(10);
         mPlugins.reserve(50);
     }
 
@@ -50,7 +43,7 @@ namespace EMStudio
     PluginManager::~PluginManager()
     {
         MCore::LogInfo("Unloading plugins");
-        UnloadPluginLibs();
+        UnloadPlugins();
     }
 
 
@@ -75,7 +68,7 @@ namespace EMStudio
 
 
     // unload the plugin libraries
-    void PluginManager::UnloadPluginLibs()
+    void PluginManager::UnloadPlugins()
     {
         // process any remaining events
         QApplication::processEvents();
@@ -108,127 +101,6 @@ namespace EMStudio
 
             MCORE_ASSERT(mActivePlugins.empty());
         }
-
-        // unload all plugin libs
-        const uint32 numLibs = static_cast<int32>(mPluginLibs.size());
-        for (uint32 l = 0; l < numLibs; ++l)
-        {
-    #if defined(MCORE_PLATFORM_WINDOWS)
-            FreeLibrary(mPluginLibs[l]);
-    #else
-            dlclose(mPluginLibs[l]);
-    #endif
-        }
-    }
-
-
-    // scan for plugins and load them
-    void PluginManager::LoadPluginsFromDirectory(const char* directory)
-    {
-        // scan the directory for .plugin files
-        QDir dir(directory);
-        dir.setFilter(QDir::Files | QDir::NoSymLinks);
-        dir.setSorting(QDir::Name);
-
-        // iterate over all files
-        MCore::String filename;
-        MCore::String finalFile;
-        QFileInfoList list = dir.entryInfoList();
-        for (int i = 0; i < list.size(); ++i)
-        {
-            QFileInfo fileInfo = list.at(i);
-            FromQtString(fileInfo.fileName(), &filename);
-
-            // only add files with the .plugin extension
-            if (filename.ExtractFileExtension().Lowered() == "plugin")
-            {
-            #ifdef MCORE_DEBUG
-                if (filename.Lowered().Contains("_debug") == false) // skip non-debug versions of the plugins
-                {
-                    continue;
-                }
-            #else
-                if (filename.Lowered().Contains("_debug"))  // skip debug versions of the plugins
-                {
-                    continue;
-                }
-            #endif
-
-                finalFile = directory;
-                finalFile += filename;
-                LoadPlugins(finalFile.AsChar());
-            }
-        }
-    }
-
-
-    // load a given plugin library
-    bool PluginManager::LoadPlugins(const char* filename)
-    {
-        MCore::LogInfo("Loading plugins from file '%s'", filename);
-
-        //----------------------------------------
-        // Windows
-        //----------------------------------------
-    #ifdef MCORE_PLATFORM_WINDOWS
-        // load this DLL into our address space
-        HMODULE dllHandle = ::LoadLibraryA(filename);
-        if (dllHandle == nullptr)
-        {
-            MCore::LogError("Failed to load the plugin library file (code=%d)", GetLastError());
-            return false;
-        }
-
-        // get the address to the RegisterPlugins function inside the plugin
-        typedef void (__cdecl * RegisterFunction)();
-        RegisterFunction registerFunction = (RegisterFunction)::GetProcAddress(dllHandle, "RegisterPlugins");
-        if (registerFunction == nullptr)
-        {
-            MCore::LogError("Failed to find the RegisterPlugins function inside this plugin library");
-            FreeLibrary(dllHandle);
-            return false;
-        }
-
-        // execute the register plugins function
-        (registerFunction)();
-
-        // Find handle
-        mPluginLibs.push_back(dllHandle);
-    #else
-        // load dylib into address space
-        void* dylibHandle = dlopen(filename, RTLD_LAZY);
-        if (dylibHandle == nullptr)
-        {
-            MCore::LogError("Failed to load the plugin library file (error: %s)", dlerror());
-            return false;
-        }
-
-        dlerror();  // clear the error currently set
-
-        // get the address to the RegisterPlugins function inside the plugin
-        typedef void (MCORE_CDECL * RegisterPlugins)();
-        RegisterPlugins registerPlugins = (RegisterPlugins)dlsym(dylibHandle, "RegisterPlugins");
-        //      if (!registerPlugins)
-        const char* error = dlerror();
-        if (error != 0)
-        {
-            MCore::LogError("Failed to find the RegisterPlugins function inside this plugin library (code=%s)", error);
-            dlclose(dylibHandle);
-            return false;
-        }
-
-        // execute the register plugins function
-        (registerPlugins)();
-
-        // Find handle
-        mPluginLibs.push_back(dylibHandle);
-    #endif
-
-        //----------------------------------------
-        // TODO: add other platforms here
-        //----------------------------------------
-
-        return true;
     }
 
 
@@ -263,7 +135,6 @@ namespace EMStudio
         newPlugin->Init();
         newPlugin->RegisterKeyboardShortcuts();
 
-        SortActivePlugins();
         return newPlugin;
     }
 
@@ -300,7 +171,7 @@ namespace EMStudio
     // generate a unique object name
     QString PluginManager::GenerateObjectName() const
     {
-        MCore::String randomString;
+        AZStd::string randomString;
 
         // random seed
         qsrand(QTime(0, 0, 0).secsTo(QTime::currentTime()));
@@ -309,7 +180,7 @@ namespace EMStudio
         for (;; )
         {
             // generate a string from a set of random numbers
-            randomString.Format("PLUGIN%d%d%d", qrand(), qrand(), qrand());
+            randomString = AZStd::string::format("PLUGIN%d%d%d", qrand(), qrand(), qrand());
 
             // check if we have a conflict with a current plugin
             bool hasConflict = false;
@@ -328,18 +199,12 @@ namespace EMStudio
 
             if (hasConflict == false)
             {
-                return randomString.AsChar();
+                return randomString.c_str();
             }
         }
 
         //return QString("INVALID");
     }
-
-    void PluginManager::SortActivePlugins()
-    {
-        AZStd::sort(mActivePlugins.begin(), mActivePlugins.end());
-    }
-
 
     // find the number of active plugins of a given type
     uint32 PluginManager::GetNumActivePluginsOfType(const char* pluginType) const

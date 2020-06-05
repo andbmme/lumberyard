@@ -45,6 +45,17 @@ CTexture* SPostEffectsUtils::m_UpscaleTarget = nullptr;
 
 bool SPostEffectsUtils::Create()
 {
+    assert(gRenDev);
+
+#if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
+    // disregard size changes or texture creation for render scene to texture passes 
+    // or we will introduce texture create/delete thrashing
+    if (gRenDev->m_RP.m_TI[gRenDev->m_RP.m_nProcessThreadID].m_PersFlags & RBPF_RENDER_SCENE_TO_TEXTURE)
+    {
+        return false;
+    }
+#endif // if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
+
     const SViewport& MainVp = gRenDev->m_MainViewport;
     const bool bCreatePostAA = CRenderer::CV_r_AntialiasingMode && !CTexture::IsTextureExist(CTexture::s_ptexPrevBackBuffer[0][0]);
     //@NOTE: CV_r_watercaustics will be removed when the infinite ocean component feature toggle is removed.
@@ -53,7 +64,6 @@ bool SPostEffectsUtils::Create()
     static ICVar* DolbyCvar = gEnv->pConsole->GetCVar("r_HDRDolby");
     int DolbyCvarValue = DolbyCvar ? DolbyCvar->GetIVal() : eDVM_Disabled;
 
-    //  Confetti BEGIN: Igor Lobanchikov :END
     ETEX_Format nHDRReducedFormat = gRenDev->UseHalfFloatRenderTargets() ? eTF_R11G11B10F : eTF_R10G10B10A2;
 
     ETEX_Format taaFormat = eTF_R8G8B8A8;
@@ -107,12 +117,10 @@ bool SPostEffectsUtils::Create()
 
         CreateRenderTarget("$BackBufferScaledTemp_d2", CTexture::s_ptexBackBufferScaledTemp[0], nWidth >> 1, nHeight >> 1, Clr_Unknown, 1, 0, eTF_R8G8B8A8, -1, FT_DONT_RELEASE);
 
-        //  Confetti BEGIN: Igor Lobanchikov
         CreateRenderTarget("$WaterVolumeRefl", CTexture::s_ptexWaterVolumeRefl[0], nWidth >> 1, nHeight >> 1, Clr_Unknown, 1, true, nHDRReducedFormat, TO_WATERVOLUMEREFLMAP, FT_DONT_RELEASE);
         //CTexture::s_ptexWaterVolumeRefl[0]->DisableMgpuSync();
         CreateRenderTarget("$WaterVolumeReflPrev", CTexture::s_ptexWaterVolumeRefl[1], nWidth >> 1, nHeight >> 1, Clr_Unknown, 1, true, nHDRReducedFormat, TO_WATERVOLUMEREFLMAPPREV, FT_DONT_RELEASE);
         //CTexture::s_ptexWaterVolumeRefl[1]->DisableMgpuSync();
-        //  Confetti End: Igor Lobanchikov
 
         CreateRenderTarget("$BackBufferScaled_d4", CTexture::s_ptexBackBufferScaled[1], nWidth >> 2, nHeight >> 2, Clr_Unknown, 1, 0, eTF_R8G8B8A8, TO_BACKBUFFERSCALED_D4, FT_DONT_RELEASE);
         CreateRenderTarget("$BackBufferScaledTemp_d4", CTexture::s_ptexBackBufferScaledTemp[1], nWidth >> 2, nHeight >> 2, Clr_Unknown, 1, 0, eTF_R8G8B8A8, -1, FT_DONT_RELEASE);
@@ -130,7 +138,6 @@ bool SPostEffectsUtils::Create()
         // Water phys simulation requires data overframes, need to handle for each GPU in MGPU mode
         CreateRenderTarget("$WaterRipplesDDN_0", CTexture::s_ptexWaterRipplesDDN, 256, 256, Clr_Unknown, 1, true, eTF_R8G8B8A8, TO_WATERRIPPLESMAP);
         //CTexture::s_ptexWaterRipplesDDN->DisableMgpuSync();
-        //  Confetti BEGIN: Igor Lobanchikov
         if (gRenDev->UseHalfFloatRenderTargets())
         {
             CreateRenderTarget("$WaterVolumeDDN", CTexture::s_ptexWaterVolumeDDN, 64, 64, Clr_Unknown, 1, true, eTF_R16G16B16A16F, TO_WATERVOLUMEMAP);
@@ -139,7 +146,6 @@ bool SPostEffectsUtils::Create()
         {
             CreateRenderTarget("$WaterVolumeDDN", CTexture::s_ptexWaterVolumeDDN, 64, 64, Clr_Unknown, 1, true, eTF_R8G8B8A8, TO_WATERVOLUMEMAP);
         }
-        //  Confetti End: Igor Lobanchikov
         //CTexture::s_ptexWaterVolumeDDN->DisableMgpuSync();
 
         if (CRenderer::CV_r_watervolumecaustics && CRenderer::CV_r_watercaustics) //@NOTE: CV_r_watercaustics will be removed when the infinite ocean component feature toggle is removed.
@@ -165,7 +171,7 @@ bool SPostEffectsUtils::Create()
         // TODO: Only create necessary RTs for minimal ring?
         for (int i = 0; i < MAX_OCCLUSION_READBACK_TEXTURES; i++)
         {
-            sprintf(str, "$FlaresOcclusion_%d", i);
+            azsprintf(str, "$FlaresOcclusion_%d", i);
 
             CreateRenderTarget(str, CTexture::s_ptexFlaresOcclusionRing[i], CFlareSoftOcclusionQuery::s_nIDColMax, CFlareSoftOcclusionQuery::s_nIDRowMax, Clr_Unknown, 1, 0, eTF_R8G8B8A8, -1, FT_DONT_RELEASE | FT_STAGE_READBACK);
         }
@@ -402,8 +408,6 @@ void SPostEffectsUtils::SetTexture(CTexture* pTex, int nStage, int nFilter, int 
 
 bool SPostEffectsUtils::CreateRenderTarget(const char* szTexName, CTexture*& pTex, int nWidth, int nHeight, const ColorF& cClear, bool bUseAlpha, bool bMipMaps, ETEX_Format eTF, int nCustomID, int nFlags)
 {
-    MEMSTAT_CONTEXT_FMT(EMemStatContextTypes::MSC_Texture, 0, "PostEffects CreateRenderTarget: %s", szTexName);
-
     // check if parameters are valid
     if (!nWidth || !nHeight)
     {
@@ -417,14 +421,6 @@ bool SPostEffectsUtils::CreateRenderTarget(const char* szTexName, CTexture*& pTe
     if (!CTexture::IsTextureExist(pTex))
     {
         pTex = CTexture::CreateRenderTarget(szTexName, nWidth, nHeight, cClear, eTT_2D, flags, eTF, nCustomID);
-
-        // Following will mess up don't care resolve/restore actions since Fill() sets textures to be cleared on next draw
-#if !defined(CRY_USE_METAL) && !defined(OPENGL_ES)
-        if (pTex)
-        {
-            pTex->Clear();
-        }
-#endif
     }
     else
     {
@@ -433,6 +429,14 @@ bool SPostEffectsUtils::CreateRenderTarget(const char* szTexName, CTexture*& pTe
         pTex->SetHeight(nHeight);
         pTex->CreateRenderTarget(eTF, cClear);
     }
+
+    // Following will mess up don't care resolve/restore actions since Fill() sets textures to be cleared on next draw
+#if !defined(CRY_USE_METAL) && !defined(OPENGL_ES)
+    if (pTex)
+    {
+        pTex->Clear();
+    }
+#endif
 
     return CTexture::IsTextureExist(pTex) ? 1 : 0;
 }

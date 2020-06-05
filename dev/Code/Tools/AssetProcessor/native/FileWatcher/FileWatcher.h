@@ -15,6 +15,7 @@
 
 #include "FileWatcherAPI.h"
 
+#include <AzCore/std/containers/vector.h>
 #include <QMap>
 #include <QVector>
 #include <QString>
@@ -40,7 +41,8 @@ public:
     void ProcessNewFileEvent(const QString& file);
     void ProcessDeleteFileEvent(const QString& file);
     void ProcessModifyFileEvent(const QString& file);
-    
+    void ProcessRenameFileEvent(const QString& fileOld, const QString& fileNew);
+
 public Q_SLOTS:
     bool Start();
     void Stop();
@@ -88,7 +90,7 @@ Q_SIGNALS:
 
 private:
     int m_nextHandle;
-    QVector<FolderRootWatch*> m_folderWatchRoots;
+    AZStd::vector<FolderRootWatch*> m_folderWatchRoots;
     bool m_startedWatching = false;
 };
 

@@ -12,11 +12,15 @@
 
 from resource_manager_common import stack_info
 
+
 class StackInfoManagerContext(object):
     def __init__(self, context):
         self.__context = context
-        self.__stack_info_manager = stack_info.StackInfoManager()
+        self.__stack_info_manager = None
 
     @property
     def manager(self):
+        if self.__stack_info_manager is None:
+            self.__stack_info_manager = stack_info.StackInfoManager(default_session=self.__context.aws.session)
+
         return self.__stack_info_manager

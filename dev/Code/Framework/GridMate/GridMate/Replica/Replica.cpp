@@ -9,7 +9,6 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
-#ifndef AZ_UNITY_BUILD
 
 #include <AzCore/Debug/Profiler.h>
 
@@ -126,6 +125,18 @@ namespace GridMate
         statusChunk->SetUpstreamSuspended(false);
         m_replicaStatus = statusChunk;
         AttachReplicaChunk(statusChunk);
+    }
+    //-----------------------------------------------------------------------------
+    PeerId Replica::GetPeerId() const
+    {
+        PeerId peerId(InvalidReplicaPeerId);
+
+        if (m_manager != nullptr)
+        {
+            peerId = m_manager->m_cfg.m_myPeerId;
+        }
+
+        return peerId;
     }
     //-----------------------------------------------------------------------------
     bool Replica::AttachReplicaChunk(const ReplicaChunkPtr& chunk)
@@ -794,5 +805,3 @@ namespace GridMate
     }
     //-----------------------------------------------------------------------------
 } // namespace GridMate
-
-#endif // #ifndef AZ_UNITY_BUILD

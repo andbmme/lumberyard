@@ -44,7 +44,13 @@ SEditorPaintBrush::SEditorPaintBrush(CHeightmap& rHeightmap, CLayer& rLayer,
 
 float SEditorPaintBrush::GetMask(const float fX, const float fY) const
 {
-    int iX = (int)(fX * (m_rHeightmap.GetWidth() - 1) + 0.5f), iY = (int)(fY * (m_rHeightmap.GetHeight() - 1) + 0.5f);
+    // Our expectation is that fX and fY are values of [0, 1) (i.e. includes 0, excludes 1).  
+    // We're mapping this back to an int range where the width & height are generally powers of 2.  So for example, we're mapping to 0 - 1023.  
+    // To preserve maximum precision in our floats, and for ease of understanding, we're going to expect that our floats actually represent 
+    // the 0 - 1024 range (i.e. 1 is 1024, not 1023), so that way each increment of a float is 1/1024 instead of 1/1023.  This means that a value 
+    // of 1 that's passed in is off the right edge of our range and technically invalid, so we'll just clamp if that happens.
+    int iX = AZStd::clamp(static_cast<uint64>(fX * m_rHeightmap.GetWidth()), static_cast<uint64>(0), static_cast<uint64>(m_rHeightmap.GetWidth() - 1));
+    int iY = AZStd::clamp(static_cast<uint64>(fY * m_rHeightmap.GetHeight()), static_cast<uint64>(0), static_cast<uint64>(m_rHeightmap.GetHeight() - 1));
 
     float fAltitude = m_rHeightmap.GetZInterpolated(fX * m_rHeightmap.GetWidth(), fY * m_rHeightmap.GetHeight());
 
@@ -86,6 +92,9 @@ void CImagePainter::PaintBrush(const float fpx, const float fpy, TImage<LayerWei
 {
     float fX = fpx * image.GetWidth(), fY = fpy * image.GetHeight();
 
+    // By using 1/width and 1/height as our scale, this means we're expecting to generate values of [0, 1).
+    // i.e. we're expecting to generate 0/width to (width-1)/width, and 0/height to (height-1)/height.
+    // This aligns with the expectations of how GetMask() will use these values.
     const float fScaleX = 1.0f / image.GetWidth();
     const float fScaleY = 1.0f / image.GetHeight();
 
@@ -147,6 +156,7 @@ void CImagePainter::PaintBrush(const float fpx, const float fpy, TImage<LayerWei
                 continue;
             }
 
+
             // Calculate the array index
             pos = iPosX + iPosY * width;
 
@@ -157,7 +167,15 @@ void CImagePainter::PaintBrush(const float fpx, const float fpy, TImage<LayerWei
             float dh = 1.0f - h;
             float fh = clamp_tpl((fAttenuation) * dh * fHardness + h, 0.0f, 1.0f);
 
-            sourceData[pos].SetWeight(brush.color, static_cast<uint8>(fh * 255.0f));
+            // A non-zero distance between our weight sample and the center point of the brush
+            // can cause fAttenuation to be ~0.999, so if h (the current weight) is 254, any
+            // value less than 1 * dh will give us a value between 254 and 255.
+            // As we convert from 0-1 back to 0-255 number ranges, it's important to round
+            // instead of truncating so that we don't have to have an exact distance of 0
+            // to reach a value of 255.  
+            uint8 weight = static_cast<uint8>(clamp_tpl(round(fh * 255.0f), 0.0f, 255.0f));
+
+            sourceData[pos].SetWeight(brush.color, weight);
         }
     }
 }
@@ -237,7 +255,9 @@ void CImagePainter::PaintBrushWithPattern(const float fpx, const float fpy, CIma
             fAttenuation = brush.m_bFlood ? 1.0f : 1.0f - __min(1.0f, dist / fMaxDist);
             assert(fAttenuation >= 0.0f && fAttenuation <= 1.0f);
 
-            float fMask = brush.GetMask(iPosX / fScaleX, iPosY / fScaleX);
+            // Note that GetMask expects a range of [0, 1), so it's correct to divide by
+            // fScaleX and fScaleY instead of (fScaleX-1) and (fScaleY-1).
+            float fMask = brush.GetMask(iPosX / fScaleX, iPosY / fScaleY);
 
             uint32 cDstPixBGR = srcBGR[pos];
 

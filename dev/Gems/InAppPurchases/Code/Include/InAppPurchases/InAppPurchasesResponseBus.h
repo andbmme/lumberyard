@@ -30,6 +30,7 @@ namespace InAppPurchases
         virtual void PurchasedProductsRetrieved(const AZStd::vector<AZStd::unique_ptr<PurchasedProductDetails const> >& purchasedProductDetails) { (void)purchasedProductDetails;  }
         virtual void PurchasedProductsRestored(const AZStd::vector<AZStd::unique_ptr<PurchasedProductDetails const> >& purchasedProductDetails) { (void)purchasedProductDetails;  }
         virtual void NewProductPurchased(const PurchasedProductDetails* purchasedProductDetails) { (void)purchasedProductDetails; }
+        virtual void PurchaseConsumed(const AZStd::string& purchaseToken) { (void)purchaseToken; }
         virtual void PurchaseCancelled(const PurchasedProductDetails* purchasedProductDetails) { (void)purchasedProductDetails; }
         virtual void PurchaseRefunded(const PurchasedProductDetails* purchasedProductDetails) { (void)purchasedProductDetails; }
         virtual void PurchaseFailed(const PurchasedProductDetails* purchasedProductDetails) { (void)purchasedProductDetails; }
@@ -39,13 +40,16 @@ namespace InAppPurchases
 
     using InAppPurchasesResponseBus = AZ::EBus<InAppPurchasesResponse>;
 
-#if defined(AZ_PLATFORM_ANDROID)
+    // This API should be re-designed to be platform-agnostic, or if that is
+    // not possible we should move it to an Android specific include folder.
+    // But it can stay here for now because it's not a restricted platform.
     class PurchasedProductDetailsAndroid
         : public PurchasedProductDetails
     {
     public:
         AZ_RTTI(PurchasedProductDetailsAndroid, "{86A7072A-4661-4DAA-A811-F9279B089859}", PurchasedProductDetails);
-
+        
+        AZ::u64 GetPurchaseTime() const override { return m_purchaseTime / 1000; }
         const AZStd::string& GetPurchaseSignature() const { return m_purchaseSignature; }
         const AZStd::string& GetPackageName() const { return m_packageName; }
         const AZStd::string& GetPurchaseToken() const { return m_purchaseToken; }
@@ -63,7 +67,9 @@ namespace InAppPurchases
         bool m_autoRenewing;
     };
 
-#elif defined(AZ_PLATFORM_APPLE_IOS)
+    // This API should be re-designed to be platform-agnostic, or if that is
+    // not possible we should move it to an Apple specific include folder.
+    // But it can stay here for now because it's not a restricted platform.
     class PurchasedProductDetailsApple
         : public PurchasedProductDetails
     {
@@ -86,5 +92,4 @@ namespace InAppPurchases
         AZ::u64 m_restoredPurchaseTime;
         bool m_hasDownloads;
     };
-#endif
 }

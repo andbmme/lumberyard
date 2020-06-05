@@ -25,6 +25,11 @@ namespace AzFramework
     {
     public:
         ////////////////////////////////////////////////////////////////////////////////////////////
+        // Constants
+        static const int NAME_BUFFER_SIZE = 64;
+        static const int MAX_NAME_LENGTH = NAME_BUFFER_SIZE - 1;
+
+        ////////////////////////////////////////////////////////////////////////////////////////////
         // Allocator
         AZ_CLASS_ALLOCATOR(InputDeviceId, AZ::SystemAllocator, 0);
 
@@ -38,13 +43,19 @@ namespace AzFramework
 
         ////////////////////////////////////////////////////////////////////////////////////////////
         //! Constructor
-        //! \param[in] name Name of the input device
+        //! \param[in] name Name of the input device (will be truncated if exceeds MAX_NAME_LENGTH)
         //! \param[in] index Index of the input device (optional)
-        explicit InputDeviceId(const char* name = "", AZ::u32 index = 0);
+        explicit InputDeviceId(const char* name, AZ::u32 index = 0);
 
         ////////////////////////////////////////////////////////////////////////////////////////////
-        // Default copying
-        AZ_DEFAULT_COPY(InputDeviceId);
+        //! Copy constructor
+        //! \param[in] other Another instance of the class to copy from
+        InputDeviceId(const InputDeviceId& other);
+
+        ////////////////////////////////////////////////////////////////////////////////////////////
+        //! Copy assignment operator
+        //! \param[in] other Another instance of the class to copy from
+        InputDeviceId& operator=(const InputDeviceId& other);
 
         ////////////////////////////////////////////////////////////////////////////////////////////
         //! Default destructor
@@ -61,12 +72,12 @@ namespace AzFramework
         const AZ::Crc32& GetNameCrc32() const;
 
         ////////////////////////////////////////////////////////////////////////////////////////////
-        //! Access to the input device's index. Does not correspond to the local player id assigned
-        //! to an input device (see InputDevice::GetAssignedLocalPlayerId). For use differentiating
-        //! between multiple instances of the same device - regardless of whether a local player id
-        //! has been assigned to it. For example, by default the engine supports up to four gamepad
-        //! devices that are created at startup using indicies 0->3. As gamepads connect/disconnect
-        //! at runtime, we automatically assign the appropriate (system dependent) local player id.
+        //! Access to the input device's index. Used for differentiating between multiple instances
+        //! of the same device type, regardless of whether the device has a local user id assigned.
+        //! In some cases the device index and local user are the same, but this cannot be assumed.
+        //! For example, by default the engine supports up to four gamepad devices that are created
+        //! at startup using indicies 0->3. As gamepads connect/disconnect at runtime we assign the
+        //! appropriate (system dependent) local user id (see InputDevice::GetAssignedLocalUserId).
         //! \return Index of the input device
         AZ::u32 GetIndex() const;
 
@@ -86,9 +97,9 @@ namespace AzFramework
     private:
         ////////////////////////////////////////////////////////////////////////////////////////////
         // Variables
-        const char* m_name;  //!< Name of the input device
-        AZ::Crc32   m_crc32; //!< Crc32 of the input device
-        AZ::u32     m_index; //!< Index of the input device
+        char      m_name[NAME_BUFFER_SIZE]; //!< Name of the input device
+        AZ::Crc32 m_crc32;                  //!< Crc32 of the input device
+        AZ::u32   m_index;                  //!< Index of the input device
     };
 } // namespace AzFramework
 

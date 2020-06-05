@@ -13,10 +13,11 @@
 // include required headers
 #include "OBB.h"
 #include "AABB.h"
-#include "JobList.h"
-#include "Job.h"
-#include "JobManager.h"
 
+#include <AzCore/Jobs/JobFunction.h>
+#include <AzCore/Jobs/JobCompletion.h>
+#include <AzCore/Jobs/JobContext.h>
+#include <MCore/Source/AzCoreConversions.h>
 
 namespace MCore
 {
@@ -27,19 +28,19 @@ namespace MCore
         AZ::Vector3 relPoint = p - mCenter;
 
         // convert the box into box space and test each axis
-        float f = MMAT(mRotation, 0, 0) * relPoint.GetX() + MMAT(mRotation, 0, 1) * relPoint.GetY() + MMAT(mRotation, 0, 2) * relPoint.GetZ();
+        float f = mRotation(0, 0) * relPoint.GetX() + mRotation(1, 0) * relPoint.GetY() + mRotation(2, 0) * relPoint.GetZ();
         if (f >= mExtents.GetX() || f <= -mExtents.GetX())
         {
             return false;
         }
 
-        f = MMAT(mRotation, 1, 0) * relPoint.GetX() + MMAT(mRotation, 1, 1) * relPoint.GetY() + MMAT(mRotation, 1, 2) * relPoint.GetZ();
+        f = mRotation(0, 1) * relPoint.GetX() + mRotation(1, 1) * relPoint.GetY() + mRotation(2, 1) * relPoint.GetZ();
         if (f >= mExtents.GetY() || f <= -mExtents.GetY())
         {
             return false;
         }
 
-        f = MMAT(mRotation, 2, 0) * relPoint.GetX() + MMAT(mRotation, 2, 1) * relPoint.GetY() + MMAT(mRotation, 2, 2) * relPoint.GetZ();
+        f = mRotation(0, 2) * relPoint.GetX() + mRotation(1, 2) * relPoint.GetY() + mRotation(2, 2) * relPoint.GetZ();
         if (f >= mExtents.GetZ() || f <= -mExtents.GetZ())
         {
             return false;
@@ -49,41 +50,41 @@ namespace MCore
     }
 
 
-    void OBB::Create(const AABB& aabb, const Matrix& mat)
+    void OBB::Create(const AABB& aabb, const AZ::Transform& mat)
     {
         // calculate the center and extents
         mCenter  = aabb.CalcMiddle();
         mExtents = aabb.CalcExtents();
 
         // transform the center
-        mCenter = mCenter * mat;
+        mCenter = mat * mCenter;
 
         // set the rotation
         mRotation = mat;
     }
 
 
-    void OBB::Transform(const Matrix& transMatrix)
+    void OBB::Transform(const AZ::Transform& transMatrix)
     {
-        mCenter   = mCenter * transMatrix;
-        mRotation = mRotation * transMatrix;
+        mCenter   = transMatrix * mCenter;
+        mRotation = transMatrix * mRotation;
     }
 
 
-    void OBB::Transformed(const Matrix& transMatrix, OBB* outOBB) const
+    void OBB::Transformed(const AZ::Transform& transMatrix, OBB* outOBB) const
     {
         outOBB->mExtents  = mExtents;
-        outOBB->mCenter   = mCenter * transMatrix;
-        outOBB->mRotation = mRotation * transMatrix;
+        outOBB->mCenter   = transMatrix * mCenter;
+        outOBB->mRotation = transMatrix * mRotation;
     }
 
 
     bool OBB::CheckIfIsInside(const OBB& box) const
     {
         // make a 4x4 from the box & inverse it
-        Matrix M0 = box.mRotation;
+        AZ::Transform M0 = box.mRotation;
         M0.SetTranslation(box.mCenter);
-        Matrix M0Inv = M0.Inversed();
+        AZ::Transform M0Inv = M0.GetInverseFull();
 
         // with our inversed 4x4, create box1 in space of box0
         OBB _1in0;
@@ -93,9 +94,9 @@ namespace MCore
 
         // the two boxes are in the same space so now we can compare them
         // create the AABB of (box1 in space of box0)
-        const Matrix& mtx = _1in0.mRotation;
+        const AZ::Transform& mtx = _1in0.mRotation;
 
-        float f = Math::Abs(MMAT(mtx, 0, 0) * mExtents.GetX()) + Math::Abs(MMAT(mtx, 1, 0) * mExtents.GetY()) + Math::Abs(MMAT(mtx, 2, 0) * mExtents.GetZ()) - box.mExtents.GetX();
+        float f = Math::Abs(mtx(0, 0) * mExtents.GetX()) + Math::Abs(mtx(0, 1) * mExtents.GetY()) + Math::Abs(mtx(0, 2) * mExtents.GetZ()) - box.mExtents.GetX();
         if (f > _1in0.mCenter.GetX())
         {
             return false;
@@ -105,7 +106,7 @@ namespace MCore
             return false;
         }
 
-        f = Math::Abs(MMAT(mtx, 0, 1) * mExtents.GetX()) + Math::Abs(MMAT(mtx, 1, 1) * mExtents.GetY()) + Math::Abs(MMAT(mtx, 2, 1) * mExtents.GetZ()) - box.mExtents.GetY();
+        f = Math::Abs(mtx(1, 0) * mExtents.GetX()) + Math::Abs(mtx(1, 1) * mExtents.GetY()) + Math::Abs(mtx(1, 2) * mExtents.GetZ()) - box.mExtents.GetY();
         if (f > _1in0.mCenter.GetY())
         {
             return false;
@@ -115,7 +116,7 @@ namespace MCore
             return false;
         }
 
-        f = Math::Abs(MMAT(mtx, 0, 2) * mExtents.GetX()) + Math::Abs(MMAT(mtx, 1, 2) * mExtents.GetY()) + Math::Abs(MMAT(mtx, 2, 2) * mExtents.GetZ()) - box.mExtents.GetZ();
+        f = Math::Abs(mtx(2, 0) * mExtents.GetX()) + Math::Abs(mtx(2, 1) * mExtents.GetY()) + Math::Abs(mtx(2, 2) * mExtents.GetZ()) - box.mExtents.GetZ();
         if (f > _1in0.mCenter.GetZ())
         {
             return false;
@@ -135,9 +136,9 @@ namespace MCore
         MCORE_ASSERT(outPoints);
         MCORE_ASSERT(CheckIfIsValid());
 
-        AZ::Vector3 right   = mRotation.GetRight();
-        AZ::Vector3 up      = mRotation.GetUp();
-        AZ::Vector3 forward = mRotation.GetForward();
+        AZ::Vector3 right   = MCore::GetRight(mRotation);
+        AZ::Vector3 up      = MCore::GetUp(mRotation);
+        AZ::Vector3 forward = MCore::GetForward(mRotation);
 
         right   *= mExtents.GetX();
         up      *= mExtents.GetZ();
@@ -480,21 +481,20 @@ namespace MCore
 
 
     // calc the best fit for a given x rotation slice
-    void OBB::InitFromPointsRange(const AZ::Vector3* points, uint32 numPoints, float xDegrees, float* outMinArea, AABB* outMinBox, Matrix* outMinMatrix)
+    void OBB::InitFromPointsRange(const AZ::Vector3* points, uint32 numPoints, float xDegrees, float* outMinArea, AABB* outMinBox, AZ::Transform* outMinMatrix)
     {
         // calculate the x rotation matrix
-        MCore::Matrix rotMatrix;
-        rotMatrix.SetRotationMatrixX(Math::DegreesToRadians(xDegrees));
+        AZ::Transform rotMatrix = AZ::Transform::CreateRotationX(Math::DegreesToRadians(xDegrees));
 
         // try the same over the z axis
         for (float z = -180.0f; z < 180.0f; z += 5.0f)
         {
             // calculate the final rotation matrix
-            rotMatrix.RotateZ(Math::DegreesToRadians(z));
+            rotMatrix = AZ::Transform::CreateRotationZ(Math::DegreesToRadians(z)) * rotMatrix;
 
             // calculate the transposed, which is the same as the inverse as there is only rotation
             // we need this so we can transform the point set into space of this current rotation
-            MCore::Matrix invMatrix = rotMatrix;
+            AZ::Transform invMatrix = rotMatrix;
             invMatrix.Transpose();
 
             // rotate the points into the space of the current rotation
@@ -502,7 +502,7 @@ namespace MCore
             box.Init();
             for (uint32 i = 0; i < numPoints; ++i)
             {
-                box.Encapsulate(invMatrix.Mul3x3(points[i]));
+                box.Encapsulate(invMatrix * points[i]);
             }
 
             // check if the surface area of this box is smaller than the smallest one we have
@@ -530,33 +530,35 @@ namespace MCore
         // some values we need
         const uint32 MAX_NUM = (360 / 5) + 1;
         AABB    minBoxes[MAX_NUM];
-        Matrix  minRotMatrices[MAX_NUM];
+        AZ::Transform  minRotMatrices[MAX_NUM];
         float   minAreas[MAX_NUM];
         for (uint32 i = 0; i < MAX_NUM; ++i)
         {
             minAreas[i] = FLT_MAX;
         }
 
+
         // try all rotation on the x axis (multithreaded)
-        GetJobManager().GetJobPool().Lock();
-        JobList* jobList = JobList::Create();
+        AZ::JobCompletion jobCompletion;           
         uint32 index = 0;
         for (float x = -180.0f; x < 180.0f; x += 5.0f)
         {
             MCORE_ASSERT(index < MAX_NUM);
 
             // create the job and add it
-            Job* newJob = Job::CreateWithoutLock(   [this, &minAreas, &minBoxes, &minRotMatrices, &numPoints, &points, x, index](const Job* job)
-                    {
-                        MCORE_UNUSED(job);
-                        InitFromPointsRange(points, numPoints, x, &minAreas[index], &minBoxes[index], &minRotMatrices[index]);
-                    });
+            AZ::JobContext* jobContext = nullptr;
+            AZ::Job* job = AZ::CreateJobFunction([this, &minAreas, &minBoxes, &minRotMatrices, &numPoints, &points, x, index]()
+            {   
+                InitFromPointsRange(points, numPoints, x, &minAreas[index], &minBoxes[index], &minRotMatrices[index]);
+            }, true, jobContext);
 
-            jobList->AddJob(newJob);
+            job->SetDependent(&jobCompletion);
+            job->Start();
+
             index++;
         }
-        GetJobManager().GetJobPool().Unlock();
-        ExecuteJobList(jobList); // automatically syncs to wait for all jobs to be completed
+
+        jobCompletion.StartAndWaitForCompletion();
 
         // find the real minimum value (single threaded lookup)
         float minimumArea = FLT_MAX;
@@ -572,7 +574,7 @@ namespace MCore
 
         // update
         mRotation   = minRotMatrices[minimumIndex];
-        mCenter     = mRotation.Mul3x3(minBoxes[minimumIndex].CalcMiddle());
+        mCenter     = minBoxes[minimumIndex].CalcMiddle() * mRotation;
         mExtents    = minBoxes[minimumIndex].CalcExtents();
 
         /*
@@ -620,7 +622,7 @@ namespace MCore
     // calculate the minimum and maximum point
     void OBB::CalcMinMaxPoints(AZ::Vector3* outMin, AZ::Vector3* outMax) const
     {
-        AZ::Vector3 rotatedExtents = mRotation.Mul3x3(mExtents);
+        AZ::Vector3 rotatedExtents = mExtents * mRotation;
         *outMax = mCenter + rotatedExtents;
         *outMin = mCenter - rotatedExtents;
 

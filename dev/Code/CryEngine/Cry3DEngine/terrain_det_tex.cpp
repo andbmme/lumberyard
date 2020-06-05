@@ -17,35 +17,35 @@
 #include "StdAfx.h"
 #include "terrain.h"
 #include "terrain_sector.h"
-#include "3dEngine.h"
 
 void CTerrain::SetDetailLayerProperties(int nId, float fScaleX, float fScaleY,
     uint8 ucProjAxis, const char* szSurfName,
     const PodArray<int>& lstnVegetationGroups, _smart_ptr<IMaterial> pMat)
 {
-    if (nId >= 0 && nId < SurfaceTile::MaxSurfaceCount)
+    if (nId >= 0 && nId < LegacyTerrain::TerrainNodeSurface::MaxSurfaceCount)
     {
         const int nNameLength = strlen(szSurfName);
         const int nDestNameLength = sizeof(m_SurfaceTypes[nId].szName) - 1;
         if (nNameLength > nDestNameLength)
         {
-            Error("CTerrain::SetDetailLayerProperties: attempt to assign too long surface type name (%s)", szSurfName);
+            AZ_Error("LegacyTerrain", false, "CTerrain::SetDetailLayerProperties: attempt to assign too long surface type name (%s)", szSurfName);
         }
         cry_strcpy(m_SurfaceTypes[nId].szName, szSurfName);
+        m_SurfaceTypes[nId].nameTag = AZ::Crc32(szSurfName);
         m_SurfaceTypes[nId].fScale = fScaleX;
         m_SurfaceTypes[nId].ucDefProjAxis = ucProjAxis;
         m_SurfaceTypes[nId].ucThisSurfaceTypeId = nId;
         m_SurfaceTypes[nId].lstnVegetationGroups.Reset();
         m_SurfaceTypes[nId].lstnVegetationGroups.AddList(lstnVegetationGroups);
         m_SurfaceTypes[nId].pLayerMat = (CMatInfo*)pMat.get();
-        if (m_SurfaceTypes[nId].pLayerMat && !m_bEditor)
+        if (m_SurfaceTypes[nId].pLayerMat && !IsEditor())
         {
-            CTerrain::Get3DEngine()->PrintMessage("  Layer %d - %s has material %s", nId, szSurfName, pMat->GetName());
+           AZ_Printf("LegacyTerrain", "  Layer %d - %s has material %s", nId, szSurfName, pMat->GetName());
         }
     }
     else
     {
-        Warning("CTerrain::SetDetailTextures: LayerId is out of range: %d: %s", nId, szSurfName);
+        AZ_Warning("LegacyTerrain", false, "CTerrain::SetDetailTextures: LayerId is out of range: %d: %s", nId, szSurfName);
         assert(!"CTerrain::SetDetailTextures: LayerId is out of range");
     }
 }
@@ -54,19 +54,21 @@ void CTerrain::LoadSurfaceTypesFromXML(XmlNodeRef pDoc)
 {
     LOADING_TIME_PROFILE_SECTION;
 
-    MEMSTAT_CONTEXT(EMemStatContextTypes::MSC_Terrain, 0, "Surface types");
-
     if (!pDoc)
     {
         return;
     }
 
     IMaterialManager*       pMatMan = Get3DEngine()->GetMaterialManager();
-    for (int nId = 0; nId < pDoc->getChildCount() && nId < SurfaceTile::MaxSurfaceCount; nId++)
+    for (int nId = 0; nId < pDoc->getChildCount() && nId < LegacyTerrain::TerrainNodeSurface::MaxSurfaceCount; nId++)
     {
         XmlNodeRef pDetLayer = pDoc->getChild(nId);
         const char* pMatName = pDetLayer->getAttr("DetailMaterial");
-        _smart_ptr<IMaterial> pMat = pMatName[0] ? pMatMan->LoadMaterial(pMatName, true, false, MTL_FLAG_IS_TERRAIN) : nullptr;
+        _smart_ptr<IMaterial> pMat = pMatMan->FindMaterial(pMatName);
+        if (!pMat)
+        {
+            pMat = pMatMan->LoadMaterial(pMatName, true, false, MTL_FLAG_IS_TERRAIN);
+        }
 
         float fScaleX = 1.f;
         pDetLayer->getAttr("DetailScaleX", fScaleX);
@@ -76,7 +78,7 @@ void CTerrain::LoadSurfaceTypesFromXML(XmlNodeRef pDoc)
 
         if (!pMat || pMat == pMatMan->GetDefaultMaterial())
         {
-            Error("CTerrain::LoadSurfaceTypesFromXML: Error loading material: %s", pMatName);
+            AZ_Error("LegacyTerrain", false, "CTerrain::LoadSurfaceTypesFromXML: Error loading material: %s", pMatName);
             pMat = pMatMan->GetDefaultTerrainLayerMaterial();
         }
 

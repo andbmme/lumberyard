@@ -13,6 +13,15 @@
 
 #include <platform.h>
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/Gem_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/Gem_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/Gem_h_salem.inl"
+    #endif
+#endif
 
 #if defined(LINUX) || defined(APPLE) || defined(ANDROID)
     #define OPENGL 1
@@ -41,13 +50,12 @@
 #include <I3DEngine.h>
 #include <IStreamEngine.h>
 
-#include <Array2d.h>
+#include <CryArray2d.h>
 #include <PoolAllocator.h>
 #include <Cry3DEngineBase.h>
 #include <cvars.h>
 #include <Material.h>
-#include <terrain.h>
-#include <3DEngine.h>
+#include <3dEngine.h>
 #include <ObjMan.h>
 #include <StlUtils.h>
 

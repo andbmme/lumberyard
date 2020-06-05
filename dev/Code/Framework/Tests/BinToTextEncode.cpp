@@ -10,10 +10,9 @@
 *
 */
 
-#include "TestTypes.h"
-
 #include <AzCore/Component/ComponentApplication.h>
 #include <AzCore/Memory/PoolAllocator.h>
+#include <AzCore/UnitTest/TestTypes.h>
 
 #include <AzFramework/StringFunc/StringFunc.h>
 
@@ -28,30 +27,37 @@ namespace UnitTest
     {
     public:
         Base64Test()
-            : AllocatorsFixture(15, false)
+            : AllocatorsFixture()
+            , m_systemEntity(nullptr)
         {
-            AllocatorInstance<PoolAllocator>::Create();
-            AllocatorInstance<ThreadPoolAllocator>::Create();
-        }
-
-        ~Base64Test()
-        {
-            AllocatorInstance<PoolAllocator>::Destroy();
-            AllocatorInstance<ThreadPoolAllocator>::Destroy();
         }
 
         void SetUp() override
         {
+            AllocatorsFixture::SetUp();
+            AllocatorInstance<PoolAllocator>::Create();
+            AllocatorInstance<ThreadPoolAllocator>::Create();
             ComponentApplication::Descriptor desc;
             desc.m_useExistingAllocator = true;
-            m_app.Create(desc);
+            desc.m_enableDrilling = false; // we already created a memory driller for the test (AllocatorsFixture)
+            m_systemEntity = m_app.Create(desc);
         }
 
         void TearDown() override
         {
+            delete m_systemEntity;
             m_app.Destroy();
+            AllocatorInstance<PoolAllocator>::Destroy();
+            AllocatorInstance<ThreadPoolAllocator>::Destroy();
+            AllocatorsFixture::TearDown();
         }
 
+        virtual ~Base64Test()
+        {
+            
+        }
+
+        AZ::Entity* m_systemEntity;
         ComponentApplication m_app;
     };
 
@@ -140,7 +146,7 @@ namespace UnitTest
         encodedString = AzFramework::StringFunc::Base64::Encode(binaryValue3, AZ_ARRAY_SIZE(binaryValue3));
         EXPECT_EQ("FPucAw==", encodedString);
 
-        EXPECT_EQ("TlVMAEluU3RyaW5n", StringFunc::Base64::Encode(reinterpret_cast<const AZ::u8*>("NUL\0InString"), AZ_ARRAY_SIZE("NUL\0InString") - 1));
+        EXPECT_EQ("TlVMAEluU3RyaW5n", AzFramework::StringFunc::Base64::Encode(reinterpret_cast<const AZ::u8*>("NUL\0InString"), AZ_ARRAY_SIZE("NUL\0InString") - 1));
     }
 
     //! Test RFC 4648 Binary https://tools.ietf.org/html/rfc4648#page-12
@@ -168,7 +174,7 @@ namespace UnitTest
         vecLen = AZStd::min(AZ_ARRAY_SIZE(expectedBinaryValue3), decodedVector.size());
         EXPECT_EQ(0, memcmp(expectedBinaryValue3, decodedVector.data(), vecLen));
 
-        EXPECT_TRUE(StringFunc::Base64::Decode(decodedVector, "TlVMAEluU3RyaW5n", strlen("TlVMAEluU3RyaW5n")));
+        EXPECT_TRUE(AzFramework::StringFunc::Base64::Decode(decodedVector, "TlVMAEluU3RyaW5n", strlen("TlVMAEluU3RyaW5n")));
         vecLen = AZStd::min(AZ_ARRAY_SIZE(expectedBinaryValue4), decodedVector.size());
         EXPECT_EQ(0, memcmp(expectedBinaryValue4, decodedVector.data(), vecLen));
     }

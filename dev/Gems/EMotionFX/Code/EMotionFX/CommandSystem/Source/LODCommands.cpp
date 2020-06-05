@@ -18,6 +18,8 @@
 #include <EMotionFX/Source/Importer/Importer.h>
 #include <EMotionFX/Source/ActorManager.h>
 #include <AzFramework/API/ApplicationAPI.h>
+#include <MCore/Source/LogManager.h>
+#include <MCore/Source/StringConversions.h>
 
 
 namespace CommandSystem
@@ -44,14 +46,14 @@ namespace CommandSystem
 
 
     // execute
-    bool CommandAddLOD::Execute(const MCore::CommandLine& parameters, MCore::String& outResult)
+    bool CommandAddLOD::Execute(const MCore::CommandLine& parameters, AZStd::string& outResult)
     {
         // find the actor based on the given id
         const uint32 actorID = parameters.GetValueAsInt("actorID", this);
         EMotionFX::Actor* actor = EMotionFX::GetActorManager().FindActorByID(actorID);
         if (actor == nullptr)
         {
-            outResult.Format("Cannot execute LOD command. Actor ID %i is not valid.", actorID);
+            outResult = AZStd::string::format("Cannot execute LOD command. Actor ID %i is not valid.", actorID);
             return false;
         }
 
@@ -62,19 +64,19 @@ namespace CommandSystem
         if (parameters.CheckIfHasParameter("actorFileName"))
         {
             // get the filename of the LOD actor
-            MCore::String lodFileName;
+            AZStd::string lodFileName;
             parameters.GetValue("actorFileName", this, &lodFileName);
 
             // load the LOD actor
-            EMotionFX::Actor* lodActor = EMotionFX::GetImporter().LoadActor(lodFileName.AsChar());
+            AZStd::unique_ptr<EMotionFX::Actor> lodActor = EMotionFX::GetImporter().LoadActor(lodFileName.c_str());
             if (lodActor == nullptr)
             {
-                outResult.Format("Cannot execute LOD command. Loading LOD actor from file '%s' failed.", lodFileName.AsChar());
+                outResult = AZStd::string::format("Cannot execute LOD command. Loading LOD actor from file '%s' failed.", lodFileName.c_str());
                 return false;
             }
 
             // replace the given LOD level with the lod actor and remove the LOD actor object from memory afterwards
-            actor->CopyLODLevel(lodActor, 0, lodLevel, false);
+            actor->CopyLODLevel(lodActor.get(), 0, lodLevel, false);
         }
         // add a copy of the last LOD level to the end?
         else if (parameters.CheckIfHasParameter("addLastLODLevel"))
@@ -99,7 +101,7 @@ namespace CommandSystem
                 copyFrom++;
             }
 
-            actor->CopyLODLevel(actor, copyFrom, insertAt, true, false);
+            actor->CopyLODLevel(actor, copyFrom, insertAt, true);
 
             // enable or disable nodes based on the skeletal LOD flags
             const uint32 numActorInstances = EMotionFX::GetActorManager().GetNumActorInstances();
@@ -114,8 +116,8 @@ namespace CommandSystem
         {
             const uint32 numNodes = actor->GetNumNodes();
             // get the node names of the currently enabled nodes for the skeletal LOD
-            mOldSkeletalLOD.Clear();
-            mOldSkeletalLOD.Reserve(16448);
+            mOldSkeletalLOD.clear();
+            mOldSkeletalLOD.reserve(16448);
             for (uint32 i = 0; i < numNodes; ++i)
             {
                 EMotionFX::Node* node = actor->GetSkeleton()->GetNode(i);
@@ -127,15 +129,16 @@ namespace CommandSystem
                     mOldSkeletalLOD += ";";
                 }
             }
-            mOldSkeletalLOD.TrimRight(MCore::UnicodeCharacter(';'));
+            AzFramework::StringFunc::Strip(mOldSkeletalLOD, MCore::CharacterConstants::semiColon, true /* case sensitive */, false /* beginning */, true /* ending */);
 
             // get the node names for the skeletal LOD and split the string
-            MCore::String skeletalLODString;
-            skeletalLODString.Reserve(16448);
+            AZStd::string skeletalLODString;
+            skeletalLODString.reserve(16448);
             parameters.GetValue("skeletalLOD", this, &skeletalLODString);
 
             // get the individual node names
-            MCore::Array<MCore::String> nodeNames = skeletalLODString.Split(MCore::UnicodeCharacter(';'));
+            AZStd::vector<AZStd::string> nodeNames;
+            AzFramework::StringFunc::Tokenize(skeletalLODString.c_str(), nodeNames, MCore::CharacterConstants::semiColon, true /* keep empty strings */, true /* keep space strings */);
 
             // iterate through the nodes and set the skeletal LOD flag based on the input parameter
             for (uint32 i = 0; i < numNodes; ++i)
@@ -149,7 +152,7 @@ namespace CommandSystem
 
                 // check if the given node is in the parameter where the enabled nodes are listed, if yes enable the skeletal LOD flag, disable if not as well as
                 // check if the node is enabled in the parent LOD level and only allow enabling
-                if (/*parendLODEnabled && */ nodeNames.Find(node->GetName()) != MCORE_INVALIDINDEX32)
+                if (/*parendLODEnabled && */ AZStd::find(nodeNames.begin(), nodeNames.end(), AZStd::string(node->GetName())) != nodeNames.end())
                 {
                     node->SetSkeletalLODStatus(lodLevel, true);
                 }
@@ -171,7 +174,7 @@ namespace CommandSystem
         }
 
         // reinit our render actors
-        MCore::String reinitRenderActorsResult;
+        AZStd::string reinitRenderActorsResult;
         GetCommandManager()->ExecuteCommandInsideCommand("ReInitRenderActors -resetViewCloseup false", reinitRenderActorsResult);
 
         // save the current dirty flag and tell the actor that something got changed
@@ -183,13 +186,13 @@ namespace CommandSystem
 
 
     // undo the command
-    bool CommandAddLOD::Undo(const MCore::CommandLine& parameters, MCore::String& outResult)
+    bool CommandAddLOD::Undo(const MCore::CommandLine& parameters, AZStd::string& outResult)
     {
         MCORE_UNUSED(parameters);
         MCORE_UNUSED(outResult);
 
         /*String commandString;
-        //commandString.Format("RemoveLOD -actorID %i -lodLevel %i", );
+        //commandString = AZStd::string::format("RemoveLOD -actorID %i -lodLevel %i", );
         if (GetCommandManager()->ExecuteCommandInsideCommand(commandString.AsChar(), outResult, false) == false)
         {
             if (outResult.GetIsEmpty() == false)
@@ -243,16 +246,16 @@ namespace CommandSystem
 
 
     // execute
-    bool CommandRemoveLOD::Execute(const MCore::CommandLine& parameters, MCore::String& outResult)
+    bool CommandRemoveLOD::Execute(const MCore::CommandLine& parameters, AZStd::string& outResult)
     {
-        MCore::String commandResult;
+        AZStd::string commandResult;
 
         // find the actor based on the given id
         const uint32 actorID = parameters.GetValueAsInt("actorID", this);
         EMotionFX::Actor* actor = EMotionFX::GetActorManager().FindActorByID(actorID);
         if (actor == nullptr)
         {
-            outResult.Format("Cannot execute LOD command. Actor ID %i is not valid.", actorID);
+            outResult = AZStd::string::format("Cannot execute LOD command. Actor ID %i is not valid.", actorID);
             return false;
         }
 
@@ -260,7 +263,7 @@ namespace CommandSystem
         const uint32 lodLevel = parameters.GetValueAsInt("lodLevel", this);
         if (lodLevel >= actor->GetNumLODLevels())
         {
-            outResult.Format("Cannot execute LOD command. Actor only has %d LOD levels (valid indices are [0, %d]) while the operation wanted to work on LOD level %d.", actor->GetNumLODLevels(), actor->GetNumLODLevels() - 1, lodLevel);
+            outResult = AZStd::string::format("Cannot execute LOD command. Actor only has %d LOD levels (valid indices are [0, %d]) while the operation wanted to work on LOD level %d.", actor->GetNumLODLevels(), actor->GetNumLODLevels() - 1, lodLevel);
             return false;
         }
 
@@ -303,7 +306,7 @@ namespace CommandSystem
 
 
     // undo the command
-    bool CommandRemoveLOD::Undo(const MCore::CommandLine& parameters, MCore::String& outResult)
+    bool CommandRemoveLOD::Undo(const MCore::CommandLine& parameters, AZStd::string& outResult)
     {
         MCORE_UNUSED(parameters);
         MCORE_UNUSED(outResult);
@@ -342,44 +345,44 @@ namespace CommandSystem
         }
 
         // create the command group
-        MCore::String command;
+        AZStd::string command;
         MCore::CommandGroup internalCommandGroup("Clear LOD levels");
 
         // iterate through the LOD levels and remove them back to front
         for (uint32 lodLevel = numLODLevels - 1; lodLevel > 0; --lodLevel)
         {
             // construct the command to remove the given LOD level
-            command.Format("RemoveLOD -actorID %d -lodLevel %d", actor->GetID(), lodLevel);
+            command = AZStd::string::format("RemoveLOD -actorID %d -lodLevel %d", actor->GetID(), lodLevel);
 
             // add the command to the command group
             if (commandGroup == nullptr)
             {
-                internalCommandGroup.AddCommandString(command.AsChar());
+                internalCommandGroup.AddCommandString(command.c_str());
             }
             else
             {
-                commandGroup->AddCommandString(command.AsChar());
+                commandGroup->AddCommandString(command.c_str());
             }
         }
 
         // execute the command or add it to the given command group
         if (commandGroup == nullptr)
         {
-            MCore::String resultString;
+            AZStd::string resultString;
             if (GetCommandManager()->ExecuteCommandGroup(internalCommandGroup, resultString) == false)
             {
-                MCore::LogError(resultString.AsChar());
+                MCore::LogError(resultString.c_str());
             }
         }
     }
 
 
-    void PrepareSkeletalLODParameter(EMotionFX::Actor* actor, uint32 lodLevel, const MCore::Array<uint32>& enabledNodeIDs, MCore::String* outString)
+    void PrepareSkeletalLODParameter(EMotionFX::Actor* actor, uint32 lodLevel, const MCore::Array<uint32>& enabledNodeIDs, AZStd::string* outString)
     {
         MCORE_UNUSED(lodLevel);
 
         // skeletal LOD
-        outString->FormatAdd(" -skeletalLOD \"");
+        *outString += " -skeletalLOD \"";
         const uint32 numEnabledNodes = enabledNodeIDs.GetLength();
         for (uint32 n = 0; n < numEnabledNodes; ++n)
         {
@@ -390,29 +393,29 @@ namespace CommandSystem
                 continue;
             }
 
-            outString->FormatAdd("%s;", node->GetName());
+            *outString += AZStd::string::format("%s;", node->GetName());
         }
-        outString->FormatAdd("\"");
+        *outString += "\"";
     }
 
 
     // construct the replace LOD command using the manual LOD method
-    void ConstructReplaceManualLODCommand(EMotionFX::Actor* actor, uint32 lodLevel, const char* lodActorFileName, const MCore::Array<uint32>& enabledNodeIDs, MCore::String* outString, bool useForMetaData)
+    void ConstructReplaceManualLODCommand(EMotionFX::Actor* actor, uint32 lodLevel, const char* lodActorFileName, const MCore::Array<uint32>& enabledNodeIDs, AZStd::string* outString, bool useForMetaData)
     {
         // clear the command string, reserve space and start filling it
-        outString->Clear();
-        outString->Reserve(16384);
+        outString->clear();
+        outString->reserve(16384);
 
         AZStd::string nativeFileName = lodActorFileName;
         EBUS_EVENT(AzFramework::ApplicationRequests::Bus, NormalizePathKeepCase, nativeFileName);
 
         if (useForMetaData == false)
         {
-            outString->Format("AddLOD -actorID %i -lodLevel %i -actorFileName \"%s\"", actor->GetID(), lodLevel, nativeFileName.c_str());
+            *outString = AZStd::string::format("AddLOD -actorID %i -lodLevel %i -actorFileName \"%s\"", actor->GetID(), lodLevel, nativeFileName.c_str());
         }
         else
         {
-            outString->Format("AddLOD -actorID $(ACTORID) -lodLevel %i -actorFileName \"%s\"", lodLevel, nativeFileName.c_str());
+            *outString = AZStd::string::format("AddLOD -actorID $(ACTORID) -lodLevel %i -actorFileName \"%s\"", lodLevel, nativeFileName.c_str());
         }
 
         // skeletal LOD
@@ -421,7 +424,7 @@ namespace CommandSystem
         // add a new line for meta data usage
         if (useForMetaData)
         {
-            outString->FormatAdd("\n");
+            *outString += "\n";
         }
     }
 } // namespace CommandSystem

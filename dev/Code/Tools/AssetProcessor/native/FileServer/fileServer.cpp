@@ -15,7 +15,7 @@
 #include <QDir>
 #include <QTimer>
 
-#if !defined(APPLE)
+#if !defined(APPLE) && !defined(LINUX)
 #include <io.h>
 #endif
 #include <unordered_map>
@@ -24,7 +24,7 @@
 #include <sys/stat.h>
 #include <string>
 
-#include "native/utilities/AssetUtils.h"
+#include "native/utilities/assetUtils.h"
 
 #include <AzFramework/Asset/AssetProcessorMessages.h>
 #include <AzCore/Serialization/Utils.h>
@@ -106,19 +106,22 @@ void FileServer::ConnectionAdded(unsigned int connId, Connection* connection)
 
     // Connection has not completed negotiation yet, register to be notified
     // when we know what platform is connected and map the @assets@ alias then
-    connect(connection, &Connection::AssetPlatformChanged, [this, connection]()
+    connect(connection, &Connection::AssetPlatformChanged, this, [this, connection]()
         {
             auto fileIO = m_fileIOs[connection->ConnectionId()];
-            if ((fileIO) && (!connection->AssetPlatform().isEmpty())) // when someone disconnects, the asset platform may be cleared before disconnect is set.
+            if ((fileIO) && (!connection->AssetPlatforms().isEmpty())) // when someone disconnects, the asset platform may be cleared before disconnect is set.
             {
                 QDir projectCacheRoot;
+                // Because the platform based aliases below can only be one platform at at a time we need to prefer a single platform in case multiple listening platforms
+                // exist on the same connection
+                QString assetPlatform = connection->AssetPlatforms().first();
                 if (!AssetUtilities::ComputeProjectCacheRoot(projectCacheRoot))
                 {
                     projectCacheRoot = m_systemRoot;
                 }
                 else
                 {
-                    projectCacheRoot = QDir(projectCacheRoot.absoluteFilePath(connection->AssetPlatform()));
+                    projectCacheRoot = QDir(projectCacheRoot.absoluteFilePath(assetPlatform));
                 }
                 fileIO->SetAlias("@root@", projectCacheRoot.absolutePath().toUtf8().data());
 
@@ -397,8 +400,8 @@ void FileServer::ProcessReadRequest(unsigned int connId, unsigned int, unsigned 
     bool failOnFewerRead = request.m_failOnFewerRead;
 
     FileReadResponse response;
-    response.m_data.resize(request.m_bytesToRead);
-    uint64_t bytesRead = 0;
+    response.m_data.resize_no_construct(request.m_bytesToRead);
+    AZ::u64 bytesRead = 0;
     auto fileIO = m_fileIOs[connId];
     AZStd::string moreInfo = AZStd::string::format("%llu bytes", size);
     RecordFileOp(fileIO.get(), "READ", fileHandle, moreInfo.c_str());
@@ -440,7 +443,7 @@ void FileServer::ProcessWriteRequest(unsigned int connId, unsigned int, unsigned
 
     AZ::IO::HandleType fileHandle = request.m_fileHandle;
 
-    uint64_t bytesWritten = 0;
+    AZ::u64 bytesWritten = 0;
     auto fileIO = m_fileIOs[connId];
     AZStd::string moreInfo = AZStd::string::format("%llu bytes", request.m_data.size());
     RecordFileOp(fileIO.get(), "WRITE", fileHandle, moreInfo.c_str());
@@ -483,7 +486,7 @@ void FileServer::ProcessTellRequest(unsigned int connId, unsigned int, unsigned 
     }
 
     AZ::IO::HandleType fileHandle = request.m_fileHandle;
-    uint64_t offset = 0;
+    AZ::u64 offset = 0;
     auto fileIO = m_fileIOs[connId];
     AZStd::string moreInfo = AZStd::string::format("offset: %llu", offset);
     RecordFileOp(fileIO.get(), "TELL", fileHandle, moreInfo.c_str());
@@ -615,7 +618,7 @@ void FileServer::ProcessSizeRequest(unsigned int connId, unsigned int, unsigned 
     }
 
     const char* filePath = request.m_filePath.c_str();
-    uint64_t size = 0;
+    AZ::u64 size = 0;
     auto fileIO = m_fileIOs[connId];
     RecordFileOp(fileIO.get(), "SIZE", filePath, nullptr);
 
@@ -935,6 +938,87 @@ void FileServer::ProcessFindFileNamesRequest(unsigned int connId, unsigned int, 
         Q_EMIT NumFindFileNamesRequestsChanged();
         Q_EMIT BytesReceivedChanged();
     }
+}
+
+void FileServer::ProcessFileTreeRequest(unsigned int connId, unsigned int, unsigned int serial, QByteArray payload)
+{
+    EnsureCacheFolderExists(connId);
+
+    FileTreeRequest request;
+    if (!Recv(connId, payload, request))
+    {
+        FileTreeResponse response(static_cast<AZ::u32>(ResultCode::Error));
+        Send(connId, serial, response);
+        return;
+    }
+
+    auto fileIO = m_fileIOs[connId];
+    
+    FileTreeResponse::FileList files;
+    FileTreeResponse::FolderList folders;
+
+    AZStd::vector<AZ::OSString> untestedFolders;
+    if (fileIO->IsDirectory("@assets@"))
+    {
+        folders.push_back("@assets@");
+        untestedFolders.push_back("@assets@");
+    }
+    if (fileIO->IsDirectory("@cache@"))
+    {
+        folders.push_back("@cache@");
+        untestedFolders.push_back("@cache@");
+    }
+    if (fileIO->IsDirectory("@user@"))
+    {
+        folders.push_back("@user@");
+        untestedFolders.push_back("@user@");
+    }
+    if (fileIO->IsDirectory("@log@"))
+    {
+        folders.push_back("@log@");
+        untestedFolders.push_back("@log@");
+    }
+    if (fileIO->IsDirectory("@root@"))
+    {
+        folders.push_back("@root@");
+        untestedFolders.push_back("@root@");
+    }
+
+    AZ::IO::Result res = ResultCode::Success;
+    
+    while (untestedFolders.size() && res == ResultCode::Success)
+    {
+        AZ::OSString folderName = untestedFolders.back();
+        untestedFolders.pop_back();
+
+        res = fileIO->FindFiles(folderName.c_str(), "*.*",
+            [&](const char* fileName)
+            {
+                if (fileIO->IsDirectory(fileName))
+                {
+                    folders.push_back(fileName);
+                    untestedFolders.push_back(fileName);
+                }
+                else
+                {
+                    files.push_back(fileName);
+                }
+                return true;
+            }
+        );
+    }
+
+    if (res == ResultCode::Error)
+    {
+        files.clear();
+        folders.clear();
+    }
+
+    uint32_t resultCode = static_cast<uint32_t>(res.GetResultCode());
+    
+    FileTreeResponse response(resultCode, files, folders);
+    
+    Send(connId, serial, response);
 }
 
 void FileServer::RecordFileOp(AZ::IO::FileIOBase* fileIO, const char* op, const AZ::IO::HandleType& fileHandle, const char* moreInfo)

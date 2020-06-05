@@ -107,12 +107,13 @@ namespace EMotionFX
 
         ActorBuilderContext::ActorBuilderContext(const AZ::SceneAPI::Containers::Scene& scene,
             const AZStd::string& outputDirectory, const Group::IActorGroup& actorGroup,
-            EMotionFX::Actor* actor, AZ::RC::Phase phase)
+            EMotionFX::Actor* actor, AZStd::vector<AZStd::string>& materialReferences, AZ::RC::Phase phase)
             : m_scene(scene)
             , m_outputDirectory(outputDirectory)
             , m_group(actorGroup)
             , m_actor(actor)
             , m_phase(phase)
+            , m_materialReferences(materialReferences)
         {
         }
 
@@ -121,6 +122,33 @@ namespace EMotionFX
             , m_outputDirectory(copyContext.m_outputDirectory)
             , m_group(copyContext.m_group)
             , m_actor(copyContext.m_actor)
+            , m_phase(phase)
+            , m_materialReferences(copyContext.m_materialReferences)
+        {
+        }
+
+        //==========================================================================
+
+        ActorMorphBuilderContext::ActorMorphBuilderContext(const AZ::SceneAPI::Containers::Scene& scene,
+            AZStd::vector<AZ::u32>* meshNodeIndices, const Group::IActorGroup& actorGroup,
+            EMotionFX::Actor* actor,
+            CoordinateSystemConverter& coordinateSystemConverter,
+            AZ::RC::Phase phase)
+            : m_scene(scene)
+            , m_meshNodeIndices(meshNodeIndices)
+            , m_group(actorGroup)
+            , m_actor(actor)
+            , m_coordinateSystemConverter(coordinateSystemConverter)
+            , m_phase(phase)
+        {
+        }
+
+        ActorMorphBuilderContext::ActorMorphBuilderContext(const ActorMorphBuilderContext & copyContext, AZ::RC::Phase phase)
+            : m_scene(copyContext.m_scene)
+            , m_meshNodeIndices(copyContext.m_meshNodeIndices)
+            , m_group(copyContext.m_group)
+            , m_actor(copyContext.m_actor)
+            , m_coordinateSystemConverter(copyContext.m_coordinateSystemConverter)
             , m_phase(phase)
         {
         }

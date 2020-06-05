@@ -16,11 +16,7 @@
 #include "StdAfx.h"
 #include "terrain_sector.h"
 #include "terrain.h"
-#include "ObjMan.h"
-#include "VisAreas.h"
-#include "Environment/OceanEnvironmentBus.h"
-
-#define TERRAIN_NODE_CHUNK_VERSION 8
+#include <PakLoadDataUtils.h>
 
 int CTerrainNode::Load(uint8*& f, int& nDataSize, EEndian eEndian, bool bSectorPalettes, SHotUpdateInfo* pExportInfo)
 {
@@ -52,7 +48,7 @@ int CTerrainNode::Load_T(T& f, int& nDataSize, EEndian eEndian, bool bSectorPale
 
     // set node data
     STerrainNodeChunk chunk;
-    if (!CTerrain::LoadDataFromFile(&chunk, 1, f, nDataSize, eEndian))
+    if (!PakLoadDataUtils::LoadDataFromFile(&chunk, 1, f, nDataSize, eEndian))
     {
         return 0;
     }
@@ -66,30 +62,34 @@ int CTerrainNode::Load_T(T& f, int& nDataSize, EEndian eEndian, bool bSectorPale
     // set error levels, bounding boxes and some flags
     m_LocalAABB = chunk.boxHeightmap;
     // TODO: Figure out why the bounding box includes the ocean height when the ocean is above the terrain.
-    m_LocalAABB.max.z = max(m_LocalAABB.max.z + TerrainConstants::coloredVegetationMaxSafeHeight, OceanToggle::IsActive() ? OceanRequest::GetOceanLevel() : GetTerrain()->GetWaterLevel());
+    float oceanWaterLevel = Get3DEngine()->GetWaterLevel();
+    m_LocalAABB.max.z = max(m_LocalAABB.max.z + TerrainConstants::coloredVegetationMaxSafeHeight, oceanWaterLevel);
     m_bHasHoles = chunk.bHasHoles;
 
     assert(m_SurfaceTile.GetHeightmap() == nullptr);
     if (chunk.nSize)
     {
-        assert(chunk.nSize == GetTerrain()->SectorSize_Units());
+        assert(chunk.nSize == CTerrain::GetTerrain()->SectorSize_Units());
 
         const int ChunkSizeSqr = chunk.nSize * chunk.nSize;
         uint16* heightmap = new uint16[(ChunkSizeSqr + 7) & (~0x7)];
-        if (!CTerrain::LoadDataFromFile(heightmap, ChunkSizeSqr, f, nDataSize, eEndian))
+        if (!PakLoadDataUtils::LoadDataFromFile(heightmap, ChunkSizeSqr, f, nDataSize, eEndian))
         {
+            delete[] heightmap;
             return 0;
         }
 
-        CTerrain::LoadDataFromFile_FixAlignment(f, nDataSize);
+        PakLoadDataUtils::LoadDataFromFile_FixAlignment(f, nDataSize);
 
         ITerrain::SurfaceWeight* weights = new ITerrain::SurfaceWeight[(ChunkSizeSqr + 7) & (~0x7)];
-        if (!CTerrain::LoadDataFromFile(weights, ChunkSizeSqr, f, nDataSize, eEndian))
+        if (!PakLoadDataUtils::LoadDataFromFile(weights, ChunkSizeSqr, f, nDataSize, eEndian))
         {
+            delete[] heightmap;
+            delete[] weights;
             return 0;
         }
 
-        CTerrain::LoadDataFromFile_FixAlignment(f, nDataSize);
+        PakLoadDataUtils::LoadDataFromFile_FixAlignment(f, nDataSize);
 
         m_SurfaceTile.AssignMaps(chunk.nSize, heightmap, weights);
         m_SurfaceTile.SetRange(chunk.fOffset, chunk.fRange);
@@ -97,8 +97,8 @@ int CTerrainNode::Load_T(T& f, int& nDataSize, EEndian eEndian, bool bSectorPale
 
     // load LOD errors
     delete[] m_ZErrorFromBaseLOD;
-    m_ZErrorFromBaseLOD = new float[GetTerrain()->m_UnitToSectorBitShift];
-    if (!CTerrain::LoadDataFromFile(m_ZErrorFromBaseLOD, GetTerrain()->m_UnitToSectorBitShift, f, nDataSize, eEndian))
+    m_ZErrorFromBaseLOD = new float[CTerrain::GetTerrain()->m_UnitToSectorBitShift];
+    if (!PakLoadDataUtils::LoadDataFromFile(m_ZErrorFromBaseLOD, CTerrain::GetTerrain()->m_UnitToSectorBitShift, f, nDataSize, eEndian))
     {
         return 0;
     }
@@ -116,19 +116,20 @@ int CTerrainNode::Load_T(T& f, int& nDataSize, EEndian eEndian, bool bSectorPale
         {
             uint8* pTypes = new uint8[chunk.nSurfaceTypesNum];
 
-            if (!CTerrain::LoadDataFromFile(pTypes, chunk.nSurfaceTypesNum, f, nDataSize, eEndian))
+            if (!PakLoadDataUtils::LoadDataFromFile(pTypes, chunk.nSurfaceTypesNum, f, nDataSize, eEndian))
             {
+                delete[] pTypes;
                 return 0;
             }
 
             for (int i = 0; i < m_DetailLayers.Count() && i < ITerrain::SurfaceWeight::Hole; i++)
             {
-                m_DetailLayers[i].surfaceType = &GetTerrain()->m_SurfaceTypes[min((int)pTypes[i], (int)ITerrain::SurfaceWeight::Undefined)];
+                m_DetailLayers[i].surfaceType = &CTerrain::GetTerrain()->m_SurfaceTypes[min((int)pTypes[i], (int)ITerrain::SurfaceWeight::Undefined)];
             }
 
             delete[] pTypes;
 
-            CTerrain::LoadDataFromFile_FixAlignment(f, nDataSize);
+            PakLoadDataUtils::LoadDataFromFile_FixAlignment(f, nDataSize);
         }
     }
 
@@ -194,13 +195,13 @@ int CTerrainNode::GetData(byte*& pData, int& nDataSize, EEndian eEndian, SHotUpd
 
         AddToPtr(pData, nDataSize, m_SurfaceTile.GetHeightmap(), SizeSqr, eEndian, true);
         AddToPtr(pData, nDataSize, m_SurfaceTile.GetWeightmap(), SizeSqr, eEndian, true);
-        AddToPtr(pData, nDataSize, m_ZErrorFromBaseLOD, GetTerrain()->m_UnitToSectorBitShift, eEndian);
+        AddToPtr(pData, nDataSize, m_ZErrorFromBaseLOD, CTerrain::GetTerrain()->m_UnitToSectorBitShift, eEndian);
 
         // get used surf types
-        CRY_ASSERT(m_DetailLayers.Count() <= SurfaceTile::MaxSurfaceCount);
+        CRY_ASSERT(m_DetailLayers.Count() <= LegacyTerrain::TerrainNodeSurface::MaxSurfaceCount);
 
-        uint8 surfaceIds[SurfaceTile::MaxSurfaceCount] = { ITerrain::SurfaceWeight::Undefined };
-        for (int i = 0; i < SurfaceTile::MaxSurfaceCount && i < m_DetailLayers.Count(); i++)
+        uint8 surfaceIds[LegacyTerrain::TerrainNodeSurface::MaxSurfaceCount] = { ITerrain::SurfaceWeight::Undefined };
+        for (int i = 0; i < LegacyTerrain::TerrainNodeSurface::MaxSurfaceCount && i < m_DetailLayers.Count(); i++)
         {
             surfaceIds[i] = m_DetailLayers[i].surfaceType->ucThisSurfaceTypeId;
         }
@@ -220,7 +221,7 @@ int CTerrainNode::GetData(byte*& pData, int& nDataSize, EEndian eEndian, SHotUpd
         {
             nDataSize++;
         }
-        nDataSize += GetTerrain()->m_UnitToSectorBitShift * sizeof(m_ZErrorFromBaseLOD[0]);
+        nDataSize += CTerrain::GetTerrain()->m_UnitToSectorBitShift * sizeof(m_ZErrorFromBaseLOD[0]);
         nDataSize += m_DetailLayers.Count() * sizeof(uint8);
         while (nDataSize & 3)
         {

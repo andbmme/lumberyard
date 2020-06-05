@@ -23,6 +23,7 @@
 
 struct AAssetManager;
 struct ANativeWindow;
+struct AConfiguration;
 
 
 namespace AZ
@@ -56,6 +57,7 @@ namespace AZ
                     : m_jvm(nullptr)
                     , m_activityRef(nullptr)
                     , m_assetManager(nullptr)
+                    , m_configuration(nullptr)
                     , m_appPrivateStoragePath()
                     , m_appPublicStoragePath()
                     , m_obbStoragePath()
@@ -65,6 +67,7 @@ namespace AZ
                 JavaVM* m_jvm; //!< Global pointer to the Java virtual machine
                 jobject m_activityRef; //!< Local or global reference to the activity instance
                 AAssetManager* m_assetManager; //!< Global pointer to the Android asset manager, used for APK file i/o
+                AConfiguration* m_configuration; //!< Global pointer to the configuration of the device, e.g. orientation, screen density, locale, etc.
                 AZ::OSString m_appPrivateStoragePath; //!< Access restricted location. E.G. /data/data/<package_name>/files
                 AZ::OSString m_appPublicStoragePath; //!< Public storage specifically for the application. E.G. <public_storage>/Android/data/<package_name>/files
                 AZ::OSString m_obbStoragePath; //!< Public storage specifically for the application's obb files. E.G. <public_storage>/Android/obb/<package_name>/files
@@ -94,6 +97,9 @@ namespace AZ
 
             //! Get the global pointer to the Android asset manager, which is used for APK file i/o.
             AAssetManager* GetAssetManager() const { return m_assetManager; }
+
+            //! Get the global pointer to the device/application configuration,
+            AConfiguration* GetConfiguration() const { return m_configuration; }
 
             //! Set the global pointer to the Android window surface.
             void SetWindow(ANativeWindow* window) { m_window = window; }
@@ -132,68 +138,15 @@ namespace AZ
             //! Check if the application has been backgrounded (false) or not (true)
             bool IsRunning() const { return m_isRunning; }
 
+            //! If the AndroidEnv owns the native configuration, it will be updated with the latest configuration
+            //! information, otherwise nothing will happen.
+            void UpdateConfiguration();
+
             //! Loads a Java class as opposed to attempting to find a loaded class from the call stack.
             //! \param classPath The fully qualified forward slash separated Java class path.
             //! \return A global reference to the desired jclass.  Caller is responsible for making a
             //!         call to DeleteGlobalJniRef when the jclass is no longer needed.
             jclass LoadClass(const char* classPath);
-
-
-            // ----
-
-
-            //! \deprecated Use AZ::Android::JNI::GetClassName instead
-            //! \brief Get the fully qualified forward slash separated Java class path of Java class ref.
-            //!        e.g. android.app.NativeActivity ==> android/app/NativeActivity
-            //! \param classRef A valid reference to a java class
-            //! \return A copy of the class name
-            AZStd::string AZ_DEPRECATED(GetClassName(jclass classRef) const, "Use AZ::Android::JNI::GetClassName instead");
-
-            //! \deprecated Use AZ::Android::JNI::GetSimpleClassName instead
-            //! \brief Get just the name of the Java class from a Java class ref.
-            //!        e.g. android.app.NativeActivity ==> NativeActivity
-            //! \param classRef A valid reference to a java class
-            //! \return A copy of the class name
-            AZStd::string AZ_DEPRECATED(GetSimpleClassName(jclass classRef) const, "Use AZ::Android::JNI::GetSimpleClassName instead");
-
-            //! \deprecated This function is no longer available
-            //! \brief Get the game project name from the Java string resources.
-            const char* AZ_DEPRECATED(GetGameProjectName() const, "This function is no longer available")
-            {
-                AZ_Assert(false, "Using unsupported function call to AZ::Android::AndroidEnv::GetGameProjectName.");
-                return "";
-            }
-
-            //! \deprecated This function is no longer available
-            //! \brief Get the root directory for external (or public) storage.
-            //!        e.g. /storage/sdcard0/, /storage/self/primary/, etc.
-            const char* AZ_DEPRECATED(GetExternalStorageRoot() const, "This function is no longer available")
-            {
-                AZ_Assert(false, "Using unsupported function call to AZ::Android::AndroidEnv::GetExternalStorageRoot.");
-                return "";
-            }
-
-            //! \deprecated This function is no longer available
-            //! \brief Retrieve a boolean resource from the android resources
-            //! \param resourceName The name of the boolean resource.
-            //! \return The boolean value of the resource.
-            bool AZ_DEPRECATED(GetBooleanResource(const char* resourceName) const, "This function is no longer available")
-            {
-                AZ_Assert(false, "Using unsupported function call to AZ::Android::AndroidEnv::GetBooleanResource.");
-                return false;
-            }
-
-            //! \deprecated Use AndroidEnv::GetAppPrivateStoragePath instead
-            //! \brief Get the hidden internal storage, typically this is where the application is installed on the device.
-            //!        e.g. /data/data/<package_name/files
-            const char* AZ_DEPRECATED(GetInternalStoragePath() const, "Use AndroidEnv::GetAppPrivateStoragePath instead") { return m_appPrivateStoragePath.c_str(); }
-
-            //! \deprecated Use AndroidEnv::GetAppPublicStoragePath instead
-            //! \brief Get the application specific directory for external (or public) storage.
-            //!        e.g. <public_storage>/Android/data/<package_name/files
-            const char* AZ_DEPRECATED(GetExternalStoragePath() const, "Use AndroidEnv::GetAppPublicStoragePath instead") { return m_appPublicStoragePath.c_str(); }
-
-
         private:
             template<typename StringType>
             friend class JNI::Internal::ClassName;
@@ -245,7 +198,8 @@ namespace AZ
             jmethodID m_getClassNameMethod; //!< Method ID for getName from java/lang/Class which returns a fully qualified dot separated Java class path
             jmethodID m_getSimpleClassNameMethod; //!< Method ID for getSimpleName from java/lang/Class which returns just the class name from a Java class path
 
-            AAssetManager* m_assetManager; //!< Used for file i/o from the APK
+            AAssetManager* m_assetManager; //!< Global pointer to the Android asset manager, used for APK file i/o
+            AConfiguration* m_configuration; //!< Global pointer to the configuration of the device, e.g. orientation, screen density, locale, etc.
             ANativeWindow* m_window; //!< Global pointer to the window surface created by Android, used for creating GL contexts
 
             AZ::OSString m_appPrivateStoragePath; //!< Access restricted location. E.G. /data/data/<package_name>/files
@@ -259,9 +213,10 @@ namespace AZ
             int m_appVersionCode; //!< The version code of the app (android:versionCode in the AndroidManifest.xml)
 
             bool m_ownsActivityRef; //!< For when a local activity ref is passed into the construction and needs to be cleaned up
+            bool m_ownsConfiguration; //!< For when no configuration is passed into the construction and needs to be cleaned up
             bool m_isReady; //!< Set only once the object has been successfully constructed
 
-            bool m_isRunning; //!< Internal flag indicating if the application is running, mainly used to determine if we shoudl be blocking on the event pump while paused 
+            bool m_isRunning; //!< Internal flag indicating if the application is running, mainly used to determine if we shoudl be blocking on the event pump while paused
         };
     } // namespace Android
 } // namespace AZ

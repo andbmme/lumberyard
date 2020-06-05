@@ -1,0 +1,8 @@
+{
+    "name": "clang",
+    "source": "@3P:Clang@",
+    "description": "Clang",
+    "defines": [],
+    "suppress_warning": "True",
+    "lib_required": "False"
+}

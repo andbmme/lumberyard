@@ -18,7 +18,7 @@ namespace LyViewPane
     static const char* const CategoryOther = "Other";
     static const char* const CategoryPlugIns = "Plug-Ins";
     static const char* const CategoryAnimation = "LegacyAnimation";
-    //---- 
+    //----
     static const char* const CategoryEditor = "Editor";
     static const char* const CategoryViewport = "Viewport";
     static const char* const CategoryCloudCanvas = "Cloud Canvas";
@@ -29,16 +29,18 @@ namespace LyViewPane
     static const char* const SceneSettings = "Scene Settings (PREVIEW)";
     static const char* const AssetBrowser = "Asset Browser";
     static const char* const AssetEditor = "Asset Editor";
-    static const char* const EntityOutliner = "Entity Outliner (PREVIEW)";
+    static const char* const EntityOutliner = "Entity Outliner";
     static const char* const EntityInspector = "Entity Inspector";
     static const char* const EntityInspectorPinned = "Pinned Entity Inspector";
+    static const char* const LevelInspector = "Level Inspector";
     static const char* const DeploymentTool = "Deployment Tool";
+    static const char* const ProjectSettingsTool = "Project Settings Tool";
     static const char* const ErrorReport = "Error Report";
     static const char* const Console = "Console";
     static const char* const ConsoleMenuName = "&Console";
     static const char* const ConsoleVariables = "Console Variables";
     static const char* const TrackView = "Track View";
-    static const char* const ScriptCanvas = "Script Canvas (PREVIEW)";
+    static const char* const ScriptCanvas = "Script Canvas";
 
     static const char* const AIDebugger = "AI Debugger";
     static const char* const EditorSettingsManager = "Editor Settings Manager";
@@ -46,20 +48,24 @@ namespace LyViewPane
     static const char* const TerrainTool = "Terrain Tool";
     static const char* const TerrainTextureLayers = "Terrain Texture Layers";
     static const char* const MaterialEditor = "Material Editor";
+    static const char* const ParticleEditor = "Particle Editor";
+    static const char* const LensFlareEditor = "Lens Flare Editor";
+    static const char* const TimeOfDayEditor = "Time Of Day";
     static const char* const DatabaseView = "Database View";
     static const char* const AudioControlsEditor = "Audio Controls Editor";
     static const char* const SubstanceEditor = "Substance Editor";
     static const char* const VegetationEditor = "Vegetation Editor";
+    static const char* const LandscapeCanvas = "Landscape Canvas";
     static const char* const AnimationEditor = "EMotion FX Animation Editor (PREVIEW)";
+    static const char* const PhysXConfigurationEditor = "PhysX Configuration (PREVIEW)";
 
     static const char* const LegacyAssetBrowser = "Asset Browser (LEGACY)";
-    static const char* const LegacyFlowGraph = "Flow Graph (LEGACY)";
     static const char* const LegacyLayerEditor = "Layer Editor (LEGACY)";
     static const char* const LegacyObjectSelector = "Object Selector (LEGACY)";
     static const char* const LegacyRollupBar = "RollupBar (LEGACY)";
     static const char* const LegacyRollupBarMenuName = "&RollupBar (LEGACY)";
 
-    static const char* const SliceRelationships = "Slice Relationship View";
+    static const char* const SliceRelationships = "Slice Relationship View (PREVIEW)";
     static const char* const LegacyGeppetto = "Geppetto Editor (LEGACY)";
     static const char* const LegacyMannequin = "Mannequin Editor (LEGACY)";
 

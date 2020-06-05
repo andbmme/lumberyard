@@ -14,41 +14,20 @@
 #include "CommandLine.h"
 #include "Command.h"
 #include "CommandSyntax.h"
-#include "UnicodeStringIterator.h"
-#include "UnicodeCharacter.h"
 #include "LogManager.h"
+#include "StringConversions.h"
 
 namespace MCore
 {
-    // default constructor
-    CommandLine::CommandLine()
-    {
-    }
-
-
     // extended constructor, which automatically sets the command line to parse
-    CommandLine::CommandLine(const char* commandLine)
+    CommandLine::CommandLine(const AZStd::string& commandLine)
     {
         SetCommandLine(commandLine);
-    }
-
-
-    // extended constructor, which automatically sets the command line to parse
-    CommandLine::CommandLine(const MCore::String& commandLine)
-    {
-        SetCommandLine(commandLine);
-    }
-
-
-    // the destructor, which cleans the parameters
-    CommandLine::~CommandLine()
-    {
-        mParameters.Clear(true);
     }
 
 
     // get the value for a given parameter
-    void CommandLine::GetValue(const char* paramName, const char* defaultValue, MCore::String* outResult) const
+    void CommandLine::GetValue(const char* paramName, const char* defaultValue, AZStd::string* outResult) const
     {
         // try to find the parameter index
         const uint32 paramIndex = FindParameterIndex(paramName);
@@ -59,14 +38,14 @@ namespace MCore
         }
 
         // return the default value if the parameter value is empty
-        if (mParameters[paramIndex].mValue.GetIsEmpty())
+        if (m_parameters[paramIndex].mValue.empty())
         {
             *outResult = defaultValue;
             return;
         }
 
         // return the parameter value
-        *outResult = mParameters[paramIndex].mValue;
+        *outResult = m_parameters[paramIndex].mValue;
     }
 
 
@@ -82,14 +61,14 @@ namespace MCore
         }
 
         // Return the default value if the parameter value is empty.
-        if (mParameters[paramIndex].mValue.GetIsEmpty())
+        if (m_parameters[paramIndex].mValue.empty())
         {
             outResult = defaultValue;
             return;
         }
 
         // Return the actual parameter value.
-        outResult = mParameters[paramIndex].mValue.AsChar();
+        outResult = m_parameters[paramIndex].mValue.c_str();
     }
 
 
@@ -104,13 +83,13 @@ namespace MCore
         }
 
         // return the default value if the parameter value is empty
-        if (mParameters[paramIndex].mValue.GetIsEmpty())
+        if (m_parameters[paramIndex].mValue.empty())
         {
             return defaultValue;
         }
 
         // return the parameter value
-        return mParameters[paramIndex].mValue.ToInt();
+        return AzFramework::StringFunc::ToInt(m_parameters[paramIndex].mValue.c_str());
     }
 
 
@@ -125,13 +104,13 @@ namespace MCore
         }
 
         // return the default value if the parameter value is empty
-        if (mParameters[paramIndex].mValue.GetIsEmpty())
+        if (m_parameters[paramIndex].mValue.empty())
         {
             return defaultValue;
         }
 
         // return the parameter value
-        return mParameters[paramIndex].mValue.ToFloat();
+        return AzFramework::StringFunc::ToFloat(m_parameters[paramIndex].mValue.c_str());
     }
 
 
@@ -146,13 +125,13 @@ namespace MCore
         }
 
         // return the default value if the parameter value is empty
-        if (mParameters[paramIndex].mValue.GetIsEmpty())
+        if (m_parameters[paramIndex].mValue.empty())
         {
             return true;
         }
 
         // return the parameter value
-        return mParameters[paramIndex].mValue.ToBool();
+        return AzFramework::StringFunc::ToBool(m_parameters[paramIndex].mValue.c_str());
     }
 
 
@@ -167,13 +146,14 @@ namespace MCore
         }
 
         // return the default value if the parameter value is empty
-        if (mParameters[paramIndex].mValue.GetIsEmpty())
+        if (m_parameters[paramIndex].mValue.empty())
         {
             return defaultValue;
         }
 
         // return the parameter value
-        return AZ::Vector3(mParameters[paramIndex].mValue.ToVector3());
+
+        return AzFramework::StringFunc::ToVector3(m_parameters[paramIndex].mValue.c_str());
     }
 
 
@@ -188,18 +168,18 @@ namespace MCore
         }
 
         // return the default value if the parameter value is empty
-        if (mParameters[paramIndex].mValue.GetIsEmpty())
+        if (m_parameters[paramIndex].mValue.empty())
         {
             return defaultValue;
         }
 
         // return the parameter value
-        return mParameters[paramIndex].mValue.ToVector4();
+        return AzFramework::StringFunc::ToVector4(m_parameters[paramIndex].mValue.c_str());
     }
 
 
     // get the value of a given param
-    void CommandLine::GetValue(const char* paramName, Command* command, MCore::String* outResult) const
+    void CommandLine::GetValue(const char* paramName, Command* command, AZStd::string* outResult) const
     {
         // try to find the parameter index
         const uint32 paramIndex = FindParameterIndex(paramName);
@@ -210,23 +190,39 @@ namespace MCore
         }
 
         // return the parameter value
-        *outResult = mParameters[paramIndex].mValue;
+        *outResult = m_parameters[paramIndex].mValue;
     }
 
 
-    // Get the value of a given param.
     void CommandLine::GetValue(const char* paramName, Command* command, AZStd::string& outResult) const
+    {
+        outResult = GetValue(paramName, command);
+    }
+
+    AZ::Outcome<AZStd::string> CommandLine::GetValueIfExists(const char* paramName, Command* command) const
+    {
+    AZ_UNUSED(command);
+        const uint32 paramIndex = FindParameterIndex(paramName);
+        if (paramIndex != MCORE_INVALIDINDEX32)
+        {
+            return AZ::Success(m_parameters[paramIndex].mValue);
+        }
+
+        return AZ::Failure();
+    }
+
+
+    const AZStd::string& CommandLine::GetValue(const char* paramName, Command* command) const
     {
         // Try to find the parameter index.
         const uint32 paramIndex = FindParameterIndex(paramName);
         if (paramIndex == MCORE_INVALIDINDEX32)
         {
-            command->GetOriginalCommand()->GetSyntax().GetDefaultValue(paramName, outResult);
-            return;
+            return command->GetOriginalCommand()->GetSyntax().GetDefaultValue(paramName);
         }
 
         // return the parameter value
-        outResult = mParameters[paramIndex].mValue.AsChar();
+        return m_parameters[paramIndex].mValue;
     }
 
 
@@ -237,10 +233,10 @@ namespace MCore
         const uint32 paramIndex = FindParameterIndex(paramName);
         if (paramIndex == MCORE_INVALIDINDEX32)
         {
-            MCore::String result;
+            AZStd::string result;
             if (command->GetOriginalCommand()->GetSyntax().GetDefaultValue(paramName, result))
             {
-                return result.ToInt();
+                return AzFramework::StringFunc::ToInt(result.c_str());
             }
             else
             {
@@ -249,7 +245,7 @@ namespace MCore
         }
 
         // return the parameter value
-        return mParameters[paramIndex].mValue.ToInt();
+        return AzFramework::StringFunc::ToInt(m_parameters[paramIndex].mValue.c_str());
     }
 
     // get the value as float
@@ -259,10 +255,10 @@ namespace MCore
         const uint32 paramIndex = FindParameterIndex(paramName);
         if (paramIndex == MCORE_INVALIDINDEX32)
         {
-            MCore::String result;
+            AZStd::string result;
             if (command->GetOriginalCommand()->GetSyntax().GetDefaultValue(paramName, result))
             {
-                return result.ToFloat();
+                return AzFramework::StringFunc::ToFloat(result.c_str());
             }
             else
             {
@@ -271,7 +267,7 @@ namespace MCore
         }
 
         // return the parameter value
-        return mParameters[paramIndex].mValue.ToFloat();
+        return AzFramework::StringFunc::ToFloat(m_parameters[paramIndex].mValue.c_str());
     }
 
 
@@ -282,10 +278,10 @@ namespace MCore
         const uint32 paramIndex = FindParameterIndex(paramName);
         if (paramIndex == MCORE_INVALIDINDEX32)
         {
-            MCore::String result;
+            AZStd::string result;
             if (command->GetOriginalCommand()->GetSyntax().GetDefaultValue(paramName, result))
             {
-                return result.ToBool();
+                return AzFramework::StringFunc::ToBool(result.c_str());
             }
             else
             {
@@ -294,7 +290,7 @@ namespace MCore
         }
 
         // return the parameter value
-        return mParameters[paramIndex].mValue.ToBool();
+        return AzFramework::StringFunc::ToBool(m_parameters[paramIndex].mValue.c_str());
     }
 
 
@@ -305,10 +301,10 @@ namespace MCore
         const uint32 paramIndex = FindParameterIndex(paramName);
         if (paramIndex == MCORE_INVALIDINDEX32)
         {
-            MCore::String result;
+            AZStd::string result;
             if (command->GetOriginalCommand()->GetSyntax().GetDefaultValue(paramName, result))
             {
-                return AZ::Vector3(result.ToVector3());
+                return AzFramework::StringFunc::ToVector3(result.c_str());
             }
             else
             {
@@ -317,7 +313,7 @@ namespace MCore
         }
 
         // return the parameter value
-        return AZ::Vector3(mParameters[paramIndex].mValue.ToVector3());
+        return AzFramework::StringFunc::ToVector3(m_parameters[paramIndex].mValue.c_str());
     }
 
 
@@ -328,10 +324,10 @@ namespace MCore
         const uint32 paramIndex = FindParameterIndex(paramName);
         if (paramIndex == MCORE_INVALIDINDEX32)
         {
-            MCore::String result;
+            AZStd::string result;
             if (command->GetOriginalCommand()->GetSyntax().GetDefaultValue(paramName, result))
             {
-                return result.ToVector4();
+                return AzFramework::StringFunc::ToVector4(result.c_str());
             }
             else
             {
@@ -340,28 +336,28 @@ namespace MCore
         }
 
         // return the parameter value
-        return mParameters[paramIndex].mValue.ToVector4();
+        return AzFramework::StringFunc::ToVector4(m_parameters[paramIndex].mValue.c_str());
     }
 
 
     // get the number of parameters
     uint32 CommandLine::GetNumParameters() const
     {
-        return mParameters.GetLength();
+        return static_cast<uint32>(m_parameters.size());
     }
 
 
     // get the parameter name for a given parameter
-    const MCore::String& CommandLine::GetParameterName(uint32 nr) const
+    const AZStd::string& CommandLine::GetParameterName(uint32 nr) const
     {
-        return mParameters[nr].mName;
+        return m_parameters[nr].mName;
     }
 
 
     // get the parameter value for a given parameter number
-    const MCore::String& CommandLine::GetParameterValue(uint32 nr) const
+    const AZStd::string& CommandLine::GetParameterValue(uint32 nr) const
     {
-        return mParameters[nr].mValue;
+        return m_parameters[nr].mValue;
     }
 
 
@@ -376,7 +372,7 @@ namespace MCore
         }
 
         // return true the parameter has a value that is not empty
-        return (mParameters[paramIndex].mValue.GetIsEmpty() == false);
+        return (m_parameters[paramIndex].mValue.empty() == false);
     }
 
 
@@ -384,12 +380,12 @@ namespace MCore
     uint32 CommandLine::FindParameterIndex(const char* paramName) const
     {
         // compare all parameter names on a non-case sensitive way
-        const uint32 numParams = mParameters.GetLength();
-        for (uint32 i = 0; i < numParams; ++i)
+        const size_t numParams = m_parameters.size();
+        for (size_t i = 0; i < numParams; ++i)
         {
-            if (mParameters[i].mName.CheckIfIsEqualNoCase(paramName))
+            if (AzFramework::StringFunc::Equal(m_parameters[i].mName.c_str(), paramName, false /* no case */))
             {
-                return i;
+                return static_cast<uint32>(i);
             }
         }
 
@@ -404,23 +400,26 @@ namespace MCore
         return (FindParameterIndex(paramName) != MCORE_INVALIDINDEX32);
     }
 
+    bool CommandLine::CheckIfHasParameter(const AZStd::string& paramName) const
+    {
+        return (FindParameterIndex(paramName.c_str()) != MCORE_INVALIDINDEX32);
+    }
 
     // extract the next parameter, starting from a given offset
-    bool CommandLine::ExtractNextParam(const MCore::String& paramString, MCore::String& outParamName, MCore::String& outParamValue, uint32* inOutStartOffset)
+    bool CommandLine::ExtractNextParam(const AZStd::string& paramString, AZStd::string& outParamName, AZStd::string& outParamValue, uint32* inOutStartOffset)
     {
-        outParamName.Clear(true);
-        outParamValue.Clear(true);
+        outParamName.clear();
+        outParamValue.clear();
 
         // check if we already reached the end of the string
         uint32 offset = *inOutStartOffset;
-        if (offset >= paramString.GetLength())
+        if (offset >= paramString.size())
         {
             return false;
         }
 
         // filter out the next parameter
-        UnicodeStringIterator iterator(paramString);
-        iterator.SetIndex(offset);
+        AZStd::string::const_iterator iterator = paramString.begin() + offset;
         uint32  paramNameStart      = MCORE_INVALIDINDEX32;
         uint32  paramValueStart     = MCORE_INVALIDINDEX32;
         bool    readingParamName    = false;
@@ -430,52 +429,37 @@ namespace MCore
         bool    prevCharWasSpace    = false;
         int32   bracketDepth        = 0;
 
-        UnicodeCharacter bracketOpen('{');
-        UnicodeCharacter bracketClose('}');
+        const char bracketOpen('{');
+        const char bracketClose('}');
 
         while (foundNextParam == false)
         {
             // check if we reached the end now
-            if (offset >= paramString.GetLength())
+            if (offset >= paramString.size())
             {
                 *inOutStartOffset = offset;
 
                 // if we were reading a parameter value
                 if (readingParamValue)
                 {
-                    outParamValue.Copy(&paramString.AsChar()[paramValueStart], offset - paramValueStart);
+                    outParamValue = AZStd::string(&paramString[paramValueStart], offset - paramValueStart);
                     readingParamValue = false;
-                    outParamValue.TrimRight(UnicodeCharacter::space);
-                    outParamValue.RemoveLastCharacterIfEqualTo(bracketClose);
-                    outParamValue.RemoveFirstCharacterIfEqualTo(bracketOpen);
-                    outParamValue.RemoveLastCharacterIfEqualTo(UnicodeCharacter('\"'));
-                    outParamValue.RemoveFirstCharacterIfEqualTo(UnicodeCharacter('\"'));
+                    AzFramework::StringFunc::TrimWhiteSpace(outParamValue, false /* leading */, true /* trailing */);
+                    AzFramework::StringFunc::Strip(outParamValue, bracketClose, true /* case sensitive */, false /* beginning */, true /* ending */);
+                    AzFramework::StringFunc::Strip(outParamValue, bracketOpen, true /* case sensitive */, true /* beginning */, false /* ending */);
+                    AzFramework::StringFunc::Strip(outParamValue, MCore::CharacterConstants::doubleQuote, true /* case sensitive */, true /* beginning */, true /* ending */);
                 }
 
                 return true;
             }
 
             // get the current character and check if it was a space or not
-            UnicodeCharacter curChar = iterator.GetNextCharacter();
+            char curChar = *iterator;
             if (offset > 0)
             {
-                // get previous character
-                iterator.SetIndex(offset);
-                UnicodeCharacter prevChar = iterator.GetPreviousCharacter();
+                char prevChar = *(iterator - 1);
 
-                // get the next character
-                iterator.SetIndex(offset);
-                curChar = iterator.GetNextCharacter();
-
-                //const char prevChar = paramString[offset-1];
-                if (prevChar == UnicodeCharacter::space || prevChar == UnicodeCharacter::tab)
-                {
-                    prevCharWasSpace = true;
-                }
-                else
-                {
-                    prevCharWasSpace = false;
-                }
+                prevCharWasSpace = (prevChar == MCore::CharacterConstants::space) || (prevChar == MCore::CharacterConstants::tab);
             }
             else
             {
@@ -483,58 +467,56 @@ namespace MCore
             }
 
             // toggle inside quotes flag
-            if (curChar == UnicodeCharacter::doubleQuote)
+            if (curChar == MCore::CharacterConstants::doubleQuote)
             {
                 insideQuotes ^= true;
             }
-            else
-            if (curChar == bracketOpen)
+            else if (curChar == bracketOpen)
             {
                 bracketDepth++;
             }
-            else
-            if (curChar == bracketClose)
+            else if (curChar == bracketClose)
             {
                 bracketDepth--;
             }
 
-            // if its the start of a parameter
-            if (curChar == UnicodeCharacter::dash && insideQuotes == false && readingParamValue == false && outParamName.GetLength() == 0 && bracketDepth == 0)
+            // if it's the start of a parameter
+            if (curChar == MCore::CharacterConstants::dash && !insideQuotes && !readingParamValue && outParamName.empty() && bracketDepth == 0)
             {
                 paramNameStart = offset;
                 readingParamName = true;
             }
 
             // if we found a parameter name
-            if ((curChar == UnicodeCharacter::space || curChar == UnicodeCharacter::tab) && readingParamName)
+            if ((curChar == MCore::CharacterConstants::space || curChar == MCore::CharacterConstants::tab) && readingParamName)
             {
-                outParamName.Copy(&paramString.AsChar()[paramNameStart + 1], offset - paramNameStart - 1);
+                outParamName = AZStd::string(&paramString[paramNameStart + 1], offset - paramNameStart - 1);
                 readingParamName = false;
             }
 
             // detect the start of the parameter value
-            if (readingParamName == false && readingParamValue == false && curChar != UnicodeCharacter::space && curChar != UnicodeCharacter::tab)
+            if (!readingParamName && !readingParamValue && curChar != MCore::CharacterConstants::space && curChar != MCore::CharacterConstants::tab)
             {
                 readingParamValue = true;
                 paramValueStart = offset;
             }
 
             // the end of a value
-            if (curChar == UnicodeCharacter::dash && insideQuotes == false && readingParamValue && readingParamName == false && paramValueStart != offset && prevCharWasSpace && bracketDepth == 0)
+            if (curChar == MCore::CharacterConstants::dash && insideQuotes == false && readingParamValue && !readingParamName && paramValueStart != offset && prevCharWasSpace && bracketDepth == 0)
             {
-                outParamValue.Copy(&paramString.AsChar()[paramValueStart], offset - paramValueStart);
+                outParamValue = AZStd::string(&paramString[paramValueStart], offset - paramValueStart);
                 readingParamValue = false;
                 *inOutStartOffset = offset;
-                outParamValue.TrimRight(UnicodeCharacter::space);
-                outParamValue.RemoveLastCharacterIfEqualTo(bracketClose);
-                outParamValue.RemoveFirstCharacterIfEqualTo(bracketOpen);
-                outParamValue.RemoveLastCharacterIfEqualTo(UnicodeCharacter::doubleQuote);
-                outParamValue.RemoveFirstCharacterIfEqualTo(UnicodeCharacter::doubleQuote);
+                AzFramework::StringFunc::TrimWhiteSpace(outParamValue, false /* leading */, true /* trailing */);
+                AzFramework::StringFunc::Strip(outParamValue, bracketClose, true /* case sensitive */, false /* beginning */, true /* ending */);
+                AzFramework::StringFunc::Strip(outParamValue, bracketOpen, true /* case sensitive */, true /* beginning */, false /* ending */);
+                AzFramework::StringFunc::Strip(outParamValue, MCore::CharacterConstants::doubleQuote, true /* case sensitive */, true /* beginning */, true /* ending */);
                 return true;
             }
 
             // go to the next character
-            offset = iterator.GetIndex();
+            ++offset;
+            ++iterator;
         }
 
         return false;
@@ -542,30 +524,21 @@ namespace MCore
 
 
     // parse the command line (build the parameter array)
-    void CommandLine::SetCommandLine(const char* commandLine)
-    {
-        SetCommandLine(MCore::String(commandLine));
-    }
-
-
-    // parse the command line (build the parameter array)
-    void CommandLine::SetCommandLine(const MCore::String& commandLine)
+    void CommandLine::SetCommandLine(const AZStd::string& commandLine)
     {
         // get rid of previous parameters
-        mParameters.Clear(true);
+        m_parameters.clear();
 
         // extract all parameters
-        MCore::String paramName;
-        MCore::String paramValue;
+        AZStd::string paramName;
+        AZStd::string paramValue;
         uint32 offset = 0;
         while (ExtractNextParam(commandLine, paramName, paramValue, &offset))
         {
             // if the parameter name is empty then it isn't a real parameter
-            if (paramName.GetLength() > 0)
+            if (!paramName.empty())
             {
-                mParameters.AddEmpty();
-                mParameters.GetLast().mName     = paramName;
-                mParameters.GetLast().mValue    = paramValue;
+                m_parameters.emplace_back(Parameter {paramName, paramValue});
             }
         }
     }
@@ -574,11 +547,11 @@ namespace MCore
     // log the command line cotents
     void CommandLine::Log(const char* debugName) const
     {
-        const uint32 numParameters = mParameters.GetLength();
+        const size_t numParameters = m_parameters.size();
         LogInfo("Command line '%s' has %d parameters", debugName, numParameters);
         for (uint32 i = 0; i < numParameters; ++i)
         {
-            LogInfo("Param %d (name='%s'  value='%s'", i, mParameters[i].mName.AsChar(), mParameters[i].mValue.AsChar());
+            LogInfo("Param %d (name='%s'  value='%s'", i, m_parameters[i].mName.c_str(), m_parameters[i].mValue.c_str());
         }
     }
 }   // namespace MCore

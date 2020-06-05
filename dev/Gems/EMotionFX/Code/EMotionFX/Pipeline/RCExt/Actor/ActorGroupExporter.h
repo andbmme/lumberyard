@@ -11,12 +11,15 @@
 */
 #pragma once
 
-#include <AzCore/std/string/string.h>
+#include <EMotionFX/Source/AutoRegisteredActor.h>
 #include <SceneAPI/SceneCore/Components/ExportingComponent.h>
+#include <Integration/System/SystemCommon.h>
 
 
 namespace EMotionFX
 {
+    class Actor;
+
     namespace Pipeline
     {
         struct ActorGroupExportContext;
@@ -28,18 +31,17 @@ namespace EMotionFX
             AZ_COMPONENT(ActorGroupExporter, "{9E21DF50-202B-44CB-A9E7-F429D3B5E5BE}", AZ::SceneAPI::SceneCore::ExportingComponent);
 
             ActorGroupExporter();
-            ~ActorGroupExporter() override = default;
+
+            Actor* GetActor() const;
 
             static void Reflect(AZ::ReflectContext* context);
 
-            AZ::SceneAPI::Events::ProcessingResult ProcessContext(ActorGroupExportContext& context) const;
+            AZ::SceneAPI::Events::ProcessingResult ProcessContext(ActorGroupExportContext& context);
 
         private:
-#if defined(AZ_COMPILER_MSVC) && AZ_COMPILER_MSVC <= 1800
-            // Workaround for VS2013 - Delete the copy constructor and make it private
-            // https://connect.microsoft.com/VisualStudio/feedback/details/800328/std-is-copy-constructible-is-broken
-            ActorGroupExporter(const ActorGroupExporter&) = delete;
-#endif
+            AZ::SceneAPI::Events::ProcessingResult SaveActor(ActorGroupExportContext& context);
+            AutoRegisteredActor m_actor;
+            AZStd::vector<AZStd::string> m_actorMaterialReferences;
         };
     } // namespace Pipeline
 } // namespace EMotionFX

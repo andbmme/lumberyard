@@ -18,10 +18,18 @@
 #include "D3DPostProcess.h"
 #include "D3DHMDRenderer.h"
 
+
+#if defined(AZ_RESTRICTED_PLATFORM)
+#undef AZ_RESTRICTED_SECTION
+#define D3DSTEREO_CPP_SECTION_1 1
+#define D3DSTEREO_CPP_SECTION_2 2
+#endif
+
 #if defined(USE_NV_API)
 #pragma warning(push)
 #pragma warning(disable:4819)   // Invalid character not in default code page
-#include <NVAPI/nvapi.h>
+#pragma warning(disable:4828)
+#include <nvapi.h>
 #pragma warning(pop)
 #endif
 
@@ -72,7 +80,16 @@ void CD3DStereoRenderer::SelectDefaultDevice()
 
 #if D3DSTEREO_CPP_TRAIT_SELECTDEFAULTDEVICE_STEREODEVICEDRIVER
     device = STEREO_DEVICE_DRIVER;
-#elif defined(AZ_PLATFORM_APPLE) || defined(AZ_PLATFORM_LINUX)
+#elif defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DSTEREO_CPP_SECTION_1
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DStereo_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DStereo_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DStereo_cpp_salem.inl"
+    #endif
+#elif AZ_TRAIT_OS_PLATFORM_APPLE || defined(AZ_PLATFORM_LINUX)
     device = STEREO_DEVICE_FRAMECOMP;
 #endif
 
@@ -145,6 +162,15 @@ void CD3DStereoRenderer::InitDeviceBeforeD3D()
     {
         success = false;
     }
+#elif defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DSTEREO_CPP_SECTION_2
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DStereo_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DStereo_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DStereo_cpp_salem.inl"
+    #endif
 #endif
 
     if (success)

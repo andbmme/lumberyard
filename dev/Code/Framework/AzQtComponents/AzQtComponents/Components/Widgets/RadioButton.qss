@@ -11,55 +11,56 @@
 *
 */
 
-
 QRadioButton
 {
     font-size: 12px;
     line-height: 18px;
     color: rgb(204, 204, 204);
+    outline: 0;
 }
 
-QRadioButton::indicator
+QRadioButton::indicator:!focus
 {
     width: 16px;
     height: 16px;
     margin: 2px;
 }
 
+QRadioButton::indicator:focus
+{
+    width: 18px;
+    height: 18px;
+    margin: 1px;
+}
+
 QRadioButton::indicator:checked
 {
-    image: url(:/stylesheet/img/UI20/radio-checked.png);
+    image: url(:/stylesheet/img/UI20/radiobutton/checked.svg);
 }
 
 QRadioButton::indicator:checked:disabled
 {
-    image: url(:/stylesheet/img/UI20/radio-checked-disabled.png);
+    image: url(:/stylesheet/img/UI20/radiobutton/checked-disabled.svg);
 }
 
 QRadioButton::indicator:checked:focus
 {
-    width: 20px;
-    height: 20px;
-    margin: 0px;
-    image: url(:/stylesheet/img/UI20/radio-checked-focus.png);
+    image: url(:/stylesheet/img/UI20/radiobutton/checked-focus.svg);
 }
 
 QRadioButton::indicator:unchecked
 {
-    image: url(:/stylesheet/img/UI20/radio-unchecked.png);
+    image: url(:/stylesheet/img/UI20/radiobutton/unchecked.svg);
 }
 
 QRadioButton::indicator:unchecked:disabled
 {
-    image: url(:/stylesheet/img/UI20/radio-unchecked-disabled.png);
+    image: url(:/stylesheet/img/UI20/radiobutton/unchecked-disabled.svg);
 }
 
 QRadioButton::indicator:unchecked:focus
 {
-    width: 20px;
-    height: 20px;
-    margin: 0px;
-    image: url(:/stylesheet/img/UI20/radio-unchecked-disabled.png);
+    image: url(:/stylesheet/img/UI20/radiobutton/unchecked-focus.svg);
 }
 
 

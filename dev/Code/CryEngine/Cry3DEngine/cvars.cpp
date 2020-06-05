@@ -90,6 +90,43 @@ void OnVegetationVisibleChange(ICVar* pArgs)
     }
 }
 
+void OnVolumetricFogChanged(ICVar* pArgs)
+{
+    const ICVar* deferredShadingCVar = gEnv->pConsole->GetCVar("r_DeferredShadingTiled");
+    if (deferredShadingCVar->GetIVal() == 0 && pArgs->GetIVal() != 0)
+    {
+        gEnv->pLog->LogWarning("e_VolumetricFog is set to 0 when r_DeferredShadingTiled is 0.");
+        Cry3DEngineBase::GetCVars()->e_VolumetricFog = 0;
+    }
+}
+
+#if !defined(_RELEASE)
+void OnTerrainPerformanceSecondsChanged(ICVar* pArgs)
+{
+#ifdef LY_TERRAIN_LEGACY_RUNTIME
+    AZ::Debug::TerrainProfiler::RefreshFrameProfilerStatus();
+#endif
+}
+#endif
+
+void OnDebugDrawChange(ICVar* pArgs)
+{
+    static bool collectingDrawCalls = false;
+
+    int e_debugDraw = pArgs->GetIVal();
+    if (e_debugDraw >= 24 && e_debugDraw <= 25)
+    {
+        gEnv->pRenderer->CollectDrawCallsInfo(true);
+        gEnv->pRenderer->CollectDrawCallsInfoPerNode(true);
+        collectingDrawCalls = true;
+    }
+    else if (collectingDrawCalls)
+    {
+        gEnv->pRenderer->CollectDrawCallsInfo(false);
+        gEnv->pRenderer->CollectDrawCallsInfoPerNode(false);
+        collectingDrawCalls = false;
+    }
+}
 
 void CVars::Init()
 {
@@ -97,8 +134,8 @@ void CVars::Init()
         "Activates global height/distance based fog");
     DefineConstIntCVar(e_FogVolumes, 1, VF_CHEAT | VF_CHEAT_ALWAYS_CHECK,
         "Activates local height/distance based fog volumes");
-    REGISTER_CVAR(e_VolumetricFog, 0, VF_NULL,
-        "Activates volumetric fog");
+    REGISTER_CVAR_CB(e_VolumetricFog, 0, VF_NULL,
+        "Activates volumetric fog", OnVolumetricFogChanged);
     DefineConstIntCVar(e_FogVolumesTiledInjection, 1, VF_NULL,
         "Activates tiled FogVolume density injection");
     REGISTER_CVAR(e_Entities, 1, VF_CHEAT | VF_CHEAT_ALWAYS_CHECK,
@@ -127,6 +164,9 @@ void CVars::Init()
     DefineConstIntCVar(e_DebugDrawShowOnlyLod, -1, VF_NULL,
         "e_DebugDraw shows only objects showing lod X");
 
+#ifdef CONSOLE_CONST_CVAR_MODE
+    // in console release builds the const cvars work differently (see ISystem.h where CONSOLE_CONST_CVAR_MODE is defined), 
+    // so revert to the version of e_debugdraw that doesn't support mode 24 & 25 which require the OnDebugDrawChange callback
     DefineConstIntCVar(e_DebugDraw, 0, VF_CHEAT | VF_CHEAT_ALWAYS_CHECK,
         "Draw helpers with information for each object (same number negative hides the text)\n"
         " 1: Name of the used cgf, polycount, used LOD\n"
@@ -151,12 +191,53 @@ void CVars::Init()
         "21: Display animated object distance to camera\n"
         "22: Display object's current LOD vertex count\n"
         "23: Display shadow casters in red\n"
+        "24: Disabled\n"
+        "25: Disabled\n"
         "----------------debug draw list values. Any of them enable 2d on-screen listing type info debug. Specific values define the list sorting-----------\n"
         " 100: tri count\n"
         " 101: verts count\n"
         " 102: draw calls\n"
         " 103: texture memory\n"
-        " 104: mesh memory");
+        " 104: mesh memory"
+        );
+#else
+    REGISTER_CVAR_CB(e_DebugDraw, 0, VF_CHEAT | VF_CHEAT_ALWAYS_CHECK | CONST_CVAR_FLAGS,
+        "Draw helpers with information for each object (same number negative hides the text)\n"
+        " 1: Name of the used cgf, polycount, used LOD\n"
+        " 2: Color coded polygon count\n"
+        " 3: Show color coded LODs count, flashing color indicates no Lod\n"
+        " 4: Display object texture memory usage\n"
+        " 5: Display color coded number of render materials\n"
+        " 6: Display ambient color\n"
+        " 7: Display tri count, number of render materials, texture memory\n"
+        " 8: Free slot\n"
+        " 9: Free slot\n"
+        "10: Render geometry with simple lines and triangles\n"
+        "11: Free slot\n"
+        "12: Free slot\n"
+        "13: Display occlusion amount (used during AO computations). Warning: can take a long time to calculate, depending on level size! \n"
+        "15: Display helpers\n"
+        "16: Display debug gun\n"
+        "17: Streaming info (buffer sizes)\n"
+        "18: Free slot\n"
+        "19: Physics proxy triangle count\n"
+        "20: Display Character attachments texture memory usage\n"
+        "21: Display animated object distance to camera\n"
+        "22: Display object's current LOD vertex count\n"
+        "23: Display shadow casters in red\n"
+        "24: Display meshes with no LODs\n"
+        "25: Display meshes with no LODs, meshes with not enough LODs\n"
+        "----------------debug draw list values. Any of them enable 2d on-screen listing type info debug. Specific values define the list sorting-----------\n"
+        " 100: tri count\n"
+        " 101: verts count\n"
+        " 102: draw calls\n"
+        " 103: texture memory\n"
+        " 104: mesh memory",
+        OnDebugDrawChange);
+#endif
+
+    REGISTER_CVAR(e_DebugDrawLodMinTriangles, 200, VF_CHEAT | VF_CHEAT_ALWAYS_CHECK | CONST_CVAR_FLAGS,
+        "Minimum number of triangles (lod 0) to show in LOD debug draw");
 
 #ifndef _RELEASE
     DefineConstIntCVar(e_DebugDrawListSize, 24, VF_DEV_ONLY,    "num objects in the list for e_DebugDraw list infodebug");
@@ -185,12 +266,6 @@ void CVars::Init()
 
     REGISTER_CVAR(e_TerrainDetailMaterials, 1, VF_CHEAT | VF_CHEAT_ALWAYS_CHECK,
         "Activates drawing of detail materials on terrain ground");
-    DefineConstIntCVar(e_TerrainDetailMaterialsDebug, 0, VF_CHEAT,
-        "Shows number of materials in use per terrain sector");
-    DefineConstFloatCVar(e_TerrainDetailMaterialsViewDistZ, VF_NULL,
-        "Max view distance of terrain Z materials");
-    DefineConstFloatCVar(e_TerrainDetailMaterialsViewDistXY, VF_NULL,
-        "Max view distance of terrain XY materials");
     DefineConstFloatCVar(e_SunAngleSnapSec, VF_NULL,
         "Sun dir snap control");
     DefineConstFloatCVar(e_SunAngleSnapDot, VF_NULL,
@@ -289,8 +364,6 @@ void CVars::Init()
         "Combine pieces of decals into one render call");
     DefineConstIntCVar(e_DecalsPreCreate, 1, VF_NULL,
         "Pre-create decals at load time");
-    DefineConstIntCVar(e_DecalsScissor, 1, VF_NULL,
-        "Enable decal rendering optimization by using scissor");
     DefineConstIntCVar(e_DecalsClip, 1, VF_NULL,
         "Clip decal geometry by decal bbox");
     DefineConstFloatCVar(e_DecalsRange, VF_NULL,
@@ -352,7 +425,7 @@ void CVars::Init()
     DefineConstIntCVar(e_ShadowsLodBiasInvis, 0, VF_NULL,
         "Simplifies mesh for shadow map generation by X LOD levels, if object is not visible in main frame");
 
-    DefineConstIntCVar(e_Tessellation, 1, VF_NULL,
+    REGISTER_CVAR(e_Tessellation, 1, VF_NULL,
         "HW geometry tessellation  0 = not allowed, 1 = allowed");
     REGISTER_CVAR(e_TessellationMaxDistance, 30.f, VF_NULL,
         "Maximum distance from camera in meters to allow tessellation, also affects distance-based displacement fadeout");
@@ -408,6 +481,10 @@ void CVars::Init()
         "Shadows slope bias for shadowgen");
     REGISTER_CVAR(e_ShadowsConstBiasHQ, 0.05f, VF_NULL,
         "Shadows slope bias for shadowgen (high quality mode)");
+    REGISTER_CVAR(e_ShadowsClearShowMaskAtLoad, 1, VF_NULL,
+                  "Clears the shadow mask at level load to remove any bad shadow data from previous level.\n"
+                  "0 = Better perf. It does not clear the shadow which will help set shadowmask texture to be memoryless. This will help reduce gpu bandwidth)\n"
+                  "1 = This will disable the memoryless optimization as it would clear the shadow at level load. Only use this if you see residual shadows from previous level showing up in current level.\n");
 
     DefineConstIntCVar(e_ShadowsMasksLimit, 0, VF_NULL,
         "Maximum amount of allocated shadow mask textures\n"
@@ -450,8 +527,6 @@ void CVars::Init()
         "Force auto pre-cache of CGF render meshes. 1=pre-cache all meshes around camera. 2=pre-cache only important ones (twice faster)");
     REGISTER_CVAR(e_AutoPrecacheCgfMaxTasks, 8, VF_NULL,
         "Maximum number of parallel streaming tasks during pre-caching");
-    DefineConstIntCVar(e_TerrainBBoxes, 0, VF_CHEAT,
-        "Show terrain nodes bboxes");
     DefineConstIntCVar(e_TerrainOcclusionCulling, 1, VF_CHEAT,
         "heightmap occlusion culling with time coherency 0=off, 1=on");
     DefineConstFloatCVar(e_TerrainOcclusionCullingStepSizeDelta, VF_CHEAT,
@@ -476,33 +551,15 @@ void CVars::Init()
         "Max number of tests per ray (for version 0)");
     DefineConstIntCVar(e_TerrainOcclusionCullingStepSize, 4, VF_CHEAT,
         "Initial size of single step (in heightmap units)");
-    DefineConstIntCVar(e_TerrainTextureDebug, 0, VF_CHEAT,
-        "Debug");
     DefineConstIntCVar(e_TerrainTextureStreamingDebug, 0, VF_CHEAT,
         "Debug");
-    REGISTER_CVAR(e_TerrainTextureStreamingPoolItemsNum, 64, VF_REQUIRE_LEVEL_RELOAD,
-        "Specifies number of textures in terrain base texture streaming pool");
-    DefineConstIntCVar(e_TerrainLog, 0, VF_CHEAT,
-        "Debug");
-    DefineConstIntCVar(e_TerrainDrawThisSectorOnly, 0, VF_CHEAT,
-        "1 - render only sector where camera is and objects registered in sector 00\n"
-        "2 - render only sector where camera is");
     DefineConstFloatCVar(e_TerrainOcclusionCullingPrecision, VF_CHEAT,
         "Density of rays");
     DefineConstFloatCVar(e_TerrainOcclusionCullingPrecisionDistRatio, VF_CHEAT,
         "Controls density of rays depending on distance to the object");
-    REGISTER_CVAR(e_TerrainLodRatio, 1.f, VF_NULL,
-        "Set heightmap LOD, this value is combined with sector error metrics and distance to camera");
-    REGISTER_CVAR(e_TerrainLodDistRatio, 1.f, VF_NULL,
-        "Set heightmap LOD, this value is combined only with sector distance to camera and ignores sector error metrics");
-    DefineConstFloatCVar(e_TerrainLodRatioHolesMin, VF_NULL,
-        "Rises LOD for distant terrain sectors with holes, prevents too strong distortions of holes on distance ");
 
     REGISTER_CVAR(e_OcclusionCullingViewDistRatio, 0.5f, VF_NULL,
         "Skip per object occlusion test for very far objects - culling on tree level will handle it");
-
-    DefineConstFloatCVar(e_TerrainTextureLodRatio, VF_NULL,
-        "Adjust terrain base texture resolution on distance");
 
     REGISTER_CVAR(e_Sun, 1, VF_CHEAT,
         "Activates sun light source");
@@ -513,8 +570,6 @@ void CVars::Init()
     DefineConstIntCVar(e_CoverageBufferCullIndividualBrushesMaxNodeSize, 0, VF_CHEAT,
         "128 - cull only nodes of scene tree and very big brushes\n"
         "0 - cull all brushes individually");
-    DefineConstIntCVar(e_CoverageBufferTerrain, 0, VF_NULL,
-        "Activates usage of coverage buffer for terrain");
     DefineConstIntCVar(e_CoverageBufferTerrainLodShift, 2, VF_NULL,
         "Controls tessellation of terrain mesh");
     /*  REGISTER_CVAR(e_CoverageBufferTerrainMaxDistance, 512.f, VF_NULL,
@@ -614,7 +669,10 @@ void CVars::Init()
         "Activates drawing of water volumes\n"
         "1: use usual rendering path\n"
         "2: use fast rendering path with merged fog");
-
+    DefineConstIntCVar(e_RenderTransparentUnderWater, e_RenderTransparentUnderWaterDefault, VF_NULL,
+        "Determines how transparent/alphablended objects are rendered in WaterVolume\n"
+        "0: they are not rendered under water (fast performance)\n"
+        "1: they are rendered twice under water and above water (higher quality)");
     if (!OceanToggle::IsActive())
     {
         REGISTER_CVAR(e_WaterTessellationAmount, 200, VF_NULL,  // being deprecated by Water gem
@@ -798,6 +856,8 @@ void CVars::Init()
         "Use geometric mean of faces area to compute LOD");
     DefineConstIntCVar(e_LodsForceUse, 1, VF_NULL,
         "Force using LODs even if triangle count do not suit");
+    DefineConstFloatCVar(e_LodBoundingBoxDistanceMultiplier, VF_CHEAT,
+        "e_LodBoundingBoxDistanceMultiplier ");
 
     REGISTER_CVAR(e_SQTestDelay, 5.f, VF_NULL,
         "Time to stabilize the system before camera movements");
@@ -839,6 +899,8 @@ void CVars::Init()
         "LOD distance ratio for objects");
     REGISTER_CVAR(e_LodFaceAreaTargetSize, 0.005f, VF_NULL,
         "Threshold used for LOD computation.");
+    REGISTER_CVAR(e_FogVolumeShadingQuality, 0, VF_NULL,
+        "Fog Volume Shading Quality 0: standard, 1:high (better fog volume interaction)");
     DefineConstFloatCVar(e_LodCompMaxSize, VF_NULL,
         "Affects LOD selection for big objects, small number will switch more objects into lower LOD");
     REGISTER_CVAR(e_ViewDistRatio, 60.0f, VF_CVARGRP_IGNOREINREALVAL,
@@ -861,6 +923,8 @@ void CVars::Init()
         "Min LOD for objects");
     REGISTER_CVAR(e_CharLodMin, 0, VF_NULL,
         "Min LOD for character objects");
+    REGISTER_CVAR(e_LodForceUpdate, 0, VF_NULL,
+        "When active, recalculate object LOD when rendering instead of using LOD calculated during previous frame.");
     REGISTER_CVAR(e_LodMax, MAX_STATOBJ_LODS_NUM - 1, VF_CHEAT,
         "Max LOD for objects");
     DefineConstIntCVar(e_LodMinTtris, 300, VF_CHEAT,
@@ -869,6 +933,8 @@ void CVars::Init()
         "Activate deferred terrain ambient occlusion");
     REGISTER_CVAR(e_PhysMinCellSize, 4, VF_NULL,
         "Min size of cell in physical entity grid");
+    DefineConstIntCVar(e_PhysEntityGridSizeDefault, 4096, VF_NULL,
+        "Default size of the physical entity grid when there's no terrain.");
     REGISTER_CVAR(e_PhysProxyTriLimit, 5000, VF_NULL,
         "Maximum allowed triangle count for phys proxies");
     DefineConstIntCVar(e_PhysFoliage, 2, VF_NULL,
@@ -907,7 +973,7 @@ void CVars::Init()
     DefineConstFloatCVar(e_VolObjShadowStrength, VF_NULL,
         "Self shadow intensity of volume objects [0..1].");
 
-    DefineConstIntCVar(e_ScreenShot, 0, VF_NULL,
+    REGISTER_CVAR(e_ScreenShot, 0, VF_NULL,
         "Make screenshot combined up of multiple rendered frames\n"
         "(negative values for multiple frames, positive for a a single frame)\n"
         " 1 highres\n"
@@ -987,12 +1053,18 @@ void CVars::Init()
 
     REGISTER_CVAR(e_ObjQuality, 0, VF_NULL,
         "Object detail quality");
+    REGISTER_CVAR(e_LightQuality, 0, VF_NULL,
+        "Light detail quality. Controls whether lights are created or casts shadows based on the minimum spec level set in the light configuration."
+        "1: Creates or casts shadows from lights that have the minimum spec level set to low."
+        "2: Creates or casts shadows from lights that have the minimum spec level set to low or medium."
+        "3: Creates or casts shadows from lights that have the minimum spec level set to low, medium or high."
+        "4: Creates or casts shadows from lights that have the minimum spec level set to low, medium, high or very high.");
     REGISTER_CVAR(e_ParticlesQuality, 0, VF_NULL,
         "Particles detail quality");
     REGISTER_CVAR(e_ObjShadowCastSpec, 0, VF_NULL,
         "Object shadow casting spec. Only objects with Shadow Cast Spec <= e_ObjShadowCastSpec will cast shadows");
 
-    REGISTER_CVAR(e_ParticlesPoolSize, 16 << 10, VF_CHEAT | VF_CHEAT_NOCHECK,
+    REGISTER_CVAR(e_ParticlesPoolSize, 16 << 10, VF_REQUIRE_APP_RESTART,
         "Particle system pool memory size in KB");
 
     DefineConstIntCVar(e_ParticlesLights, 1, VF_NULL,
@@ -1065,6 +1137,10 @@ void CVars::Init()
 
     e_ScreenShotFileFormat = REGISTER_STRING("e_ScreenShotFileFormat", "tga",  VF_NULL,
             "Set output image file format for hires screen shots. Can be jpg or tga");
+
+    e_ScreenShotFileName = REGISTER_STRING("e_ScreenShotFileName", "", VF_NULL, 
+        "Sets the output screen shot name, can include relative directories to @user@/ScreenShots");
+
     e_SQTestTextureName = REGISTER_STRING("e_SQTestTextureName", "strfrn_advrt_boards_screen",  VF_NULL,
             "Reference texture name for streaming latency test");
     e_StreamCgfDebugFilter = REGISTER_STRING("e_StreamCgfDebugFilter", "",  VF_NULL,
@@ -1137,8 +1213,9 @@ void CVars::Init()
         "2080: Draw spines with LOD info (red/blue)\n");
     REGISTER_CVAR(e_MergedMeshesPool, 2750, VF_NULL,    "amount of mainmeory (in kb) that merged meshes are allowed to sustain");
     REGISTER_CVAR(e_MergedMeshesPoolSpines, 32, VF_NULL,  "percentage of the pool for spines");
+    REGISTER_CVAR(e_MergedMeshesMaxVerticesPerSector, 1*1024*1024, VF_NULL, "Max number of mesh vertices to render per merged mesh sector");
     REGISTER_CVAR(e_MergedMeshesTesselationSupport, 0, VF_NULL, "Enable or disable support for tessellation on mergedmeshes");
-    REGISTER_CVAR(e_MergedMeshesViewDistRatio, 30.f, VF_NULL, "merged meshes view dist ratio");
+    REGISTER_CVAR(e_MergedMeshesViewDistRatio, 100.f, VF_NULL, "merged meshes view dist ratio");
     REGISTER_CVAR(e_MergedMeshesLodRatio, 3.f, VF_NULL, "merged meshes lod ratio");
     REGISTER_CVAR(e_MergedMeshesDeformViewDistMod, 0.45f, VF_NULL, "distance modifier applied to view dist ratios after which deformables stop updating");
     REGISTER_CVAR(e_MergedMeshesInstanceDist, 4.5f, VF_NULL, "Distance fudge factor at which merged meshes turn off animation");
@@ -1149,6 +1226,14 @@ void CVars::Init()
     REGISTER_CVAR(e_MergedMeshesBulletScale, 35.f, VF_NULL, "MergedMesh Bullet approximations size scale");
     REGISTER_CVAR(e_MergedMeshesBulletLifetime, 0.15f, VF_NULL, "MergedMesh Bullet approximations lifetime");
     REGISTER_CVAR(e_MergedMeshesOutdoorOnly, 0, VF_NULL, "MergedMeshes will receive ERF_OUTDOORONLY by default");
+    REGISTER_CVAR(e_MergedMeshesForceSSE2, 0, VF_NULL, "Forces Merged meshes to use SSE2 instructions regardless of whether F16C instructions are available or not.");
+    REGISTER_CVAR(e_MergedMeshesUpdateRateLOD0,  3, VF_NULL, "Sets the update rate of static merged meshes for LOD 0.");
+    REGISTER_CVAR(e_MergedMeshesUpdateRateLOD1,  5, VF_NULL, "Sets the update rate of static merged meshes for LOD 1.");
+    REGISTER_CVAR(e_MergedMeshesUpdateRateLOD2,  7, VF_NULL, "Sets the update rate of static merged meshes for LOD 2.");
+    REGISTER_CVAR(e_MergedMeshesUpdateRateLOD3, 11, VF_NULL, "Sets the update rate of static merged meshes for LOD 3.");
+    REGISTER_CVAR(e_MergedMeshesUpdateRateLOD4, 17, VF_NULL, "Sets the update rate of static merged meshes for LOD 4.");
+    REGISTER_CVAR(e_MergedMeshesUpdateRateLOD5, 25, VF_NULL, "Sets the update rate of static merged meshes for LOD 5.");
+
     REGISTER_CVAR(e_CheckOctreeObjectsBoxSize, 1, VF_NULL, "CryWarning for crazy sized COctreeNode m_objectsBoxes");
     REGISTER_CVAR(e_DebugGeomPrep, 0, VF_NULL,  "enable logging of Geom preparation");
     DefineConstIntCVar(e_GeomCaches, 1, VF_NULL, "Activates drawing of geometry caches");
@@ -1186,7 +1271,9 @@ void CVars::Init()
     REGISTER_CVAR(e_StaticInstancing, 0, VF_NULL, "Enables instancing of static objects");
     REGISTER_CVAR(e_StaticInstancingMinInstNum, 10, VF_NULL, "Minimum number of common static objects in a tree node before hardware instancing is used.");
 
-#if defined(FEATURE_SVO_GI)
-    RegisterTICVars();
+    DefineConstIntCVar(e_MemoryProfiling, 0, VF_DEV_ONLY, "Toggle displaying memory usage statistics");
+#ifndef _RELEASE
+    REGISTER_CVAR(e_TerrainPerformanceSecondsPerLog, 0.0, VF_DEV_ONLY, "How frequently the Terrain Profiler dumps performance statistics to the game log. Default: 0.0 (OFF)");
+    REGISTER_CVAR(e_TerrainPerformanceCollectMemoryStats, 0, VF_DEV_ONLY, "Enable or disable collection of CTerrain memory usage per frame. Default: 0 (OFF)\n");
 #endif
 }

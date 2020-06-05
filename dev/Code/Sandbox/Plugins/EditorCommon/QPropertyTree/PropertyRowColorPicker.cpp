@@ -47,10 +47,10 @@ bool PropertyRowColorPicker::onActivate(const PropertyActivationEvent& e)
     }
 
     // QColor -> ColorF.
-    ColorF color(colorFromDialog.redF(),
-        colorFromDialog.greenF(),
-        colorFromDialog.blueF(),
-        colorFromDialog.alphaF());
+    ColorF color(aznumeric_cast<float>(colorFromDialog.redF()),
+        aznumeric_cast<float>(colorFromDialog.greenF()),
+        aznumeric_cast<float>(colorFromDialog.blueF()),
+        aznumeric_cast<float>(colorFromDialog.alphaF()));
 
     e.tree->model()->rowAboutToBeChanged(this);
     color_ = color;
@@ -120,7 +120,8 @@ bool PropertyRowColorPicker::onContextMenu(QMenu& menu, QPropertyTree* tree)
     QAction* action = menu.addAction("Clear");
     QObject::connect(action,
         &QAction::triggered,
-        [ this, tree ]()
+        tree,
+        [ this, tree ]
         {
             tree->model()->rowAboutToBeChanged(this);
             clear();

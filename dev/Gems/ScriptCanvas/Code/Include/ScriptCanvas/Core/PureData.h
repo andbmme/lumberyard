@@ -30,6 +30,7 @@ namespace ScriptCanvas
     {
         AZStd::unordered_map<SlotId, Data::GetterWrapper> m_gettersByInputSlot;
         AZStd::unordered_map<SlotId, Data::SetterWrapper> m_settersByInputSlot;
+        // The first slot id of the pair is the Getter SlotId, the second slot id of the pair is the Setter SlotID
         AZStd::unordered_map<AZStd::string, AZStd::pair<SlotId, SlotId>> m_getterSetterIdPairs;
     };
 
@@ -43,23 +44,15 @@ namespace ScriptCanvas
         static const char* k_getThis;
         static const char* k_setThis;
 
+        const AZStd::unordered_map<AZStd::string, AZStd::pair<SlotId, SlotId>>& GetPropertyNameSlotMap() const;
+
+        ~PureData() override;
+
+    protected:
         void AddInputAndOutputTypeSlot(const Data::Type& type, const void* defaultValue = nullptr);
         template<typename DatumType>
         void AddDefaultInputAndOutputTypeSlot(DatumType&& defaultValue);
         void AddInputTypeAndOutputTypeSlot(const Data::Type& type);
-
-    protected:
-
-        static const int k_getSlotIndex = 1;
-        static const int k_setSlotIndex = 0;
-        static const int k_thisDatumIndex = 0;
-
-        AZ_INLINE bool IsSetThisSlot(const SlotId& id) const
-        {
-            const Slot* slot(nullptr);
-            int slotIndex(-1);
-            return GetValidSlotIndex(id, slot, slotIndex) && slotIndex == k_setSlotIndex;
-        }
         
         void OnActivate() override;
         void OnInputChanged(const Datum& input, const SlotId& id) override;
@@ -67,21 +60,26 @@ namespace ScriptCanvas
 
         AZ_INLINE void OnOutputChanged(const Datum& output) const
         { 
-            OnOutputChanged(output, m_slotContainer.m_slots[k_getSlotIndex]); 
+            Slot* slot = GetSlotByName(GetOutputDataName());
+            if (slot)
+            {
+                OnOutputChanged(output, (*slot));
+            }
         }
         
-        AZ_INLINE void OnOutputChanged(const Datum& output, const Slot& outputID) const
+        AZ_INLINE void OnOutputChanged(const Datum& output, const Slot& outputSlot) const
         {
-            PushOutput(output, outputID);
+            PushOutput(output, outputSlot);
         }
 
         // push data out
         AZ_INLINE void PushThis()
         {
-            if (!m_inputIndexBySlotIndex.empty())
+            auto slotId = GetSlotId(GetInputDataName());
+
+            if (auto setDatum = FindDatum(slotId))
             {
-                auto slotIndexDatumIndex = m_inputIndexBySlotIndex.begin();
-                OnInputChanged(m_inputData[slotIndexDatumIndex->second], m_slotContainer.m_slots[slotIndexDatumIndex->first].GetId());
+                OnInputChanged(*setDatum, slotId);
             }
             else
             {
@@ -93,11 +91,10 @@ namespace ScriptCanvas
         AZStd::string_view GetOutputDataName() const;
 
         void SetInput(const Datum& input, const SlotId& id) override;
+        void SetInput(Datum&& input, const SlotId& id) override;
         void SetProperty(const Datum& input, const SlotId& id);
         void CallGetter(const SlotId& getterSlotId);
         bool IsConfigured() { return m_configured; }
-
-        void Visit(NodeVisitor& visitor) const override { visitor.Visit(*this); }
 
         PropertyAccount m_propertyAccount;
         bool m_configured = false;

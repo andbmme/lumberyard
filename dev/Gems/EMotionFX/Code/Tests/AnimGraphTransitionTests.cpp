@@ -18,36 +18,37 @@
 
 namespace EMotionFX
 {
-
-    class AnimGraphTransitionFixtureParams : public AnimGraphTransitionFixture,
-                                             public ::testing::WithParamInterface<decltype(&AnimGraphNodeData::GetLocalWeight)>
+    class AnimGraphTransitionFixtureParams
+        : public AnimGraphTransitionFixture
+        , public ::testing::WithParamInterface<decltype(&AnimGraphNodeData::GetLocalWeight)>
     {
     };
 
     TEST_P(AnimGraphTransitionFixtureParams, TestAnimGraphTransitionWeight)
     {
-        // TODO use constexpr when we ditch msvc2013
-        static const float fps = 60.0f;
-        static const float updateInterval = 1.0f / fps;
-        static const int numIterations = static_cast<int>(3.0f * fps);
+        static constexpr float fps = 60.0f;
+        static constexpr float updateInterval = 1.0f / fps;
+        static constexpr int numIterations = static_cast<int>(3.0f * fps);
 
         // Run the EMotionFX update loop for 3 seconds at 60 fps
         for (int i = 0; i < numIterations; ++i)
         {
             GetEMotionFX().Update(updateInterval);
-            AnimGraphNode* sourceNode = nullptr;
-            AnimGraphNode* targetNode = nullptr;
-            mStateMachine->GetActiveStates(mAnimGraphInstance, &sourceNode, &targetNode);
+
+            const AZStd::vector<AnimGraphNode*>& activeStates = m_stateMachine->GetActiveStates(m_animGraphInstance);
 
             float weight = 0.0f;
-            for (int j = 0; j < 2; ++j)
+            for (const AnimGraphNode* activeState : activeStates)
             {
-                AnimGraphMotionNode* motionNode = j == 0 ? mMotionNode0 : mMotionNode1;
-                // Check if the node is active
-                if (motionNode == sourceNode || motionNode == targetNode)
+                for (int j = 0; j < 2; ++j)
                 {
-                    AnimGraphNodeData* uniqueData = motionNode->FindUniqueNodeData(mAnimGraphInstance);
-                    weight += (uniqueData->*(GetParam()))();
+                    AnimGraphMotionNode* motionNode = (j == 0) ? m_motionNodeA : m_motionNodeB;
+                    // Check if the node is active
+                    if (motionNode == activeState)
+                    {
+                        AnimGraphNodeData* uniqueData = motionNode->FindUniqueNodeData(m_animGraphInstance);
+                        weight += (uniqueData->*(GetParam()))();
+                    }
                 }
             }
             // The combined weights for the active nodes should be close to 1
@@ -59,6 +60,6 @@ namespace EMotionFX
         ::testing::Values(
             &AnimGraphNodeData::GetLocalWeight,
             &AnimGraphNodeData::GetGlobalWeight
-        )
-    );
+            )
+        );
 } // end namespace EMotionFX

@@ -35,12 +35,8 @@
 #include <IGameFramework.h>
 #include <IGameVolumes.h>
 
-#include "Util/BoostPythonHelpers.h"
 #include <IEntityHelper.h>
 #include "Components/IComponentArea.h"
-
-//#pragma optimize("", off)
-//#pragma inline_depth(0)
 
 CNavigation* GetNavigation ();
 
@@ -53,14 +49,14 @@ CGraph* GetGraph ();
 #define RAY_DISTANCE 100000.0f
 
 //////////////////////////////////////////////////////////////////////////
-int CShapeObject::m_rollupId                                                        = 0;
+int CShapeObject::m_rollupId  = 0;
 ShapeEditSplitPanel* CShapeObject::m_panel = 0;
-int CShapeObject::m_rollupMultyId                                               = 0;
-CShapeMultySelPanel* CShapeObject::m_panelMulty                 = 0;
+int CShapeObject::m_rollupMultyId = 0;
+CShapeMultySelPanel* CShapeObject::m_panelMulty = 0;
 CAxisHelper CShapeObject::m_selectedPointAxis;
 ReflectedPropertiesPanel* CShapeObject::m_pSoundPropertiesPanel = nullptr;
-int CShapeObject::m_nSoundPanelID                                               = 0;
-CVarBlockPtr CShapeObject::m_pSoundPanelVarBlock                = NULL;
+int CShapeObject::m_nSoundPanelID = 0;
+CVarBlockPtr CShapeObject::m_pSoundPanelVarBlock = NULL;
 
 //////////////////////////////////////////////////////////////////////////
 CShapeObject::CShapeObject()
@@ -2484,7 +2480,7 @@ void CAIPathObject::UpdateGameArea(bool bRemove)
 
         if (GetNavigation()->DoesNavigationShapeExists(GetName().toUtf8().data(), AREATYPE_PATH, m_bRoad))
         {
-            gEnv->pSystem->GetILog()->LogError("AI Path: Path '%s' already exists in AIsystem, please rename the path.", GetName());
+            gEnv->pSystem->GetILog()->LogError("AI Path: Path '%s' already exists in AIsystem, please rename the path.", GetName().toUtf8().constData());
             m_updateSucceed = false;
             return;
         }
@@ -2766,7 +2762,7 @@ void CAIShapeObject::UpdateGameArea(bool bRemove)
 
         if (GetNavigation()->DoesNavigationShapeExists(GetName().toUtf8().data(), AREATYPE_GENERIC))
         {
-            gEnv->pSystem->GetILog()->LogError("AI Shape: Shape '%s' already exists in AIsystem, please rename the shape.", GetName());
+            gEnv->pSystem->GetILog()->LogError("AI Shape: Shape '%s' already exists in AIsystem, please rename the shape.", GetName().toUtf8().constData());
             m_updateSucceed = false;
             return;
         }
@@ -2831,7 +2827,7 @@ void CAIOcclusionPlaneObject::UpdateGameArea(bool bRemove)
 
         if (GetNavigation()->DoesNavigationShapeExists(GetName().toUtf8().data(), AREATYPE_OCCLUSION_PLANE))
         {
-            gEnv->pSystem->GetILog()->LogError("OcclusionPlane: Shape '%s' already exists in AIsystem, please rename the shape.", GetName());
+            gEnv->pSystem->GetILog()->LogError("OcclusionPlane: Shape '%s' already exists in AIsystem, please rename the shape.", GetName().toUtf8().constData());
             m_updateSucceed = false;
             return;
         }
@@ -3977,40 +3973,5 @@ void CNavigationAreaObject::ChangeColor(const QColor& color)
 {
     SetModified(false);
 }
-
-//////////////////////////////////////////////////////////////////////////
-namespace
-{
-    static void PyInsertPoint(const char* objName, int idx, float xPos, float yPos, float zPos)
-    {
-        CBaseObject* pObject;
-
-        if (GetIEditor()->GetObjectManager()->FindObject(objName))
-        {
-            pObject = GetIEditor()->GetObjectManager()->FindObject(objName);
-        }
-        else if (GetIEditor()->GetObjectManager()->FindObject(GuidUtil::FromString(objName)))
-        {
-            pObject = GetIEditor()->GetObjectManager()->FindObject(GuidUtil::FromString(objName));
-        }
-        else
-        {
-            throw std::logic_error((QString("\"") + objName + "\" is an invalid object.").toUtf8().data());
-        }
-
-        if (qobject_cast<CNavigationAreaObject*>(pObject))
-        {
-            CNavigationAreaObject* pNavArea = static_cast<CNavigationAreaObject*>(pObject);
-            if (pNavArea != NULL)
-            {
-                Vec3 pos(xPos, yPos, zPos);
-                pNavArea->SetPoint(idx, pos);
-                pNavArea->InsertPoint(-1,  pos, false);
-            }
-        }
-    }
-}
-
-REGISTER_PYTHON_COMMAND(PyInsertPoint, general, nav_insert_point, "Added a point at the given position to the given nav area");
 
 #include <Objects/ShapeObject.moc>

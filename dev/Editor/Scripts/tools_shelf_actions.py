@@ -8,13 +8,19 @@
 # remove or modify any license notices. This file is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #
+import __future__
 import time, re, os, sys, itertools, ast 
-import general
+import azlmbr.legacy.general as general
 
 global ctrlFile
 ctrlFile = 'setState.txt'
 global logfile
 logfile = 'Editor.log'
+
+global HIDDEN_MASK_PREFIX
+HIDDEN_MASK_PREFIX= 'hidden_mask_for_'
+global HIDDEN_MASK_PREFIX_LENGTH
+HIDDEN_MASK_PREFIX_LENGTH = len(HIDDEN_MASK_PREFIX)
 
 def getLogList(logfile):
 	logList = [x for x in open(logfile, 'r')]
@@ -31,8 +37,32 @@ def getCheckList(ctrlFile):
 
 	checkList = [x for x in stateList]
 	return checkList
-	
-#toggle CVars--------------------------------------------------------------------#	
+
+#Store/Restore CVars default values -----------------------------------------------------------------#
+if 'CVARS' not in globals():
+	CVARS = {}
+
+def saveDefaultValue(cVars, value):
+	if cVars not in CVARS:
+		CVARS[cVars] = value
+
+def restoreDefaultValue(cVars):
+	if cVars not in CVARS:
+		return
+
+	defaultValue = CVARS[cVars]
+	del CVARS[cVars]
+	if cVars.startswith(HIDDEN_MASK_PREFIX):
+		type = cVars[HIDDEN_MASK_PREFIX_LENGTH:]
+		general.set_hidemask(type, defaultValue)
+	else:
+		general.set_cvar(cVars, defaultValue)
+
+#toggle CVars--------------------------------------------------------------------#
+
+def updateCvars(cVars, value):
+	saveDefaultValue(cVars, value)
+	general.set_cvar(cVars, value)
 
 def toggleCvarsRestartCheck(log, state, mode, cVars, onValue, offValue, ctrlFile):
 	if log in state:
@@ -40,9 +70,9 @@ def toggleCvarsRestartCheck(log, state, mode, cVars, onValue, offValue, ctrlFile
 	else:
 		stateList = open(ctrlFile, 'w')
 		stateList.write(log)
-		stateList = open(ctrlFile, 'r') 
+		stateList = open(ctrlFile, 'r')
 		toggleCvarsV(mode, cVars, onValue, offValue, ctrlFile)
-		
+
 def toggleCvarsV(mode, cVars, onValue, offValue, ctrlFile):
 	stateList = open(ctrlFile, 'r') 
 	setState = [x for x in enumerate(stateList)] 
@@ -61,7 +91,7 @@ def toggleCvarsV(mode, cVars, onValue, offValue, ctrlFile):
 			stateList = open(ctrlFile, 'r')
 			getList = [x for x in stateList] 
 			getList.insert(1, str("%s,{'%s': %s}\n" % (mode, cVars , offValue)))
-			print str("{'%s': %s}\n" % (cVars , offValue))
+			print (str("{'%s': %s}\n" % (cVars , offValue)))
 			stateList = open(ctrlFile, 'w')
 			stateList.write(''.join(getList))	
 			general.set_cvar(cVars, offValue)
@@ -81,7 +111,7 @@ def toggleCvarsV(mode, cVars, onValue, offValue, ctrlFile):
 						getDict[cVars] = onValue
 						joinStr = [mode,",",str(getDict), '\n']
 						newLine = ''.join(joinStr)
-						print getDict
+						print (getDict)
 						getList[d[0]] = newLine
 						stateList = open(ctrlFile, 'w')
 						stateList.write(''.join(str(''.join(getList))))
@@ -90,7 +120,7 @@ def toggleCvarsV(mode, cVars, onValue, offValue, ctrlFile):
 						getDict[cVars] = offValue
 						joinStr = [mode,",",str(getDict), '\n']
 						newLine = ''.join(joinStr)
-						print getDict
+						print (getDict)
 						getList[d[0]] = newLine
 						stateList = open(ctrlFile, 'w')
 						stateList.write(''.join(str(''.join(getList))))
@@ -98,6 +128,16 @@ def toggleCvarsV(mode, cVars, onValue, offValue, ctrlFile):
 
 def toggleCvarsValue(mode, cVars, onValue, offValue):
 	currentValue = general.get_cvar(cVars)
+
+	if type(onValue) is str:
+		saveDefaultValue(cVars, currentValue)
+	elif type(onValue) is int:
+		saveDefaultValue(cVars, int(currentValue))
+	elif type(onValue) is float:
+		saveDefaultValue(cVars, float(currentValue))
+	else:
+		general.log('Failed to store default value for {0}'.format(cVars))
+
 	if currentValue == str(onValue):
 		general.set_cvar(cVars, offValue)
 	else:
@@ -133,7 +173,7 @@ def toggleConsolV(mode, onValue, offValue):
 			stateList = open(ctrlFile, 'r')
 			getList = [x for x in stateList] 
 			getList.insert(1, str("%s,'%s'\n" % (mode, offValue)))
-			print str("{'%s': %s}\n" % (cVars , offValue))
+			print (str("{'%s': %s}\n" % (cVars , offValue)))
 			stateList = open(ctrlFile, 'w')
 			stateList.write(''.join(getList))	
 			general.run_console(onValue)
@@ -156,7 +196,7 @@ def toggleConsolV(mode, onValue, offValue):
 						getDict = onValue
 						joinStr = [mode,",","'",getDict,"'", '\n']
 						newLine = ''.join(joinStr)
-						print getDict
+						print (getDict)
 						getList[d[0]] = str(newLine)							
 						stateList = open(ctrlFile, 'w')
 						stateList.write(''.join(str(''.join(getList))))
@@ -165,7 +205,7 @@ def toggleConsolV(mode, onValue, offValue):
 						getDict = offValue
 						joinStr = [mode,",","'",getDict,"'", '\n']
 						newLine = ''.join(joinStr)
-						print getDict
+						print (getDict)
 						getList[d[0]] = str(newLine)					
 						stateList = open(ctrlFile, 'w')
 						stateList.write(''.join(str(''.join(getList))))
@@ -205,7 +245,6 @@ def cycleCvarsV(mode, cVars, cycleList, ctrlFile):
 			stateList = open(ctrlFile, 'r')
 			getList = [x for x in stateList] 
 			getList.insert(1, str("%s,{'%s': %s}\n" % (mode, cVars , cycleList[1])))
-			#print '%s' % cycleList[1]
 			stateList = open(ctrlFile, 'w')
 			stateList.write(''.join(getList))	
 			general.set_cvar(cVars, cycleList[1])
@@ -235,7 +274,7 @@ def cycleCvarsV(mode, cVars, cycleList, ctrlFile):
 								joinStr = [mode,",",str(getDict), '\n']
 								newLine = ''.join(joinStr)
 								getList[d[0]] = newLine
-								print getDict
+								print (getDict)
 								stateList = open(ctrlFile, 'w')
 								stateList.write(''.join(str(''.join(getList))))
 								general.set_cvar(cVars, cycleList[0])
@@ -244,7 +283,7 @@ def cycleCvarsV(mode, cVars, cycleList, ctrlFile):
 								joinStr = [mode,",",str(getDict), '\n']
 								newLine = ''.join(joinStr)
 								getList[d[0]] = newLine
-								print getDict
+								print (getDict)
 								stateList = open(ctrlFile, 'w')
 								stateList.write(''.join(str(''.join(getList))))
 								general.set_cvar(cVars, cycleList[x[0]+1])
@@ -260,6 +299,8 @@ def cycleCvarsFloatValue(cVars, cycleList):
 		currentValue = float(currentValueAsString)
 	except:
 		currentValue = -1.0
+
+	saveDefaultValue(cVars, currentValue)
 
 	# make sure we sort the list in ascending fashion
 	cycleList = sorted(cycleList)
@@ -284,6 +325,8 @@ def cycleCvarsIntValue(cVars, cycleList):
 		currentValue = int(currentValueAsString)
 	except:
 		currentValue = 0
+
+	saveDefaultValue(cVars, currentValue)
 
 	# find out what index we're on already
 	# default to -1 so that when we increment to the next, we'll be at 0
@@ -331,7 +374,6 @@ def cycleConsolV(mode, cycleList, ctrlFile):
 			stateList = open(ctrlFile, 'r')
 			getList = [x for x in stateList] 
 			getList.insert(1, str("%s,'%s'\n" % (mode, cycleList[0])))
-			#print '%s' % cycleList[0]
 			stateList = open(ctrlFile, 'w')
 			stateList.write(''.join(getList))	
 			general.run_console(cycleList[0])
@@ -360,7 +402,7 @@ def cycleConsolV(mode, cycleList, ctrlFile):
 								joinStr = [mode,",","'",getDict,"'", '\n']
 								newLine = ''.join(joinStr)
 								getList[d[0]] = newLine
-								print getDict
+								print (getDict)
 								stateList = open(ctrlFile, 'w')
 								stateList.write(''.join(str(''.join(getList))))
 								general.run_console(getDict)
@@ -369,7 +411,7 @@ def cycleConsolV(mode, cycleList, ctrlFile):
 								joinStr = [mode,",","'",getDict,"'", '\n']
 								newLine = ''.join(joinStr)
 								getList[d[0]] = newLine
-								print getDict
+								print (getDict)
 								stateList = open(ctrlFile, 'w')
 								stateList.write(''.join(str(''.join(getList))))
 								general.run_console(getDict)
@@ -378,14 +420,16 @@ def cycleConsolValue(mode, cycleList):
 	logList = getLogList(logfile)
 	checkList = getCheckList(ctrlFile)
 	cycleConsolRestartCheck(logList[1],checkList, mode, cycleList, ctrlFile)
-	
+
 def toggleHideMaskValues(type):
-	if (general.get_hidemask(type)):
+	cVars = "%s%s" % (HIDDEN_MASK_PREFIX, type)
+	currentValue = general.get_hidemask(type)
+	saveDefaultValue(cVars, int(currentValue))
+	if (currentValue):
 		general.set_hidemask(type, 0)
 	else:
 		general.set_hidemask(type, 1)
 
-		
 #toggleHide------------------------------------------------------------------------#
 		
 def toggleHideRestartCheck(log, state, mode, type, onValue, offValue, ctrlFile):
@@ -421,7 +465,7 @@ def toggleHideByT(mode, type, onValue, offValue, ctrlFile):
 			stateList = open(ctrlFile, 'r')
 			getList = [x for x in stateList] 
 			getList.insert(1, str("%s,{'%s': %s}\n" % (mode, type , offValue)))
-			print str("{'%s': %s}\n" % (type , offValue))
+			print (str("{'%s': %s}\n" % (type , offValue)))
 			stateList = open(ctrlFile, 'w')
 			stateList.write(''.join(getList))	
 			hideByType(type)
@@ -441,7 +485,7 @@ def toggleHideByT(mode, type, onValue, offValue, ctrlFile):
 						getDict[type] = onValue
 						joinStr = [mode,",",str(getDict), '\n']
 						newLine = ''.join(joinStr)
-						print getDict
+						print (getDict)
 						getList[d[0]] = newLine
 						stateList = open(ctrlFile, 'w')
 						stateList.write(''.join(str(''.join(getList))))
@@ -450,7 +494,7 @@ def toggleHideByT(mode, type, onValue, offValue, ctrlFile):
 						getDict[type] = offValue
 						joinStr = [mode,",",str(getDict), '\n']
 						newLine = ''.join(joinStr)
-						print getDict
+						print (getDict)
 						getList[d[0]] = newLine
 						stateList = open(ctrlFile, 'w')
 						stateList.write(''.join(str(''.join(getList))))
@@ -458,14 +502,10 @@ def toggleHideByT(mode, type, onValue, offValue, ctrlFile):
 
 def hideByType(type):	
 	typeList = general.get_all_objects(str(type), "")
-	#print typeList
-	#general.select_objects(typeList)
 	for x in typeList:
 		general.hide_object(x)
 			
 def unHideByType(type):				
 	typeList = general.get_all_objects(str(type), "")
-	#print typeList
-	#general.select_objects(typeList)
 	for x in typeList:
 		general.unhide_object(x)

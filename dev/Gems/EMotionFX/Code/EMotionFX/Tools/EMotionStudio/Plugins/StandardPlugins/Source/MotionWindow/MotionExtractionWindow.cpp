@@ -20,6 +20,7 @@
 #include <QVBoxLayout>
 #include <QIcon>
 #include <QCheckBox>
+#include <MCore/Source/LogManager.h>
 #include <MysticQt/Source/ButtonGroup.h>
 #include <EMotionFX/CommandSystem/Source/MotionCommands.h>
 #include <EMotionFX/Source/MotionSystem.h>
@@ -72,7 +73,7 @@ namespace EMStudio
         mFlagsWidget->setMaximumHeight(MOTIONEXTRACTIONWINDOW_HEIGHT);
 
         mCaptureHeight = new QCheckBox("Capture Height Changes");
-        connect(mCaptureHeight, SIGNAL(clicked()), this, SLOT(OnMotionExtractionFlagsUpdated()));
+        connect(mCaptureHeight, &QCheckBox::clicked, this, &MotionExtractionWindow::OnMotionExtractionFlagsUpdated);
 
         QVBoxLayout* layout = new QVBoxLayout();
         layout->setAlignment(Qt::AlignTop);
@@ -98,7 +99,7 @@ namespace EMStudio
         warningLabel->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Fixed);
 
         mWarningSelectNodeLink = new MysticQt::LinkWidget("Click here to setup the Motion Extraction node", mWarningWidget);
-        connect(mWarningSelectNodeLink, SIGNAL(clicked()), this, SLOT(OnSelectMotionExtractionNode()));
+        connect(mWarningSelectNodeLink, &MysticQt::LinkWidget::clicked, this, &MotionExtractionWindow::OnSelectMotionExtractionNode);
 
         // create and fill the layout
         QVBoxLayout* layout = new QVBoxLayout();
@@ -131,7 +132,7 @@ namespace EMStudio
 
         // create the node selection windows
         mMotionExtractionNodeSelectionWindow = new NodeSelectionWindow(this, true);
-        connect((const QObject*)mMotionExtractionNodeSelectionWindow->GetNodeHierarchyWidget(), SIGNAL(OnSelectionDone(MCore::Array<SelectionItem>)), this, SLOT(OnMotionExtractionNodeSelected(MCore::Array<SelectionItem>)));
+        connect(mMotionExtractionNodeSelectionWindow->GetNodeHierarchyWidget(), static_cast<void (NodeHierarchyWidget::*)(MCore::Array<SelectionItem>)>(&NodeHierarchyWidget::OnSelectionDone), this, &MotionExtractionWindow::OnMotionExtractionNodeSelected);
 
         // set some layout for our window
         mMainVerticalLayout = new QVBoxLayout();
@@ -323,7 +324,7 @@ namespace EMStudio
         commandGroup.AddCommandString("StopAllMotionInstances");
 
         // Iterate through all selected motions.
-        MCore::String command;
+        AZStd::string command;
         for (uint32 i = 0; i < numSelectedMotions; ++i)
         {
             // Get the current selected motion, check if it is a skeletal motion, skip directly elsewise.
@@ -334,19 +335,19 @@ namespace EMStudio
             }
 
             // Prepare the command and add it to the command group.
-            command.Format("AdjustMotion -motionID %i -motionExtractionFlags %i", motion->GetID(), extractionFlags);
-            commandGroup.AddCommandString(command.AsChar());
+            command = AZStd::string::format("AdjustMotion -motionID %i -motionExtractionFlags %i", motion->GetID(), extractionFlags);
+            commandGroup.AddCommandString(command.c_str());
         }
 
         // In case the command group is not empty, execute it.
         if (commandGroup.GetNumCommands() > 0)
         {
-            MCore::String outResult;
+            AZStd::string outResult;
             if (GetCommandManager()->ExecuteCommandGroup(commandGroup, outResult) == false)
             {
-                if (outResult.GetIsEmpty() == false)
+                if (outResult.empty() == false)
                 {
-                    MCore::LogError(outResult.AsChar());
+                    MCore::LogError(outResult.c_str());
                 }
             }
         }
@@ -379,13 +380,13 @@ namespace EMStudio
         MCore::CommandGroup commandGroup("Adjust motion extraction node");
 
         // adjust the actor
-        commandGroup.AddCommandString(MCore::String().Format("AdjustActor -actorID %i -motionExtractionNodeName \"%s\"", actorID, nodeName.c_str()).AsChar());
+        commandGroup.AddCommandString(AZStd::string::format("AdjustActor -actorID %i -motionExtractionNodeName \"%s\"", actorID, nodeName.c_str()).c_str());
 
         // execute the command group
-        MCore::String outResult;
+        AZStd::string outResult;
         if (GetCommandManager()->ExecuteCommandGroup(commandGroup, outResult) == false)
         {
-            MCore::LogError(outResult.AsChar());
+            MCore::LogError(outResult.c_str());
         }
     }
 

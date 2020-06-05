@@ -11,13 +11,13 @@
 */
 
 #include "VideoPlayback_precompiled.h"
-#include <FlowSystem/Nodes/FlowBaseNode.h>
 #include <platform_impl.h>
 
 #include "VideoPlaybackSystemComponent.h"
 #include "VideoPlaybackGameComponent.h"
 
 #include <IGem.h>
+#include <VideoPlayback_Traits_Platform.h>
 
 namespace AZ
 {
@@ -32,11 +32,13 @@ namespace AZ
             VideoPlaybackModule()
                 : CryHooksModule()
             {
+#if AZ_TRAIT_VIDEOPLAYBACK_ENABLE_DECODER
                 // Push results of [MyComponent]::CreateDescriptor() into m_descriptors here.
                 m_descriptors.insert(m_descriptors.end(), {
                     VideoPlaybackSystemComponent::CreateDescriptor(),
                     VideoPlaybackGameComponent::CreateDescriptor(),
                 });
+#endif
             }
 
             /**
@@ -47,16 +49,6 @@ namespace AZ
                 return AZ::ComponentTypeList{
                     azrtti_typeid<VideoPlaybackSystemComponent>(),
                 };
-            }
-
-            void OnSystemEvent(ESystemEvent event, UINT_PTR, UINT_PTR) override
-            {
-                switch (event)
-                {
-                case ESYSTEM_EVENT_FLOW_SYSTEM_REGISTER_EXTERNAL_NODES:
-                    RegisterExternalFlowNodes();
-                    break;
-                }
             }
         };
     }//namespace VideoPlayback

@@ -53,7 +53,6 @@ namespace AzFramework
         ///////////////////////////////////////////////////////////////////////
         // AZ::Component
         static void Reflect(AZ::ReflectContext* reflection);
-        void Init() override;
         void Activate() override;
         void Deactivate() override;
         ///////////////////////////////////////////////////////////////////////
@@ -65,6 +64,7 @@ namespace AzFramework
         bool IsEntityBoundToNetwork() override;
         bool IsEntityAuthoritative() override;
         void MarkAsLevelSliceEntity() override;
+        void SetSliceInstanceId(const AZ::SliceComponent::SliceInstanceId& sliceInstanceId) override;
         void RequestEntityChangeOwnership(GridMate::PeerId peerId = GridMate::InvalidReplicaPeerId) override;
 
         void SetReplicaPriority(GridMate::ReplicaPriority replicaPriority) override;
@@ -77,6 +77,7 @@ namespace AzFramework
         //! Points to the NetBindingComponentChunk counterpart.
         GridMate::ReplicaChunkPtr m_chunk;
         bool m_isLevelSliceEntity;
+        AZ::SliceComponent::SliceInstanceId m_sliceInstanceId;
     };
 }   // namespace AzFramework
 

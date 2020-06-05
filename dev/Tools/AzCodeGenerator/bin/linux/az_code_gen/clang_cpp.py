@@ -55,12 +55,12 @@ def store_annotation(annotations, tag, value, overwrite=False):
     for part in tag_parts[0:-1]:
         # if there is a None value already in place, replace it with a table
         # this happens in cases like Serialize() and Serialize::Base<>()
-        if namespace.has_key(part) and not isinstance(namespace[part], dict):
+        if part in namespace and not isinstance(namespace[part], dict):
             del namespace[part]
         namespace = namespace.setdefault(part, {})
     # do not stomp a parent table with a value
     if overwrite or \
-        not namespace.has_key(tag_parts[-1]) or \
+        tag_parts[-1] not in namespace or \
         not isinstance(namespace[tag_parts[-1]], dict):
         namespace[tag_parts[-1]] = value
 
@@ -136,7 +136,7 @@ def format_enums(json_object):
 
     # move enums into the top level enums entry and coalesce annotations into them
     json_object['enums'] = []
-    for name, enum in enums.iteritems():
+    for name, enum in enums.items():
         if name in annotations: # only include enums with annotations
             enum_annotations = annotations[name]
             enum.setdefault('annotations', {}).update(enum_annotations)
@@ -178,8 +178,8 @@ def promote_field_tags_to_class(json_object):
         if object['type'] in ('class', 'struct'):
             fields_to_remove = []
             for field in object.get('fields', []):
-                for annotation_key, annotation_value in field['annotations'].iteritems():
-                    for attribute_name, attribute_value in annotation_value.iteritems():
+                for annotation_key, annotation_value in field['annotations'].items():
+                    for attribute_name, attribute_value in annotation_value.items():
 
                         if attribute_name.lower() == tag.lower():
                             fields_to_remove.append(field)
@@ -212,25 +212,25 @@ def expand_annotations(source_dictionary):
             tag = match.group('tag')
             template_params = match.group('template_params')
         if template_params: # if there are template params, nest them
-            value = { u'params': value, u'template_params': re.split('[\s,]+', template_params) }
+            value = { 'params': value, 'template_params': re.split('[\s,]+', template_params) }
         store_annotation(dest, tag, value)
 
     annotations = {}
-    for annotation_key, annotation_value in source_dictionary['annotations'].iteritems():
-        for attribute_name, attribute_value in annotation_value.iteritems():
+    for annotation_key, annotation_value in source_dictionary['annotations'].items():
+        for attribute_name, attribute_value in annotation_value.items():
             # The tree returned might be collapsible into a list
             # or a string. Check and perform the appropriate adjustment.
             result = build_tree_from_string(attribute_value)
-            if is_simple_string(result):
-                expand_and_store_annotation(annotations, annotation_key, attribute_name, convert_key_to_string(result))
-            elif is_list(result):
-                expand_and_store_annotation(annotations, annotation_key, attribute_name, convert_keys_to_list(result))
-            else:
-                if result is None: # tags with no arguments default to a true value
+            if not isinstance(result, list):
+                if is_simple_string(result):
+                    result = convert_key_to_string(result)
+                elif is_list(result):
+                    result = convert_keys_to_list(result)
+                elif result is None: # tags with no arguments default to a true value
                     result = "true"
-                expand_and_store_annotation(annotations, annotation_key, attribute_name, result)
+            expand_and_store_annotation(annotations, annotation_key, attribute_name, result)
     # update annotations with converted hierarchy
-    source_dictionary[u'annotations'] = annotations
+    source_dictionary['annotations'] = annotations
 
 
 def build_tree_from_string(formatted_data):
@@ -240,8 +240,8 @@ def build_tree_from_string(formatted_data):
                      Token:Arguments...
     Any parameter list that is a string or list of strings gets saved as
     such.
-    This will always return a dictionary, even if given a simple string
-    or a list of strings. The is_simple_string and is_list detection
+    This will return a dictionary (even if given a simple string),
+    unless given a list of strings. The is_simple_string and is_list detection
     functions and convert_key_to_string and convert_keys_to_list functions
     can be used to process the results further if necessary.
     @param formatted_data - A string of data formatted by the
@@ -258,14 +258,16 @@ def build_tree_from_string(formatted_data):
         return None
 
     # This seems to happen when someone adds multiple of the same tag
-    if not isinstance(formatted_data, str) and not isinstance(formatted_data, unicode):
+    if not isinstance(formatted_data, str) and not isinstance(formatted_data, str):
         raise TypeError('Expecting string value, got {} ({})\nDid you add multiple of the same tag to an annotation?'.format(type(formatted_data), formatted_data))
 
-    # remove whitespace
-    formatted_data.strip()
+    # remove external whitespace
+    formatted_data = formatted_data.strip()
     # strip surrounding {}s used in initializer_list<>s
     if formatted_data and formatted_data[0] == '{':
         formatted_data = re.sub(r'^\{(.+)\}$', r'\1', formatted_data)
+        # remove internal whitespace
+        formatted_data = formatted_data.strip()
 
     # The AZCodeGen system can produce empty strings as parameter lists
     # Early detection will speed up execution
@@ -287,15 +289,16 @@ def build_tree_from_string(formatted_data):
         template_params = extract_template_params(formatted_data)
         # Determine if we can flatten the parameter list into a string
         # or a list of strings
-        if is_simple_string(params):
-            params = convert_key_to_string(params)
-        elif is_list(params):
-            params = convert_keys_to_list(params)
+        if not isinstance(params, list):
+            if is_simple_string(params):
+                params = convert_key_to_string(params)
+            elif is_list(params):
+                params = convert_keys_to_list(params)
         
         if template_params:
             result[tag] = {
-                u'params': params ,
-                u'template_params': template_params,
+                'params': params ,
+                'template_params': template_params,
             }
         else:
             result[tag] = params
@@ -309,10 +312,15 @@ def build_tree_from_string(formatted_data):
             tree = build_tree_from_string(arg)
             trees.append(tree)
 
+        # intercept simple lists immediately (this is necessary to prevent duplicate list items from being coalesced
+        # into a dictionary)
+        if all(is_simple_string(tree) for tree in trees):
+            return [convert_key_to_string(tree) for tree in trees]
+
         # pre-format the result dict, if there are multiple values at a key
         # ensure that the result value will be a list
         for tree in trees:
-            for tag, value in tree.iteritems():
+            for tag, value in tree.items():
                 if tag in result and not isinstance(result[tag], list):
                     result[tag] = []
                 elif tag not in result:
@@ -320,7 +328,7 @@ def build_tree_from_string(formatted_data):
 
         # coalesce value trees into the result
         for tree in trees:
-            for tag, value in tree.iteritems():
+            for tag, value in tree.items():
                 if isinstance(result[tag], list):
                     result[tag].append(value)
                 else:
@@ -647,7 +655,7 @@ def is_simple_string(test_dictionary):
             one key/value pair and the value is of type None.
     """
     assert not test_dictionary or isinstance(test_dictionary, OrderedDict)
-    return test_dictionary and len(test_dictionary) == 1 and test_dictionary.values()[0] is None
+    return test_dictionary and len(test_dictionary) == 1 and list(test_dictionary.values())[0] is None
 
 
 def is_list(test_dictionary):
@@ -661,7 +669,7 @@ def is_list(test_dictionary):
     """
     assert not test_dictionary or isinstance(test_dictionary, OrderedDict)
     if test_dictionary and len(test_dictionary) > 1:
-        for value in test_dictionary.values():
+        for value in list(test_dictionary.values()):
             if value is not None:
                 return False
         return True
@@ -677,7 +685,7 @@ def convert_keys_to_list(source_dictionary):
             incoming dictionary.
     """
     result = []
-    for key in source_dictionary.keys():
+    for key in list(source_dictionary.keys()):
         result.append(str(key))
     return result
 
@@ -691,7 +699,7 @@ def convert_key_to_string(source_dictionary):
     @return A string derived from first key found in the
             incoming dictionary
     """
-    return source_dictionary.keys()[0]
+    return list(source_dictionary.keys())[0]
 
 ###############################################################################
 # Legacy CodeGen conversion
@@ -707,17 +715,17 @@ def convert_annotations(object):
     for field in object.get('fields', []):
         annotations = field['annotations']
         field_annotations = {'AzProperty': {}}
-        for annotation_key, annotation_value in annotations.iteritems():
+        for annotation_key, annotation_value in annotations.items():
             # squash the old annotations -> AzProperty
             if annotation_key in ('AzEdit', 'AzEditVirtual', 'AzSerialize'):
                 # promote nested attributes to top level
                 if 'attribute' in annotation_value:
                     attributes = annotation_value['attribute']
-                    for attr, val in attributes.iteritems():
+                    for attr, val in attributes.items():
                         new_attr = 'AzProperty::Attribute::' + attr[0:1].upper() + attr[1:]
                         annotation_value[new_attr] = val
                 # convert to AzProperty attributes
-                for tag_name, tag_value in annotation_value.iteritems():
+                for tag_name, tag_value in annotation_value.items():
                     new_tag_name = tag_name
                     if tag_name in ATTRIBUTES_MAP:
                             new_tag_name = ATTRIBUTES_MAP[tag_name]

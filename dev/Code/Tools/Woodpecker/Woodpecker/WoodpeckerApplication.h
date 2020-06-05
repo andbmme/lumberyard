@@ -16,7 +16,7 @@
 #include <AzCore/base.h>
 #include <AzCore/std/smart_ptr/unique_ptr.h>
 #include <AzCore/UserSettings/UserSettings.h>
-#include <AZCore/Component/ComponentApplication.h>
+#include <AzCore/Component/ComponentApplication.h>
 
 #include <AzFramework/IO/LocalFileIO.h>
 
@@ -35,13 +35,14 @@ namespace Woodpecker
 
     protected:
 
-        virtual void ReflectSerializeDeprecated();
         virtual void RegisterCoreComponents();
         virtual void CreateSystemComponents();
         virtual void CreateApplicationComponents();
         virtual void OnApplicationEntityActivated();
 
     private:
+        AZStd::string GetStoragePath() const;
+        
         bool LaunchDiscoveryService();
 
         // AZ::UserSettingsFileLocatorBus::Handler

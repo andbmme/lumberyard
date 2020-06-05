@@ -76,7 +76,7 @@ namespace AZStd
         //////////////////////////////////////////////////////////////////////////
         // 23.2.4.1 construct/copy/destroy
         /// Construct an empty vector.
-        AZ_FORCE_INLINE explicit vector()
+        AZ_FORCE_INLINE vector()
             : m_start(0)
             , m_last(0)
             , m_end(0)
@@ -118,7 +118,7 @@ namespace AZStd
                 m_last  = m_end;
             }
         }
-        explicit vector(size_type numElements, const_reference value, const allocator_type& allocator)
+        vector(size_type numElements, const_reference value, const allocator_type& allocator)
             : m_start(0)
             , m_last(0)
             , m_end(0)
@@ -155,7 +155,6 @@ namespace AZStd
             // so we need to handle this case.
             construct_iter(first, last, is_integral<InputIterator>());
         }
-#if defined(AZ_HAS_INITIALIZERS_LIST)
         vector(std::initializer_list<T> list, const allocator_type& allocator = allocator_type())
             : m_start(0)
             , m_last(0)
@@ -164,7 +163,6 @@ namespace AZStd
         {
             construct_iter(list.begin(), list.end(), is_integral<std::initializer_list<T> >());
         }
-#endif // #if defined(AZ_HAS_INITIALIZERS_LIST)
 
         vector(const this_type& rhs)
             : m_allocator(rhs.m_allocator)
@@ -183,7 +181,6 @@ namespace AZStd
             m_end   = m_last;
         }
 
-#ifdef AZ_HAS_RVALUE_REFS
         vector(this_type&& rhs)
             : m_start(0)
             , m_last(0)
@@ -336,7 +333,6 @@ namespace AZStd
         {
             assign_rv(AZStd::forward<this_type>(rhs));
         }
-#endif // AZ_HAS_RVALUE_REFS
 
         ~vector()
         {
@@ -820,12 +816,10 @@ namespace AZStd
             insert_impl(insertPos, first, last, is_integral<InputIterator>());
         }
 
-#if defined(AZ_HAS_INITIALIZERS_LIST)
         AZ_FORCE_INLINE void insert(const_iterator insertPos, std::initializer_list<T> ilist)
         {
             insert_impl(insertPos, ilist.begin(), ilist.end(), is_integral<std::initializer_list<T> >());
         }
-#endif // AZ_HAS_INITIALIZERS_LIST
 
         inline iterator erase(const_iterator elementIter)
         {
@@ -886,7 +880,6 @@ namespace AZStd
             else
             {
                 this_type temp(m_allocator);
-#ifdef AZ_HAS_RVALUE_REFS
                 // Different allocators, move elements
                 for (auto& element : * this)
                 {
@@ -902,12 +895,6 @@ namespace AZStd
                 {
                     rhs.emplace_back(AZStd::move(element));
                 }
-#else
-                // Different allocators, use assign.
-                temp = *this;
-                *this = rhs;
-                rhs = temp;
-#endif
             }
         }
 

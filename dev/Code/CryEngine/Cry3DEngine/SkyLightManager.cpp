@@ -39,8 +39,6 @@ CSkyLightManager::CSkyLightManager()
     , m_bFlushFullUpdate(false)
     , m_renderParams()
 {
-    MEMSTAT_CONTEXT(EMemStatContextTypes::MSC_Other, 0, "SkyLightManager");
-
     InitSkyDomeMesh();
 
     m_updateRequested[0] = m_updateRequested[1] = 0;
@@ -315,7 +313,7 @@ void CSkyLightManager::InitSkyDomeMesh()
 {
     ReleaseSkyDomeMesh();
 
-#if MOBILE
+#if defined(MOBILE)
     const uint32 c_numRings(10);
     const uint32 c_numSections(10);
 #else

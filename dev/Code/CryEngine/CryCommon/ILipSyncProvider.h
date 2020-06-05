@@ -17,8 +17,7 @@
 #pragma once
 
 #include <IAudioInterfacesCommonData.h>
-#include "BoostHelpers.h"
-typedef uint32 tSoundID;
+#include "SmartPointersHelpers.h"
 
 enum ELipSyncMethod
 {
@@ -26,7 +25,7 @@ enum ELipSyncMethod
     eLSM_MatchAnimationToSoundName,
 };
 
-using IComponentAudioPtr = std::shared_ptr<struct IComponentAudio>;
+using IComponentAudioPtr = AZStd::shared_ptr<struct IComponentAudio>;
 
 struct ILipSyncProvider
 {

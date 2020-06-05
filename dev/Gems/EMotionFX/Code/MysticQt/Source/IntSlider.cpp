@@ -13,6 +13,7 @@
 // include the required headers
 #include "IntSlider.h"
 #include <QtWidgets/QHBoxLayout>
+#include <AzCore/Casting/numeric_cast.h>
 
 
 namespace MysticQt
@@ -33,11 +34,11 @@ namespace MysticQt
         mSpinBox = new IntSpinBox();
 
         // connect signals and slots
-        connect(mSpinBox,  SIGNAL(valueChanged(int)),                  this,   SLOT(OnSpinBoxChanged(int)));
-        connect(mSpinBox,  SIGNAL(ValueChangedMouseReleased(int)),     this,   SLOT(OnSpinBoxEditingFinished(int)));
-        connect(mSpinBox,  SIGNAL(ValueChangedByTextFinished(int)),    this,   SLOT(OnSpinBoxEditingFinished(int)));
-        connect(mSlider,   SIGNAL(valueChanged(int)),                  this,   SLOT(OnSliderChanged(int)));
-        connect(mSlider,   SIGNAL(sliderReleased()),                   this,   SLOT(OnSliderReleased()));
+        connect(mSpinBox,  static_cast<void (MysticQt::IntSpinBox::*)(int)>(&MysticQt::IntSpinBox::valueChanged),                  this,   &MysticQt::IntSlider::OnSpinBoxChanged);
+        connect(mSpinBox,  &MysticQt::IntSpinBox::ValueChangedMouseReleased,     this,   &MysticQt::IntSlider::OnSpinBoxEditingFinished);
+        connect(mSpinBox,  &MysticQt::IntSpinBox::ValueChangedByTextFinished,    this,   &MysticQt::IntSlider::OnSpinBoxEditingFinished);
+        connect(mSlider,   &MysticQt::Slider::valueChanged,                  this,   &MysticQt::IntSlider::OnSliderChanged);
+        connect(mSlider,   &MysticQt::Slider::sliderReleased,                   this,   &MysticQt::IntSlider::OnSliderReleased);
 
         hLayout->addWidget(mSlider);
         hLayout->addWidget(mSpinBox);
@@ -144,11 +145,11 @@ namespace MysticQt
         mSpinBox = new DoubleSpinBox();
 
         // connect signals and slots
-        connect(mSpinBox,  SIGNAL(valueChanged(double)),               this,   SLOT(OnSpinBoxChanged(double)));
-        connect(mSpinBox,  SIGNAL(ValueChangedMouseReleased(double)),  this,   SLOT(OnSpinBoxEditingFinished(double)));
-        connect(mSpinBox,  SIGNAL(ValueChangedByTextFinished(double)), this,   SLOT(OnSpinBoxEditingFinished(double)));
-        connect(mSlider,   SIGNAL(valueChanged(int)),                  this,   SLOT(OnSliderChanged(int)));
-        connect(mSlider,   SIGNAL(sliderReleased()),                   this,   SLOT(OnSliderReleased()));
+        connect(mSpinBox,  static_cast<void (MysticQt::DoubleSpinBox::*)(double)>(&MysticQt::DoubleSpinBox::valueChanged),               this,   &MysticQt::FloatSlider::OnSpinBoxChanged);
+        connect(mSpinBox,  &MysticQt::DoubleSpinBox::ValueChangedMouseReleased,  this,   &MysticQt::FloatSlider::OnSpinBoxEditingFinished);
+        connect(mSpinBox,  &MysticQt::DoubleSpinBox::ValueChangedByTextFinished, this,   &MysticQt::FloatSlider::OnSpinBoxEditingFinished);
+        connect(mSlider,   &MysticQt::Slider::valueChanged,                  this,   &MysticQt::FloatSlider::OnSliderChanged);
+        connect(mSlider,   &MysticQt::Slider::sliderReleased,                   this,   &MysticQt::FloatSlider::OnSliderReleased);
 
         hLayout->addWidget(mSlider);
         hLayout->addWidget(mSpinBox);
@@ -189,8 +190,8 @@ namespace MysticQt
         mSpinBox->setValue(value);
 
         // remap range and set the value
-        const float minInput = mSpinBox->minimum();
-        const float maxInput = mSpinBox->maximum();
+        const float minInput = aznumeric_cast<float>(mSpinBox->minimum());
+        const float maxInput = aznumeric_cast<float>(mSpinBox->maximum());
         const float minOutput = 0;
         const float maxOutput = 1000;
         const float result = ((value - minInput) / (maxInput - minInput)) * (maxOutput - minOutput) + minOutput;
@@ -210,8 +211,8 @@ namespace MysticQt
         mSlider->blockSignals(true);
 
         // remap range and set the value
-        const float min = mSpinBox->minimum();
-        const float max = mSpinBox->maximum();
+        const float min = aznumeric_cast<float>(mSpinBox->minimum());
+        const float max = aznumeric_cast<float>(mSpinBox->maximum());
         const float result = min + (max - min) * value;
         mSpinBox->setValue(result);
 
@@ -226,8 +227,8 @@ namespace MysticQt
     // gets called when the spinbox value changes
     void FloatSlider::OnSpinBoxChanged(double value)
     {
-        SetValue(value);
-        emit ValueChanged(value);
+        SetValue(aznumeric_cast<float>(value));
+        emit ValueChanged(aznumeric_cast<float>(value));
         emit ValueChanged();
     }
 
@@ -235,7 +236,7 @@ namespace MysticQt
     // gets called when the spinbox finished to edit the value
     void FloatSlider::OnSpinBoxEditingFinished(double value)
     {
-        emit FinishedValueChange(value);
+        emit FinishedValueChange(aznumeric_cast<float>(value));
     }
 
 
@@ -244,7 +245,7 @@ namespace MysticQt
     {
         const float normalizedValue = (float)value / 1000.0f;
         SetNormalizedValue(normalizedValue);
-        emit ValueChanged(mSpinBox->value());
+        emit ValueChanged(aznumeric_cast<float>(mSpinBox->value()));
         emit ValueChanged();
     }
 
@@ -252,7 +253,7 @@ namespace MysticQt
     // gets called when the slider was moved and then the mouse button got released
     void FloatSlider::OnSliderReleased()
     {
-        emit FinishedValueChange(mSpinBox->value());
+        emit FinishedValueChange(aznumeric_cast<float>(mSpinBox->value()));
     }
 
 

@@ -19,8 +19,19 @@
 #include "../Common/Textures/TextureManager.h"
 #include "GraphicsPipeline/FurPasses.h"
 
+#include <AzCore/NativeUI/NativeUIRequests.h>
+
 #pragma warning(disable: 4244)
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DDeferredRender_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DDeferredRender_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DDeferredRender_cpp_salem.inl"
+    #endif
+#endif
 
 
 bool CD3D9Renderer::FX_DeferredShadowPassSetupBlend(const Matrix44& mShadowTexGen, int nFrustumNum, float maskRTWidth, float maskRTHeight)
@@ -30,11 +41,11 @@ bool CD3D9Renderer::FX_DeferredShadowPassSetupBlend(const Matrix44& mShadowTexGe
     CShadowUtils::ProjectScreenToWorldExpansionBasis(mShadowTexGen, GetCamera(), Vec2(m_TemporalJitterClipSpace.x, m_TemporalJitterClipSpace.y), maskRTWidth, maskRTHeight, vWBasisX, vWBasisY, vWBasisZ, vCamPos, true, &m_RenderTileInfo);
 
     Matrix44A* mat = &gRenDev->m_TempMatrices[nFrustumNum][2];
-    mat->SetRow4(0, vWBasisX);
-    mat->SetRow4(1, vWBasisY);
-    mat->SetRow4(2, vWBasisZ);
-    mat->SetRow4(3, vCamPos);
-
+    mat->SetRow4(0, Vec4r(vWBasisX.x, vWBasisY.x, vWBasisZ.x, vCamPos.x));
+    mat->SetRow4(1, Vec4r(vWBasisX.y, vWBasisY.y, vWBasisZ.y, vCamPos.y));
+    mat->SetRow4(2, Vec4r(vWBasisX.z, vWBasisY.z, vWBasisZ.z, vCamPos.z));
+    mat->SetRow4(3, Vec4r(vWBasisX.w, vWBasisY.w, vWBasisZ.w, vCamPos.w));
+    
     return true;
 }
 
@@ -216,11 +227,6 @@ void CD3D9Renderer::FX_DeferredShadowPass(const SRenderLight* pLight, ShadowMapF
         {
             return;
         }
-
-        if (pShadowFrustum->pCastersList == NULL)
-        {
-            return;
-        }
     }
 
     if (pShadowFrustum->m_eFrustumType == ShadowMapFrustum::e_HeightMapAO)
@@ -336,7 +342,6 @@ void CD3D9Renderer::FX_DeferredShadowPass(const SRenderLight* pLight, ShadowMapF
             vCamPosShadowSpace /= vCamPosShadowSpace.w;                
             if (abs(vCamPosShadowSpace.x) > 1.0f || abs(vCamPosShadowSpace.y) > 1.0f || vCamPosShadowSpace.z < 0 || vCamPosShadowSpace.z > 1)
             {
-			
                 pShader->FXBeginPass(DS_STENCIL_VOLUME_CLIP);
                 if (!FAILED(FX_SetVertexDeclaration(0, eVF_P3F_C4B_T2F)))
                 {
@@ -365,8 +370,9 @@ void CD3D9Renderer::FX_DeferredShadowPass(const SRenderLight* pLight, ShadowMapF
     if (bShadowPass)
     {
         newState &= ~(GS_COLMASK_NONE | GS_STENCIL);
-
-        if (gcpRendD3D->FX_GetEnabledGmemPath(nullptr)) // A component write mask of GMEM light diffuse RT
+       
+        // When optimizations are on, we need only the R channel.
+        if (gcpRendD3D->FX_GetEnabledGmemPath(nullptr) && (CRenderer::CV_r_DeferredShadingLBuffersFmt != 2)) // A component write mask of GMEM light diffuse RT
         {
             newState |= GS_NOCOLMASK_R | GS_NOCOLMASK_G | GS_NOCOLMASK_B;
         }
@@ -755,7 +761,7 @@ void CD3D9Renderer::FX_StencilCullPass(int nStencilID, int nNumVers, int nNumInd
     //the correct input layout of the correct pass
     if (FAILED(FX_SetVertexDeclaration(0, eVF_P3F_C4B_T2F)))
     {
-        AZ_Assert(false, "Skipping the draw inside FX_StencilCullPass as the vertex declaration for shader %s pass %i failed", pShader->m_NameShader.c_str(), backFacePass);
+        //AZ_Assert(false, "Skipping the draw inside FX_StencilCullPass as the vertex declaration for shader %s pass %i failed", pShader->m_NameShader.c_str(), backFacePass);
         pShader->FXEndPass();
         return;
     }
@@ -942,8 +948,8 @@ void CD3D9Renderer::FX_StencilCullNonConvex(int nStencilID, IRenderMesh* pWaterT
     CRenderMesh* pRenderMesh = static_cast<CRenderMesh*>(pWaterTightMesh);
     pRenderMesh->CheckUpdate(0);
 
-    const buffer_handle_t hVertexStream = pRenderMesh->_GetVBStream(VSF_GENERAL);
-    const buffer_handle_t hIndexStream = pRenderMesh->_GetIBStream();
+    const buffer_handle_t hVertexStream = pRenderMesh->GetVBStream(VSF_GENERAL);
+    const buffer_handle_t hIndexStream = pRenderMesh->GetIBStream();
 
     if (hVertexStream != ~0u && hIndexStream != ~0u)
     {
@@ -956,7 +962,7 @@ void CD3D9Renderer::FX_StencilCullNonConvex(int nStencilID, IRenderMesh* pWaterT
         FX_SetVStream(0, pVB, nOffsV, pRenderMesh->GetStreamStride(VSF_GENERAL));
         FX_SetIStream(pIB, nOffsI, (sizeof(vtx_idx) == 2 ? Index16 : Index32));
 
-        if (!FAILED(FX_SetVertexDeclaration(0, pRenderMesh->_GetVertexFormat())))
+        const bool gmemLinearizeEnabled = FX_GetEnabledGmemPath(nullptr) && FX_GmemGetDepthStencilMode() == eGDSM_RenderTarget;
         {
             ECull nPrevCullMode = m_RP.m_eCull;
             int nPrevState = m_RP.m_CurState;
@@ -967,7 +973,7 @@ void CD3D9Renderer::FX_StencilCullNonConvex(int nStencilID, IRenderMesh* pWaterT
             uint8_t u8StencilID = nStencilID;
             uint8_t u8InvStencilID = ~nStencilID;
 
-            if (gcpRendD3D->FX_GetEnabledGmemPath(nullptr))
+            if (gmemLinearizeEnabled)
             {
                 // This pass affects the stencil on depth fail.
                 // Since in GMEM we do our own stencil operations ourselves as to avoid
@@ -991,7 +997,7 @@ void CD3D9Renderer::FX_StencilCullNonConvex(int nStencilID, IRenderMesh* pWaterT
             pShader->FXSetTechnique(TechName0);
             pShader->FXBegin(&nPasses, FEF_DONTSETSTATES);
 
-            if (gcpRendD3D->FX_GetEnabledGmemPath(nullptr))
+            if (gmemLinearizeEnabled)
             {
                 pShader->FXBeginPass(CD3D9Renderer::DS_GMEM_STENCIL_CULL_NON_CONVEX);
             }
@@ -999,11 +1005,12 @@ void CD3D9Renderer::FX_StencilCullNonConvex(int nStencilID, IRenderMesh* pWaterT
             {
                 pShader->FXBeginPass(CD3D9Renderer::DS_SHADOW_CULL_PASS);
             }
-
-            // Mark all pixels that might be inside volume first (z-fail on back-faces)
+            
+            if (!FAILED(FX_SetVertexDeclaration(0, pRenderMesh->_GetVertexFormat())))
             {
+                // Mark all pixels that might be inside volume first (z-fail on back-faces)
                 D3DSetCull(eCULL_Front);
-                if (gcpRendD3D->FX_GetEnabledGmemPath(nullptr))
+                if (gmemLinearizeEnabled)
                 {
                     static CCryNameR pParamName0("StencilRef");
                     Vec4 StencilRefParam(0.f);
@@ -1022,13 +1029,13 @@ void CD3D9Renderer::FX_StencilCullNonConvex(int nStencilID, IRenderMesh* pWaterT
                 }
                 FX_SetState(newState);
                 FX_Commit();
-                FX_DrawIndexedPrimitive(eptTriangleList, 0, 0, pRenderMesh->_GetNumVerts(), 0, pRenderMesh->_GetNumInds());
+                FX_DrawIndexedPrimitive(eptTriangleList, 0, 0, pRenderMesh->GetNumVerts(), 0, pRenderMesh->GetNumInds());
             }
 
             // Flip bits for each face
             {
                 D3DSetCull(eCULL_None);
-                if (gcpRendD3D->FX_GetEnabledGmemPath(nullptr))
+                if (gmemLinearizeEnabled)
                 {
                     static CCryNameR pParamName0("StencilRef");
                     Vec4 StencilRefParam(0.f);
@@ -1045,12 +1052,12 @@ void CD3D9Renderer::FX_StencilCullNonConvex(int nStencilID, IRenderMesh* pWaterT
                         STENCOP_PASS(FSS_STENCOP_KEEP),
                         ~nStencilID, 0xFFFFFFFF, 0xFFFFFFFF);
                 }
-                FX_DrawIndexedPrimitive(eptTriangleList, 0, 0, pRenderMesh->_GetNumVerts(), 0, pRenderMesh->_GetNumInds());
+                FX_DrawIndexedPrimitive(eptTriangleList, 0, 0, pRenderMesh->GetNumVerts(), 0, pRenderMesh->GetNumInds());
             }
             pShader->FXEndPass();
 
             // If there's no stencil texture support we "resolve" the vis area directly to the texture.
-            if (!gcpRendD3D->FX_GetEnabledGmemPath(nullptr) && !RenderCapabilities::SupportsStencilTextures())
+            if (!gmemLinearizeEnabled && !RenderCapabilities::SupportsStencilTextures())
             {
                 pShader->FXBeginPass(CD3D9Renderer::DS_STENCIL_CULL_NON_CONVEX_RESOLVE);
 
@@ -1087,7 +1094,7 @@ void CD3D9Renderer::FX_StencilCullNonConvex(int nStencilID, IRenderMesh* pWaterT
                         ~nStencilID, 0xFFFFFFFF, 0xFFFFFFFF);
                 }
 
-                FX_DrawIndexedPrimitive(eptTriangleList, 0, 0, pRenderMesh->_GetNumVerts(), 0, pRenderMesh->_GetNumInds());
+                FX_DrawIndexedPrimitive(eptTriangleList, 0, 0, pRenderMesh->GetNumVerts(), 0, pRenderMesh->GetNumInds());
                 pShader->FXEndPass();
             }
 
@@ -1381,7 +1388,7 @@ void CD3D9Renderer::FX_DeferredShadowMaskGen(const TArray<uint32>& shadowPoolLig
                         TS.SetComparisonFilter(true);
 
                         CTexture* pShadowMap = firstFrustum.bUseShadowsPool ? CTexture::s_ptexRT_ShadowPool : firstFrustum.pDepthTex;
-                        pShadowMap->Apply(1, CTexture::GetTexState(TS));
+                        pShadowMap->Apply(1, CTexture::GetTexState(TS), EFTT_UNKNOWN, 6);
 
                         SD3DPostEffectsUtils::SetTexture(CTextureManager::Instance()->GetDefaultTexture("ShadowJitterMap"), 7, FILTER_POINT, 0);
 
@@ -1559,9 +1566,30 @@ bool CD3D9Renderer::FX_DeferredShadows(SRenderLight* pLight, int maskRTWidth, in
     CShader* pSH(CShaderMan::s_ShaderShadowMaskGen);
     uint32 nPasses = 0;
     static CCryNameR TechName("DeferredShadowPass");
+    
+    if (CRenderer::CV_r_DeferredShadingLBuffersFmt == 2)
+    {
+        m_RP.m_FlagsShader_RT |= g_HWSR_MaskBit[HWSR_DEFERRED_RENDER_TARGET_OPTIMIZATION];
+    }
 
     static ICVar* pCascadesDebugVar = iConsole->GetCVar("e_ShadowsCascadesDebug");
-    const bool bDebugShadowCascades = pCascadesDebugVar && pCascadesDebugVar->GetIVal() > 0;
+    bool bDebugShadowCascades = pCascadesDebugVar && pCascadesDebugVar->GetIVal() > 0;
+
+    // We don't currently support debug cascade shadow overlay with GMEM enabled
+    if (bDebugShadowCascades && gcpRendD3D->FX_GetEnabledGmemPath(nullptr))
+    {
+        const AZStd::string title = "Debug cascade shadow overlay";
+        const AZStd::string message = AZStd::string::format("e_ShadowsCascadesDebug can not be enabled while r_EnableGMEMPath is enabled. Disable r_EnableGMEMPath to view debug shadow cascades.");
+        AZ_Warning("Renderer", false, "ERROR: %s\n", message.c_str());
+        if (!gEnv->IsInToolMode())
+        {
+            AZStd::vector<AZStd::string> options;
+            options.push_back("OK");
+            AZ::NativeUI::NativeUIRequestBus::Broadcast(&AZ::NativeUI::NativeUIRequestBus::Events::DisplayBlockingDialog, title, message, options);
+        }
+        pCascadesDebugVar->Set(0);
+        bDebugShadowCascades = false;
+    }
 
     const bool bCascadeBlending = CV_r_ShadowsStencilPrePass == 1 && nCasterCount > 0 && arrFrustums[nStartIdx].bBlendFrustum && !bDebugShadowCascades;
     if (bCascadeBlending)

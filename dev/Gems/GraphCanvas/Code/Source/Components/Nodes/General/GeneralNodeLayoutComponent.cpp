@@ -20,6 +20,7 @@
 #include <Components/Nodes/General/GeneralNodeLayoutComponent.h>
 
 #include <Components/Nodes/NodeComponent.h>
+#include <Components/Nodes/NodeLayerControllerComponent.h>
 #include <Components/Nodes/General/GeneralNodeFrameComponent.h>
 #include <Components/Nodes/General/GeneralSlotLayoutComponent.h>
 #include <Components/Nodes/General/GeneralNodeTitleComponent.h>
@@ -27,7 +28,7 @@
 #include <GraphCanvas/Components/GeometryBus.h>
 #include <GraphCanvas/Components/Slots/SlotBus.h>
 #include <GraphCanvas/tools.h>
-#include <Styling/StyleHelper.h>
+#include <GraphCanvas/Styling/StyleHelper.h>
 
 namespace GraphCanvas
 {
@@ -40,22 +41,23 @@ namespace GraphCanvas
         AZ::SerializeContext* serializeContext = azrtti_cast<AZ::SerializeContext*>(context);
         if (serializeContext)
         {
-            serializeContext->Class<GeneralNodeLayoutComponent>()
+            serializeContext->Class<GeneralNodeLayoutComponent, NodeLayoutComponent>()
                 ->Version(1)
                 ;
         }
     }
 
-    AZ::Entity* GeneralNodeLayoutComponent::CreateGeneralNodeEntity(const char* nodeType)
+    AZ::Entity* GeneralNodeLayoutComponent::CreateGeneralNodeEntity(const char* nodeType, const NodeConfiguration& configuration)
     {
         // Create this Node's entity.
-        AZ::Entity* entity = NodeComponent::CreateCoreNodeEntity();
+        AZ::Entity* entity = NodeComponent::CreateCoreNodeEntity(configuration);
 
         entity->CreateComponent<GeneralNodeFrameComponent>();
-        entity->CreateComponent<StylingComponent>(Styling::Elements::Node, AZ::EntityId(), nodeType);
+        entity->CreateComponent<StylingComponent>(Styling::Elements::Node, AZ::EntityId(), nodeType);        
         entity->CreateComponent<GeneralNodeLayoutComponent>();
         entity->CreateComponent<GeneralNodeTitleComponent>();
         entity->CreateComponent<GeneralSlotLayoutComponent>();
+        entity->CreateComponent<NodeLayerControllerComponent>();
 
         return entity;
     }

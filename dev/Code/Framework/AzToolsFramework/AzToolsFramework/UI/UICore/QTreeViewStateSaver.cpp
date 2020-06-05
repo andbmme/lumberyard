@@ -25,12 +25,14 @@ namespace AzToolsFramework
 {
     class QTreeViewStateSaverData
         : public AZ::UserSettings
+        , public TreeViewState
     {
     public:
         AZ_RTTI(QTreeViewStateSaverData, "{CA0FBE7A-232C-4595-9824-F4B5C50FA7B4}", AZ::UserSettings);
         AZ_CLASS_ALLOCATOR(QTreeViewStateSaverData, AZ::SystemAllocator, 0);
 
         AZStd::vector<AZStd::string> m_expandedElements;
+        AZStd::vector<AZStd::string> m_collapsedElements;
         AZStd::vector<AZStd::string> m_selectedElements;
         AZStd::string m_currentElement;
         int m_horizScrollLast;
@@ -53,9 +55,10 @@ namespace AzToolsFramework
             AZ::SerializeContext* serialize = azrtti_cast<AZ::SerializeContext*>(context);
             if (serialize)
             {
-                serialize->Class<QTreeViewStateSaverData, AZ::UserSettings>()
-                    ->Version(1)
+                serialize->Class<QTreeViewStateSaverData>()
+                    ->Version(2)
                     ->Field("m_expandedElements", &QTreeViewStateSaverData::m_expandedElements)
+                    ->Field("m_collapsedElements", &QTreeViewStateSaverData::m_collapsedElements)
                     ->Field("m_selectedElements", &QTreeViewStateSaverData::m_selectedElements)
                     ->Field("m_currentElement", &QTreeViewStateSaverData::m_currentElement)
                     ->Field("m_horizScrollLast", &QTreeViewStateSaverData::m_horizScrollLast)
@@ -63,7 +66,16 @@ namespace AzToolsFramework
             }
         }
 
-        void RecurseCaptureSnapshot(const QModelIndex& idxParent, AZStd::string pathSoFar, QTreeView* treeView)
+        static bool IsExpandedByDefault(QTreeView* treeView, const QModelIndex& index)
+        {
+            if (QTreeViewWithStateSaving* stateSaverTreeView = qobject_cast<QTreeViewWithStateSaving*>(treeView))
+            {
+                return stateSaverTreeView->IsIndexExpandedByDefault(index);
+            }
+            return false;
+        }
+
+        void RecurseCaptureSnapshot(const QModelIndex& idxParent, const AZStd::string& pathSoFar, QTreeView* treeView)
         {
             int elements = treeView->model()->rowCount(idxParent);
             for (int idx = 0; idx < elements; ++idx)
@@ -78,9 +90,19 @@ namespace AzToolsFramework
                         actualPath = pathSoFar + "/" + displayString;
                     }
 
-                    if (treeView->isExpanded(rowIdx))
+                    // Capture the delta from our default state (expanded indices if we start collapsed, or collapsed indices if we start expanded)
+                    const bool expanded = treeView->isExpanded(rowIdx);
+                    const bool defaultExpansionState = IsExpandedByDefault(treeView, rowIdx);
+                    if (expanded != defaultExpansionState)
                     {
-                        m_expandedElements.push_back(actualPath);
+                        if (expanded)
+                        {
+                            m_expandedElements.push_back(actualPath);
+                        }
+                        else
+                        {
+                            m_collapsedElements.push_back(actualPath);
+                        }
                     }
 
                     if (treeView->selectionModel() && treeView->selectionModel()->isSelected(rowIdx))
@@ -93,7 +115,7 @@ namespace AzToolsFramework
             }
         }
 
-        void CaptureSnapshot(QTreeView* treeView)
+        void CaptureSnapshot(QTreeView* treeView) override
         {
             Q_ASSERT(treeView && treeView->model());
 
@@ -103,25 +125,26 @@ namespace AzToolsFramework
 
             _q_CurrentChanged(treeView->currentIndex(), QModelIndex());
 
-            QScrollBar* pScroll = treeView->verticalScrollBar();
-            if (pScroll)
-            {
-                m_vertScrollLast = pScroll->value();
-            }
-            else
-            {
-                m_vertScrollLast = 0;
-            }
+            //This code crashes when closing MaterialEditor and when closing ShaderCanvas
+            //QScrollBar* pScroll = treeView->verticalScrollBar();
+            //if (pScroll)
+            //{
+            //    m_vertScrollLast = pScroll->value();
+            //}
+            //else
+            //{
+            //    m_vertScrollLast = 0;
+            //}
 
-            pScroll = treeView->horizontalScrollBar();
-            if (pScroll)
-            {
-                m_horizScrollLast = pScroll->value();
-            }
-            else
-            {
-                m_horizScrollLast = 0;
-            }
+            //pScroll = treeView->horizontalScrollBar();
+            //if (pScroll)
+            //{
+            //    m_horizScrollLast = pScroll->value();
+            //}
+            //else
+            //{
+            //    m_horizScrollLast = 0;
+            //}
         }
 
         static void ExpandRow(QTreeView* treeView, const QModelIndex& rowIdx)
@@ -148,7 +171,7 @@ namespace AzToolsFramework
             }
         }
 
-        void ApplyRowOperation(QTreeView* treeView, const QModelIndex& idxParent, AZStd::string pathSoFar,
+        void ApplyRowOperation(QTreeView* treeView, const QModelIndex& idxParent, const AZStd::string& pathSoFar,
             const AZStd::function<void(QTreeView* treeView, const QModelIndex&)>& rowOperation)
         {
             AZStd::size_t pos = pathSoFar.find_first_of('/');
@@ -174,19 +197,38 @@ namespace AzToolsFramework
             }
         }
 
+        void ApplyDefaultExpansion(const QModelIndex& idxParent, const AZStd::string& pathSoFar, QTreeView* treeView)
+        {
+            for (int i = 0, rowCount = treeView->model()->rowCount(idxParent); i < rowCount; ++i)
+            {
+                QModelIndex index = treeView->model()->index(i, 0, idxParent);
+                AZStd::string displayString = index.data(Qt::DisplayRole).toString().toUtf8().data();
+                AZStd::string path = pathSoFar.empty() ? displayString : pathSoFar + "/" + displayString;
+
+                // If we're explicitly expanded, or we're expanded by default and not explicitly collapsed, expand
+                if (AZStd::find(m_expandedElements.begin(), m_expandedElements.end(), path) != m_expandedElements.end()
+                    || (IsExpandedByDefault(treeView, index) && AZStd::find(m_collapsedElements.begin(), m_collapsedElements.end(), path) == m_collapsedElements.end()))
+                {
+                    treeView->expand(index);
+                }
+
+                // Recurse down and apply expansion to the index, even if it's not expanded itself
+                // We may have children that were expanded then hidden when we were collapsed
+                // We want them to still be expanded when their parent is expanded
+                ApplyDefaultExpansion(index, path, treeView);
+            }
+        }
+
         void ApplySnapshot(QTreeView* treeView)
         {
             Q_ASSERT(treeView && treeView->model());
 
             m_bApplyingState = true;
 
-            // Reset the view to the 'default'/fully negative state then we can apply our positive transforms.
+            // Reset the view to the 'default' state determined by IsIndexExpandedByDefault in the tree (default false)
             treeView->collapseAll();
+            ApplyDefaultExpansion(QModelIndex(), {}, treeView);
             treeView->clearSelection();
-            for (auto& expanded : m_expandedElements)
-            {
-                ApplyRowOperation(treeView, QModelIndex(), expanded, &QTreeViewStateSaverData::ExpandRow);
-            }
 
             for (auto& selected : m_selectedElements)
             {
@@ -315,6 +357,11 @@ namespace AzToolsFramework
 
             QString id = GenerateIdentifier(modelIndex);
             m_expandedElements.push_back(id.toUtf8().data());
+            auto itToDelete = AZStd::find(m_collapsedElements.begin(), m_collapsedElements.end(), id.toUtf8().data());
+            if (itToDelete != m_collapsedElements.end())
+            {
+                m_collapsedElements.erase(itToDelete);
+            }
         }
 
         void _q_RowCollapsed(const QModelIndex& modelIndex)
@@ -325,6 +372,7 @@ namespace AzToolsFramework
             }
 
             QString id = GenerateIdentifier(modelIndex);
+            m_collapsedElements.push_back(id.toUtf8().data());
             auto itToDelete = AZStd::find(m_expandedElements.begin(), m_expandedElements.end(), id.toUtf8().data());
             if (itToDelete != m_expandedElements.end())
             {
@@ -332,6 +380,11 @@ namespace AzToolsFramework
             }
         }
     };
+
+    AZStd::unique_ptr<TreeViewState> TreeViewState::CreateTreeViewState()
+    {
+        return AZStd::make_unique<QTreeViewStateSaverData>();
+    }
 
     QTreeViewStateSaver::QTreeViewStateSaver(AZ::u32 storageID, QObject* pParent)
         : QObject(pParent)
@@ -531,10 +584,9 @@ namespace AzToolsFramework
         }
     }
 
-
     void QTreeViewStateSaver::Reflect(AZ::ReflectContext* context)
     {
-        QTreeViewStateSaverData::Reflect(context);
+        QTreeViewWithStateSaving::Reflect(context);
     }
 
     void QTreeViewStateSaver::VerticalScrollChanged(int newValue)
@@ -587,12 +639,14 @@ namespace AzToolsFramework
         {
             // called because Qt doesn't emit a signal on expandAll
             m_treeStateSaver->CaptureSnapshot();
+
+            delete m_treeStateSaver;
         }
     }
 
     void QTreeViewWithStateSaving::InitializeTreeViewSaving(AZ::u32 storageID)
     {
-        SetupSaver(new QTreeViewStateSaver(storageID, this));
+        SetupSaver(new QTreeViewStateSaver(storageID));
     }
 
     void QTreeViewWithStateSaving::setModel(QAbstractItemModel* newModel)
@@ -617,9 +671,19 @@ namespace AzToolsFramework
         }
     }
 
+    void QTreeViewWithStateSaving::Reflect(AZ::ReflectContext* context)
+    {
+        QTreeViewStateSaverData::Reflect(context);
+    }
+
     void QTreeViewWithStateSaving::SetupSaver(QTreeViewStateSaver* stateSaver)
     {
         Q_ASSERT(!m_treeStateSaver); // can't call InitializeSaving twice!
+        if (m_treeStateSaver)
+        {
+            m_treeStateSaver->Detach();
+            delete m_treeStateSaver;
+        }
 
         m_treeStateSaver = stateSaver;
         m_treeStateSaver->Attach(this, model(), selectionModel());
@@ -627,9 +691,11 @@ namespace AzToolsFramework
 
     void QTreeViewWithStateSaving::CaptureTreeViewSnapshot() const
     {
-        Q_ASSERT(m_treeStateSaver);
-
-        m_treeStateSaver->CaptureSnapshot();
+        // doing a null check here because it can be called before SetupSaver() 
+        if (m_treeStateSaver)
+        {
+            m_treeStateSaver->CaptureSnapshot();
+        }
     }
 
     void QTreeViewWithStateSaving::ApplyTreeViewSnapshot() const
@@ -665,6 +731,12 @@ namespace AzToolsFramework
         Q_ASSERT(m_treeStateSaver);
 
         m_treeStateSaver->Attach(this, model(), selectionModel());
+    }
+
+    bool QTreeViewWithStateSaving::IsIndexExpandedByDefault(const QModelIndex& index) const
+    {
+        Q_UNUSED(index)
+        return false;
     }
 }
 

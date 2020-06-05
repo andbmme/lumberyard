@@ -19,7 +19,6 @@
 #include "StatObj.h"
 #include "ObjMan.h"
 #include "VisAreas.h"
-#include "terrain_sector.h"
 #include "3dEngine.h"
 #include "TimeOfDay.h"
 
@@ -28,7 +27,7 @@ PodArray<Vec3> CVisArea::s_tmpLstPortVertsClipped;
 PodArray<Vec3> CVisArea::s_tmpLstPortVertsSS;
 PodArray<Vec3> CVisArea::s_tmpPolygonA;
 PodArray<IRenderNode*>  CVisArea::s_tmpLstLights;
-PodArray<CTerrainNode*> CVisArea::s_tmpLstTerrainNodeResult;
+
 CPolygonClipContext CVisArea::s_tmpClipContext;
 PodArray<CCamera> CVisArea::s_tmpCameras;
 int CVisArea::s_nGetDistanceThruVisAreasCallCounter = 0;
@@ -89,7 +88,6 @@ void CVisArea::StaticReset()
     stl::free_container(s_tmpLstPortVertsSS);
     stl::free_container(s_tmpPolygonA);
     stl::free_container(s_tmpLstLights);
-    stl::free_container(s_tmpLstTerrainNodeResult);
     stl::free_container(s_tmpCameras);
     s_tmpClipContext.Reset();
 }
@@ -1021,32 +1019,6 @@ void CVisArea::GetMemoryUsage(ICrySizer* pSizer)
     //    nSize += m_lstEntities[nStatic][i].pNode->GetMemoryUsage();
 
     pSizer->AddObject(this, sizeof(*this));
-}
-
-void CVisArea::UpdateOcclusionFlagInTerrain()
-{
-    if (m_bAffectedByOutLights && !m_bThisIsPortal)
-    {
-        Vec3 vCenter = GetAABBox()->GetCenter();
-        if (vCenter.z < GetTerrain()->GetBilinearZ(vCenter.x, vCenter.y))
-        {
-            AABB box = *GetAABBox();
-            box.min.z = 0;
-            box.min -= Vec3(8, 8, 8);
-            box.max.z = 16000;
-            box.max += Vec3(8, 8, 8);
-            PodArray<CTerrainNode*>& lstResult = s_tmpLstTerrainNodeResult;
-            lstResult.Clear();
-            GetTerrain()->IntersectWithBox(box, &lstResult);
-            for (int i = 0; i < lstResult.Count(); i++)
-            {
-                if (lstResult[i]->m_nTreeLevel <= 2)
-                {
-                    lstResult[i]->m_bNoOcclusion = true;
-                }
-            }
-        }
-    }
 }
 
 void CVisArea::AddConnectedAreas(PodArray<CVisArea*>& lstAreas, int nMaxRecursion)

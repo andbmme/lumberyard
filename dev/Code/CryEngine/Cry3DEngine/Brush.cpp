@@ -16,12 +16,10 @@
 #include "StatObj.h"
 #include "ObjMan.h"
 #include "VisAreas.h"
-#include "terrain_sector.h"
 #include "CullBuffer.h"
 #include "3dEngine.h"
 #include "IndexedMesh.h"
 #include "Brush.h"
-#include "terrain.h"
 
 const char* CBrush::GetEntityClassName() const
 {
@@ -59,7 +57,7 @@ CLodValue CBrush::ComputeLod(int wantedLod, const SRenderingPassInfo& passInfo)
     {
         const Vec3 vCamPos = passInfo.GetCamera().GetPosition();
         const float fEntDistance = sqrt_tpl(Distance::Point_AABBSq(vCamPos, CBrush::GetBBox())) * passInfo.GetZoomFactor();
-		
+        
         if (pCVars->e_Dissolve && passInfo.IsGeneralPass() && !(pStatObj->m_nFlags & STATIC_OBJECT_COMPOUND))
         {
             int nLod = CLAMP(wantedLod, pStatObj->GetMinUsableLod(), (int)pStatObj->m_nMaxUsableLod);
@@ -334,8 +332,10 @@ CBrush::~CBrush()
 {
     INDENT_LOG_DURING_SCOPE(true, "Destroying brush \"%s\"", this->GetName());
 
+    I3DEngine* p3DEngine = GetISystem()->GetI3DEngine();
+
     Dephysicalize();
-    Get3DEngine()->FreeRenderNodeState(this);
+    p3DEngine->FreeRenderNodeState(this);
 
     m_pStatObj = NULL;
     if (m_pDeform)
@@ -345,7 +345,7 @@ CBrush::~CBrush()
 
     if (m_pRNTmpData)
     {
-        Get3DEngine()->FreeRNTmpData(&m_pRNTmpData);
+        p3DEngine->FreeRNTmpData(&m_pRNTmpData);
     }
     assert(!m_pRNTmpData);
 
@@ -359,8 +359,6 @@ void CBrush::Physicalize(bool bInstant)
 
 void CBrush::PhysicalizeOnHeap(IGeneralMemoryHeap* pHeap, bool bInstant)
 {
-    MEMSTAT_CONTEXT_FMT(EMemStatContextTypes::MSC_Physics, 0, "Brush: %s", m_pStatObj ? m_pStatObj->GetFilePath() : "(unknown)");
-
     if (m_pStatObj && (m_pStatObj->GetBreakableByGame() || m_pStatObj->GetIDMatBreakable() != -1))
     {
         pHeap = m_p3DEngine->GetBreakableBrushHeap();
@@ -750,7 +748,9 @@ void CBrush::UpdateExecuteAsPreProcessJobFlag()
         }
 
 #if defined(FEATURE_SVO_GI)
-        if (pMat && (GetCVars()->e_svoTI_Active >= 0) && (gEnv->IsEditor() || GetCVars()->e_svoTI_Apply))
+        if (pMat && (gEnv->pConsole->GetCVar("e_svoTI_Active") && 
+            gEnv->pConsole->GetCVar("e_svoTI_Active")->GetIVal() && 
+            gEnv->pConsole->GetCVar("e_GI")->GetIVal()))
         {
             pMat->SetKeepLowResSysCopyForDiffTex();
         }

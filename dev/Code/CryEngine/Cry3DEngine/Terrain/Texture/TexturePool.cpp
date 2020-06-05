@@ -53,7 +53,7 @@ uint32 TexturePool::Allocate(const byte* data, EEndian endian)
 
     if (!m_FreeTextures.Count())
     {
-        Cry3DEngineBase::Error("TexturePool::GetTexture: Pool full, can't allocate new texture.");
+        AZ_Error("LegacyTerrain", false, "TexturePool::GetTexture: Pool full, can't allocate new texture.");
         return 0;
     }
 
@@ -119,8 +119,6 @@ bool TexturePool::Exists() const
 
 void TexturePool::Create(uint32 dimension, ETEX_Format format)
 {
-    MEMSTAT_CONTEXT(EMemStatContextTypes::MSC_Texture, 0, "TexturePool");
-
     if (m_Format != format || m_Dimension != dimension)
     {
         Reset();

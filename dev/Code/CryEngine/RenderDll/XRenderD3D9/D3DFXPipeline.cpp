@@ -29,6 +29,9 @@
 #include "D3D_SVO.h"
 #endif
 
+#include <AzFramework/Debug/StatisticalProfilerProxy.h>
+
+
 
 long CD3D9Renderer::FX_SetVertexDeclaration(int StreamMask, const AZ::Vertex::Format& vertexFormat)
 {
@@ -45,20 +48,29 @@ long CD3D9Renderer::FX_SetVertexDeclaration(int StreamMask, const AZ::Vertex::Fo
     // (StreamMask & (0xfe | VSM_MORPHBUDDY)) is the value of StreamMask for most cases. There are a few exceptions:
     // 0xfe = 1111 1110 so the result is 0 in the case of VSM_GENERAL (1), or 0 if the mask bit is greater than 8 bits unless StreamMask happens to be VSM_MORPHBUDDY, in which case the result is again the value of StreamMask
     // At the time of this comment, that means the portion of the cacheID determined by StreamMask will be the same for VSM_GENERAL as it will be for VSM_INSTANCED, or anything that may come after VSM_INSTANCED
-    uint64 cacheID = static_cast<uint64>(StreamMask & (0xfe | VSM_MORPHBUDDY)) ^ (static_cast<uint64>(vertexFormat.GetCRC()) << 32);
+    uint64 cacheID = static_cast<uint64>(StreamMask & (0xfe | VSM_MORPHBUDDY)) ^ (static_cast<uint64>(vertexFormat.GetEnum()) << 32);
     if (CHWShader_D3D::s_pCurInstVS)
     {
         pDeclCache->m_pDeclaration = CHWShader_D3D::s_pCurInstVS->GetCachedInputLayout(cacheID);
     }
 #else
-    AZ::u32 declCacheCRC = vertexFormat.GetCRC();
+    AZ::u32 declCacheKey = vertexFormat.GetEnum();
     if (CHWShader_D3D::s_pCurInstVS)
     {
-        declCacheCRC = CHWShader_D3D::s_pCurInstVS->GenerateVertexDeclarationCacheCRC(vertexFormat);
+        declCacheKey = CHWShader_D3D::s_pCurInstVS->GenerateVertexDeclarationCacheKey(vertexFormat);
     }
 
-    SOnDemandD3DVertexDeclarationCache* pDeclCache = &m_RP.m_D3DVertexDeclarationCache[(StreamMask & 0xff) >> 1][bMorph || bInstanced][declCacheCRC];
+    SOnDemandD3DVertexDeclarationCache* pDeclCache = &m_RP.m_D3DVertexDeclarationCache[(StreamMask & 0xff) >> 1][bMorph || bInstanced][declCacheKey];
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DFXPipeline_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DFXPipeline_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DFXPipeline_cpp_salem.inl"
+    #endif
+#endif
 #endif
 
     if (!pDeclCache->m_pDeclaration)
@@ -79,6 +91,9 @@ long CD3D9Renderer::FX_SetVertexDeclaration(int StreamMask, const AZ::Vertex::Fo
         void* pVSData = CHWShader_D3D::s_pCurInstVS->m_pShaderData;
         if (FAILED(hr = GetDevice().CreateInputLayout(&Decl.m_Declaration[0], Decl.m_Declaration.size(), pVSData, nSize, &pDeclCache->m_pDeclaration)))
         {
+#ifndef _RELEASE
+            iLog->LogError("Failed to create an input layout for material \"%s\".\nThe shader and the vertex formats may be incompatible.\nVertex format: \"%d\".  Shader expects: \"%d\".\n\n", m_RP.m_pShaderResources->m_szMaterialName, (int)vertexFormat.GetEnum(), (int)CHWShader_D3D::s_pCurInstVS->m_vertexFormat.GetEnum());
+#endif
             return hr;
         }
 #if defined(FEATURE_PER_SHADER_INPUT_LAYOUT_CACHE)
@@ -289,6 +304,65 @@ void CD3D9Renderer::EF_ClearTargetsLater(uint32 nFlags)
 void CD3D9Renderer::FX_ClearTargetRegion(const uint32 nAdditionalStates /* = 0*/)
 {
     assert(m_pRT->IsRenderThread());
+    
+    bool clearColor   = (m_pNewTarget[0]->m_ClearFlags & CLEAR_RTARGET) ? true : false;
+    bool clearDepth   = (m_pNewTarget[0]->m_ClearFlags & CLEAR_ZBUFFER) ? true : false;
+    bool clearStencil = (m_pNewTarget[0]->m_ClearFlags & CLEAR_STENCIL) ? true : false;
+    
+    ColorF colorValue = Clr_Empty;
+    float  depthValue = 1.0f;
+    uint8  stencilValue = 0;
+    const char* clearTechnique = "Clear";
+    
+    if(clearColor)
+    {
+        colorValue = m_pNewTarget[0]->m_ReqColor;
+        
+        // Get number of render targets to clear
+        int numRT = 0;
+        for (int i = 0; i < RT_STACK_WIDTH; ++i)
+        {
+            if (m_pNewTarget[i] && m_pNewTarget[i]->m_pTarget)
+            {
+                numRT++;
+                break;
+            }
+        }
+        
+        // Select the technique to clear the right amount of render targets
+        switch(numRT)
+        {
+        case 0:
+            AZ_Assert(false, "No color render target bound.");
+            break;
+        case 1:
+            clearTechnique = "Clear";
+            break;
+        case 2:
+            clearTechnique = "Clear2RT";
+            break;
+        case 3:
+            clearTechnique = "Clear3RT";
+            break;
+        case 4:
+            clearTechnique = "Clear4RT";
+            break;
+        default:
+            AZ_Warning("Rendering", false, "More than 4 render targets bound. Only the first 4 will be cleared.");
+            clearTechnique = "Clear4RT";
+            break;
+        }
+    }
+    
+    if(clearDepth)
+    {
+        depthValue = ::FClamp(m_pNewTarget[0]->m_fReqDepth, 0.0f, 1.0f);
+    }
+    
+    if(clearStencil)
+    {
+        stencilValue = m_pNewTarget[0]->m_nReqStencil;
+    }
 
     CRenderObject* pObj = m_RP.m_pCurObject;
     CShader* pSHSave = m_RP.m_pShader;
@@ -301,19 +375,61 @@ void CD3D9Renderer::FX_ClearTargetRegion(const uint32 nAdditionalStates /* = 0*/
     m_RP.m_PersFlags1 |= RBPF1_IN_CLEAR;
     CShader* pSH = CShaderMan::s_ShaderCommon;
     uint32 nPasses = 0;
-    pSH->FXSetTechnique("Clear");
+    pSH->FXSetTechnique(clearTechnique);
     pSH->FXBegin(&nPasses, FEF_DONTSETTEXTURES | FEF_DONTSETSTATES);
     pSH->FXBeginPass(0);
-    int nState = GS_NODEPTHTEST;
-    if (m_pNewTarget[0]->m_ClearFlags & (CLEAR_ZBUFFER | CLEAR_STENCIL))
+    
+    int nState = 0;
+    if (!clearColor)
     {
-        //  Confetti BEGIN: Igor Lobanchikov
-        //  Igor: for some reason GS_DEPTHFUNC_GREAT does not on Android anymore
-        nState = GS_DEPTHFUNC_NOTEQUAL;
-        //  Confetti End: Igor Lobanchikov
-
-        nState &= ~GS_NODEPTHTEST;
+        nState |= GS_COLMASK_NONE;
+    }
+    
+    if (clearDepth)
+    {
+        if (!clearColor && !clearStencil)
+        {
+            // If only clearing depth then we can optimize the draw by using not-equal comparison,
+            // this way pixels with the same depth value as the clear value will be discarded.
+            nState |= GS_DEPTHFUNC_NOTEQUAL;
+        }
+        else
+        {
+            nState |= GS_DEPTHFUNC_ALWAYS;
+        }
         nState |= GS_DEPTHWRITE;
+    }
+    else
+    {
+        nState |= GS_NODEPTHTEST;
+    }
+    
+    if (clearStencil)
+    {
+        int stencilState;
+        if (!clearColor && !clearDepth)
+        {
+            // If only clearing stencil then we can optimize the draw by using not-equal comparison,
+            // this way pixels with the same stencil value as the clear value will be discarded.
+            stencilState =
+                STENC_FUNC(FSS_STENCFUNC_NOTEQUAL) |
+                STENCOP_FAIL(FSS_STENCOP_KEEP) |
+                STENCOP_ZFAIL(FSS_STENCOP_REPLACE) |
+                STENCOP_PASS(FSS_STENCOP_REPLACE);
+        }
+        else
+        {
+            stencilState =
+                STENC_FUNC(FSS_STENCFUNC_ALWAYS) |
+                STENCOP_FAIL(FSS_STENCOP_REPLACE) |
+                STENCOP_ZFAIL(FSS_STENCOP_REPLACE) |
+                STENCOP_PASS(FSS_STENCOP_REPLACE);
+        }
+        
+        const uint32 stencilMask = 0xFFFFFFFF;
+
+        FX_SetStencilState(stencilState, stencilValue, stencilMask, stencilMask);
+        nState |= GS_STENCIL;
     }
 
     m_pNewTarget[0]->m_ClearFlags = 0;
@@ -324,7 +440,7 @@ void CD3D9Renderer::FX_ClearTargetRegion(const uint32 nAdditionalStates /* = 0*/
     D3DSetCull(eCULL_None);
     float fX = (float)m_CurViewport.nWidth;
     float fY = (float)m_CurViewport.nHeight;
-    DrawQuad(-0.5f, -0.5f, fX - 0.5f, fY - 0.5f, m_pNewTarget[0]->m_ReqColor, 1.0f, fX, fY, fX, fY);
+    DrawQuad(-0.5f, -0.5f, fX - 0.5f, fY - 0.5f, colorValue, depthValue, fX, fY, fX, fY);
     m_RP.m_PersFlags1 &= ~RBPF1_IN_CLEAR;
 
     m_RP.m_pCurObject = pObj;
@@ -497,8 +613,10 @@ void CD3D9Renderer::FX_ClearTarget(D3DSurface* pView, const ColorF& cClear, cons
 #endif
 }
 
-void CD3D9Renderer::FX_ClearTarget(CTexture* pTex, const ColorF& cClear, const uint numRects, const RECT* pRects, const bool bOptional)
+void CD3D9Renderer::FX_ClearTarget(ITexture* tex, const ColorF& cClear, const uint numRects, const RECT* pRects, const bool bOptional)
 {
+    CTexture* pTex = reinterpret_cast<CTexture*>(tex);
+
     // TODO: should not happen, happens in the editor currently
     if (!pTex->GetDeviceRT())
     {
@@ -536,7 +654,7 @@ void CD3D9Renderer::FX_ClearTarget(CTexture* pTex, const ColorF& cClear, const u
 #endif
 }
 
-void CD3D9Renderer::FX_ClearTarget(CTexture* pTex, const ColorF& cClear)
+void CD3D9Renderer::FX_ClearTarget(ITexture* pTex, const ColorF& cClear)
 {
     FX_ClearTarget(
         pTex,
@@ -546,7 +664,7 @@ void CD3D9Renderer::FX_ClearTarget(CTexture* pTex, const ColorF& cClear)
         true);
 }
 
-void CD3D9Renderer::FX_ClearTarget(CTexture* pTex)
+void CD3D9Renderer::FX_ClearTarget(ITexture* pTex)
 {
     FX_ClearTarget(
         pTex,
@@ -1524,7 +1642,16 @@ void CD3D9Renderer::FX_CommitStates(const SShaderTechnique* pTech, const SShader
 
     if (bUseMaterialState && (rRP.m_pCurObject->m_fAlpha < 1.0f) && !rRP.m_bIgnoreObjectAlpha)
     {
-        State = (State & ~(GS_BLEND_MASK | GS_DEPTHWRITE)) | (GS_BLSRC_SRCALPHA | GS_BLDST_ONEMINUSSRCALPHA);
+        if (pTech && pTech->m_NameCRC == m_techShadowGen)
+        {
+            // If rendering to a shadow map:
+            State = (State | GS_DEPTHWRITE);
+        }
+        else
+        {
+            // If not rendering to a shadow map:
+            State = (State & ~(GS_BLEND_MASK | GS_DEPTHWRITE)) | (GS_BLSRC_SRCALPHA | GS_BLDST_ONEMINUSSRCALPHA);
+        }
     }
 
     State &= ~rRP.m_ForceStateAnd;
@@ -1647,6 +1774,14 @@ void CD3D9Renderer::FX_CommitStates(const SShaderTechnique* pTech, const SShader
         {
             rRP.m_FlagsShader_RT |= g_HWSR_MaskBit[HWSR_ALPHABLEND];
         }
+    }
+
+    // Enable position invariant flag to disable fast math on certain vertex shader operations that affect position calculations.
+    // This fixes issues with geometry that renders in both z-prepass and any other pass from having precision
+    // issues when executing different vertex shaders and expecting the same position output results.
+    if (rRP.m_RIs[0][0]->nBatchFlags & FB_ZPREPASS)
+    {
+        rRP.m_FlagsShader_MDV |= MDV_POSITION_INVARIANT;
     }
 }
 
@@ -1854,6 +1989,11 @@ CTexture* CD3D9Renderer::FX_GetCurrentRenderTarget(int target)
     return m_RTStack[target][gcpRendD3D->m_nRTStackLevel[target]].m_pTex;
 }
 
+D3DSurface* CD3D9Renderer::FX_GetCurrentRenderTargetSurface(int target) const
+{
+    return m_RTStack[target][gcpRendD3D->m_nRTStackLevel[target]].m_pTarget;
+}
+
 void CD3D9Renderer::FX_SetColorDontCareActions(int const nTarget,
     bool const loadDontCare,
     bool const storeDontCare)
@@ -1869,11 +2009,9 @@ void CD3D9Renderer::FX_SetColorDontCareActions(int const nTarget,
 #ifdef CRY_USE_METAL
         DXMETALSetColorDontCareActions(srt->m_pTarget, loadDontCare, storeDontCare);
 #endif
-        //  Confetti BEGIN: Igor Lobanchikov
 #if defined(ANDROID)
         DXGLSetColorDontCareActions(srt->m_pTarget, loadDontCare, storeDontCare);
 #endif
-        //  Confetti End: Igor Lobanchikov
     }
 }
 
@@ -1892,11 +2030,9 @@ void CD3D9Renderer::FX_SetDepthDontCareActions(int const nTarget,
 #ifdef CRY_USE_METAL
         DXMETALSetDepthDontCareActions(srt->m_pDepth, loadDontCare, storeDontCare);
 #endif
-        //  Confetti BEGIN: Igor Lobanchikov
 #if defined(ANDROID)
         DXGLSetDepthDontCareActions(srt->m_pDepth, loadDontCare, storeDontCare);
 #endif
-        //  Confetti End: Igor Lobanchikov
     }
 }
 
@@ -1915,17 +2051,15 @@ void CD3D9Renderer::FX_SetStencilDontCareActions(int const nTarget,
 #ifdef CRY_USE_METAL
         DXMETALSetStencilDontCareActions(srt->m_pDepth, loadDontCare, storeDontCare);
 #endif
-        //  Confetti BEGIN: Igor Lobanchikov
 #if defined(ANDROID)
         DXGLSetStencilDontCareActions(srt->m_pDepth, loadDontCare, storeDontCare);
 #endif
-        //  Confetti End: Igor Lobanchikov
     }
 }
 
 void CD3D9Renderer::FX_TogglePLS(bool const enable)
 {
-#if defined(OPENGL_ES)
+#if defined(OPENGL_ES) && !defined(DESKTOP_GLES)
     DXGLTogglePLS(&GetDeviceContext(), enable);
 #endif
 }
@@ -2018,19 +2152,26 @@ bool CD3D9Renderer::FX_PopRenderTarget(int nTarget)
 //////////////////////////////////////////////////////////////////////////
 // REFACTOR BEGIN: (bethelz) Move scratch depth pool into its own class.
 
-SDepthTexture* CD3D9Renderer::FX_GetDepthSurface(int nWidth, int nHeight, bool bAA)
+SDepthTexture* CD3D9Renderer::FX_GetDepthSurface(int nWidth, int nHeight, bool bAA, bool shaderResourceView)
 {
     assert(m_pRT->IsRenderThread());
 
     SDepthTexture* pSrf = NULL;
+    D3D11_TEXTURE2D_DESC desc;
     uint32 i;
     int nBestX = -1;
     int nBestY = -1;
     for (i = 0; i < m_TempDepths.Num(); i++)
     {
         pSrf = m_TempDepths[i];
-        if (!pSrf->bBusy)
+        if (!pSrf->bBusy && pSrf->pSurf)
         {
+            // verify that this texture supports binding as a shader resource if requested
+            pSrf->pTarget->GetDesc(&desc);
+            if (shaderResourceView && !(desc.BindFlags & D3D11_BIND_SHADER_RESOURCE))
+            {
+                continue;
+            }
             if (pSrf->nWidth == nWidth && pSrf->nHeight == nHeight)
             {
                 nBestX = i;
@@ -2073,6 +2214,12 @@ SDepthTexture* CD3D9Renderer::FX_GetDepthSurface(int nWidth, int nHeight, bool b
         for (i = 0; i < m_TempDepths.Num(); i++)
         {
             pSrf = m_TempDepths[i];
+            // verify that this texture supports binding as a shader resource if requested
+            pSrf->pTarget->GetDesc(&desc);
+            if (shaderResourceView && !(desc.BindFlags & D3D11_BIND_SHADER_RESOURCE))
+            {
+                continue;
+            }
             if (pSrf->nWidth >= nWidth && pSrf->nHeight >= nHeight && !pSrf->bBusy)
             {
                 break;
@@ -2086,82 +2233,23 @@ SDepthTexture* CD3D9Renderer::FX_GetDepthSurface(int nWidth, int nHeight, bool b
 
     if (i == m_TempDepths.Num())
     {
-        pSrf = FX_CreateDepthSurface(nWidth, nHeight, bAA);
-        if (pSrf != NULL)
+        pSrf = CreateDepthSurface(nWidth, nHeight, shaderResourceView);
+        if (pSrf != nullptr)
         {
-            m_TempDepths.AddElem(pSrf);
+            if (pSrf->pSurf != nullptr)
+            {
+                m_TempDepths.AddElem(pSrf);
+            }
+            else
+            {
+                DestroyDepthSurface(pSrf);
+                pSrf = nullptr;
+            }
         }
     }
 
     return pSrf;
 }
-
-// REFACTOR (bethelz) Make this static or put it on the devmanager.
-SDepthTexture* CD3D9Renderer::FX_CreateDepthSurface(int nWidth, int nHeight, bool bAA)
-{
-    AZ_TRACE_METHOD();
-    ScopedSwitchToGlobalHeap useGlobalHeap;
-    SDepthTexture* pSrf = new SDepthTexture;
-    pSrf->nWidth = nWidth;
-    pSrf->nHeight = nHeight;
-    pSrf->nFrameAccess = -1;
-    pSrf->bBusy = false;
-
-    HRESULT hr;
-    D3D11_TEXTURE2D_DESC descDepth;
-    ZeroStruct(descDepth);
-    descDepth.Width = nWidth;
-    descDepth.Height = nHeight;
-    descDepth.MipLevels = 1;
-    descDepth.ArraySize = 1;
-    descDepth.Format = CTexture::ConvertToDepthStencilFmt(m_ZFormat);
-    descDepth.SampleDesc.Count = 1;
-    descDepth.SampleDesc.Quality = 0;
-    descDepth.Usage = D3D11_USAGE_DEFAULT;
-    descDepth.BindFlags = D3D11_BIND_DEPTH_STENCIL;
-    descDepth.CPUAccessFlags = 0;
-    descDepth.MiscFlags = 0;
-
-    const float clearDepth = (gRenDev->m_RP.m_TI[gRenDev->m_RP.m_nProcessThreadID].m_PersFlags & RBPF_REVERSE_DEPTH) ? 0.f : 1.f;
-    const uint clearStencil = 0;
-    const FLOAT clearValues[4] = { clearDepth, FLOAT(clearStencil) };
-
-    hr = gcpRendD3D->m_DevMan.CreateD3D11Texture2D(&descDepth, clearValues, nullptr, &pSrf->pTarget, "TempDepthBuffer");
-
-    assert(hr == S_OK);
-    if (hr == S_OK)
-    {
-        D3D11_DEPTH_STENCIL_VIEW_DESC descDSV;
-        ZeroStruct(descDSV);
-        descDSV.Format = CTexture::ConvertToDepthStencilFmt(m_ZFormat);
-        descDSV.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
-        descDSV.Texture2D.MipSlice = 0;
-        // Create the depth stencil view
-        hr = GetDevice().CreateDepthStencilView(pSrf->pTarget, &descDSV, &pSrf->pSurf);
-        if (hr != S_OK)
-        {
-            pSrf->Release(true);
-            SAFE_DELETE(pSrf);
-            return NULL;
-        }
-
-#if !defined(RELEASE) && defined(WIN64)
-        pSrf->pTarget->SetPrivateData(WKPDID_D3DDebugObjectName, strlen("Dynamically requested Depth-Buffer"), "Dynamically requested Depth-Buffer");
-#endif
-
-        const float clearValue = (gRenDev->m_RP.m_TI[gRenDev->m_RP.m_nProcessThreadID].m_PersFlags & RBPF_REVERSE_DEPTH) ? 0.f : 1.f;
-        GetDeviceContext().ClearDepthStencilView(pSrf->pSurf, D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, clearValue, 0);
-    }
-    else
-    {
-        SAFE_DELETE(pSrf);
-        return NULL;
-    }
-
-    return pSrf;
-}
-
-// REFACTOR END
 
 // Commit changes states to the hardware before drawing
 bool CD3D9Renderer::FX_CommitStreams(SShaderPass* sl, bool bSetVertexDecl)
@@ -2383,7 +2471,7 @@ void CD3D9Renderer::FX_DrawInstances(CShader* ef, SShaderPass* slw, int nRE, uin
         for (i = 0; i < rRP.m_CustomVD.Num(); i++)
         {
             vd = rRP.m_CustomVD[i];
-            if (vd->StreamMask == StreamMask && rRP.m_CurVFormat == vd->VertexFormat && vd->InstAttrMask == nInstAttrMask)
+            if (vd->StreamMask == StreamMask && rRP.m_CurVFormat == vd->VertexFormat && vd->InstAttrMask == nInstAttrMask && vd->m_vertexShader == CHWShader_D3D::s_pCurInstVS)
             {
                 break;
             }
@@ -2397,6 +2485,7 @@ void CD3D9Renderer::FX_DrawInstances(CShader* ef, SShaderPass* slw, int nRE, uin
             vd->VertexFormat = rRP.m_CurVFormat;
             vd->InstAttrMask = nInstAttrMask;
             vd->m_pDeclaration = NULL;
+            vd->m_vertexShader = CHWShader_D3D::s_pCurInstVS;
 
             // Copy the base vertex format declaration
             SOnDemandD3DVertexDeclaration Decl;
@@ -2409,7 +2498,7 @@ void CD3D9Renderer::FX_DrawInstances(CShader* ef, SShaderPass* slw, int nRE, uin
             }
 
             // Add additional D3D11_INPUT_ELEMENT_DESCs with the TEXCOORD semantic to the end of the vertex declaration to handle the per instance data
-            int texCoordSemanticIndexOffset = rRP.m_CurVFormat.GetAttributesByUsage(AZ::Vertex::AttributeUsage::TexCoord).size();
+            uint32 texCoordSemanticIndexOffset = rRP.m_CurVFormat.GetAttributeUsageCount(AZ::Vertex::AttributeUsage::TexCoord);
             D3D11_INPUT_ELEMENT_DESC elemTC = {"TEXCOORD", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 3, 0, D3D11_INPUT_PER_INSTANCE_DATA, 1}; // texture
             for (i = 0; i < nUsedAttr; i++)
             {
@@ -2538,6 +2627,11 @@ void CD3D9Renderer::FX_DrawShader_InstancedHW(CShader* ef, SShaderPass* slw)
 
     rRP.m_FlagsShader_RT = nRTFlags;
 
+    if (CRenderer::CV_r_SlimGBuffer)
+    {
+        rRP.m_FlagsShader_RT |= g_HWSR_MaskBit[HWSR_SLIM_GBUFFER];
+    }
+
     short dwCBufSlot = 0;
 
     CHWShader_D3D* vp = (CHWShader_D3D*)slw->m_VShader;
@@ -2584,6 +2678,7 @@ void CD3D9Renderer::FX_DrawShader_InstancedHW(CShader* ef, SShaderPass* slw)
     CHWShader_D3D* pCurHS, * pCurDS;
     bool bTessEnabled = FX_SetTessellationShaders(pCurHS, pCurDS, slw);
 
+    vp->UpdatePerInstanceConstantBuffer();
     ps->UpdatePerInstanceConstantBuffer();
 
     #ifdef TESSELLATION_RENDERER
@@ -2611,7 +2706,7 @@ void CD3D9Renderer::FX_DrawShader_InstancedHW(CShader* ef, SShaderPass* slw)
     int32 nUsedAttr = 3, nInstAttrMask = 0;
     pVPInst->GetInstancingAttribInfo(Attributes, nUsedAttr, nInstAttrMask);
 
-    CRendElementBase* pRE = NULL;
+    IRenderElement* pRE = NULL;
     CRenderMesh* pRenderMesh = NULL;
 
     const int nLastRE = rRP.m_nLastRE;
@@ -2788,6 +2883,10 @@ byte CD3D9Renderer::FX_StartQuery(SRendItem* pRI)
         uint32 nQuery = m_OcclQueriesUsed;
         ++m_OcclQueriesUsed;
         COcclusionQuery* pQ = &m_OcclQueries[nQuery];
+        if (!pQ->IsCreated())
+        {
+            pQ->Create();
+        }
         pQ->BeginQuery();
         pRI->nOcclQuery = nQuery;
 #ifndef _RELEASE
@@ -2882,12 +2981,11 @@ void CD3D9Renderer::FX_DrawBatchesSkinned(CShader* pSh, SShaderPass* pPass, SSki
         rRP.m_FlagsShader_RT |= (g_HWSR_MaskBit[HWSR_SKINNING_DUAL_QUAT]);
     }
 
-
-    CHWShader_D3D* pCurHS, * pCurDS;
-    bool bTessEnabled = FX_SetTessellationShaders(pCurHS, pCurDS, pPass);
-
     bool bRes = pCurPS->mfSetPS(HWSF_SETTEXTURES);
     bRes &= pCurVS->mfSetVS(0);
+
+    CHWShader_D3D* pCurHS, *pCurDS;
+    bool bTessEnabled = FX_SetTessellationShaders(pCurHS, pCurDS, pPass);
 
     if (pCurGS)
     {
@@ -3025,7 +3123,7 @@ void CD3D9Renderer::FX_DrawBatchesSkinned(CShader* pSh, SShaderPass* pPass, SSki
             }
             else
             {
-                FX_DrawIndexedMesh(pRenderMesh ? pRenderMesh->_GetPrimitiveType() : eptTriangleList);
+                FX_DrawIndexedMesh(pRenderMesh ? pRenderMesh->GetPrimitiveType() : eptTriangleList);
             }
         }
     }
@@ -3167,7 +3265,8 @@ void CD3D9Renderer::FX_DrawBatches(CShader* pSh, SShaderPass* pPass)
 {
     DETAILED_PROFILE_MARKER("FX_DrawBatches");
     FUNCTION_PROFILER_RENDER_FLAT
-    SRenderPipeline& RESTRICT_REFERENCE rRP = m_RP;
+
+        SRenderPipeline& RESTRICT_REFERENCE rRP = m_RP;
     SThreadInfo& RESTRICT_REFERENCE rTI = rRP.m_TI[rRP.m_nProcessThreadID];
 
     // Set culling mode
@@ -3187,10 +3286,10 @@ void CD3D9Renderer::FX_DrawBatches(CShader* pSh, SShaderPass* pPass)
         if (!pOD || !(pSkinningData = pOD->m_pSkinningData))
         {
             bHWSkinning = false;
-            Warning ("Warning: Skinned geometry used without character instance");
+            Warning("Warning: Skinned geometry used without character instance");
         }
     }
-    IF (bHWSkinning && (rRP.m_pCurObject->m_ObjFlags & FOB_SKINNED) && !CV_r_character_nodeform, 0)
+    IF(bHWSkinning && (rRP.m_pCurObject->m_ObjFlags & FOB_SKINNED) && !CV_r_character_nodeform, 0)
     {
         FX_DrawBatchesSkinned(pSh, pPass, pSkinningData);
     }
@@ -3214,15 +3313,13 @@ void CD3D9Renderer::FX_DrawBatches(CShader* pSh, SShaderPass* pPass)
             CHWShader_D3D::mfBindGS(NULL, NULL);
         }
 
-
-        CHWShader_D3D* pCurHS, * pCurDS;
-        bool bTessEnabled = FX_SetTessellationShaders(pCurHS, pCurDS, pPass);
-
-
         CHWShader_D3D* pCurVS = (CHWShader_D3D*)pPass->m_VShader;
         CHWShader_D3D* pCurPS = (CHWShader_D3D*)pPass->m_PShader;
         bRes &= pCurPS->mfSetPS(HWSF_SETTEXTURES);
         bRes &= pCurVS->mfSetVS(HWSF_SETTEXTURES);
+
+        CHWShader_D3D* pCurHS, * pCurDS;
+        bool bTessEnabled = FX_SetTessellationShaders(pCurHS, pCurDS, pPass);
 
         if (bRes)
         {
@@ -3232,8 +3329,8 @@ void CD3D9Renderer::FX_DrawBatches(CShader* pSh, SShaderPass* pPass)
             }
 
             assert(rRP.m_pRE || !rRP.m_nLastRE);
-            CRendElementBase* pRE = rRP.m_pRE;
-            CRendElementBase* pRESave = pRE;
+            IRenderElement* pRE = rRP.m_pRE;
+            IRenderElement* pRESave = pRE;
             CRenderObject* pSaveObj = rRP.m_pCurObject;
             CShaderResources* pCurRes = rRP.m_pShaderResources;
             CShaderResources* pSaveRes = pCurRes;
@@ -3269,7 +3366,7 @@ void CD3D9Renderer::FX_DrawBatches(CShader* pSh, SShaderPass* pPass)
                             CHWShader_D3D::UpdatePerMaterialConstantBuffer();
 
                             pRE->mfPrepare(false);
-                            CREMeshImpl* pM = (CREMeshImpl*) pRE;
+                            CREMeshImpl* pM = (CREMeshImpl*)pRE;
                             if (pM->m_CustomData || pCurRes != pRes) // Custom data can indicate some shader parameters are from mesh
                             {
                                 pCurVS->UpdatePerBatchConstantBuffer();
@@ -3308,11 +3405,11 @@ void CD3D9Renderer::FX_DrawBatches(CShader* pSh, SShaderPass* pPass)
                             {
                                 pObj = rRIs[nO]->pObj;
 
-                                CRendElementBase* pElemBase = rRIs[nO]->pElem;
+                                IRenderElement* pElemBase = rRIs[nO]->pElem;
 
                                 if (pElemBase->mfGetType() == eDATA_Mesh)
                                 {
-                                    CREMeshImpl* pMesh = (CREMeshImpl*) pElemBase;
+                                    CREMeshImpl* pMesh = (CREMeshImpl*)pElemBase;
                                     IRenderMesh* pRenderMesh = pMesh ? pMesh->m_pRenderMesh : NULL;
 
                                     FX_TrackStats(pObj, pRenderMesh);
@@ -3351,7 +3448,7 @@ void CD3D9Renderer::FX_DrawBatches(CShader* pSh, SShaderPass* pPass)
                             {
                                 CHWShader_D3D::mfBindGS(NULL, NULL);
                             }
-  #ifdef TESSELLATION_RENDERER
+#ifdef TESSELLATION_RENDERER
                             if (pCurDS)
                             {
                                 pCurDS->UpdatePerInstanceConstantBuffer();
@@ -3360,7 +3457,7 @@ void CD3D9Renderer::FX_DrawBatches(CShader* pSh, SShaderPass* pPass)
                             {
                                 pCurHS->UpdatePerInstanceConstantBuffer();
                             }
-  #endif
+#endif
 
                             AZ_Assert(rRIs[nO], "current render item is null");
                             m_PerInstanceConstantBufferPool.SetConstantBuffer(rRIs[nO]);
@@ -3383,7 +3480,7 @@ void CD3D9Renderer::FX_DrawBatches(CShader* pSh, SShaderPass* pPass)
                         rRP.m_FlagsShader_MD &= ~(HWMD_TEXCOORD_FLAG_MASK);
                         if (pRE)
                         {
-                            pRE->m_Flags &= ~FCEF_PRE_DRAW_DONE;
+                            pRE->mfClearFlags(FCEF_PRE_DRAW_DONE);
                         }
                     }
                     rRP.m_pCurObject = pSaveObj;
@@ -3458,6 +3555,13 @@ void CD3D9Renderer::FX_DrawShader_Fur(CShader* ef, SShaderTechnique* pTech)
     bool isFurZPost = (pTech->m_NameCRC == techFurZPost);
     furPasses.SetFurShellPassPercent(isFurZPost ? 1.0f : 0.0f);
 
+    // Fur should be rendered with an object containing a render node.
+    // Example of objects without render node are various effects such as light beams
+    // light arc that their material was set to Fur by mistake - in such case we gracefully don't render ;)
+    // Adding a trace warning is an option but it'll slow down the render frame quite noticeably. 
+    if (!m_RP.m_pCurObject || !m_RP.m_pCurObject->m_pRenderNode)
+        return;
+
     static CCryNameTSCRC techFurShell("General");
     if (pTech->m_NameCRC == techFurShell)
     {
@@ -3492,6 +3596,9 @@ void CD3D9Renderer::FX_DrawShader_Fur(CShader* ef, SShaderTechnique* pTech)
                 // Even if the material specifies alpha testing, don't write depth for alpha blended fur shells
                 m_RP.m_ForceStateAnd |= GS_DEPTHWRITE;
             }
+
+            // OIT permutation flag set
+            MultiLayerAlphaBlendPass::GetInstance().ConfigureShaderFlags(m_RP.m_FlagsShader_RT);
 
             assert(pTech->m_Passes.Num() == 1);
 
@@ -3536,8 +3643,9 @@ void CD3D9Renderer::FX_DrawShader_Fur(CShader* ef, SShaderTechnique* pTech)
                         }
 
                         // Not using pRenderNode->GetMaxViewDist() because we want to be able to LOD out the fur while still being able to see the object at distance
-                        float maxDistance = CV_r_FurMaxViewDist * pRenderNode->GetViewDistanceMultiplier();
-                        float lodDistance = AZ::GetClamp(pRenderNode->GetFirstLodDistance() / lodRatio, 0.0f, maxDistance - 0.001f);
+                        float   maxDistance = CV_r_FurMaxViewDist * pRenderNode->GetViewDistanceMultiplier();
+                        float   firstLodDistance = pRenderNode->GetFirstLodDistance();
+                        float   lodDistance = AZ::GetClamp(firstLodDistance / lodRatio, 0.0f, maxDistance - 0.001f);
 
                         // Distance before first LOD change (factoring in LOD ratio) uses full number of shells
                         // Beyond that distance, number of shells linearly decreases to 0 as distance approaches max view distance.
@@ -3898,8 +4006,13 @@ void CD3D9Renderer::FX_DrawTechnique(CShader* ef, SShaderTechnique* pTech)
         FX_DrawShader_General(ef, pTech);
         break;
     case eSHDT_Light:
-    case eSHDT_Terrain:
         FX_DrawShader_General(ef, pTech);
+        break;
+    case eSHDT_Terrain:
+    {
+        AZ_PROFILE_SCOPE(AZ::Debug::ProfileCategory::LegacyTerrain, "FX_DrawTechnique");
+        FX_DrawShader_General(ef, pTech);
+    }
         break;
     case eSHDT_Fur:
         FX_DrawShader_Fur(ef, pTech);
@@ -4092,7 +4205,9 @@ static void sLogFlush(const char* str, CShader* pSH, SShaderTechnique* pTech)
     if (rd->m_logFileHandle != AZ::IO::InvalidHandle)
     {
         SRenderPipeline& RESTRICT_REFERENCE rRP = rd->m_RP;
-        rd->Logv(SRendItem::m_RecurseLevel[rRP.m_nProcessThreadID], "%s: '%s.%s', Id:%d, ResId:%d, Obj:%d, VF:%s\n", str, pSH->GetName(), pTech ? pTech->m_NameStr.c_str() : "Unknown", pSH->GetID(), rRP.m_pShaderResources ? rRP.m_pShaderResources->m_Id : -1, rRP.m_pCurObject->m_Id, rRP.m_CurVFormat.GetName());
+
+        rd->Logv(SRendItem::m_RecurseLevel[rRP.m_nProcessThreadID], "%s: '%s.%s', Id:%d, ResId:%d, VF:%d\n", str, pSH->GetName(), pTech ? pTech->m_NameStr.c_str() : "Unknown", pSH->GetID(), rRP.m_pShaderResources ? rRP.m_pShaderResources->m_Id : -1, (int)rRP.m_CurVFormat.GetEnum());
+
         if (rRP.m_ObjFlags & FOB_SELECTED)
         {
             if (rRP.m_MaterialStateOr & GS_ALPHATEST_MASK)
@@ -4335,8 +4450,8 @@ void CD3D9Renderer::FX_FlushShader_General()
     if (!rRP.m_sExcludeShader.empty())
     {
         char nm[1024];
-        strcpy(nm, ef->GetName());
-        strlwr(nm);
+        azstrcpy(nm, AZ_ARRAY_SIZE(nm), ef->GetName());
+        azstrlwr(nm, AZ_ARRAY_SIZE(nm));
         if (strstr(rRP.m_sExcludeShader.c_str(), nm))
         {
             return;
@@ -4464,7 +4579,22 @@ void CD3D9Renderer::FX_FlushShader_General()
         }
 #endif
 
-        MultiLayerAlphaBlendPass::GetInstance().ConfigureShaderFlags(rRP.m_FlagsShader_RT);
+        if (CRenderer::CV_r_DeferredShadingLBuffersFmt == 2)
+        {
+            rd->m_RP.m_FlagsShader_RT |= g_HWSR_MaskBit[HWSR_DEFERRED_RENDER_TARGET_OPTIMIZATION];
+        }
+        
+        if (CRenderer::CV_r_SlimGBuffer)
+        {
+            rd->m_RP.m_FlagsShader_RT |= g_HWSR_MaskBit[HWSR_SLIM_GBUFFER];
+        }
+     
+        // If the object is transparent and if the object has the UAV bound.
+        bool multilayerUAVBound = (rRP.m_ObjFlags & FOB_AFTER_WATER) != 0;
+        if (rRP.m_pShaderResources && rRP.m_pShaderResources->IsTransparent() && multilayerUAVBound)
+        {
+            MultiLayerAlphaBlendPass::GetInstance().ConfigureShaderFlags(rRP.m_FlagsShader_RT);
+        }
 
         if (!rd->FX_SetResourcesState())
         {
@@ -4499,7 +4629,14 @@ void CD3D9Renderer::FX_FlushShader_General()
                 rRP.m_FlagsShader_RT |= g_HWSR_MaskBit[HWSR_VOLUMETRIC_FOG];
             }
         }
-
+        rd->m_RP.m_FlagsShader_RT &= ~(g_HWSR_MaskBit[HWSR_FOG_VOLUME_HIGH_QUALITY_SHADER]);
+        static ICVar* pCVarFogVolumeShadingQuality = gEnv->pConsole->GetCVar("e_FogVolumeShadingQuality");
+        if (pCVarFogVolumeShadingQuality->GetIVal() > 0)
+        {
+            rRP.m_FlagsShader_RT |= g_HWSR_MaskBit[HWSR_FOG_VOLUME_HIGH_QUALITY_SHADER];
+        }
+        
+        
         const uint64 objFlags = rRP.m_ObjFlags;
         if (objFlags & FOB_NEAREST)
         {
@@ -4601,8 +4738,8 @@ void CD3D9Renderer::FX_FlushShader_ShadowGen()
     if (!rRP.m_sExcludeShader.empty())
     {
         char nm[1024];
-        strcpy(nm, ef->GetName());
-        strlwr(nm);
+        azstrcpy(nm, AZ_ARRAY_SIZE(nm), ef->GetName());
+        azstrlwr(nm, AZ_ARRAY_SIZE(nm));
         if (strstr(rRP.m_sExcludeShader.c_str(), nm))
         {
             return;
@@ -4678,11 +4815,11 @@ void CD3D9Renderer::FX_FlushShader_ShadowGen()
 #if defined(FEATURE_SVO_GI)
     if (CSvoRenderer::GetRsmColorMap(*shadowInfo.m_pCurShadowFrustum))
     {
-        rd->m_RP.m_FlagsShader_RT |= g_HWSR_MaskBit[ HWSR_SAMPLE4 ];
+        rd->m_RP.m_FlagsShader_RT |= g_HWSR_MaskBit[HWSR_SAMPLE4];
 
         if (!(shadowInfo.m_pCurShadowFrustum->m_Flags & DLF_DIRECTIONAL))
         {
-            rd->m_RP.m_FlagsShader_RT |= g_HWSR_MaskBit[HWSR_CUBEMAP0] | g_HWSR_MaskBit[ HWSR_HW_PCF_COMPARE ];
+            rd->m_RP.m_FlagsShader_RT |= g_HWSR_MaskBit[HWSR_CUBEMAP0] | g_HWSR_MaskBit[HWSR_HW_PCF_COMPARE];
         }
 
         rd->D3DSetCull(eCULL_Back);
@@ -4712,9 +4849,6 @@ void CD3D9Renderer::FX_FlushShader_ShadowGen()
         rRP.m_FlagsShader_RT |= g_HWSR_MaskBit[HWSR_NO_TESSELLATION];
     }
 #endif
-
-    //per-object bias for Shadow Generation
-    rd->m_cEF.m_TempVecs[1][0] = 0.0f;
 
     if (!rd->FX_SetResourcesState())
     {
@@ -4763,8 +4897,8 @@ void CD3D9Renderer::FX_FlushShader_ZPass()
     if (!rRP.m_sExcludeShader.empty())
     {
         char nm[1024];
-        strcpy(nm, ef->GetName());
-        strlwr(nm);
+        azstrcpy(nm, AZ_ARRAY_SIZE(nm), ef->GetName());
+        azstrlwr(nm, AZ_ARRAY_SIZE(nm));
         if (strstr(rRP.m_sExcludeShader.c_str(), nm))
         {
             return;
@@ -4857,7 +4991,13 @@ void CD3D9Renderer::FX_FlushShader_ZPass()
             rRP.m_ForceStateOr |=   GS_STENCIL;
 
             uint32 nStencilRef = CRenderer::CV_r_VisAreaClipLightsPerPixel ? 0 : (rd->m_RP.m_RIs[0][0]->nStencRef | BIT_STENCIL_INSIDE_CLIPVOLUME);
-            nStencilRef |= (!(rRP.m_pCurObject->m_ObjFlags & FOB_DYNAMIC_OBJECT) || CV_r_deferredDecalsOnDynamicObjects ? BIT_STENCIL_RESERVED : 0);
+            
+            // Here we check if an object can receive decals.
+            bool bObjectAcceptsDecals = !(rRP.m_pCurObject->m_NoDecalReceiver);
+            if (bObjectAcceptsDecals)
+            {
+                nStencilRef |= (!(rRP.m_pCurObject->m_ObjFlags & FOB_DYNAMIC_OBJECT) || CV_r_deferredDecalsOnDynamicObjects ? BIT_STENCIL_RESERVED : 0);
+            }
             const int32 stencilState = STENC_FUNC(FSS_STENCFUNC_ALWAYS) | STENCOP_FAIL(FSS_STENCOP_KEEP) | STENCOP_ZFAIL(FSS_STENCOP_KEEP) | STENCOP_PASS(FSS_STENCOP_REPLACE);
             rd->FX_SetStencilState(stencilState, nStencilRef, 0xFF, 0xFF);
         }
@@ -5042,7 +5182,7 @@ void TexBlurAnisotropicVertical(CTexture* pTex, int nAmount, float fScale, float
     SAFE_DELETE(tpBlurTemp);
 }
 
-bool CD3D9Renderer::FX_DrawToRenderTarget(CShader* pShader, CShaderResources* pRes, CRenderObject* pObj, SShaderTechnique* pTech, SHRenderTarget* pRT, int nPreprType, CRendElementBase* pRE)
+bool CD3D9Renderer::FX_DrawToRenderTarget(CShader* pShader, CShaderResources* pRes, CRenderObject* pObj, SShaderTechnique* pTech, SHRenderTarget* pRT, int nPreprType, IRenderElement* pRE)
 {
     if (!pRT)
     {
@@ -5079,12 +5219,12 @@ bool CD3D9Renderer::FX_DrawToRenderTarget(CShader* pShader, CShaderResources* pR
 
     if (pRT->m_nIDInPool >= 0)
     {
-        assert((int)CTexture::s_CustomRT_2D.Num() > pRT->m_nIDInPool);
-        if ((int)CTexture::s_CustomRT_2D.Num() <= pRT->m_nIDInPool)
+        assert((int)CTexture::s_CustomRT_2D->Num() > pRT->m_nIDInPool);
+        if ((int)CTexture::s_CustomRT_2D->Num() <= pRT->m_nIDInPool)
         {
             return false;
         }
-        pEnvTex = &CTexture::s_CustomRT_2D[pRT->m_nIDInPool];
+        pEnvTex = &(*CTexture::s_CustomRT_2D)[pRT->m_nIDInPool];
 
         if (nWidth == -1)
         {
@@ -5124,6 +5264,14 @@ bool CD3D9Renderer::FX_DrawToRenderTarget(CShader* pShader, CShaderResources* pR
 
             bMakeEnvironmentTexture = (!pEnvTex->m_pTex || pEnvTex->m_pTex->GetFormat() != eTF);
         }
+
+#if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
+        // do not re-create the environment texture for the RTT pass for now, just use the existing one.
+        if (m_RP.m_TI[nThreadList].m_PersFlags & RBPF_RENDER_SCENE_TO_TEXTURE && pEnvTex->m_pTex)
+        {
+            bMakeEnvironmentTexture = false;
+        }
+#endif // if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
 
         // clamping to a reasonable texture size
         if (nWidth < 32)
@@ -5238,7 +5386,7 @@ bool CD3D9Renderer::FX_DrawToRenderTarget(CShader* pShader, CShaderResources* pR
             assert(pEnvTex != NULL);
             if (pEnvTex && pEnvTex->m_pTex && pEnvTex->m_pTex->m_pTexture)
             {
-                FX_ClearTarget(pEnvTex->m_pTex->m_pTexture, Clr_Empty);
+                m_pRT->RC_ClearTarget(pEnvTex->m_pTex->m_pTexture, Clr_Empty);
             }
             return true;
         }
@@ -5340,7 +5488,7 @@ bool CD3D9Renderer::FX_DrawToRenderTarget(CShader* pShader, CShaderResources* pR
         else
         {
             assert(Tex != NULL);
-            FX_ClearTarget(Tex, Clr_Debug);
+            m_pRT->RC_ClearTarget(Tex, Clr_Debug);
         }
 
         return true;
@@ -5481,7 +5629,7 @@ bool CD3D9Renderer::FX_DrawToRenderTarget(CShader* pShader, CShaderResources* pR
         }
         else
         {
-            FX_ClearTarget(Tex, Clr_Debug);
+            m_pRT->RC_ClearTarget(Tex, Clr_Debug);
         }
 
         m_RP.m_TI[nThreadList].m_pIgnoreObject = pPrevIgn;

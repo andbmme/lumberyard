@@ -9,6 +9,7 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
+
 #pragma once
 
 #include <AzToolsFramework/ToolsComponents/EditorComponentBase.h>
@@ -44,7 +45,8 @@ namespace LmbrCentral
         // Overrides from LensFlareConfiguration
         AZ::u32 PropertyChanged() override;
         AZ::u32 SyncAnimationChanged() override;
-
+        AZ::u32 AttachToSunChanged() override;
+    
         // Overrides from LightSettingsNotificationBus
         void AnimationSettingsChanged() override;
 
@@ -85,11 +87,6 @@ namespace LmbrCentral
         //////////////////////////////////////////////////////////////////////////
 
         //////////////////////////////////////////////////////////////////////////
-        // AzFramework::EntityDebugDisplayEventBus interface implementation
-        void DisplayEntity(bool& handled) override;
-        //////////////////////////////////////////////////////////////////////////
-
-        //////////////////////////////////////////////////////////////////////////
         // LensFlareComponentEditorRequestBus::Handler interface implementation
         virtual void RefreshLensFlare() override;
         //////////////////////////////////////////////////////////////////////////
@@ -124,6 +121,9 @@ namespace LmbrCentral
         //! Used to populate the lens flare combo box.
         AZStd::vector<AZStd::string> GetLensFlarePaths() const;
 
+        //! Get a copy of configuration appropriate for use with the lens flare
+        EditorLensFlareConfiguration GetEditorLensFlareConfiguration() const;
+
         //////////////////////////////////////////////////////////////////////////
         static void GetProvidedServices(AZ::ComponentDescriptor::DependencyArrayType& provided)
         {
@@ -148,6 +148,12 @@ namespace LmbrCentral
         void OnEditorSpecChange() override;
         //////////////////////////////////////////////////////////////////////////
 
+        // AzFramework::EntityDebugDisplayEventBus
+        void DisplayEntityViewport(
+            const AzFramework::ViewportInfo& viewportInfo,
+            AzFramework::DebugDisplayRequests& debugDisplay) override;
+
+        AZStd::string GetSelectedLensFlareFullName() const;
         AZStd::string GetFlareNameFromPath(const AZStd::string& path) const;
         AZStd::string GetLibraryNameFromAsset() const;
 

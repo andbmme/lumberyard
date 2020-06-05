@@ -12,10 +12,10 @@
 
 // include the required headers
 #include <MCore/Source/Config.h>
+#include <MCore/Source/LogManager.h>
 #include "GLInclude.h"
 
 #include <MCore/Source/Array.h>
-#include <MCore/Source/UnicodeString.h>
 #include "GBuffer.h"
 #include "RenderTexture.h"
 #include "GLSLShader.h"

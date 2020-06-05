@@ -9,12 +9,12 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
-#ifndef AZ_UNITY_BUILD
 
 #include <AzCore/Math/Sfmt.h>
 
 #include <AzCore/Math/Random.h>
 #include <AzCore/std/parallel/lock.h>
+#include <AzCore/Module/Environment.h>
 
 #include <string.h> // for memset
 
@@ -298,23 +298,6 @@ namespace AZ
             }
         }
 
-#   if defined(AZ_BIG_ENDIAN) && !defined(ONLY64)
-        inline static void swap(w128_t* array, int size)
-        {
-            int i;
-            AZ::u32 x, y;
-
-            for (i = 0; i < size; i++)
-            {
-                x = array[i].u[0];
-                y = array[i].u[2];
-                array[i].u[0] = array[i].u[1];
-                array[i].u[2] = array[i].u[3];
-                array[i].u[1] = x;
-                array[i].u[3] = y;
-            }
-        }
-#   endif //
 #endif
     } // SmftInternal
 } // AZ
@@ -324,8 +307,38 @@ using namespace AZ;
 
 //////////////////////////////////////////////////////////////////////////
 // Statics
-Sfmt Sfmt::s_default;
 //////////////////////////////////////////////////////////////////////////
+
+
+static EnvironmentVariable<AZ::Sfmt> s_sfmt;
+static const char* s_globalSfmtName = "GlobalSfmt";
+
+Sfmt& Sfmt::GetInstance()
+{
+    if (!s_sfmt)
+    {
+        s_sfmt = AZ::Environment::FindVariable<Sfmt>(s_globalSfmtName);
+        if (!s_sfmt)
+        {
+            Sfmt::Create();
+        }
+    }
+
+    return s_sfmt.Get();
+}
+
+void Sfmt::Create()
+{
+    if (!s_sfmt)
+    {
+        s_sfmt = AZ::Environment::CreateVariable<AZ::Sfmt>(s_globalSfmtName);
+    }
+}
+
+void Sfmt::Destroy()
+{
+    s_sfmt.Reset();
+}
 
 //=========================================================================
 // Sfmt
@@ -551,18 +564,10 @@ AZ::u64 Sfmt::Rand64()
         // try again, with the new table
         return Rand64();
     }
-    
-#if defined(AZ_BIG_ENDIAN) && !defined(ONLY64)
-    AZ_Assert(index % 2 == 0, "Index is in invalid state!");
-    AZ::u32 r1, r2;
-    r1 = m_psfmt32[index];
-    r2 = m_psfmt32[index + 1];
-    return ((AZ::u64)r2 << 32) | r1;
-#else
+
     AZ::u64 r;
     r = m_psfmt64[index / 2];
     return r;
-#endif
 }
 
 //=========================================================================
@@ -593,10 +598,6 @@ Sfmt::FillArray64(AZ::u64* array, int size)
 
     SfmtInternal::gen_rand_array(*this, (SfmtInternal::w128_t*)array, size / 2);
     m_index = SfmtInternal::N32;
-
-#if defined(AZ_BIG_ENDIAN) && !defined(ONLY64)
-    SfmtInternal::swap((SfmtInternal::w128_t*)array, size / 2);
-#endif
 }
 
 //=========================================================================
@@ -618,5 +619,3 @@ Sfmt::GetMinArray64Size() const
 {
     return SfmtInternal::N64;
 }
-
-#endif // #ifndef AZ_UNITY_BUILD

@@ -10,8 +10,6 @@
 *
 */
 
-#include <precompiled.h>
-
 #include <ScriptCanvas/Data/PropertyTraits.h>
 #include <ScriptCanvas/Data/DataRegistry.h>
 
@@ -19,6 +17,18 @@ namespace ScriptCanvas
 {
     namespace Data
     {
+        void PropertyMetadata::Reflect(AZ::ReflectContext* context)
+        {
+            if (auto serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
+            {
+                serializeContext->Class<PropertyMetadata>()
+                    ->Field("m_propertySlotId", &PropertyMetadata::m_propertySlotId)
+                    ->Field("m_propertyType", &PropertyMetadata::m_propertyType)
+                    ->Field("m_propertyName", &PropertyMetadata::m_propertyName)
+                    ;
+            }
+        }
+
         GetterContainer ExplodeToGetters(const Data::Type& type)
         {
             auto& typeIdTraitMap = GetDataRegistry()->m_typeIdTraitMap;

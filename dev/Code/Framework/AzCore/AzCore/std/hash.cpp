@@ -9,14 +9,13 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
-#ifndef AZ_UNITY_BUILD
 
 #include <AzCore/std/hash.h>
 #include <AzCore/std/algorithm.h>
 
 namespace AZStd
 {
-    static const AZStd::size_t prime_list[] = {
+    static constexpr AZStd::size_t prime_list[] = {
         7ul,          23ul,
         53ul,         97ul,         193ul,       389ul,       769ul,
         1543ul,       3079ul,       6151ul,      12289ul,     24593ul,
@@ -34,5 +33,3 @@ namespace AZStd
         return (pos == last ? *(last - 1) : *pos);
     }
 }
-
-#endif // AZ_UNITY_BUILD

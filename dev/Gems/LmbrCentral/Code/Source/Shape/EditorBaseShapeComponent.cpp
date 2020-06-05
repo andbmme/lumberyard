@@ -9,97 +9,175 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
+
 #include "LmbrCentral_precompiled.h"
 #include "EditorBaseShapeComponent.h"
+
 #include <AzCore/Serialization/EditContext.h>
+#include <LmbrCentral/Shape/ShapeComponentBus.h>
 
 namespace LmbrCentral
 {
-    const AZ::Vector4 EditorBaseShapeComponent::s_shapeColor(1.00f, 1.00f, 0.78f, 0.4f);
-    const AZ::Vector4 EditorBaseShapeComponent::s_shapeWireColor(1.00f, 1.00f, 0.78f, 0.5f);
+    void EditorBaseShapeComponent::GetProvidedServices(AZ::ComponentDescriptor::DependencyArrayType& provided)
+    {
+        provided.push_back(AZ_CRC("ShapeService", 0xe86aa5fe));
+    }
+
+    void EditorBaseShapeComponent::GetIncompatibleServices(AZ::ComponentDescriptor::DependencyArrayType& incompatible)
+    {
+        incompatible.push_back(AZ_CRC("ShapeService", 0xe86aa5fe));
+    }
+
+    void EditorBaseShapeComponent::GetRequiredServices(AZ::ComponentDescriptor::DependencyArrayType& required)
+    {
+        required.push_back(AZ_CRC("TransformService", 0x8ee22c50));
+    }
 
     void EditorBaseShapeComponent::Reflect(AZ::SerializeContext& context)
     {
         context.Class<EditorBaseShapeComponent, EditorComponentBase>()
-            ->Field("Visible", &EditorBaseShapeComponent::m_visibleInEditor);
+            ->Version(2)
+            ->Field("Visible", &EditorBaseShapeComponent::m_visibleInEditor)
+            ->Field("GameView", &EditorBaseShapeComponent::m_visibleInGameView)
+            ->Field("DisplayFilled", &EditorBaseShapeComponent::m_displayFilled)
+            ->Field("ShapeColor", &EditorBaseShapeComponent::m_shapeColor)
+            ;
 
         if (auto editContext = context.GetEditContext())
         {
             editContext->Class<EditorBaseShapeComponent>("EditorBaseShapeComponent", "Editor base shape component")
                 ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
                 ->Attribute(AZ::Edit::Attributes::Visibility, AZ::Edit::PropertyVisibility::ShowChildrenOnly)
-                ->DataElement(AZ::Edit::UIHandlers::Default, &EditorBaseShapeComponent::m_visibleInEditor, "Visible", "Always display this shape in the editor viewport")
+                ->DataElement(AZ::Edit::UIHandlers::CheckBox, &EditorBaseShapeComponent::m_visibleInEditor, "Visible", "Always display this shape in the editor viewport")
+                ->DataElement(AZ::Edit::UIHandlers::CheckBox, &EditorBaseShapeComponent::m_visibleInGameView, "Game View", "Display the shape while in Game View")
+                // ->DataElement(AZ::Edit::UIHandlers::CheckBox, &EditorBaseShapeComponent::m_displayFilled, "Filled", "Display the shape as either filled or wireframe") // hidden before selection is resolved
+                //   ->Attribute(AZ::Edit::Attributes::ChangeNotify, &EditorBaseShapeComponent::OnDisplayFilledChanged)
+                ->DataElement(AZ::Edit::UIHandlers::Default, &EditorBaseShapeComponent::m_shapeColor, "Shape Color", "The color to use when rendering the faces of the shape object")
+                    ->Attribute(AZ::Edit::Attributes::ChangeNotify, &EditorBaseShapeComponent::OnShapeColorChanged)
+                    ->Attribute(AZ::Edit::Attributes::Visibility, &EditorBaseShapeComponent::GetShapeColorIsEditable)
                 ;
         }
     }
 
-    EditorBaseShapeComponent::EditorBaseShapeComponent()
-        : m_shapeColor(s_shapeColor)
-        , m_shapeWireColor(s_shapeWireColor)
-    {
-    }
-
     void EditorBaseShapeComponent::Activate()
     {
-        AzToolsFramework::Components::EditorComponentBase::Activate();
-
-        m_currentEntityTransform = AZ::Transform::CreateIdentity();
-        EBUS_EVENT_ID_RESULT(m_currentEntityTransform, GetEntityId(), AZ::TransformBus, GetWorldTM);
-
+        EditorComponentBase::Activate();
         AZ::TransformNotificationBus::Handler::BusConnect(GetEntityId());
-        AzFramework::EntityDebugDisplayEventBus::Handler::BusConnect(GetEntityId());
         EditorShapeComponentRequestsBus::Handler::BusConnect(GetEntityId());
+        AzToolsFramework::EditorComponentSelectionRequestsBus::Handler::BusConnect(GetEntityId());
+        AzToolsFramework::EditorComponentSelectionNotificationsBus::Handler::BusConnect(GetEntityId());
     }
 
     void EditorBaseShapeComponent::Deactivate()
     {
-        AzToolsFramework::Components::EditorComponentBase::Deactivate();
-        AzFramework::EntityDebugDisplayEventBus::Handler::BusDisconnect();
-        AZ::TransformNotificationBus::Handler::BusDisconnect();
+        AzToolsFramework::EditorComponentSelectionNotificationsBus::Handler::BusDisconnect();
+        AzToolsFramework::EditorComponentSelectionRequestsBus::Handler::BusDisconnect();
         EditorShapeComponentRequestsBus::Handler::BusDisconnect();
-    }
-
-    void EditorBaseShapeComponent::DisplayEntity(bool& handled)
-    {
-        if (!IsSelected() && !m_visibleInEditor)
-        {
-            return;
-        }
-
-        handled = true;
-
-        AzFramework::EntityDebugDisplayRequests* displayContext = AzFramework::EntityDebugDisplayRequestBus::FindFirstHandler();
-        AZ_Assert(displayContext, "Invalid display context.");
-
-        // only uniform scale is supported in physics so the debug visuals reflect this fact
-        AZ::Transform transformWithUniformScale = m_currentEntityTransform;
-        const AZ::Vector3 scale = transformWithUniformScale.ExtractScale();
-        float newScale = AZ::GetMax(AZ::GetMax(scale.GetX(), scale.GetY()), scale.GetZ());
-        transformWithUniformScale.MultiplyByScale(AZ::Vector3(newScale, newScale, newScale));
-        {
-            displayContext->PushMatrix(transformWithUniformScale);
-            DrawShape(displayContext);
-            displayContext->PopMatrix();
-        }
-    }
-
-    void EditorBaseShapeComponent::OnTransformChanged(const AZ::Transform& /*local*/, const AZ::Transform& world)
-    {
-        m_currentEntityTransform = world;
-    }
-
-    void EditorBaseShapeComponent::SetShapeColor(const AZ::Vector4& shapeColor)
-    {
-        m_shapeColor = shapeColor;
-    }
-
-    void EditorBaseShapeComponent::SetShapeWireframeColor(const AZ::Vector4& wireColor)
-    {
-        m_shapeWireColor = wireColor;
+        AZ::TransformNotificationBus::Handler::BusDisconnect();
+        EditorComponentBase::Deactivate();
     }
 
     void EditorBaseShapeComponent::SetVisibleInEditor(bool visible)
     {
         m_visibleInEditor = visible;
     }
+
+    void EditorBaseShapeComponent::SetShapeColor(const AZ::Color& shapeColor)
+    {
+        m_shapeColor = shapeColor;
+        AzToolsFramework::ToolsApplicationEvents::Bus::Broadcast(&AzToolsFramework::ToolsApplicationEvents::InvalidatePropertyDisplay, AzToolsFramework::Refresh_Values);
+    }
+
+    void EditorBaseShapeComponent::SetShapeWireframeColor(const AZ::Color& wireColor)
+    {
+        m_shapeWireColor = wireColor;
+    }
+
+    void EditorBaseShapeComponent::SetShapeColorIsEditable(bool editable)
+    {
+        if (m_shapeColorIsEditable != editable)
+        {
+            m_shapeColorIsEditable = editable;
+
+          // This changes the visibility of a property so a request to refresh the entire tree must be sent.
+            AzToolsFramework::ToolsApplicationEvents::Bus::Broadcast(&AzToolsFramework::ToolsApplicationEvents::InvalidatePropertyDisplay, AzToolsFramework::Refresh_EntireTree);
+        }
+    }
+
+    bool EditorBaseShapeComponent::GetShapeColorIsEditable()
+    {
+        return m_shapeColorIsEditable;
+    }
+
+    bool EditorBaseShapeComponent::CanDraw() const
+    {
+        return IsSelected() || m_visibleInEditor;
+    }
+
+    void EditorBaseShapeComponent::SetShapeComponentConfig(ShapeComponentConfig* shapeConfig)
+    {
+        m_shapeConfig = shapeConfig;
+    }
+
+    AZ::Aabb EditorBaseShapeComponent::GetEditorSelectionBoundsViewport(
+        const AzFramework::ViewportInfo& /*viewportInfo*/)
+    {
+        AZ::Aabb aabb = AZ::Aabb::CreateNull();
+        ShapeComponentRequestsBus::EventResult(aabb, GetEntityId(), &ShapeComponentRequests::GetEncompassingAabb);
+        return aabb;
+    }
+
+    bool EditorBaseShapeComponent::EditorSelectionIntersectRayViewport(
+        const AzFramework::ViewportInfo& /*viewportInfo*/,
+        const AZ::Vector3& src, const AZ::Vector3& dir, AZ::VectorFloat & distance)
+    {
+        // if we are not drawing this or it is wireframe, do not allow selection
+        if (!CanDraw() || !m_displayFilled)
+        {
+            return false;
+        }
+
+        // Don't intersect with shapes when the camera is inside them
+        bool isInside = false;
+        ShapeComponentRequestsBus::EventResult(isInside, GetEntityId(), &ShapeComponentRequests::IsPointInside, src);
+        if (isInside)
+        {
+            return false;
+        }
+        
+        bool rayHit = false;
+        ShapeComponentRequestsBus::EventResult(rayHit, GetEntityId(), &ShapeComponentRequests::IntersectRay, src, dir, distance);
+        return rayHit;
+    }
+
+    void EditorBaseShapeComponent::OnAccentTypeChanged(AzToolsFramework::EntityAccentType accent)
+    {
+        if (accent == AzToolsFramework::EntityAccentType::Hover || IsSelected())
+        {
+            SetShapeWireframeColor(AzFramework::ViewportColors::HoverColor);
+        }
+        else
+        {
+            SetShapeWireframeColor(AzFramework::ViewportColors::WireColor);
+        }
+    }
+
+    void EditorBaseShapeComponent::OnShapeColorChanged()
+    {
+        m_shapeColor.SetA(AzFramework::ViewportColors::DeselectedColor.GetA());
+
+        if (m_shapeConfig)
+        {
+            m_shapeConfig->SetDrawColor(m_shapeColor);
+        }
+    }
+
+    void EditorBaseShapeComponent::OnDisplayFilledChanged()
+    {
+        if (m_shapeConfig)
+        {
+            m_shapeConfig->SetIsFilled(m_displayFilled);
+        }
+    }
+
 } // namespace LmbrCentral

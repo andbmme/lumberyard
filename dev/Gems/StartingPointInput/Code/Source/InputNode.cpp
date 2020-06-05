@@ -23,17 +23,17 @@
 #include <PlayerProfileRequestBus.h>
 #include <ScriptCanvas/Libraries/Libraries.h>
 
-
-
-
-
 namespace InputNodes
 {
-    void InputNode::OnActivate()
+    void InputNode::OnPostActivate()
     {
-        const ScriptCanvas::SlotId eventNameSlotId = InputNodeProperty::GetEventNameSlotId(this);
-        m_eventName = *GetInput(eventNameSlotId)->GetAs<ScriptCanvas::Data::StringType>();
-        AZ::InputEventNotificationBus::Handler::BusConnect(AZ::InputEventNotificationId(m_eventName.c_str()));
+        if (GetExecutionType() == ScriptCanvas::ExecutionType::Runtime)
+        {
+            const ScriptCanvas::SlotId eventNameSlotId = InputNodeProperty::GetEventNameSlotId(this);
+
+            m_eventName = (*(FindDatum(eventNameSlotId)->GetAs<ScriptCanvas::Data::StringType>()));
+            AZ::InputEventNotificationBus::Handler::BusConnect(AZ::InputEventNotificationId(m_eventName.c_str()));
+        }
     }
 
     void InputNode::OnDeactivate()
@@ -41,20 +41,24 @@ namespace InputNodes
         AZ::InputEventNotificationBus::Handler::BusDisconnect();
     }
 
-    void InputNode::OnInputSignal(const ScriptCanvas::SlotId& slotId)
+    void InputNode::OnInputChanged(const ScriptCanvas::Datum& input, const ScriptCanvas::SlotId& slotId)
     {
         // we got a new event name, we need to drop our connection to the old and connect to the new event
         const ScriptCanvas::SlotId eventNameSlotId = InputNodeProperty::GetEventNameSlotId(this);
-        AZ::InputEventNotificationBus::Handler::BusDisconnect();
 
-        m_eventName = *GetInput(eventNameSlotId)->GetAs<ScriptCanvas::Data::StringType>();
-        AZ::InputEventNotificationBus::Handler::BusConnect(AZ::InputEventNotificationId(m_eventName.c_str()));
+        if (slotId == eventNameSlotId)
+        {
+            AZ::InputEventNotificationBus::Handler::BusDisconnect();
+
+            m_eventName = (*input.GetAs<ScriptCanvas::Data::StringType>());
+            AZ::InputEventNotificationBus::Handler::BusConnect(AZ::InputEventNotificationId(m_eventName.c_str()));
+        }
     }
     
     void InputNode::OnPressed(float value)
     {
         m_value = value;
-        const ScriptCanvas::Datum output = ScriptCanvas::Datum::CreateInitializedCopy(m_value);
+        const ScriptCanvas::Datum output = ScriptCanvas::Datum(m_value);
         const ScriptCanvas::SlotId pressedSlotId = InputNodeProperty::GetPressedSlotId(this);
         const ScriptCanvas::SlotId valueId = InputNodeProperty::GetValueSlotId(this);
 
@@ -62,13 +66,14 @@ namespace InputNodes
         {
             PushOutput(output, *slot);
         }
+
         SignalOutput(pressedSlotId);
     }
 
     void InputNode::OnHeld(float value)
     {
         m_value = value;
-        const ScriptCanvas::Datum output = ScriptCanvas::Datum::CreateInitializedCopy(m_value);
+        const ScriptCanvas::Datum output = ScriptCanvas::Datum(m_value);
         const ScriptCanvas::SlotId heldSlotId = InputNodeProperty::GetHeldSlotId(this);
         const ScriptCanvas::SlotId valueId = InputNodeProperty::GetValueSlotId(this);
         if (auto* slot = GetSlot(valueId))
@@ -81,7 +86,7 @@ namespace InputNodes
     void InputNode::OnReleased(float value)
     {
         m_value = value;
-        const ScriptCanvas::Datum output = ScriptCanvas::Datum::CreateInitializedCopy(m_value);
+        const ScriptCanvas::Datum output = ScriptCanvas::Datum(m_value);
         const ScriptCanvas::SlotId releasedSlotId = InputNodeProperty::GetReleasedSlotId(this);
         const ScriptCanvas::SlotId valueId = InputNodeProperty::GetValueSlotId(this);
 

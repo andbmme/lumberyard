@@ -13,6 +13,7 @@
 #pragma once
 
 // include required headers
+#include <AzCore/RTTI/TypeInfo.h>
 #include <AzCore/Math/Vector2.h>
 #include "StandardHeaders.h"
 #include "FastMath.h"
@@ -24,7 +25,8 @@
 namespace MCore
 {
     /**
-     * The quaternion class.
+     * Depracated. Please use AZ::Quaternion instead.
+     * The quaternion class in MCore. 
      * Quaternions are mostly used to represent rotations in 3D applications.
      * The advantages of quaternions over matrices are that they take up less space and that interpolation between
      * two quaternions is easier to perform. Instead of a 3x3 rotation matrix, which is 9 floats or doubles, a quaternion
@@ -34,6 +36,8 @@ namespace MCore
     class MCORE_API Quaternion
     {
     public:
+        AZ_TYPE_INFO(MCore::Quaternion, "{1807CD22-EBB5-45E8-8113-3B1DABB53F12}")
+
         /**
          * Default constructor. Sets x, y and z to 0 and w to 1.
          */

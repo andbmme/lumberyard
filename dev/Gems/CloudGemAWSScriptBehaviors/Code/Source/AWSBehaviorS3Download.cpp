@@ -17,11 +17,11 @@
 #include <CloudCanvas/CloudCanvasMappingsBus.h>
 
 /// To use a specific AWS API request you have to include each of these.
-#pragma warning(push)
-#pragma warning(disable: 4355) // <future> includes ppltasks.h which throws a C4355 warning: 'this' used in base member initializer list
+#include <AzCore/PlatformDef.h>
+AZ_PUSH_DISABLE_WARNING(4251 4355 4996, "-Wunknown-warning-option")
 #include <aws/s3/S3Client.h>
 #include <aws/s3/model/GetObjectRequest.h>
-#pragma warning(pop)
+AZ_POP_DISABLE_WARNING
 #include <fstream>
 
 namespace CloudGemAWSScriptBehaviors
@@ -102,11 +102,20 @@ namespace CloudGemAWSScriptBehaviors
         auto job = S3DownloadRequestJob::Create(
             [](S3DownloadRequestJob* job) // OnSuccess handler
             {
-                EBUS_EVENT(AWSBehaviorS3DownloadNotificationsBus, OnSuccess, "File Downloaded");
+                AZStd::function<void()> notifyOnMainThread = []()
+                {
+                    AWSBehaviorS3DownloadNotificationsBus::Broadcast(&AWSBehaviorS3DownloadNotificationsBus::Events::OnSuccess, "File Downloaded");
+                };
+                AZ::TickBus::QueueFunction(notifyOnMainThread);
             },
             [](S3DownloadRequestJob* job) // OnError handler
             {
-                EBUS_EVENT(AWSBehaviorS3DownloadNotificationsBus, OnError, job->error.GetMessage().c_str());
+                Aws::String errorMessage = job->error.GetMessage();
+                AZStd::function<void()> notifyOnMainThread = [errorMessage]()
+                {
+                    AWSBehaviorS3DownloadNotificationsBus::Broadcast(&AWSBehaviorS3DownloadNotificationsBus::Events::OnError, errorMessage.c_str());
+                };
+                AZ::TickBus::QueueFunction(notifyOnMainThread);
             },
             &config
         );

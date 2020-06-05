@@ -1,11 +1,11 @@
 {
 	"name": "boost",
-	"source": "@ROOT@/Code/SDKs/boost",
+	"source": "@3P:boost@",
 	"description": "Boost header only library",
 	"header_only": "True",
-	"includes": [
+	"system_includes": [
 		"."
 	],
-	"defines": [],
+	"defines": ["BOOST_NO_AUTO_PTR"],
 	"lib_required": "False"
 }

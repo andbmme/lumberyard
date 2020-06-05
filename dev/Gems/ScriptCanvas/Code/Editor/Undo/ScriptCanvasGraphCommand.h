@@ -17,6 +17,8 @@
 #include <AzToolsFramework/Undo/UndoSystem.h>
 #include <ScriptCanvas/Bus/UndoBus.h>
 
+#include <ScriptCanvas/Core/Core.h>
+
 namespace ScriptCanvasEditor
 {
     class GraphItemCommandNotifications
@@ -24,7 +26,7 @@ namespace ScriptCanvasEditor
     {
     public:
         static const AZ::EBusAddressPolicy AddressPolicy = AZ::EBusAddressPolicy::ById;
-        using BusIdType = AZ::EntityId;
+        using BusIdType = ScriptCanvas::ScriptCanvasId;
 
         virtual void PreRestore(const UndoData& /*oldData*/) {};
         virtual void PostRestore(const UndoData& /* restoredData*/) {};
@@ -46,9 +48,9 @@ namespace ScriptCanvasEditor
         void Undo() override;
         void Redo() override;
 
-        bool Changed() const override { return m_undoState != m_redoState;  }
-
         virtual void Capture(AZ::Entity* scriptCanvasEntity, bool captureUndo);
+
+        bool Changed() const override;
 
     protected:
         GraphItemCommand(const GraphItemCommand&) = delete;
@@ -56,7 +58,9 @@ namespace ScriptCanvasEditor
 
         virtual void RestoreItem(const AZStd::vector<AZ::u8>& restoreBuffer);
 
-        AZ::EntityId m_scriptCanvasEntityId; ///< The id of the ScriptCanvas Entity with the Script Canvas Graph and Graph Canvas Scene
+        AZ::EntityId m_graphCanvasGraphId;
+        AZ::EntityId                 m_scriptCanvasEntityId; ///< The id of the ScriptCanvas Entity with the Script Canvas Graph and Graph Canvas Scene
+        ScriptCanvas::ScriptCanvasId m_scriptCanvasId; 
         AZStd::vector<AZ::u8> m_undoState;
         AZStd::vector<AZ::u8> m_redoState;
     };

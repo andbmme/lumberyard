@@ -12,18 +12,19 @@
 // Original file Copyright Crytek GMBH or its affiliates, used under license.
 
 #include "StdAfx.h"
+#include "TrackViewPythonFuncs.h"
 #include "TrackViewNodes.h"
 #include "TrackViewAnimNode.h"
-#include "TrackViewUndo.h"
 #include "TrackViewSequenceManager.h"
 #include "AnimationContext.h"
 
 #include <IMovieSystem.h>
 
-#include "Util/BoostPythonHelpers.h"
-#include "Maestro/Types/AnimNodeType.h"
-#include "Maestro/Types/AnimParamType.h"
-#include "Maestro/Types/AnimValueType.h"
+#include <Maestro/Types/AnimNodeType.h>
+#include <Maestro/Types/AnimParamType.h>
+#include <Maestro/Types/AnimValueType.h>
+
+#include <AzCore/RTTI/BehaviorContext.h>
 
 namespace
 {
@@ -100,10 +101,13 @@ namespace
 
     void PyTrackViewSetCurrentSequence(const char* name)
     {
-        const CTrackViewSequenceManager* pSequenceManager = GetIEditor()->GetSequenceManager();
-        CTrackViewSequence* pSequence = GetSequenceByEntityIdOrName(pSequenceManager, name);
-        CAnimationContext* pAnimationContext = GetIEditor()->GetAnimation();
-        pAnimationContext->SetSequence(pSequence, false, false);
+        const CTrackViewSequenceManager* sequenceManager = GetIEditor()->GetSequenceManager();
+        CTrackViewSequence* sequence = GetSequenceByEntityIdOrName(sequenceManager, name);
+        CAnimationContext* animationContext = GetIEditor()->GetAnimation();
+        bool force = false;
+        bool noNotify = false;
+        bool user = true;
+        animationContext->SetSequence(sequence, force, noNotify, user);
     }
 
     int PyTrackViewGetNumSequences()
@@ -112,7 +116,7 @@ namespace
         return pSequenceManager->GetCount();
     }
 
-    QString PyTrackViewGetSequenceName(unsigned int index)
+    AZStd::string PyTrackViewGetSequenceName(unsigned int index)
     {
         if (index < PyTrackViewGetNumSequences())
         {
@@ -123,7 +127,7 @@ namespace
         throw std::runtime_error("Could not find sequence");
     }
 
-    boost::python::tuple PyTrackViewGetSequenceTimeRange(const char* name)
+    Range PyTrackViewGetSequenceTimeRange(const char* name)
     {
         const CTrackViewSequenceManager* pSequenceManager = GetIEditor()->GetSequenceManager();
         CTrackViewSequence* pSequence = GetSequenceByEntityIdOrName(pSequenceManager, name);
@@ -132,8 +136,7 @@ namespace
             throw std::runtime_error("A sequence with this name doesn't exists");
         }
 
-        const Range timeRange = pSequence->GetTimeRange();
-        return boost::python::make_tuple(timeRange.start, timeRange.end);
+        return pSequence->GetTimeRange();
     }
 
     void PyTrackViewSetSequenceTimeRange(const char* name, float start, float end)
@@ -201,30 +204,22 @@ namespace
 
     void PyTrackViewAddSelectedEntities()
     {
-        CAnimationContext* pAnimationContext = GetIEditor()->GetAnimation();
-        CTrackViewSequence* pSequence = pAnimationContext->GetSequence();
-        if (!pSequence)
+        CAnimationContext* animationContext = GetIEditor()->GetAnimation();
+        CTrackViewSequence* sequence = animationContext->GetSequence();
+        if (!sequence)
         {
             throw std::runtime_error("No sequence is active");
         }
 
-        CUndo undo("Add entities to TrackView");
+        AZStd::vector<AnimParamType> tracks = {
+            AnimParamType::Position,
+            AnimParamType::Rotation
+        };
 
-        // Create Position, Rotation and Event by default to preserve compatibility with
-        // existing scripts.
-        IMovieSystem* pMovieSystem = GetIEditor()->GetMovieSystem();
-        DynArray<unsigned int> trackCount(pMovieSystem->GetEntityNodeParamCount(), 0);
-        for (int i = 0; i < trackCount.size(); ++i)
-        {
-            CAnimParamType paramType = pMovieSystem->GetEntityNodeParamType(i);
-            if (paramType == AnimParamType::Position || paramType == AnimParamType::Rotation || paramType == AnimParamType::Event)
-            {
-                trackCount[i] = 1;
-            }
-        }
-
-        pSequence->AddSelectedEntities(trackCount);
-        pSequence->BindToEditorObjects();
+        AzToolsFramework::ScopedUndoBatch undoBatch("Add entities to Track View");
+        sequence->AddSelectedEntities(tracks);
+        sequence->BindToEditorObjects();
+        undoBatch.MarkEntityDirty(sequence->GetSequenceComponentEntityId());
     }
 
     void PyTrackViewAddLayerNode()
@@ -265,9 +260,9 @@ namespace
         return (foundNodes.GetCount() > 0) ? foundNodes.GetNode(0) : nullptr;
     }
 
-    void PyTrackViewDeleteNode(const char* nodeName, const char* parentDirectorName)
+    void PyTrackViewDeleteNode(AZStd::string_view nodeName, AZStd::string_view parentDirectorName)
     {
-        CTrackViewAnimNode* pNode = GetNodeFromName(nodeName, parentDirectorName);
+        CTrackViewAnimNode* pNode = GetNodeFromName(nodeName.data(), parentDirectorName.data());
         if (pNode == nullptr)
         {
             throw std::runtime_error("Couldn't find node");
@@ -341,7 +336,7 @@ namespace
         pNode->RemoveTrack(pTrack);
     }
 
-    int PyTrackViewGetNumNodes(const char* parentDirectorName)
+    int PyTrackViewGetNumNodes(AZStd::string_view parentDirectorName)
     {
         CAnimationContext* pAnimationContext = GetIEditor()->GetAnimation();
         CTrackViewSequence* pSequence = pAnimationContext->GetSequence();
@@ -351,9 +346,9 @@ namespace
         }
 
         CTrackViewAnimNode* pParentDirector = pSequence;
-        if (strlen(parentDirectorName) > 0)
+        if (!parentDirectorName.empty())
         {
-            CTrackViewAnimNodeBundle foundNodes = pSequence->GetAnimNodesByName(parentDirectorName);
+            CTrackViewAnimNodeBundle foundNodes = pSequence->GetAnimNodesByName(parentDirectorName.data());
             if (foundNodes.GetCount() == 0 || foundNodes.GetNode(0)->GetType() != AnimNodeType::Director)
             {
                 throw std::runtime_error("Director node not found");
@@ -366,7 +361,7 @@ namespace
         return foundNodes.GetCount();
     }
 
-    QString PyTrackViewGetNodeName(int index, const char* parentDirectorName)
+    AZStd::string PyTrackViewGetNodeName(int index, AZStd::string_view parentDirectorName)
     {
         CAnimationContext* pAnimationContext = GetIEditor()->GetAnimation();
         CTrackViewSequence* pSequence = pAnimationContext->GetSequence();
@@ -376,9 +371,9 @@ namespace
         }
 
         CTrackViewAnimNode* pParentDirector = pSequence;
-        if (strlen(parentDirectorName) > 0)
+        if (!parentDirectorName.empty())
         {
-            CTrackViewAnimNodeBundle foundNodes = pSequence->GetAnimNodesByName(parentDirectorName);
+            CTrackViewAnimNodeBundle foundNodes = pSequence->GetAnimNodesByName(parentDirectorName.data());
             if (foundNodes.GetCount() == 0 || foundNodes.GetNode(0)->GetType() != AnimNodeType::Director)
             {
                 throw std::runtime_error("Director node not found");
@@ -435,11 +430,9 @@ namespace
         return (int)GetKeyTimeSet(pTrack).size();
     }
 
-    SPyWrappedProperty PyTrackViewGetInterpolatedValue(const char* paramName, int trackIndex, float time, const char* nodeName, const char* parentDirectorName)
+    AZStd::any PyTrackViewGetInterpolatedValue(const char* paramName, int trackIndex, float time, const char* nodeName, const char* parentDirectorName)
     {
         CTrackViewTrack* pTrack = GetTrack(paramName, trackIndex, nodeName, parentDirectorName);
-
-        SPyWrappedProperty prop;
 
         switch (pTrack->GetValueType())
         {
@@ -448,67 +441,52 @@ namespace
         {
             float value;
             pTrack->GetValue(time, value);
-            prop.type = SPyWrappedProperty::eType_Float;
-            prop.property.floatValue = value;
+            return AZStd::make_any<float>(value);
         }
         break;
         case AnimValueType::Bool:
         {
             bool value;
             pTrack->GetValue(time, value);
-            prop.type = SPyWrappedProperty::eType_Bool;
-            prop.property.boolValue = value;
+            return AZStd::make_any<bool>(value);
         }
         break;
         case AnimValueType::Quat:
         {
             Quat value;
             pTrack->GetValue(time, value);
-            prop.type = SPyWrappedProperty::eType_Vec3;
             Ang3 rotation(value);
-            prop.property.vecValue.x = rotation.x;
-            prop.property.vecValue.y = rotation.y;
-            prop.property.vecValue.z = rotation.z;
+            return AZStd::make_any<AZ::Vector3>(rotation.x, rotation.y, rotation.z);
         }
         case AnimValueType::Vector:
         {
             Vec3 value;
             pTrack->GetValue(time, value);
-            prop.type = SPyWrappedProperty::eType_Vec3;
-            prop.property.vecValue.x = value.x;
-            prop.property.vecValue.y = value.y;
-            prop.property.vecValue.z = value.z;
+            return AZStd::make_any<AZ::Vector3>(value.x, value.y, value.z);
         }
         break;
         case AnimValueType::Vector4:
         {
             Vec4 value;
             pTrack->GetValue(time, value);
-            prop.type = SPyWrappedProperty::eType_Vec4;
-            prop.property.vecValue.x = value.x;
-            prop.property.vecValue.y = value.y;
-            prop.property.vecValue.z = value.z;
-            prop.property.vecValue.w = value.w;
+            return AZStd::make_any<AZ::Vector4>(value.x, value.y, value.z, value.w);
         }
         break;
         case AnimValueType::RGB:
         {
             Vec3 value;
             pTrack->GetValue(time, value);
-            prop.type = SPyWrappedProperty::eType_Color;
-            prop.property.colorValue.r = value.x;
-            prop.property.colorValue.g = value.y;
-            prop.property.colorValue.b = value.z;
+            return AZStd::make_any<AZ::Color>(value.x, value.y, value.z, 0.0f);
         }
         break;
         default:
             throw std::runtime_error("Unsupported key type");
         }
 
-        return prop;
+        return AZStd::any();
     }
 
-    SPyWrappedProperty PyTrackViewGetKeyValue(const char* paramName, int trackIndex, int keyIndex, const char* nodeName, const char* parentDirectorName)
+    AZStd::any PyTrackViewGetKeyValue(const char* paramName, int trackIndex, int keyIndex, const char* nodeName, const char* parentDirectorName)
     {
         CTrackViewTrack* pTrack = GetTrack(paramName, trackIndex, nodeName, parentDirectorName);
 
@@ -526,76 +504,54 @@ namespace
     }
 }
 
-// General
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyTrackViewSetRecording, trackview, set_recording,
-    "Activates/deactivates TrackView recording mode",
-    "trackview.set_recording(bool bRecording)");
+namespace AzToolsFramework
+{
+    void TrackViewFuncsHandler::Reflect(AZ::ReflectContext* context)
+    {
+        if (auto behaviorContext = azrtti_cast<AZ::BehaviorContext*>(context))
+        {
+            behaviorContext->Class<Range>("CryRange")
+                ->Attribute(AZ::Script::Attributes::Scope, AZ::Script::Attributes::ScopeFlags::Automation)
+                ->Attribute(AZ::Script::Attributes::Module, "legacy.trackview")
+                ->Property("start", BehaviorValueProperty(&Range::start))
+                ->Property("end", BehaviorValueProperty(&Range::end))
+                ;
 
-// Sequences
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyTrackViewNewSequence, trackview, new_sequence,
-    "Creates a new sequence of the given type (0=Object Entity Sequence (Legacy), 1=Component Entity Sequence (PREVIEW)) with the given name.",
-    "trackview.new_sequence(str sequenceName, int sequenceType)");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyTrackViewDeleteSequence, trackview, delete_sequence,
-    "Deletes the specified sequence.",
-    "trackview.delete_sequence(str sequenceName)");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyTrackViewSetCurrentSequence, trackview, set_current_sequence,
-    "Sets the specified sequence as a current one in TrackView.",
-    "trackview.set_current_sequence(str sequenceName)");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyTrackViewGetNumSequences, trackview, get_num_sequences,
-    "Gets the number of sequences.",
-    "trackview.get_num_sequences()");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyTrackViewGetSequenceName, trackview, get_sequence_name,
-    "Gets the name of a sequence by its index.",
-    "trackview.get_sequence_name(int sequenceIndex)");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyTrackViewGetSequenceTimeRange, trackview, get_sequence_time_range,
-    "Gets the time range of a sequence as a pair",
-    "trackview.get_sequence_time_range(string sequenceName)");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyTrackViewSetSequenceTimeRange, trackview, set_sequence_time_range,
-    "Sets the time range of a sequence",
-    "trackview.set_sequence_time_range(string sequenceName, float start, float end)");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyTrackViewPlaySequence, trackview, play_sequence,
-    "Plays the current sequence in TrackView.",
-    "trackview.play_sequence()");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyTrackViewStopSequence, trackview, stop_sequence,
-    "Stops any sequence currently playing in TrackView.",
-    "trackview.stop_sequence()");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyTrackViewSetSequenceTime, trackview, set_time,
-    "Sets the time of the sequence currently playing in TrackView.",
-    "trackview.set_time(float time)");
+            // this will put these methods into the 'azlmbr.legacy.trackview' module
+            auto addLegacyTrackview = [](AZ::BehaviorContext::GlobalMethodBuilder methodBuilder)
+            {
+                methodBuilder->Attribute(AZ::Script::Attributes::Scope, AZ::Script::Attributes::ScopeFlags::Automation)
+                    ->Attribute(AZ::Script::Attributes::Category, "Legacy/TrackView")
+                    ->Attribute(AZ::Script::Attributes::Module, "legacy.trackview");
+            };
+            addLegacyTrackview(behaviorContext->Method("set_recording", PyTrackViewSetRecording, nullptr, "Activates/deactivates TrackView recording mode."));
 
-// Nodes
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyTrackViewAddNode, trackview, add_node,
-    "Adds a new node with the given type & name to the current sequence.",
-    "trackview.add_node(str nodeTypeName, str nodeName)");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyTrackViewAddSelectedEntities, trackview, add_selected_entities,
-    "Adds an entity node(s) from viewport selection to the current sequence.",
-    "trackview.add_selected_entities()");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyTrackViewAddLayerNode, trackview, add_layer_node,
-    "Adds a layer node from the current layer to the current sequence.",
-    "trackview.add_layer_node()");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyTrackViewDeleteNode, trackview, delete_node,
-    "Deletes the specified node from the current sequence.",
-    "trackview.delete_node(str nodeName, str parentDirectorName)");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyTrackViewAddTrack, trackview, add_track,
-    "Adds a track of the given parameter ID to the node.",
-    "trackview.add_track(str paramType, str nodeName, str parentDirectorName)");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyTrackViewDeleteTrack, trackview, delete_track,
-    "Deletes a track of the given parameter ID (in the given index in case of a multi-track) from the node.",
-    "trackview.delete_track(str paramType, int index, str nodeName, str parentDirectorName)");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyTrackViewGetNumNodes, trackview, get_num_nodes,
-    "Gets the number of sequences.",
-    "trackview.get_num_nodes(str parentDirectorName)");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyTrackViewGetNodeName, trackview, get_node_name,
-    "Gets the name of a sequence by its index.",
-    "trackview.get_node_name(int nodeIndex, str parentDirectorName)");
+            addLegacyTrackview(behaviorContext->Method("new_sequence", PyTrackViewNewSequence, nullptr, "Creates a new sequence of the given type (0=Object Entity Sequence (Legacy), 1=Component Entity Sequence (PREVIEW)) with the given name."));
+            addLegacyTrackview(behaviorContext->Method("delete_sequence", PyTrackViewDeleteSequence, nullptr, "Deletes the specified sequence."));
+            addLegacyTrackview(behaviorContext->Method("set_current_sequence", PyTrackViewSetCurrentSequence, nullptr, "Sets the specified sequence as a current one in TrackView."));
+            addLegacyTrackview(behaviorContext->Method("get_num_sequences", PyTrackViewGetNumSequences, nullptr, "Gets the number of sequences."));
+            addLegacyTrackview(behaviorContext->Method("get_sequence_name", PyTrackViewGetSequenceName, nullptr, "Gets the name of a sequence by its index."));
 
-// Tracks
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyTrackViewGetNumTrackKeys, trackview, get_num_track_keys,
-    "Gets number of keys of the specified track",
-    "trackview.get_num_track_keys(str paramName, int trackIndex, str nodeName, str parentDirectorName)");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyTrackViewGetKeyValue, trackview, get_key_value,
-    "Gets the value of the specified key",
-    "trackview.get_key_value(str paramName, int trackIndex, int keyIndex, str nodeName, str parentDirectorName)");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyTrackViewGetInterpolatedValue, trackview, get_interpolated_value,
-    "Gets the interpolated value of a track at the specified time",
-    "trackview.get_interpolated_value(str paramName, int trackIndex, float time, str nodeName, str parentDirectorName)");
+            addLegacyTrackview(behaviorContext->Method("get_sequence_time_range", PyTrackViewGetSequenceTimeRange, nullptr, "Gets the time range of a sequence as a pair."));
+
+            addLegacyTrackview(behaviorContext->Method("set_sequence_time_range", PyTrackViewSetSequenceTimeRange, nullptr, "Sets the time range of a sequence."));
+            addLegacyTrackview(behaviorContext->Method("play_sequence", PyTrackViewPlaySequence, nullptr, "Plays the current sequence in TrackView."));
+            addLegacyTrackview(behaviorContext->Method("stop_sequence", PyTrackViewStopSequence, nullptr, "Stops any sequence currently playing in TrackView."));
+            addLegacyTrackview(behaviorContext->Method("set_time", PyTrackViewSetSequenceTime, nullptr, "Sets the time of the sequence currently playing in TrackView."));
+
+            addLegacyTrackview(behaviorContext->Method("add_node", PyTrackViewAddNode, nullptr, "Adds a new node with the given type & name to the current sequence."));
+            addLegacyTrackview(behaviorContext->Method("add_selected_entities", PyTrackViewAddSelectedEntities, nullptr, "Adds an entity node(s) from viewport selection to the current sequence."));
+            addLegacyTrackview(behaviorContext->Method("add_layer_node", PyTrackViewAddLayerNode, nullptr, "Adds a layer node from the current layer to the current sequence."));
+            addLegacyTrackview(behaviorContext->Method("delete_node", PyTrackViewDeleteNode, nullptr, "Deletes the specified node from the current sequence."));
+            addLegacyTrackview(behaviorContext->Method("add_track", PyTrackViewAddTrack, nullptr, "Adds a track of the given parameter ID to the node."));
+            addLegacyTrackview(behaviorContext->Method("delete_track", PyTrackViewDeleteTrack, nullptr, "Deletes a track of the given parameter ID (in the given index in case of a multi-track) from the node."));
+            addLegacyTrackview(behaviorContext->Method("get_num_nodes", PyTrackViewGetNumNodes, nullptr, "Gets the number of nodes."));
+            addLegacyTrackview(behaviorContext->Method("get_node_name", PyTrackViewGetNodeName, nullptr, "Gets the name of a sequence by its index."));
+
+            addLegacyTrackview(behaviorContext->Method("get_num_track_keys", PyTrackViewGetNumTrackKeys, nullptr, "Gets number of keys of the specified track."));
+
+            addLegacyTrackview(behaviorContext->Method("get_key_value", PyTrackViewGetKeyValue, nullptr, "Gets the value of the specified key."));
+            addLegacyTrackview(behaviorContext->Method("get_interpolated_value", PyTrackViewGetInterpolatedValue, nullptr, "Gets the interpolated value of a track at the specified time."));
+        }
+    }
+}

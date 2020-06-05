@@ -58,7 +58,7 @@ namespace AzToolsFramework
         using AddComponentsOutcome = AZ::Outcome<EntityToAddedComponentsMap, AZStd::string>;
 
         /*!
-        *	Outcome will be true if successful and return one instance of the above AddComponentsResults structure (since only one entity is involved)
+        * Outcome will be true if successful and return one instance of the above AddComponentsResults structure (since only one entity is involved)
         */
         using AddExistingComponentsOutcome = AZ::Outcome<AddComponentsResults, AZStd::string>;
 
@@ -77,13 +77,15 @@ namespace AzToolsFramework
         /*!
         * Add the specified existing components to the specified entity.
         *
-        * \param entity The AZ::Entity* to add the existing components to, with full editor-level checking with pending component support
+        * \param entityId The AZ::EntityId to add the existing components to, with full editor-level checking with pending component support
         * \param componentsToAdd A list of AZ::Component* containing existing components to add. (Note: These components must not already be tied to another entity!)
         *
         * \return  Returns a successful outcome if components were added to entities.
         *          If the operation could not be completed then the failed
         *          outcome contains a string describing what went wrong.
         */
+        virtual AddExistingComponentsOutcome AddExistingComponentsToEntityById(const AZ::EntityId& entityId, const AZStd::vector<AZ::Component*>& componentsToAdd) = 0;
+        //! LUMBERYARD_DEPRECATED(LY-103316)
         virtual AddExistingComponentsOutcome AddExistingComponentsToEntity(AZ::Entity* entity, const AZStd::vector<AZ::Component*>& componentsToAdd) = 0;
 
         // Removing a component can only cause the following to occur:
@@ -91,7 +93,12 @@ namespace AzToolsFramework
         // 2) Validate other components by removing conflicting pending services
         struct RemoveComponentsResults
         {
+            //! Invalidated Components are those that were previously valid but no longer are valid.
             AZ::Entity::ComponentArrayType m_invalidatedComponents;
+            
+            //! Validated Components are those that were previously invalid (and being held back) and are now valid.
+            //! Note that during a "Scrub" operation, this remains true - it will only list those that were previously
+            //! inactive, and were activated by the scrub, it will not contain the list of previously active that remain active.
             AZ::Entity::ComponentArrayType m_validatedComponents;
         };
         using EntityToRemoveComponentsResultMap = AZStd::unordered_map<AZ::EntityId, RemoveComponentsResults>;
@@ -103,6 +110,35 @@ namespace AzToolsFramework
         * \return true if the components were successfully removed or false otherwise.
         */
         virtual RemoveComponentsOutcome RemoveComponents(const AZStd::vector<AZ::Component*>& componentsToRemove) = 0;
+
+        using ScrubEntityResults = RemoveComponentsResults;
+        using EntityToScrubEntityResultsMap = AZStd::unordered_map<AZ::EntityId, ScrubEntityResults>;
+        using ScrubEntitiesOutcome = AZ::Outcome<EntityToScrubEntityResultsMap, AZStd::string>;
+
+        /*!
+         * Scrub entities so that they can be activated.
+         * Components will be moved to the pending list if they cannot be activated.
+         * If a component had been pending, but can now be activated, then it will be re-enabled.
+         *
+         * ScrubEntities() may be called on entities before they are initialized.
+         *
+         * \return If successful, outcome contains details about the scrubbing.
+         * If unsuccessful, outcome contains a string describing what went wrong.
+         * 
+         * To decipher the outcome, understand that when you run the scrub an entity, 4 possible things can happen to each component:
+         *      1) Component was active before and remains active now 
+         *          --> These can be retrieved from Entity::GetComponents() and are unchanged
+         *      2) Component was active before, but is now INACTIVE due to invalid requirements.
+         *          --> These are on the Outcome's m_invalidatedComponents list.
+         *          --> They are also added to a EditorPendingCompositionComponent on the entity.  This component's job is to keep track
+         *              of invalid components and save their data in case they become active again in a later scrub.
+         *      3) Components which were inactive before (because of #2 above, in a previous scrub), but now have their requirements
+         *         satisfied during this new scrub.
+         *          --> These will be in Entity::GetComponents() but also the m_validated components list to distinguish them from the first case 1) above.
+         *      4) "Hidden" built-in components may be deprecated or invalid.  
+         *         ---> These will be deleted and a warning will be issued.  They will not be in any list, since they are deleted.
+         */
+        virtual ScrubEntitiesOutcome ScrubEntities(const EntityList& entities) = 0;
 
         /*!
         * Removes the given components from their respective entities (currently only single entity is supported) and copies the data to the clipboard if successful
@@ -140,10 +176,11 @@ namespace AzToolsFramework
         */
         virtual void DisableComponents(const AZStd::vector<AZ::Component*>& components) = 0;
 
-        /*!
-         *
-         */
         using ComponentServicesList = AZStd::vector<AZ::ComponentServiceType>;
+
+        /*!
+         * Info detailing why a pending component cannot be activated.
+         */
         struct PendingComponentInfo
         {
             AZ::Entity::ComponentArrayType m_validComponentsThatAreIncompatible;
@@ -152,7 +189,9 @@ namespace AzToolsFramework
         };
 
         /*
-         *
+         * Returns detailed info regarding a pending component.
+         * Pending components are those that cannot be activated due to
+         * missing requirements or incompatibilities with another component.
          */
         virtual PendingComponentInfo GetPendingComponentInfo(const AZ::Component* component) = 0;
 
@@ -191,9 +230,18 @@ namespace AzToolsFramework
                     {
                         PropertyAttributeReader reader(nullptr, attribPair.second);
                         AZ::Crc32 classEntityType = 0;
+                        AZStd::vector<AZ::Crc32> classEntityTypes;
+
                         if (reader.Read<AZ::Crc32>(classEntityType))
                         {
                             if (static_cast<AZ::u32>(entityType) == classEntityType)
+                            {
+                                return true;
+                            }
+                        }
+                        else if (reader.Read<AZStd::vector<AZ::Crc32>>(classEntityTypes))
+                        {
+                            if (AZStd::find(classEntityTypes.begin(), classEntityTypes.end(), entityType) != classEntityTypes.end())
                             {
                                 return true;
                             }
@@ -220,9 +268,17 @@ namespace AzToolsFramework
                     {
                         PropertyAttributeReader reader(nullptr, attribPair.second);
                         AZ::Crc32 classEntityType;
+                        AZStd::vector<AZ::Crc32> classEntityTypes;
                         if (reader.Read<AZ::Crc32>(classEntityType))
                         {
                             if (classEntityType == AZ_CRC("Game", 0x232b318c))
+                            {
+                                return true;
+                            }
+                        }
+                        else if (reader.Read<AZStd::vector<AZ::Crc32>>(classEntityTypes))
+                        {
+                            if (AZStd::find(classEntityTypes.begin(), classEntityTypes.end(), AZ_CRC("Game", 0x232b318c)) != classEntityTypes.end())
                             {
                                 return true;
                             }
@@ -245,5 +301,20 @@ namespace AzToolsFramework
     inline bool AppearsInSystemComponentMenu(const AZ::SerializeContext::ClassData& classData)
     {
         return AppearsInAddComponentMenu(classData, AZ_CRC("System", 0xc94d118b));
+    }
+
+    inline bool AppearsInLayerComponentMenu(const AZ::SerializeContext::ClassData& classData)
+    {
+        return AppearsInAddComponentMenu(classData, AZ_CRC("Layer", 0xe4db211a));
+    }
+
+    inline bool AppearsInLevelComponentMenu(const AZ::SerializeContext::ClassData& classData)
+    {
+        return AppearsInAddComponentMenu(classData, AZ_CRC("Level", 0x9aeacc13));
+    }
+
+    inline bool AppearsInAnyComponentMenu(const AZ::SerializeContext::ClassData& classData)
+    {
+        return (AppearsInGameComponentMenu(classData) || AppearsInSystemComponentMenu(classData) || AppearsInLayerComponentMenu(classData) || AppearsInLevelComponentMenu(classData));
     }
 }

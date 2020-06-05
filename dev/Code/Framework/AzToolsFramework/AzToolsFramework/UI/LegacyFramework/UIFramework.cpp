@@ -21,22 +21,23 @@
 
 #include <AzCore/Serialization/SerializeContext.h>
 
+#include <AzFramework/CommandLine/CommandLine.h>
+
+#include <AzToolsFramework/UI/UICore/QWidgetSavedState.h>
+#include <AzToolsFramework/UI/LegacyFramework/Core/EditorFrameworkAPI.h>
+#include "MainWindowSavedState.h"
+
+AZ_PUSH_DISABLE_WARNING(4251, "-Wunknown-warning-option") // '...' needs to have dll-interface to be used by clients of class '...'
 #include <QtWidgets/QApplication>
 #include <QtCore/QTimer>
 #include <QtCore/QDir>
-
-#include <AzFramework/CommandLine/CommandLine.h>
-
-#include <AzToolsFramework/UI/LegacyFramework/Core/EditorFrameworkAPI.h>
-#include "MainWindowSavedState.h"
-#include <AzToolsFramework/UI/UICore/QWidgetSavedState.h>
-
 #include <QThread>
 #include <QAction>
 #include <QMenu>
 #include <QFontDatabase>
 #include <QResource>
-#include <QDir>
+#include <QProxyStyle>
+AZ_POP_DISABLE_WARNING
 
 #include <AzFramework/StringFunc/StringFunc.h>
 
@@ -45,7 +46,7 @@ extern int __argc;
 extern char **__argv;
 #endif
 
-#ifdef AZ_PLATFORM_APPLE
+#if AZ_TRAIT_OS_PLATFORM_APPLE
 #include <mach-o/dyld.h>
 #endif
 
@@ -123,6 +124,19 @@ namespace AzToolsFramework
         }
     }
 
+    class AZQtApplicationStyle : public QProxyStyle
+    {
+    public:
+        int styleHint(StyleHint hint, const QStyleOption* option = nullptr, const QWidget* widget = nullptr, QStyleHintReturn* returnData = nullptr) const override
+        {
+            if (hint == QStyle::SH_TabBar_Alignment)
+            {
+                return Qt::AlignLeft;
+            }
+            return QProxyStyle::styleHint(hint, option, widget, returnData);
+        }
+    };
+
     class AZQtApplication
         : public QApplication
     {
@@ -131,6 +145,7 @@ namespace AzToolsFramework
         AZQtApplication(int& argc, char** argv)
             : QApplication(argc, argv)
         {
+            setStyle(new AZQtApplicationStyle);
             qInstallMessageHandler(myMessageOutput);
         }
 
@@ -147,7 +162,6 @@ namespace AzToolsFramework
         {
             serialize->Class<Framework, AZ::Component>()
                 ->Version(1)
-                ->SerializerForEmptyClass()
             ;
 
             MainWindowSavedState::Reflect(serialize);
@@ -279,6 +293,8 @@ namespace AzToolsFramework
 
     Framework::~Framework(void)
     {
+        AZ::SystemTickBus::Handler::BusDisconnect();
+
         delete m_ActionPreferences;
         m_ActionPreferences = nullptr;
 
@@ -305,12 +321,22 @@ namespace AzToolsFramework
         EBUS_EVENT(LegacyFramework::CoreMessageBus, OnReady);
     }
 
+    void Framework::OnSystemTick()
+    {
+        AZ::SystemTickBus::Handler::BusDisconnect();
+        CheckForReadyToQuit();
+    }
+
     void Framework::Init()
     {
         char myFileName[MAX_PATH] = {0};
-#ifdef AZ_PLATFORM_APPLE
+#if AZ_TRAIT_OS_PLATFORM_APPLE
         uint32_t bufSize = AZ_ARRAY_SIZE(myFileName);
         _NSGetExecutablePath(myFileName, &bufSize);
+        if (strlen(myFileName) > 0)
+#elif defined (AZ_PLATFORM_LINUX)
+        uint32_t bufSize = AZ_ARRAY_SIZE(myFileName);
+        size_t pathLen = readlink("/proc/self/exe", myFileName, bufSize);
         if (strlen(myFileName) > 0)
 #else
         if (GetModuleFileNameA(NULL, myFileName, MAX_PATH))
@@ -394,7 +420,6 @@ namespace AzToolsFramework
         EBUS_EVENT_RESULT(pApp, AZ::ComponentApplicationBus, GetApplication);
         if (pApp)
         {
-            
             AZStd::chrono::system_clock::time_point now = AZStd::chrono::system_clock::now();
             static AZStd::chrono::system_clock::time_point lastUpdate = now;
 
@@ -403,10 +428,12 @@ namespace AzToolsFramework
 
             lastUpdate = now;
 
-            AZ::SystemTickBus::ExecuteQueuedEvents();
-            AZ::SystemTickBus::Broadcast(&AZ::SystemTickEvents::OnSystemTick);
-
-            pApp->Tick(deltaTime);
+            if (m_ptrTicker)
+            {
+                AZ::SystemTickBus::ExecuteQueuedEvents();
+                AZ::SystemTickBus::Broadcast(&AZ::SystemTickEvents::OnSystemTick);
+                pApp->Tick(deltaTime);
+            }
 
         }
 
@@ -510,7 +537,7 @@ namespace AzToolsFramework
         {
             // the above could cause contexts to generate threaded requests that are outstanding (like a long data save).
             // we keep the app running until those requests have been completed.
-            QTimer::singleShot(1, this, SLOT(CheckForReadyToQuit()));
+            AZ::SystemTickBus::Handler::BusConnect();
             return;
         }
 

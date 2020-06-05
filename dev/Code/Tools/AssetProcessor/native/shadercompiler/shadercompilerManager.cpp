@@ -16,8 +16,8 @@
 
 #include <QThreadPool>
 
-#include "native/utilities/AssetUtils.h"
-#include "native/utilities/assetUtilEBusHelper.h"
+#include "native/utilities/assetUtils.h"
+#include "native/utilities/AssetUtilEBusHelper.h"
 
 ShaderCompilerManager::ShaderCompilerManager(QObject* parent)
     : QObject(parent)
@@ -42,9 +42,6 @@ void ShaderCompilerManager::process(unsigned int connID, unsigned int type, unsi
 
 void ShaderCompilerManager::decodeShaderCompilerRequest(unsigned int connID, QByteArray payload)
 {
-    ShaderCompilerRequestMessage msg;
-    QString error;
-
     if (payload.length() < sizeof(unsigned int) + sizeof(unsigned int) + 2 + sizeof(unsigned short))
     {
         QString error = "Payload size is too small";
@@ -57,6 +54,9 @@ void ShaderCompilerManager::decodeShaderCompilerRequest(unsigned int connID, QBy
     unsigned int* requestId = reinterpret_cast<unsigned int*>(data_end - sizeof(unsigned int));
     unsigned int* serverListSizePtr = reinterpret_cast<unsigned int*>(data_end - sizeof(unsigned int) - sizeof(unsigned int));
     unsigned short* serverPortPtr = reinterpret_cast<unsigned short*>(data_end - sizeof(unsigned int) - sizeof(unsigned int) - sizeof(unsigned short));
+
+    ShaderCompilerRequestMessage msg;
+    QString error;
 
     msg.requestId = *requestId;
     msg.serverListSize = *serverListSizePtr;
@@ -122,12 +122,10 @@ void ShaderCompilerManager::OnShaderCompilerJobComplete(QByteArray payload, unsi
     }
 }
 
-#if !defined(UNIT_TEST)
-void ShaderCompilerManager::sendResponse(unsigned int connId, unsigned int type, unsigned int serial, QByteArray payload)
+void ShaderCompilerManager::sendResponse(unsigned int connId, unsigned int /*type*/, unsigned int /*serial*/, QByteArray payload)
 {
     EBUS_EVENT_ID(connId, AssetProcessor::ConnectionBus, SendRaw, AssetUtilities::ComputeCRC32Lowercase("ShaderCompilerProxyResponse"), 0, payload);
 }
-#endif
 
 void ShaderCompilerManager::shaderCompilerError(QString errorMessage, QString server, QString timestamp, QString payload)
 {

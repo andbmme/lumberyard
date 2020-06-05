@@ -63,10 +63,8 @@ namespace NCryOpenGL
 #endif
         RegisterConfigVariable("dxgl_min_frame_pool_size", &iMinFramePoolSize, 16);
         RegisterConfigVariable("dxgl_max_frame_pool_size", &iMaxFramePoolSize, 1024);
-        //  Confetti BEGIN: Igor Lobanchikov
-        //  Igor: we don't know yet what GPU we are running
+        //  we don't know yet what GPU we are running
         RegisterConfigVariable("dxgl_buffer_upload_mode", &iBufferUploadMode, 1);
-        //  Confetti End: Igor Lobanchikov
 #if DXGL_ENABLE_SHADER_TRACING
         RegisterConfigVariable("dxgl_shader_tracing_mode", &iShaderTracingMode, 0);
         RegisterConfigVariable("dxgl_shader_tracing_hash", &iShaderTracingHash, 0);
@@ -75,7 +73,6 @@ namespace NCryOpenGL
         RegisterConfigVariable("dxgl_pixel_tracing_y", &iPixelTracingY, 0);
 #endif //DXGL_ENABLE_SHADER_TRACING
     }
-    //  Confetti BEGIN: Igor Lobanchikov
     void SGlobalConfig::SetIHVDefaults()
     {
         if (gRenDev->GetFeatures() & (RFT_HW_QUALCOMM | RFT_HW_ARM_MALI))
@@ -87,7 +84,6 @@ namespace NCryOpenGL
             iBufferUploadMode = 1;
         }
     }
-    //  Confetti End: Igor Lobanchikov
 
     ////////////////////////////////////////////////////////////////////////////
     // State management helper functions
@@ -105,7 +101,6 @@ namespace NCryOpenGL
         }
     }
 
-#if DXGL_SUPPORT_INDEXED_ENABLE_STATE
     inline void SetEnabledStatei(GLenum eState, GLuint uIndex, bool bEnabled)
     {
         if (bEnabled)
@@ -117,7 +112,6 @@ namespace NCryOpenGL
             glDisablei(eState, uIndex);
         }
     }
-#endif //DXGL_SUPPORT_INDEXED_ENABLE_STATE
 
     inline void GetStateVar(GLenum eTarget, GLint* pData)                     { glGetIntegerv (eTarget, pData); }
     inline void GetStateVar(GLenum eTarget, GLenum* pData)                    { glGetIntegerv (eTarget, reinterpret_cast<GLint*>(pData)); }
@@ -570,12 +564,10 @@ namespace NCryOpenGL
                             GLintptr piDstOffset((GLintptr)pStreaming->m_uNextPosition);
                             if (SGlobalConfig::iBufferUploadMode > 0)
                             {
-                                //  Confetti BEGIN: Igor Lobanchikov :END
                                 pContext->NamedBufferSubDataFast(pStreaming->m_kName, piDstOffset, (GLsizeiptr)uSize, pSrcData);
                             }
                             else
                             {
-                                //  Confetti BEGIN: Igor Lobanchikov :END
                                 GLvoid* pData(
                                     pContext->MapNamedBufferRangeFast(
                                         pStreaming->m_kName,
@@ -583,7 +575,6 @@ namespace NCryOpenGL
                                         (GLsizeiptr)uStreamingSize,
                                         GL_MAP_WRITE_BIT | GL_MAP_UNSYNCHRONIZED_BIT));
                                 cryMemcpy(pData, pSrcData, uSize);
-                                //  Confetti BEGIN: Igor Lobanchikov :END
                                 pContext->UnmapNamedBufferFast(pStreaming->m_kName);
                             }
                         }
@@ -593,7 +584,6 @@ namespace NCryOpenGL
                     else if (pBuffer->m_bStreaming)
                     {
                         pBuffer->m_akContextCaches[uContextIndex].m_spFrame = NULL;
-                        //  Confetti BEGIN: Igor Lobanchikov :END
                         pContext->NamedBufferDataFast(pBuffer->m_kName, pBuffer->m_uSize, pBuffer->m_pSystemMemoryCopy, pBuffer->m_eUsage);
                     }
 
@@ -681,10 +671,11 @@ namespace NCryOpenGL
         glBindVertexArray(0);
         glDeleteVertexArrays(1, &m_uGlobalVAO);
 
-#if !DXGL_SUPPORT_COPY_IMAGE
-        GLuint uCopyPixelBufferName(m_kCopyPixelBuffer.GetName());
-        glDeleteBuffers(1, &uCopyPixelBufferName);
-#endif //!DXGL_SUPPORT_COPY_IMAGE
+        if (m_kCopyPixelBuffer.IsValid())
+        {
+            GLuint uCopyPixelBufferName(m_kCopyPixelBuffer.GetName());
+            glDeleteBuffers(1, &uCopyPixelBufferName);
+        }
 
         delete m_pFrameBufferCache;
         delete m_pPipelineCache;
@@ -709,11 +700,12 @@ namespace NCryOpenGL
         glGenVertexArrays(1, &m_uGlobalVAO);
         glBindVertexArray(m_uGlobalVAO);
 
-#if !DXGL_SUPPORT_COPY_IMAGE
-        GLuint uCopyPixelBufferName;
-        glGenBuffers(1, &uCopyPixelBufferName);
-        m_kCopyPixelBuffer = m_pDevice->GetBufferNamePool().Create(uCopyPixelBufferName);
-#endif //!DXGL_SUPPORT_COPY_IMAGE
+        if (!GetDevice()->IsFeatureSupported(eF_CopyImage))
+        {
+            GLuint uCopyPixelBufferName;
+            glGenBuffers(1, &uCopyPixelBufferName);
+            m_kCopyPixelBuffer = m_pDevice->GetBufferNamePool().Create(uCopyPixelBufferName);
+        }
 
 #if !DXGLES //Seamless cube map filtering is not optional in GL ES
         glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
@@ -740,7 +732,6 @@ namespace NCryOpenGL
         }
 #endif //DXGL_SUPPORT_SHADER_IMAGES
 
-        //  Confetti BEGIN: Igor Lobanchikov
 #if DXGL_SUPPORT_SCISSOR_RECT_ARRAY
         for (uint32 uScissorRect = 0; uScissorRect < DXGL_NUM_SUPPORTED_SCISSOR_RECTS; ++uScissorRect)
         {
@@ -749,7 +740,6 @@ namespace NCryOpenGL
 #else
         GetStateVar(GL_SCISSOR_BOX, m_kStateCache.m_akGLScissorData);
 #endif
-        //  Confetti End: Igor Lobanchikov
         return GetImplicitStateCache(m_kStateCache) &&
                GetBlendCache(m_kStateCache.m_kBlend) &&
                GetDepthStencilCache(m_kStateCache.m_kDepthStencil) &&
@@ -777,74 +767,77 @@ namespace NCryOpenGL
 
         kCache.m_bAlphaToCoverageEnable = glIsEnabled(GL_SAMPLE_ALPHA_TO_COVERAGE) == GL_TRUE;
 
-#if DXGL_SUPPORT_INDEPENDENT_BLEND_STATES
-        kCache.m_bIndependentBlendEnable = false; // Enabled only if render target blend states are not compatible
-        uint32 uTarget;
-        for (uTarget = 0; uTarget < DXGL_ARRAY_SIZE(kCache.m_kTargets); ++uTarget)
+        if (m_pDevice->IsFeatureSupported(eF_IndependentBlending))
         {
-            STargetBlendState& kRTCache(kCache.m_kTargets[uTarget]);
-
-    #if DXGL_SUPPORT_INDEXED_BOOL_STATE
-            if (m_pDevice->IsFeatureSupported(eF_IndexedBoolState))
+            kCache.m_bIndependentBlendEnable = false; // Enabled only if render target blend states are not compatible
+            uint32 uTarget;
+            for (uTarget = 0; uTarget < DXGL_ARRAY_SIZE(kCache.m_kTargets); ++uTarget)
             {
-                GetStateVari(GL_COLOR_WRITEMASK, uTarget, kRTCache.m_kWriteMask.m_abRGBA);
-            }
-    #endif
-            kRTCache.m_bEnable = glIsEnabledi(GL_BLEND, uTarget) == TRUE;
-            if (kRTCache.m_bEnable)
-            {
-                GetStateVari(GL_BLEND_EQUATION_RGB,   uTarget, &kRTCache.m_kRGB.m_eEquation);
-                GetStateVari(GL_BLEND_EQUATION_ALPHA, uTarget, &kRTCache.m_kAlpha.m_eEquation);
+                STargetBlendState& kRTCache(kCache.m_kTargets[uTarget]);
 
-                GetStateVari(GL_BLEND_SRC_RGB,        uTarget, &kRTCache.m_kRGB.m_kFunction.m_eSrc);
-                GetStateVari(GL_BLEND_SRC_ALPHA,      uTarget, &kRTCache.m_kAlpha.m_kFunction.m_eSrc);
-
-                GetStateVari(GL_BLEND_DST_RGB,        uTarget, &kRTCache.m_kRGB.m_kFunction.m_eDst);
-                GetStateVari(GL_BLEND_DST_ALPHA,      uTarget, &kRTCache.m_kAlpha.m_kFunction.m_eDst);
-
-                kRTCache.m_bSeparateAlpha = kRTCache.m_kRGB != kRTCache.m_kAlpha; // Enable separate alpha blending if the rgb and alpha parameters are different
-
-                if (uTarget > 0 && kCache.m_kTargets[0].m_bEnable)
+#if DXGL_SUPPORT_INDEXED_BOOL_STATE
+                if (m_pDevice->IsFeatureSupported(eF_IndexedBoolState))
                 {
-                    // Check if the parameters for this target are compatible with the default ones (target 0)
-                    if (kCache.m_kTargets[0] != kRTCache)
+                    GetStateVari(GL_COLOR_WRITEMASK, uTarget, kRTCache.m_kWriteMask.m_abRGBA);
+                }
+#endif
+                kRTCache.m_bEnable = glIsEnabledi(GL_BLEND, uTarget) == TRUE;
+                if (kRTCache.m_bEnable)
+                {
+                    GetStateVari(GL_BLEND_EQUATION_RGB, uTarget, &kRTCache.m_kRGB.m_eEquation);
+                    GetStateVari(GL_BLEND_EQUATION_ALPHA, uTarget, &kRTCache.m_kAlpha.m_eEquation);
+
+                    GetStateVari(GL_BLEND_SRC_RGB, uTarget, &kRTCache.m_kRGB.m_kFunction.m_eSrc);
+                    GetStateVari(GL_BLEND_SRC_ALPHA, uTarget, &kRTCache.m_kAlpha.m_kFunction.m_eSrc);
+
+                    GetStateVari(GL_BLEND_DST_RGB, uTarget, &kRTCache.m_kRGB.m_kFunction.m_eDst);
+                    GetStateVari(GL_BLEND_DST_ALPHA, uTarget, &kRTCache.m_kAlpha.m_kFunction.m_eDst);
+
+                    kRTCache.m_bSeparateAlpha = kRTCache.m_kRGB != kRTCache.m_kAlpha; // Enable separate alpha blending if the rgb and alpha parameters are different
+
+                    if (uTarget > 0 && kCache.m_kTargets[0].m_bEnable)
                     {
-                        kCache.m_bIndependentBlendEnable = true;
+                        // Check if the parameters for this target are compatible with the default ones (target 0)
+                        if (kCache.m_kTargets[0] != kRTCache)
+                        {
+                            kCache.m_bIndependentBlendEnable = true;
+                        }
+                    }
+                }
+                else
+                {
+                    if (uTarget == 0)
+                    {
+                        kCache.m_bIndependentBlendEnable = true; // Can't use unique blending parameters as the default ones (target 0) are not present
                     }
                 }
             }
-            else
+        }
+        else
+        {
+            STargetBlendState& kRTCache(kCache.m_kTargets[0]);
+
+            GetStateVar(GL_COLOR_WRITEMASK, kRTCache.m_kWriteMask.m_abRGBA);
+            kRTCache.m_bEnable = glIsEnabled(GL_BLEND) == TRUE;
+            if (kRTCache.m_bEnable)
             {
-                if (uTarget == 0)
-                {
-                    kCache.m_bIndependentBlendEnable = true; // Can't use unique blending parameters as the default ones (target 0) are not present
-                }
+                GetStateVar(GL_BLEND_EQUATION_RGB, &kRTCache.m_kRGB.m_eEquation);
+                GetStateVar(GL_BLEND_EQUATION_ALPHA, &kRTCache.m_kAlpha.m_eEquation);
+
+                GetStateVar(GL_BLEND_SRC_RGB, &kRTCache.m_kRGB.m_kFunction.m_eSrc);
+                GetStateVar(GL_BLEND_SRC_ALPHA, &kRTCache.m_kAlpha.m_kFunction.m_eSrc);
+
+                GetStateVar(GL_BLEND_DST_RGB, &kRTCache.m_kRGB.m_kFunction.m_eDst);
+                GetStateVar(GL_BLEND_DST_ALPHA, &kRTCache.m_kAlpha.m_kFunction.m_eDst);
+
+                kRTCache.m_bSeparateAlpha = kRTCache.m_kRGB != kRTCache.m_kAlpha; // Enable separate alpha blending if the rgb and alpha parameters are different
+            }
+
+            for (uint32 uOverriddenTarget = 1; uOverriddenTarget < DXGL_ARRAY_SIZE(kCache.m_kTargets); ++uOverriddenTarget)
+            {
+                kCache.m_kTargets[uOverriddenTarget] = kCache.m_kTargets[0];
             }
         }
-#else
-        STargetBlendState& kRTCache(kCache.m_kTargets[0]);
-
-        GetStateVar(GL_COLOR_WRITEMASK, kRTCache.m_kWriteMask.m_abRGBA);
-        kRTCache.m_bEnable = glIsEnabled(GL_BLEND) == TRUE;
-        if (kRTCache.m_bEnable)
-        {
-            GetStateVar(GL_BLEND_EQUATION_RGB,   &kRTCache.m_kRGB.m_eEquation);
-            GetStateVar(GL_BLEND_EQUATION_ALPHA, &kRTCache.m_kAlpha.m_eEquation);
-
-            GetStateVar(GL_BLEND_SRC_RGB,        &kRTCache.m_kRGB.m_kFunction.m_eSrc);
-            GetStateVar(GL_BLEND_SRC_ALPHA,      &kRTCache.m_kAlpha.m_kFunction.m_eSrc);
-
-            GetStateVar(GL_BLEND_DST_RGB,        &kRTCache.m_kRGB.m_kFunction.m_eDst);
-            GetStateVar(GL_BLEND_DST_ALPHA,      &kRTCache.m_kAlpha.m_kFunction.m_eDst);
-
-            kRTCache.m_bSeparateAlpha = kRTCache.m_kRGB != kRTCache.m_kAlpha; // Enable separate alpha blending if the rgb and alpha parameters are different
-        }
-
-        for (uint32 uOverriddenTarget = 1; uOverriddenTarget < DXGL_ARRAY_SIZE(kCache.m_kTargets); ++uOverriddenTarget)
-        {
-            kCache.m_kTargets[uOverriddenTarget] = kCache.m_kTargets[0];
-        }
-#endif
 
         return true;
     }
@@ -974,10 +967,8 @@ namespace NCryOpenGL
 #endif //DXGL_SUPPORT_CUBEMAP_ARRAYS
         };
 
-        //  Confetti BEGIN: Igor Lobanchikov
         m_kStateCache.m_glActiveTexture = GL_TEXTURE0 + uUnit;
         glActiveTexture(m_kStateCache.m_glActiveTexture);
-        //  Confetti End: Igor Lobanchikov
 
         GLint iSamplerBinding;
         GetStateVar(GL_SAMPLER_BINDING, &iSamplerBinding);
@@ -1135,7 +1126,6 @@ namespace NCryOpenGL
 #endif //!DXGLES
         GetStateVar(GL_PACK_ALIGNMENT,           &kCache.m_iPackAlignment);
 
-        //  Confetti BEGIN: Igor Lobanchikov :END
         GetStateVar(GL_ACTIVE_TEXTURE,           &kCache.m_glActiveTexture);
 
 #if DXGL_SUPPORT_TESSELLATION
@@ -1201,7 +1191,7 @@ namespace NCryOpenGL
         static inline void SetBlendFunction(SBlendFunction kRGB, SBlendFunction kAlpha, GLuint)           { glBlendFuncSeparate(kRGB.m_eSrc, kRGB.m_eDst, kAlpha.m_eSrc, kAlpha.m_eDst); }
         static inline void SetWriteMask(const GLboolean abRGBA[4], GLuint)                                { glColorMask(abRGBA[0], abRGBA[1], abRGBA[2], abRGBA[3]); }
     };
-#if DXGL_SUPPORT_INDEPENDENT_BLEND_STATES
+
     struct SSetTargetDependentBlendState
     {
         static inline void SetBlendEnable(bool bEnable, GLuint uTarget)                                   { SetEnabledStatei(GL_BLEND, uTarget, bEnable); }
@@ -1211,7 +1201,7 @@ namespace NCryOpenGL
         static inline void SetBlendFunction(SBlendFunction kRGB, SBlendFunction kAlpha, GLuint uTarget)   { glBlendFuncSeparatei(uTarget, kRGB.m_eSrc, kRGB.m_eDst, kAlpha.m_eSrc, kAlpha.m_eDst); }
         static inline void SetWriteMask(const GLboolean abRGBA[4], GLuint uTarget)                        { glColorMaski(uTarget, abRGBA[0], abRGBA[1], abRGBA[2], abRGBA[3]); }
     };
-#endif //DXGL_SUPPORT_INDEPENDENT_BLEND_STATES
+
     template <typename TSetBlendState>
     void SetChannelsBlendState(STargetBlendState& kRTCache, const STargetBlendState& kRTState, GLuint uTargetIndex)
     {
@@ -1281,20 +1271,23 @@ namespace NCryOpenGL
 
     bool CContext::SetBlendState(const SBlendState& kState)
     {
-        DXGL_SCOPED_PROFILE("CContext::SetBlendState")
+        DXGL_SCOPED_PROFILE("CContext::SetBlendState")        
+        if (kState.m_bIndependentBlendEnable && !m_pDevice->IsFeatureSupported(eF_IndependentBlending))
+        {
+            DXGL_ERROR("Independent blending is not supported on this device.");
+            return false;
+        }
 
         if (CACHE_FIELD(m_kStateCache.m_kBlend, kState, m_bAlphaToCoverageEnable))
         {
             SetEnabledState(GL_SAMPLE_ALPHA_TO_COVERAGE, kState.m_bAlphaToCoverageEnable);
         }
 
-#if DXGL_SUPPORT_INDEPENDENT_BLEND_STATES
         if (kState.m_bIndependentBlendEnable)
         {
             SetTargetsBlendState<SSetTargetDependentBlendState>(m_kStateCache.m_kBlend.m_kTargets, kState.m_kTargets, DXGL_ARRAY_SIZE(kState.m_kTargets));
         }
         else
-#endif //DXGL_SUPPORT_INDEPENDENT_BLEND_STATES
         {
             SetTargetsBlendState<SSetTargetIndependentBlendState>(m_kStateCache.m_kBlend.m_kTargets, kState.m_kTargets, 1);
             uint32 uOverriddenTarget;
@@ -1503,7 +1496,7 @@ namespace NCryOpenGL
         }
 #endif
 
-#if !DXGLES && !defined(DXGL_ANDROID_GL)
+#if !DXGLES && !defined(DXGL_ANDROID_GL) && !defined(DXGL_SKIP_SETTING_POLYGON_MODE_TO_FRONT_AND_BACK)
         if (CACHE_FIELD(kCache, kState, m_ePolygonMode))
         {
             glPolygonMode(GL_FRONT_AND_BACK, kState.m_ePolygonMode);
@@ -1557,7 +1550,6 @@ namespace NCryOpenGL
                     pSamplerState = &kNullSamplerState;
                 }
 
-                //  Confetti BEGIN: Igor Lobanchikov
                 if (pTextureView != NULL &&
                     pTextureView->BindTextureUnit(pSamplerState, m_kTextureUnitContext, this, m_kStateCache.m_akTextureUnits[m_kStateCache.m_glActiveTexture - GL_TEXTURE0]))
                 {
@@ -1592,7 +1584,6 @@ namespace NCryOpenGL
                     }
                 }
             }
-            //  Confetti End: Igor Lobanchikov
 
             uint32 uTexReset;
             for (uTexReset = 0; uTexReset < m_kTextureUnitContext.m_kModifiedTextures.size(); ++uTexReset)
@@ -1923,7 +1914,6 @@ namespace NCryOpenGL
                                 glVertexAttribDivisor(kAttrIter->m_uAttributeIndex, kAttrIter->m_uVertexAttribDivisor);
                             }
 
-                            //  Confetti BEGIN: Igor Lobanchikov
                             GLsizei uStride(m_akInputAssemblerSlots[uSlot].m_uStride);
                             GLvoid* pPointer(reinterpret_cast<GLvoid*>(static_cast<uintptr_t>(m_akInputAssemblerSlots[uSlot].m_uOffset + kAttrIter->m_uPointerOffset)));
 #if !DXGL_SUPPORT_DRAW_WITH_BASE_VERTEX
@@ -1941,7 +1931,7 @@ namespace NCryOpenGL
                             bUpdatePointer |= CACHE_VAR(kVertexAttribPointer.m_pPointer, pPointer);
                             bUpdatePointer |= CACHE_VAR(kVertexAttribPointer.m_bInteger, static_cast<GLboolean>(kAttrIter->m_bInteger ? GL_TRUE : GL_FALSE));
 
-                            // Igor: this cache is temporary disabled - doesn't work as expected.
+                            // this cache is temporary disabled - doesn't work as expected.
                             //if (bUpdatePointer)
                             {
                                 if (!kAttrIter->m_bInteger)
@@ -1964,7 +1954,6 @@ namespace NCryOpenGL
                                         pPointer);
                                 }
                             }
-                            //  Confetti End: Igor Lobanchikov
                         }
                     }
                 }
@@ -1988,7 +1977,6 @@ namespace NCryOpenGL
         }
     }
 
-    //  Confetti BEGIN: Igor Lobanchikov
 #if defined(ANDROID)
     void CContext::FlushFrameBufferDontCareState(bool bOnBind)
     {
@@ -1997,7 +1985,7 @@ namespace NCryOpenGL
             return;
         }
 
-        //  Igor: discard the data of the old frame buffer if any.
+        //  discard the data of the old frame buffer if any.
         {
             AZStd::vector<GLenum> drawBuffers;
             drawBuffers.reserve(SFrameBufferConfiguration::MAX_ATTACHMENTS);
@@ -2013,37 +2001,23 @@ namespace NCryOpenGL
                         CRY_ASSERT(tex);
 
                         GLenum eAttachmentID(SFrameBufferConfiguration::AttachmentIndexToID(uAttachment));
-                        CRY_ASSERT(eAttachmentID != GL_NONE);
+                        AZ_Assert(eAttachmentID != GL_NONE, "Invalid attachment point %d", uAttachment);
 
-                        if (bOnBind ? tex->m_bColorLoadDontCare : tex->m_bColorStoreDontCareWhenUnbound)
+                        if (eAttachmentID == GL_DEPTH_ATTACHMENT || eAttachmentID == GL_STENCIL_ATTACHMENT || eAttachmentID == GL_DEPTH_STENCIL_ATTACHMENT)
                         {
-                            drawBuffers.push_back(eAttachmentID);
-                        }
-                        else
-                        {
-#if !DXGL_SUPPORT_STENCIL_ONLY_FORMAT
-                            if (!m_pDevice->IsFeatureSupported(eF_StencilOnlyFormat))
-                            {
-                                if (eAttachmentID == GL_DEPTH_ATTACHMENT || eAttachmentID == GL_STENCIL_ATTACHMENT)
-                                {
-                                    GLenum eOtherID(eAttachmentID == GL_DEPTH_ATTACHMENT ? GL_STENCIL_ATTACHMENT : GL_DEPTH_ATTACHMENT);
-                                    if (m_spFrameBuffer->m_kConfiguration.m_akAttachments[SFrameBufferConfiguration::AttachmentIDToIndex(eOtherID)] == pAttachedView)
-                                    {
-                                        eAttachmentID = GL_DEPTH_STENCIL_ATTACHMENT;
-                                    }
-                                }
-                            }
-#endif //!DXGL_SUPPORT_STENCIL_ONLY_FORMAT
-
                             if (bOnBind ? tex->m_bDepthLoadDontCare : tex->m_bDepthStoreDontCareWhenUnbound)
                             {
-                                drawBuffers.push_back(eAttachmentID);
+                                drawBuffers.push_back(GL_DEPTH_ATTACHMENT);
                             }
 
                             if (bOnBind ? tex->m_bStencilLoadDontCare : tex->m_bStencilStoreDontCareWhenUnbound)
                             {
-                                drawBuffers.push_back(eAttachmentID);
+                                drawBuffers.push_back(GL_STENCIL_ATTACHMENT);
                             }
+                        }
+                        else if (bOnBind ? tex->m_bColorLoadDontCare : tex->m_bColorStoreDontCareWhenUnbound)
+                        {
+                            drawBuffers.push_back(eAttachmentID);
                         }
 
                         if (bOnBind)
@@ -2075,47 +2049,48 @@ namespace NCryOpenGL
                 }
 
                 // Make sure that scissor test is disabled as glClearBufferfv is affected as well
-                if (m_kStateCache.m_kRasterizer.m_bScissorEnabled)
+                bool scissorTestState = m_kStateCache.m_kRasterizer.m_bScissorEnabled;
+                if (scissorTestState)
                 {
                     SetEnabledState(GL_SCISSOR_TEST, false);
+                    m_kStateCache.m_kRasterizer.m_bScissorEnabled = false;
                 }
 
+                AZStd::vector<ClearColorArg> colorBufferArgs;
+                bool clearDepth = false;
+                bool clearStencil = false;
                 for (const GLenum buffer : drawBuffers)
                 {
-                    if (buffer == GL_DEPTH_ATTACHMENT)
+                    switch (buffer)
                     {
-                        GLfloat depthValue = 0.f;
-                        glClearBufferfv(GL_DEPTH, 0, &depthValue);
-                    }
-                    else if (buffer == GL_STENCIL_ATTACHMENT)
-                    {
-                        GLint stencialValue = 0;
-                        glClearBufferiv(GL_STENCIL, 0, &stencialValue);
-                    }
-                    else if(buffer == GL_DEPTH_STENCIL_ATTACHMENT)
-                    {
-                        glClearBufferfi(GL_DEPTH_STENCIL, 0, 0.f, 0);
-                    }
-                    else
-                    {
-                        GLfloat colorValue[4] = { 0 };
-                        glClearBufferfv(GL_COLOR, buffer - GL_COLOR_ATTACHMENT0, colorValue);
+                    case GL_DEPTH_STENCIL_ATTACHMENT:
+                        clearDepth = true;
+                        clearStencil = true;
+                        break;
+                    case GL_DEPTH_ATTACHMENT:
+                        clearDepth = true;
+                        break;
+                    case GL_STENCIL_ATTACHMENT:
+                        clearStencil = true;
+                        break;
+                    default:
+                        colorBufferArgs.push_back(AZStd::make_pair(buffer - GL_COLOR_ATTACHMENT0, ColorF(0.f)));
+                        break;
                     }
                 }
 
+                ClearRenderTargetInternal(colorBufferArgs);
+                ClearDepthStencilInternal(clearDepth, clearStencil, 0.f, 0);
+
                 // Restore that scissor test switch as specified by the rasterizer state
-                if (m_kStateCache.m_kRasterizer.m_bScissorEnabled)
+                if (scissorTestState)
                 {
                     SetEnabledState(GL_SCISSOR_TEST, true);
+                    m_kStateCache.m_kRasterizer.m_bScissorEnabled = true;
                 }
             }
             else
             {
-                if (gRenDev->GetFeatures() & RFT_HW_ARM_MALI) // Mali has driver issues with glInvalidateFramebuffer
-                {
-                    return;
-                }
-
                 // Tell the driver that it doesn't need to resolve certain framebuffer attachments into memory.
                 glInvalidateFramebuffer(GL_FRAMEBUFFER, drawBuffers.size(), drawBuffers.data());
             }
@@ -2130,7 +2105,7 @@ namespace NCryOpenGL
             return;
         }
 
-        //  Igor: discard the data of the old frame buffer if any.
+        //  discard the data of the old frame buffer if any.
         {
             GLuint uNumDrawBuffers = 0;
 
@@ -2170,7 +2145,6 @@ namespace NCryOpenGL
         }
     }
 #endif
-    //  Confetti End: Igor Lobanchikov
 
     void CContext::FlushFrameBufferState()
     {
@@ -2178,11 +2152,9 @@ namespace NCryOpenGL
 
         if (m_bFrameBufferStateDirty)
         {
-            //  Confetti BEGIN: Igor Lobanchikov
 #if defined(ANDROID)
             FlushFrameBufferDontCareState(false);
 #endif
-            //  Confetti End: Igor Lobanchikov
 
             m_spFrameBuffer = AllocateFrameBuffer(m_kFrameBufferConfig);
 
@@ -2210,19 +2182,15 @@ namespace NCryOpenGL
                     }
                 }
 
-                //  Confetti BEGIN: Igor Lobanchikov
 #if defined(ANDROID)
                 FlushFrameBufferDontCareState(true);
 #endif
-                //  Confetti End: Igor Lobanchikov
 
                 m_bFrameBufferStateDirty = false;
 
-                //  Confetti BEGIN: Igor Lobanchikov
 #if defined(DXGL_USE_LAZY_CLEAR)
                 FlushFrameBufferLazyClearState();
 #endif
-                //  Confetti End: Igor Lobanchikov
             }
         }
     }
@@ -2405,8 +2373,7 @@ namespace NCryOpenGL
         DXGL_SCOPED_PROFILE("CContext::BindReadFrameBuffer")
         if (CACHE_VAR(m_kStateCache.m_kReadFrameBuffer, kName))
         {
-            //  Confetti BEGIN: Igor Lobanchikov :END
-            //  Igor: this improves ProjectLEO behaviour on Mali's firefly device but obviously slows down everything.
+            //  this improves ProjectLEO behaviour on Mali's firefly device but obviously slows down everything.
             //  Please, keep this until the Mali's driver bug will be solved completely
             //glFinish();
 
@@ -2601,7 +2568,6 @@ namespace NCryOpenGL
         TViewportValue* pGLViewportIter(m_kStateCache.m_akViewportData);
         TDepthRangeValue* pGLDepthRangeIter(m_kStateCache.m_akDepthRangeData);
         const D3D11_VIEWPORT* pViewport;
-        //  Confetti BEGIN: Igor Lobanchikov
         bool bWantToSetDepthRange = false;
         for (pViewport = pViewports; pViewport < pViewports + uNumViewports; ++pViewport)
         {
@@ -2640,7 +2606,6 @@ namespace NCryOpenGL
                 m_kStateCache.m_akDepthRangeData[1]);
         }
 #endif
-        //  Confetti End: Igor Lobanchikov
     }
 
     void CContext::SetScissorRects(uint32 uNumRects, const D3D11_RECT* pRects)
@@ -2653,7 +2618,6 @@ namespace NCryOpenGL
             uNumRects = DXGL_NUM_SUPPORTED_SCISSOR_RECTS;
         }
 
-        //  Confetti BEGIN: Igor Lobanchikov
         GLint* piScissorIter(m_kStateCache.m_akGLScissorData);
         const D3D11_RECT* pRect;
         bool bWantToUpdateScissors = false;
@@ -2688,7 +2652,6 @@ namespace NCryOpenGL
                 m_kStateCache.m_akGLScissorData[3]);
         }
 #endif
-        //  Confetti End: Igor Lobanchikov
     }
 
     uint32 MatchColorAttachmentIndex(SOutputMergerView* pView, SFrameBufferConfiguration& kFrameBufferConfig)
@@ -2781,31 +2744,27 @@ namespace NCryOpenGL
 
         pRenderTargetView->m_kCreationFence.IssueWait(this);
 
-        //  Confetti BEGIN: Igor Lobanchikov
 #if defined(ANDROID)
         NCryOpenGL::SOutputMergerTextureView* somtv = pRenderTargetView->AsSOutputMergerTextureView();
         if (somtv)
         {
             NCryOpenGL::STexture* tex = somtv->m_pTexture;
             CRY_ASSERT(tex);
-            //  Igor: reset invalid state since clear makes the resource valid again
+            //  reset invalid state since clear makes the resource valid again
             tex->m_bColorWasInvalidatedWhenUnbound = false;
         }
 #endif
-        //  Confetti End: Igor Lobanchikov
 
         // First see if the view is in the current frame buffer configuration color attachments
         uint32 uAttachment(MatchColorAttachmentIndex(pRenderTargetView, m_kFrameBufferConfig));
 
-        //  Confetti BEGIN: Igor Lobanchikov
 #if defined(DXGL_USE_LAZY_CLEAR)
-        //  Igor: this will force lazy clear if the next draw call will switch the rendering layout
+        //  this will force lazy clear if the next draw call will switch the rendering layout
         if (m_bFrameBufferStateDirty)
         {
             uAttachment = SFrameBufferConfiguration::MAX_COLOR_ATTACHMENTS;
         }
 #endif
-        //  Confetti End: Igor Lobanchikov
 
         if (uAttachment != SFrameBufferConfiguration::MAX_COLOR_ATTACHMENTS)
         {
@@ -2813,7 +2772,6 @@ namespace NCryOpenGL
         }
         else
         {
-            //  Confetti BEGIN: Igor Lobanchikov
 #if defined(DXGL_USE_LAZY_CLEAR)
             SOutputMergerTextureView* pTextureView = pRenderTargetView ? pRenderTargetView->AsSOutputMergerTextureView() : NULL;
             STexture* resToClear = pTextureView ? pTextureView->m_pTexture : NULL;
@@ -2843,9 +2801,8 @@ namespace NCryOpenGL
 
                 return;
             }
-            //  Igor: fallback to old behaviour
+            //  fallback to old behaviour
 #endif
-            //  Confetti End: Igor Lobanchikov
 
             SFrameBufferPtr spClearFrameBuffer(GetCompatibleColorAttachmentFrameBuffer(pRenderTargetView, uAttachment, this));
 
@@ -2860,23 +2817,28 @@ namespace NCryOpenGL
         }
 
         uint32 uDrawBufferIndex((uint32)(SFrameBufferConfiguration::AttachmentIndexToID(uAttachment) - GL_COLOR_ATTACHMENT0));
+        AZStd::vector<ClearColorArg> clearArgs;
+        clearArgs.push_back(AZStd::make_pair(uDrawBufferIndex, ColorF(afColor[0], afColor[1], afColor[2], afColor[3])));
+        ClearRenderTargetInternal(clearArgs);
+    }
+
+    void CContext::ClearRenderTargetInternal(const AZStd::vector<ClearColorArg>& args)
+    {
+        if (args.empty())
+        {
+            return;
+        }
 
         // Make sure the color mask includes all channels as glClearBufferfv is masked as well
-        //  Confetti BEGIN: Igor Lobanchikov :END
-        SColorMask kRequiredColorMask = {
+        SColorMask requiredColorMask = {
             { GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE }
         };
-        SColorMask kOriginalColorMask(m_kStateCache.m_kBlend.m_kTargets[uDrawBufferIndex].m_kWriteMask);
-        if (kRequiredColorMask != kOriginalColorMask)
-#if DXGL_SUPPORT_INDEPENDENT_BLEND_STATES
+        
+        SColorMask originalColorMask(m_kStateCache.m_kBlend.m_kTargets[0].m_kWriteMask);
+        if (requiredColorMask != originalColorMask && !m_pDevice->IsFeatureSupported(eF_IndependentBlending))
         {
-            SSetTargetDependentBlendState::SetWriteMask(kRequiredColorMask.m_abRGBA, uDrawBufferIndex);
+            SSetTargetIndependentBlendState::SetWriteMask(requiredColorMask.m_abRGBA, 0);
         }
-#else
-        {
-            SSetTargetIndependentBlendState::SetWriteMask(kRequiredColorMask.m_abRGBA, 0);
-        }
-#endif
 
         // Make sure that scissor test is disabled as glClearBufferfv is affected as well
         if (m_kStateCache.m_kRasterizer.m_bScissorEnabled)
@@ -2884,19 +2846,33 @@ namespace NCryOpenGL
             SetEnabledState(GL_SCISSOR_TEST, false);
         }
 
-        glClearBufferfv(GL_COLOR, (GLint)uDrawBufferIndex, afColor);
+        for (AZStd::vector<ClearColorArg>::const_iterator it = args.begin(); it != args.end(); ++it)
+        {
+            uint32 drawBufferIndex = (*it).first;
+            if (m_pDevice->IsFeatureSupported(eF_IndependentBlending))
+            {
+                SColorMask originalColorMask(m_kStateCache.m_kBlend.m_kTargets[drawBufferIndex].m_kWriteMask);
+                if (requiredColorMask != originalColorMask)
+                {
+                    SSetTargetDependentBlendState::SetWriteMask(requiredColorMask.m_abRGBA, drawBufferIndex);
+                }
+            }
+
+            const ColorF color = (*it).second;
+            const float clearColor[] = { color.r, color.g, color.b, color.a };
+            glClearBufferfv(GL_COLOR, drawBufferIndex, clearColor);
+
+            if (m_pDevice->IsFeatureSupported(eF_IndependentBlending) && requiredColorMask != originalColorMask)
+            {
+                SSetTargetDependentBlendState::SetWriteMask(originalColorMask.m_abRGBA, drawBufferIndex);
+            }
+        }
 
         // Restore the color mask as specified by the blend state
-        if (kRequiredColorMask != kOriginalColorMask)
-#if DXGL_SUPPORT_INDEPENDENT_BLEND_STATES
+        if (requiredColorMask != originalColorMask && !m_pDevice->IsFeatureSupported(eF_IndependentBlending))
         {
-            SSetTargetDependentBlendState::SetWriteMask(kOriginalColorMask.m_abRGBA, uDrawBufferIndex);
+            SSetTargetIndependentBlendState::SetWriteMask(originalColorMask.m_abRGBA, 0);
         }
-#else
-        {
-            SSetTargetIndependentBlendState::SetWriteMask(kOriginalColorMask.m_abRGBA, 0);
-        }
-#endif
 
         // Restore that scissor test switch as specified by the rasterizer state
         if (m_kStateCache.m_kRasterizer.m_bScissorEnabled)
@@ -2935,14 +2911,13 @@ namespace NCryOpenGL
             bClearStencil = false;
         }
 
-        //  Confetti BEGIN: Igor Lobanchikov
 #if defined(ANDROID)
         NCryOpenGL::SOutputMergerTextureView* somtv = pDepthStencilView->AsSOutputMergerTextureView();
         if (somtv)
         {
             NCryOpenGL::STexture* tex = somtv->m_pTexture;
             CRY_ASSERT(tex);
-            //  Igor: reset invalid state since clear makes the resource valid again
+            //  reset invalid state since clear makes the resource valid again
             if (bClearDepth)
             {
                 tex->m_bDepthWasInvalidatedWhenUnbound = false;
@@ -2953,7 +2928,6 @@ namespace NCryOpenGL
             }
         }
 #endif
-        //  Confetti End: Igor Lobanchikov
 
         // First see if the view is in the current frame buffer configuration depth/stencil attachments
         bool shouldFlushFrameBufferState = MatchDepthStencilAttachment(pDepthStencilView, bClearDepth, bClearStencil, m_kFrameBufferConfig);
@@ -2968,7 +2942,6 @@ namespace NCryOpenGL
         }
         else
         {
-            //  Confetti BEGIN: Igor Lobanchikov
 #if defined(DXGL_USE_LAZY_CLEAR)
             SOutputMergerTextureView* pTextureView = pDepthStencilView ? pDepthStencilView->AsSOutputMergerTextureView() : NULL;
             STexture* resToClear = pTextureView ? pTextureView->m_pTexture : NULL;
@@ -3016,7 +2989,6 @@ namespace NCryOpenGL
                 return;
             }
 #endif
-            //  Confetti End: Igor Lobanchikov
 
             SFrameBufferPtr spClearFrameBuffer(GetCompatibleDepthStencilAttachmentFrameBuffer(pDepthStencilView, bClearDepth, bClearStencil, this));
 
@@ -3029,7 +3001,17 @@ namespace NCryOpenGL
             BindDrawFrameBuffer(spClearFrameBuffer->m_kObject.m_kName);
         }
 
-        if (bClearDepth)
+        ClearDepthStencilInternal(bClearDepth, bClearStencil, fDepthValue, uStencilValue);
+    }
+
+    void CContext::ClearDepthStencilInternal(bool clearDepth, bool clearStencil, float depthValue, uint8 stencilValue)
+    {
+        if (!clearDepth && !clearStencil)
+        {
+            return;
+        }
+
+        if (clearDepth)
         {
             // Make sure the depth mask includes depth writing as glClearBufferf[i|v] are masked as well
             if (m_kStateCache.m_kDepthStencil.m_bDepthWriteMask != GL_TRUE)
@@ -3045,9 +3027,8 @@ namespace NCryOpenGL
         }
 
         // Make sure the stencil mask includes depth writing as glClearBufferf[i|v] are masked as well
-        if (bClearStencil)
+        if (clearStencil)
         {
-            //  Confetti BEGIN: Igor Lobanchikov
             if (m_kStateCache.m_kDepthStencil.m_kStencilFrontFaces.m_uStencilWriteMask != 0xFF)
             {
                 glStencilMaskSeparate(GL_FRONT, 0xFF);
@@ -3056,7 +3037,6 @@ namespace NCryOpenGL
             {
                 glStencilMaskSeparate(GL_BACK, 0xFF);
             }
-            //  Confetti End: Igor Lobanchikov
         }
 
         // Make sure that scissor test is disabled as glClearBufferf[i|v] is affected as well
@@ -3066,21 +3046,21 @@ namespace NCryOpenGL
         }
 
         GLenum eBuffer(0);
-        if (bClearDepth && bClearStencil)
+        if (clearDepth && clearStencil)
         {
-            glClearBufferfi(GL_DEPTH_STENCIL, 0, fDepthValue, static_cast<GLint>(uStencilValue));
+            glClearBufferfi(GL_DEPTH_STENCIL, 0, depthValue, static_cast<GLint>(stencilValue));
         }
-        else if (bClearDepth)
+        else if (clearDepth)
         {
-            glClearBufferfv(GL_DEPTH, 0, &fDepthValue);
+            glClearBufferfv(GL_DEPTH, 0, &depthValue);
         }
-        else if (bClearStencil)
+        else if (clearStencil)
         {
-            GLint iStencilValue(uStencilValue);
+            GLint iStencilValue(stencilValue);
             glClearBufferiv(GL_STENCIL, 0, &iStencilValue);
         }
 
-        if (bClearDepth)
+        if (clearDepth)
         {
             // Restore the depth mask as specified by the depth stencil state
             if (m_kStateCache.m_kDepthStencil.m_bDepthWriteMask != GL_TRUE)
@@ -3102,14 +3082,12 @@ namespace NCryOpenGL
         }
 
         // Restore the stencil mask as specified by the depth stencil state
-        if (bClearStencil)
+        if (clearStencil)
         {
-            //  Confetti BEGIN: Igor Lobanchikov :END
             if (m_kStateCache.m_kDepthStencil.m_kStencilFrontFaces.m_uStencilWriteMask != 0xFF)
             {
                 glStencilMaskSeparate(GL_FRONT, m_kStateCache.m_kDepthStencil.m_kStencilFrontFaces.m_uStencilWriteMask);
             }
-            //  Confetti BEGIN: Igor Lobanchikov :END
             if (m_kStateCache.m_kDepthStencil.m_kStencilBackFaces.m_uStencilWriteMask != 0xFF)
             {
                 glStencilMaskSeparate(GL_BACK, m_kStateCache.m_kDepthStencil.m_kStencilBackFaces.m_uStencilWriteMask);
@@ -3884,6 +3862,11 @@ case _D3DValue:                                     \
             }
         }
 
+        if (m_spFrameBuffer == pFrameBuffer)
+        {
+            m_spFrameBuffer = nullptr;
+        }
+
         m_pFrameBufferCache->m_kMap.erase(kFound);
     }
 
@@ -4180,7 +4163,7 @@ case _D3DValue:                                     \
         }
 
         AZ_Assert(m_kWindowContext, "Null WindowContext");
-        EGLNativeWindowType window = nullptr;
+        EGLNativeWindowType window = EGL_NULL_VALUE;
 #   if defined(ANDROID)
         window = AZ::Android::Utils::GetWindow();
 #   else
@@ -4197,7 +4180,7 @@ case _D3DValue:                                     \
     {
 #if defined(DXGL_USE_EGL)
         AZ_Assert(m_kWindowContext, "Null WindowContext");
-        m_kWindowContext->SetWindow(nullptr);
+        m_kWindowContext->SetWindow(EGL_NULL_VALUE);
 #else
         DXGL_NOT_IMPLEMENTED
 #endif

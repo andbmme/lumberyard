@@ -74,15 +74,16 @@ namespace AzFramework
         InputDeviceTouch();
 
         ////////////////////////////////////////////////////////////////////////////////////////////
-        // Disable copying (protected to workaround a VS2013 bug in std::is_copy_constructible)
-        // https://connect.microsoft.com/VisualStudio/feedback/details/800328/std-is-copy-constructible-is-broken
-    protected:
+        // Disable copying
         AZ_DISABLE_COPY_MOVE(InputDeviceTouch);
-    public:
 
         ////////////////////////////////////////////////////////////////////////////////////////////
         //! Destructor
         ~InputDeviceTouch() override;
+
+        ////////////////////////////////////////////////////////////////////////////////////////////
+        //! \ref AzFramework::InputDevice::GetAssignedLocalUserId
+        LocalUserId GetAssignedLocalUserId() const override;
 
         ////////////////////////////////////////////////////////////////////////////////////////////
         //! \ref AzFramework::InputDevice::GetInputChannelsById
@@ -137,6 +138,11 @@ namespace AzFramework
             ////////////////////////////////////////////////////////////////////////////////////////
             //! Destructor
             virtual ~Implementation();
+
+            ////////////////////////////////////////////////////////////////////////////////////////
+            //! Access to the input device's currently assigned local user id
+            //! \return Id of the local user currently assigned to the input device
+            virtual LocalUserId GetAssignedLocalUserId() const;
 
             ////////////////////////////////////////////////////////////////////////////////////////
             //! Query the connected state of the input device

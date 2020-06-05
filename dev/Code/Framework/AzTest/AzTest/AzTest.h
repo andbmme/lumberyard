@@ -11,38 +11,24 @@
 */
 #pragma once
 
-#if defined(AZ_RESTRICTED_PLATFORM)
-#include AZ_RESTRICTED_FILE(AzTest_h)
-#elif defined(DARWIN) || defined(ANDROID) || defined(LINUX)
-#define AZTEST_H_TRAITS_UNDEF_STRDUP 1
-#endif
-#if AZTEST_H_TRAITS_UNDEF_STRDUP
-// Notes in the Cry* code indicate that strdup may cause memory errors, and shouldn't be
-// used. It's required, however, by googletest, so for test builds, un-hack the strdup removal.
-#   undef strdup
-#endif // AZTEST_H_TRAITS_UNDEF_STRDUP
+#include <AzCore/PlatformDef.h>
+#include <AzTest_Traits_Platform.h>
+#include <list>
 
-
-#pragma warning( push )
-#pragma warning(disable: 4800)  // 'int' : forcing value to bool 'true' or 'false' (performance warning)
+AZ_PUSH_DISABLE_WARNING(4389 4800, "-Wunknown-warning-option"); // 'int' : forcing value to bool 'true' or 'false' (performance warning).
+#undef strdup // platform.h in CryCommon changes this define which is required by googletest
 #include <gtest/gtest.h>
-#pragma warning( pop )
 #include <gmock/gmock.h>
+AZ_POP_DISABLE_WARNING;
+
+#if defined(HAVE_BENCHMARK)
+#include <benchmark/benchmark.h>
+#endif
 
 #include <AzCore/Memory/OSAllocator.h>
 
-#if defined(DARWIN) || defined(ANDROID) || defined(LINUX)
-#   define AZTEST_DLL_PUBLIC __attribute__ ((visibility ("default")))
-#else
-#   define AZTEST_DLL_PUBLIC
-#endif
-
-
-#if defined(DARWIN) || defined(ANDROID) || defined(LINUX)
-#   define AZTEST_EXPORT extern "C" AZTEST_DLL_PUBLIC
-#else
-#   define AZTEST_EXPORT extern "C" __declspec(dllexport)
-#endif
+#define AZTEST_DLL_PUBLIC AZ_DLL_EXPORT
+#define AZTEST_EXPORT extern "C" AZTEST_DLL_PUBLIC
 
 namespace AZ
 {
@@ -75,6 +61,8 @@ namespace AZ
             virtual void SetupEnvironment() = 0;
             virtual void TeardownEnvironment() = 0;
         };
+
+        extern ::testing::Environment* sTestEnvironment;
 
         /*!
         * Monolithic builds will have all the environments available.  Keep a mapping to run the desired envs.
@@ -121,6 +109,10 @@ namespace AZ
         void addTestEnvironments(std::vector<ITestEnvironment*> envs);
         void excludeIntegTests();
         void runOnlyIntegTests();
+        
+        //! A hook that can be used to read any other misc parameters (such as --suite) and remove them before google sees them.
+        //! Note that this modifies argc and argv to delete the parameters it consumes.
+        void ApplyGlobalParameters(int* argc, char** argv);
         void printUnusedParametersWarning(int argc, char** argv);
 
         /*!
@@ -147,6 +139,102 @@ namespace AZ
         //! passing main-like parameters (argc, argv) from the (real or artificial) command line.
         int RunTestsInLib(Platform& platform, const std::string& lib, const std::string& symbol, int& argc, char** argv);
 
+#if defined(HAVE_BENCHMARK)
+        static constexpr const char* s_benchmarkEnvironmentName = "BenchmarkEnvironment";
+
+        // BenchmarkEnvironment is a base that can be implemented to used to perform global initialization and teardown
+        // for a module
+        class BenchmarkEnvironmentBase
+        {
+        public:
+            virtual ~BenchmarkEnvironmentBase() = default;
+
+            virtual void SetUp()
+            {
+            }
+            virtual void TearDown()
+            {
+            }
+        };
+
+        class BenchmarkEnvironmentRegistry
+        {
+        public:
+            BenchmarkEnvironmentRegistry() = default;
+            BenchmarkEnvironmentRegistry(const BenchmarkEnvironmentRegistry&) = delete;
+            BenchmarkEnvironmentRegistry& operator=(const BenchmarkEnvironmentRegistry&) = delete;
+
+            void AddBenchmarkEnvironment(std::unique_ptr<BenchmarkEnvironmentBase> env)
+            {
+                m_envs.push_back(std::move(env));
+            }
+
+            std::vector<std::unique_ptr<BenchmarkEnvironmentBase>>& GetBenchmarkEnvironments()
+            {
+                return m_envs;
+            }
+
+        private:
+            std::vector<std::unique_ptr<BenchmarkEnvironmentBase>> m_envs;
+        };
+
+        /*
+         * Creates a BenchmarkEnvironment using the specified template type and registers it with the BenchmarkEnvironmentRegister
+         * @param T template argument that must have BenchmarkEnvironmentBase as a base class
+         * @return returns a reference to the created BenchmarkEnvironment
+         */
+        template<typename T>
+        T& RegisterBenchmarkEnvironment()
+        {
+            static_assert(std::is_base_of<BenchmarkEnvironmentBase, T>::value, "Supplied benchmark environment must be derived from BenchmarkEnvironmentBase");
+
+            static AZ::EnvironmentVariable<AZ::Test::BenchmarkEnvironmentRegistry> s_benchmarkRegistry;
+            if (!s_benchmarkRegistry)
+            {
+                s_benchmarkRegistry = AZ::Environment::CreateVariable<AZ::Test::BenchmarkEnvironmentRegistry>(s_benchmarkEnvironmentName);
+            }
+
+            auto benchmarkEnv{ new T };
+            s_benchmarkRegistry->AddBenchmarkEnvironment(std::unique_ptr<BenchmarkEnvironmentBase>{ benchmarkEnv });
+            return *benchmarkEnv;
+        }
+#endif
+        ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+        //! listener class to capture and print test output for embedded platforms
+        class OutputEventListener : public ::testing::EmptyTestEventListener
+        {
+        public:
+            std::list<std::string> resultList;
+            
+            void OnTestEnd(const ::testing::TestInfo& test_info)
+            {
+                std::string result;
+                if (test_info.result()->Failed())
+                {
+                    result = "Fail";
+                }
+                else
+                {
+                    result = "Pass";
+                }
+                std::string formattedResult = "[GTEST][" + result + "] " + test_info.test_case_name() + " " + test_info.name() + "\n";
+                resultList.emplace_back(formattedResult);
+            }
+
+            void OnTestProgramEnd(const ::testing::UnitTest& unit_test)
+            {
+                for (std::string testResults : resultList)
+                {
+                    AZ_Printf("", testResults.c_str());
+                }
+                if (unit_test.current_test_info())
+                {
+                    AZ_Printf("", "[GTEST] %s completed %u tests with u% failed test cases.", unit_test.current_test_info()->name(), unit_test.total_test_count(), unit_test.failed_test_case_count());
+                }
+            }
+        };
+        ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
     } // Test
 } // AZ
 
@@ -155,15 +243,21 @@ namespace AZ
 
 #if !defined(AZ_MONOLITHIC_BUILD)
 // Environments should be declared dynamically, framework will handle deletion of resources
-#define AZ_UNIT_TEST_HOOK(...)                                                      \
-    AZTEST_EXPORT int AZ_UNIT_TEST_HOOK_NAME(int argc, char** argv)                 \
-    {                                                                               \
-        ::testing::InitGoogleMock(&argc, argv);                                     \
-        AZ::Test::excludeIntegTests();                                              \
-        AZ::Test::printUnusedParametersWarning(argc, argv);                         \
-        AZ::Test::addTestEnvironments({__VA_ARGS__});                               \
-        int result = RUN_ALL_TESTS();                                               \
-        return result;                                                              \
+#define AZ_UNIT_TEST_HOOK(...)                                                                          \
+    AZTEST_EXPORT int AZ_UNIT_TEST_HOOK_NAME(int argc, char** argv)                                     \
+    {                                                                                                   \
+        ::testing::InitGoogleMock(&argc, argv);                                                         \
+        if (AZ_TRAIT_AZTEST_ATTACH_RESULT_LISTENER)                                                     \
+        {                                                                                               \
+            ::testing::TestEventListeners& listeners = testing::UnitTest::GetInstance()->listeners();   \
+            listeners.Append(new AZ::Test::OutputEventListener);                                        \
+        }                                                                                               \
+        AZ::Test::excludeIntegTests();                                                                  \
+        AZ::Test::ApplyGlobalParameters(&argc, argv);                                                   \
+        AZ::Test::printUnusedParametersWarning(argc, argv);                                             \
+        AZ::Test::addTestEnvironments({__VA_ARGS__});                                                   \
+        int result = RUN_ALL_TESTS();                                                                   \
+        return result;                                                                                  \
     }
 
 // Environments should be declared dynamically, framework will handle deletion of resources
@@ -172,11 +266,47 @@ namespace AZ
     {                                                                               \
         ::testing::InitGoogleMock(&argc, argv);                                     \
         AZ::Test::runOnlyIntegTests();                                              \
+        AZ::Test::ApplyGlobalParameters(&argc, argv);                               \
         AZ::Test::printUnusedParametersWarning(argc, argv);                         \
         AZ::Test::addTestEnvironments({__VA_ARGS__});                               \
         int result = RUN_ALL_TESTS();                                               \
         return result;                                                              \
     }
+
+#if defined(HAVE_BENCHMARK)
+#define AZ_BENCHMARK_HOOK() \
+AZTEST_EXPORT int AzRunBenchmarks(int argc, char** argv) \
+{ \
+    auto benchmarkEnvRegistry = AZ::Environment::FindVariable<AZ::Test::BenchmarkEnvironmentRegistry>(AZ::Test::s_benchmarkEnvironmentName); \
+    std::vector<std::unique_ptr<AZ::Test::BenchmarkEnvironmentBase>>* benchmarkEnvs = benchmarkEnvRegistry ? &(benchmarkEnvRegistry->GetBenchmarkEnvironments()) : nullptr; \
+    if (benchmarkEnvs != nullptr) \
+    { \
+        for (std::unique_ptr<AZ::Test::BenchmarkEnvironmentBase>& benchmarkEnv : *benchmarkEnvs) \
+        { \
+            if (benchmarkEnv) \
+            { \
+                benchmarkEnv->SetUp(); \
+            } \
+        }\
+    } \
+    ::benchmark::Initialize(&argc, argv); \
+    ::benchmark::RunSpecifiedBenchmarks(); \
+    if (benchmarkEnvs != nullptr) \
+    { \
+        for (auto benchmarkEnvIter = benchmarkEnvs->rbegin(); benchmarkEnvIter != benchmarkEnvs->rend(); ++benchmarkEnvIter) \
+        { \
+            std::unique_ptr<AZ::Test::BenchmarkEnvironmentBase>& benchmarkEnv = *benchmarkEnvIter; \
+            if (benchmarkEnv) \
+            { \
+                benchmarkEnv->TearDown(); \
+            } \
+        }\
+    } \
+    return 0; \
+}
+#else // !HAVE_BENCHMARK
+#define AZ_BENCHMARK_HOOK()
+#endif // HAVE_BENCHMARK
 #else // monolithic build
 
 #undef GTEST_MODULE_NAME_
@@ -226,6 +356,9 @@ namespace AZ
 
 // Convenience macro for prepending Integ_ for an integration test that doesn't need a fixture
 #define INTEG_TEST(test_case_name, test_name) GTEST_TEST(Integ_##test_case_name, test_name)
+
+// Convenience macro for prepending Integ_ for an integration test that uses a fixture
+#define INTEG_TEST_F(test_fixture, test_name) GTEST_TEST_(Integ_##test_fixture, test_name, test_fixture, ::testing::internal::GetTypeId<test_fixture>())
 
 // Avoid accidentally being managed by CryMemory, or problems with new/delete when
 // AZ allocators are not ready or properly un/initialized.

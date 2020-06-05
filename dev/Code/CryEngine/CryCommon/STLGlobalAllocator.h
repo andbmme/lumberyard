@@ -25,6 +25,44 @@
 
 #include "CryMemoryManager.h"
 
+#include <AzCore/Memory/AllocatorBase.h>
+#include <AzCore/Memory/HphaSchema.h>
+#include <AzCore/Memory/AllocatorManager.h>
+
+struct CryLegacySTLAllocatorDescriptor
+    : public AZ::HphaSchema::Descriptor
+{
+    CryLegacySTLAllocatorDescriptor()
+    {
+        m_systemChunkSize = 4 * 1024 * 1024; // Ask the OS for 4MB at a time
+    }
+};
+
+class CryLegacySTLAllocator
+    : public AZ::SimpleSchemaAllocator<AZ::HphaSchema, CryLegacySTLAllocatorDescriptor>
+{
+public:
+    AZ_TYPE_INFO(CryLegacySTLAllocator, "{87EE21F1-8215-4979-B493-AF13D8D91DAD}");
+    using Descriptor = CryLegacySTLAllocatorDescriptor;
+    using Base = AZ::SimpleSchemaAllocator<AZ::HphaSchema, CryLegacySTLAllocatorDescriptor>;
+    CryLegacySTLAllocator()
+        : Base("CryLegacySTLAllocator", "Allocator used to dodge limits on static init time allocations")
+    {
+    }
+};
+
+// Specialize for the CryLegacySTLAllocator to provide one per module that does not use the
+// environment for its storage, since this thing is designed to get around the lack
+// of static allocators
+namespace AZ
+{
+    template <>
+    class AllocatorInstance<CryLegacySTLAllocator> : public Internal::AllocatorInstanceBase<CryLegacySTLAllocator, AllocatorStorage::ModuleStoragePolicy<CryLegacySTLAllocator>>
+    {
+    };
+}
+
+
 class ICrySizer;
 namespace stl
 {
@@ -76,13 +114,13 @@ namespace stl
         pointer allocate(size_type n = 1, const void* hint = 0)
         {
             (void)hint;
-            ScopedSwitchToGlobalHeap useGlobalHeap;
-            return static_cast<pointer>(CryModuleMalloc(n * sizeof(T)));
+            pointer ret = static_cast<pointer>(AZ::AllocatorInstance<CryLegacySTLAllocator>::Get().Allocate(n * sizeof(T), 0));
+            return ret;
         }
 
         void deallocate(pointer p, size_type n = 1)
         {
-            CryModuleFree(p);
+            AZ::AllocatorInstance<CryLegacySTLAllocator>::Get().DeAllocate(p);
         }
 
         size_type max_size() const throw()

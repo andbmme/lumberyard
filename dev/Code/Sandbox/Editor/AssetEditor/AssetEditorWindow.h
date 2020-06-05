@@ -38,12 +38,13 @@ public:
     //////////////////////////////////////////////////////////////////////////
     // AssetEditorWindow
     //////////////////////////////////////////////////////////////////////////
-    void SetAsset(const AZ::Data::Asset<AZ::Data::AssetData>& asset) const override;
+    void CreateAsset(const AZ::Data::AssetType& assetType) override;
+    void OpenAsset(const AZ::Data::Asset<AZ::Data::AssetData>& asset) override;
 
     static void RegisterViewClass();
 
 protected Q_SLOTS:
-    void OnAssetSaveFailed(const AZStd::string& error) const;
+    void OnAssetSaveFailed(const AZStd::string& error);
     void OnAssetOpened(const AZ::Data::Asset<AZ::Data::AssetData>& asset);
 
 protected:

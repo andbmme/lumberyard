@@ -102,17 +102,12 @@ namespace LegacyGameInterface
         SEntityEvent startLevelEvent(ENTITY_EVENT_START_LEVEL);
         gEnv->pEntitySystem->SendEventToAll(startLevelEvent);
 
-        m_Game->GetIGameFramework()->MarkGameStarted();
+        m_Game->GetIGameFramework()->MarkGameStarted(true);
     }
 
-    IFlowSystem* EditorGame::GetIFlowSystem()
+    void EditorGame::OnCloseLevel()
     {
-        return m_Game->GetIGameFramework()->GetIFlowSystem();
-    }
-
-    IGameTokenSystem* EditorGame::GetIGameTokenSystem()
-    {
-        return m_Game->GetIGameFramework()->GetIGameTokenSystem();
+        m_Game->GetIGameFramework()->MarkGameStarted(false);
     }
 
     IEntity* EditorGame::GetPlayer()

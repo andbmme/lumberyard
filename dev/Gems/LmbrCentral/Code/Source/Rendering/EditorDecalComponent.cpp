@@ -16,10 +16,12 @@
 #include <AzCore/Serialization/SerializeContext.h>
 #include <AzCore/Serialization/EditContext.h>
 #include <AzCore/Math/Quaternion.h>
+#include <AzCore/Math/IntersectSegment.h>
 #include <AzCore/Component/ComponentApplicationBus.h>
 #include <AzCore/Component/TransformBus.h>
 #include <AzCore/Asset/AssetManagerBus.h>
 
+#include <AzToolsFramework/Entity/EditorEntityInfoBus.h>
 #include <AzToolsFramework/API/ToolsApplicationAPI.h>
 #include <IEditor.h>
 #include <I3DEngine.h>
@@ -46,7 +48,7 @@ namespace LmbrCentral
                     "Decal", "The Decal component allows an entity to project a texture or material onto a mesh")->
                     ClassElement(AZ::Edit::ClassElements::EditorData, "")->
                     Attribute(AZ::Edit::Attributes::Category, "Rendering")->
-                    Attribute(AZ::Edit::Attributes::Icon, "Editor/Icons/Components/Decal.png")->
+                    Attribute(AZ::Edit::Attributes::Icon, "Editor/Icons/Components/Decal.svg")->
                     Attribute(AZ::Edit::Attributes::PrimaryAssetType, AZ::AzTypeInfo<LmbrCentral::MaterialAsset>::Uuid())->
                     Attribute(AZ::Edit::Attributes::ViewportIcon, "Editor/Icons/Components/Viewport/Decal.png")->
                     Attribute(AZ::Edit::Attributes::AppearsInAddComponentMenu, AZ_CRC("Game", 0x232b318c))->
@@ -115,6 +117,12 @@ namespace LmbrCentral
                     Attribute(AZ::Edit::Attributes::ChangeNotify, &DecalConfiguration::MajorPropertyChanged)->
 
                     DataElement(AZ::Edit::UIHandlers::Slider, &DecalConfiguration::m_opacity, "Opacity", "Additional opacity setting on top of the distance from the decal to the surface")->
+                    Attribute(AZ::Edit::Attributes::ChangeNotify, &DecalConfiguration::MinorPropertyChanged)->
+                    Attribute(AZ::Edit::Attributes::Min, 0.f)->
+                    Attribute(AZ::Edit::Attributes::Max, 1.f)->
+                    Attribute(AZ::Edit::Attributes::Visibility, &DecalConfiguration::m_deferred)->
+
+                    DataElement(AZ::Edit::UIHandlers::Slider, &DecalConfiguration::m_angleAttenuation, "Angle Attenuation", "amount of angle attenuation computation taken into account")->
                     Attribute(AZ::Edit::Attributes::ChangeNotify, &DecalConfiguration::MinorPropertyChanged)->
                     Attribute(AZ::Edit::Attributes::Min, 0.f)->
                     Attribute(AZ::Edit::Attributes::Max, 1.f)->
@@ -199,6 +207,7 @@ namespace LmbrCentral
         AzFramework::EntityDebugDisplayEventBus::Handler::BusConnect(entityId);
         AzToolsFramework::EditorVisibilityNotificationBus::Handler::BusConnect(entityId);
         AzToolsFramework::EditorEvents::Bus::Handler::BusConnect();
+        AzToolsFramework::EditorComponentSelectionRequestsBus::Handler::BusConnect(entityId);
     }
 
     void EditorDecalComponent::Deactivate()
@@ -210,6 +219,7 @@ namespace LmbrCentral
         AzFramework::EntityDebugDisplayEventBus::Handler::BusDisconnect();
         AzToolsFramework::EditorVisibilityNotificationBus::Handler::BusDisconnect();
         AzToolsFramework::EditorEvents::Bus::Handler::BusDisconnect();
+        AzToolsFramework::EditorComponentSelectionRequestsBus::Handler::BusDisconnect();
 
         m_configuration.m_editorEntityId.SetInvalid();
 
@@ -266,11 +276,12 @@ namespace LmbrCentral
         }
 
         // take the entity's visibility into account
-        bool entityVisibility = true;
-        AzToolsFramework::EditorVisibilityRequestBus::EventResult(entityVisibility, GetEntityId(), &AzToolsFramework::EditorVisibilityRequestBus::Events::GetCurrentVisibility);
+        bool visible = false;
+        AzToolsFramework::EditorEntityInfoRequestBus::EventResult(
+            visible, GetEntityId(), &AzToolsFramework::EditorEntityInfoRequestBus::Events::IsVisible);
 
         const int configSpec = gEnv->pSystem->GetConfigSpec(true);
-        if (!entityVisibility || !m_configuration.m_visible || static_cast<AZ::u32>(configSpec) < static_cast<AZ::u32>(m_configuration.m_minSpec))
+        if (!visible || !m_configuration.m_visible || static_cast<AZ::u32>(configSpec) < static_cast<AZ::u32>(m_configuration.m_minSpec))
         {
             m_renderFlags |= ERF_HIDDEN;
         }
@@ -287,6 +298,7 @@ namespace LmbrCentral
         SDecalProperties decalProperties = m_configuration.GetDecalProperties(transform);
         m_decalRenderNode->SetDecalProperties(decalProperties);
 
+        m_renderFlags |= ERF_COMPONENT_ENTITY;
         m_decalRenderNode->SetRndFlags(m_renderFlags);
         m_decalRenderNode->SetMatrix(AZTransformToLYTransform(transform));
         m_decalRenderNode->SetMinSpec(static_cast<int>(decalProperties.m_minSpec));
@@ -303,55 +315,43 @@ namespace LmbrCentral
         EBUS_EVENT(AzToolsFramework::ToolsApplicationRequests::Bus, AddDirtyEntity, GetEntityId());
     }
 
-    void EditorDecalComponent::DisplayEntity(bool& handled)
+    void EditorDecalComponent::DisplayEntityViewport(
+        const AzFramework::ViewportInfo& viewportInfo,
+        AzFramework::DebugDisplayRequests& debugDisplay)
     {
-        auto* dc = AzFramework::EntityDebugDisplayRequestBus::FindFirstHandler();
-        AZ_Assert(dc, "Invalid display context.");
-
         // Displays a small grid over the area where the decal will be applied.
-        if (dc)
+        if (!IsSelected())
         {
-            if (!IsSelected())
-            {
-                handled = true;
-                return;
-            }
-            else
-            {
-                AZ::Transform transform = AZ::Transform::CreateIdentity();
-                EBUS_EVENT_ID_RESULT(transform, GetEntityId(), AZ::TransformBus, GetWorldTM);
-
-                AZ::Vector3 x1 = transform * AZ::Vector3(-1, 0, 0);
-                AZ::Vector3 x2 = transform * AZ::Vector3(1, 0, 0);
-                AZ::Vector3 y1 = transform * AZ::Vector3(0, -1, 0);
-                AZ::Vector3 y2 = transform * AZ::Vector3(0, 1, 0);
-                AZ::Vector3 p = transform * AZ::Vector3(0, 0, 0);
-                AZ::Vector3 n = transform * AZ::Vector3(0, 0, 1);
-
-                dc->SetColor(AZ::Vector4(1, 0, 0, 1));
-
-                dc->DrawLine(p, n);
-                dc->DrawLine(x1, x2);
-                dc->DrawLine(y1, y2);
-
-                AZ::Vector3 p0 = transform * AZ::Vector3(-1, -1, 0);
-                AZ::Vector3 p1 = transform * AZ::Vector3(-1, 1, 0);
-                AZ::Vector3 p2 = transform * AZ::Vector3(1, 1, 0);
-                AZ::Vector3 p3 = transform * AZ::Vector3(1, -1, 0);
-
-                dc->DrawLine(p0, p1);
-                dc->DrawLine(p1, p2);
-                dc->DrawLine(p2, p3);
-                dc->DrawLine(p3, p0);
-                dc->DrawLine(p0, p2);
-                dc->DrawLine(p1, p3);
-            }
+            return;
         }
 
-        if (m_decalRenderNode && !m_configuration.m_material.GetAssetPath().empty())
-        {
-            handled = true;
-        }
+        AZ::Transform transform = AZ::Transform::CreateIdentity();
+        EBUS_EVENT_ID_RESULT(transform, GetEntityId(), AZ::TransformBus, GetWorldTM);
+
+        AZ::Vector3 x1 = transform * AZ::Vector3(-1, 0, 0);
+        AZ::Vector3 x2 = transform * AZ::Vector3(1, 0, 0);
+        AZ::Vector3 y1 = transform * AZ::Vector3(0, -1, 0);
+        AZ::Vector3 y2 = transform * AZ::Vector3(0, 1, 0);
+        AZ::Vector3 p = transform * AZ::Vector3(0, 0, 0);
+        AZ::Vector3 n = transform * AZ::Vector3(0, 0, 1);
+
+        debugDisplay.SetColor(AZ::Vector4(1, 0, 0, 1));
+
+        debugDisplay.DrawLine(p, n);
+        debugDisplay.DrawLine(x1, x2);
+        debugDisplay.DrawLine(y1, y2);
+
+        AZ::Vector3 p0 = transform * AZ::Vector3(-1, -1, 0);
+        AZ::Vector3 p1 = transform * AZ::Vector3(-1, 1, 0);
+        AZ::Vector3 p2 = transform * AZ::Vector3(1, 1, 0);
+        AZ::Vector3 p3 = transform * AZ::Vector3(1, -1, 0);
+
+        debugDisplay.DrawLine(p0, p1);
+        debugDisplay.DrawLine(p1, p2);
+        debugDisplay.DrawLine(p2, p3);
+        debugDisplay.DrawLine(p3, p0);
+        debugDisplay.DrawLine(p0, p2);
+        debugDisplay.DrawLine(p1, p3);
     }
 
     void EditorDecalComponent::OnEntityVisibilityChanged(bool /*visibility*/)
@@ -393,5 +393,39 @@ namespace LmbrCentral
     _smart_ptr<IMaterial> EditorDecalComponent::GetMaterial()
     {
         return m_decalRenderNode->GetMaterial();
+    }
+
+    AZ::Aabb EditorDecalComponent::GetEditorSelectionBoundsViewport(const AzFramework::ViewportInfo& /*viewportInfo*/)
+    {
+        AZ::Transform transform = AZ::Transform::CreateIdentity();
+        AZ::TransformBus::EventResult(transform, GetEntityId(), &AZ::TransformBus::Events::GetWorldTM);
+
+        AZ::Aabb bbox = AZ::Aabb::CreateNull();
+
+        bbox.AddPoint(AZ::Vector3(-1, -1, 0));
+        bbox.AddPoint(AZ::Vector3(-1, 1, 0));
+        bbox.AddPoint(AZ::Vector3(1, 1, 0));
+        bbox.AddPoint(AZ::Vector3(1, -1, 0));
+
+        bbox.ApplyTransform(transform);
+
+        return bbox;
+    }
+
+    bool EditorDecalComponent::EditorSelectionIntersectRayViewport(const AzFramework::ViewportInfo& /*viewportInfo*/, const AZ::Vector3& src, const AZ::Vector3& dir, AZ::VectorFloat& distance)
+    {
+        AZ::Transform transform = AZ::Transform::CreateIdentity();
+        AZ::TransformBus::EventResult(transform, GetEntityId(), &AZ::TransformBus::Events::GetWorldTM);
+
+        AZ::Vector3 p0 = transform * AZ::Vector3(-1, -1, 0);
+        AZ::Vector3 p1 = transform * AZ::Vector3(-1, 1, 0);
+        AZ::Vector3 p2 = transform * AZ::Vector3(1, 1, 0);
+        AZ::Vector3 p3 = transform * AZ::Vector3(1, -1, 0);
+        float t{ 0.0f };
+
+        bool hitResult = AZ::Intersect::IntersectRayQuad(src, dir, p0, p1, p2, p3, t) != 0;
+        distance = t;
+
+        return hitResult;
     }
 } // namespace LmbrCentral

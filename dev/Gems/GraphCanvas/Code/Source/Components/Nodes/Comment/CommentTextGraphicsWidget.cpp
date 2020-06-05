@@ -13,6 +13,7 @@
 
 #include <functional>
 
+AZ_PUSH_DISABLE_WARNING(4251 4800 4244, "-Wunknown-warning-option")
 #include <QEvent>
 #include <QGraphicsItem>
 #include <QGraphicsGridLayout>
@@ -21,6 +22,7 @@
 #include <qgraphicssceneevent.h>
 #include <QGraphicsWidget>
 #include <QPainter>
+AZ_POP_DISABLE_WARNING
 
 #include <Components/Nodes/Comment/CommentTextGraphicsWidget.h>
 
@@ -40,41 +42,15 @@ namespace GraphCanvas
         : m_commentMode(CommentMode::Unknown)
         , m_editable(false)
         , m_layoutLock(false)
+        , m_displayLabel(nullptr)
+        , m_textEdit(nullptr)
+        , m_proxyWidget(nullptr)
         , m_pressed(false)
         , m_entityId(targetId)
     {
         setFlag(ItemIsMovable, false);
 
         m_displayLabel = aznew GraphCanvasLabel();
-
-        m_proxyWidget = new QGraphicsProxyWidget();
-        m_proxyWidget->setFocusPolicy(Qt::FocusPolicy::StrongFocus);
-
-        m_timer.setSingleShot(true);
-        m_timer.setInterval(100);
-        m_timer.stop();
-
-        QObject::connect(&m_timer, &QTimer::timeout, [&]()
-            {
-                m_textEdit->setFocus(Qt::FocusReason::MouseFocusReason);
-                m_proxyWidget->setFocus(Qt::FocusReason::MouseFocusReason);
-            });
-
-        m_textEdit = aznew Internal::FocusableTextEdit();
-        m_textEdit->setProperty("HasNoWindowDecorations", true);
-        m_textEdit->setFocusPolicy(Qt::FocusPolicy::StrongFocus);
-
-        m_textEdit->setHorizontalScrollBarPolicy(Qt::ScrollBarPolicy::ScrollBarAlwaysOff);
-        m_textEdit->setVerticalScrollBarPolicy(Qt::ScrollBarPolicy::ScrollBarAlwaysOff);
-        m_textEdit->setSizeAdjustPolicy(QAbstractScrollArea::SizeAdjustPolicy::AdjustToContents);
-
-        m_textEdit->setEnabled(true);
-
-        QObject::connect(m_textEdit, &Internal::FocusableTextEdit::textChanged, [this]() { this->UpdateSizing(); });
-        QObject::connect(m_textEdit, &Internal::FocusableTextEdit::OnFocusIn,   [this]() { this->m_layoutLock = true; });
-        QObject::connect(m_textEdit, &Internal::FocusableTextEdit::OnFocusOut, [this]() { this->SubmitValue(); this->m_layoutLock = false; this->SetEditable(false); });
-        m_proxyWidget->setWidget(m_textEdit);
-
         m_layout = new QGraphicsLinearLayout(Qt::Vertical);
         m_layout->setSpacing(0);
         m_layout->setContentsMargins(0, 0, 0, 0);
@@ -111,8 +87,11 @@ namespace GraphCanvas
 
     void CommentTextGraphicsWidget::SetStyle(const AZStd::string& style)
     {
-        m_style = style;
-        OnStyleChanged();
+        if (m_style != style)
+        {
+            m_style = style;
+            OnStyleChanged();
+        }
     }
 
     void CommentTextGraphicsWidget::UpdateLayout()
@@ -145,20 +124,15 @@ namespace GraphCanvas
         if (m_editable)
         {
             // Adjust the size of the editable widget to match the label
-            UpdateSizing();
-
             m_layout->addItem(m_proxyWidget);
+            UpdateSizing();
         }
         else
         {
             m_layout->addItem(m_displayLabel);
         }
 
-        updateGeometry();
-        adjustSize();
         RefreshDisplay();
-
-        m_layout->invalidate();
     }
 
     void CommentTextGraphicsWidget::UpdateStyles()
@@ -204,11 +178,14 @@ namespace GraphCanvas
 
         fields.push_back(styleHelper.GetFontStyleSheet());
 
-        m_textEdit->setStyleSheet(fields.join("; ").toUtf8().data());
-
-        if (styleHelper.HasTextAlignment())
+        if (m_textEdit)
         {
-            m_textEdit->setAlignment(styleHelper.GetTextAlignment(m_textEdit->alignment()));
+            m_textEdit->setStyleSheet(fields.join("; ").toUtf8().data());
+
+            if (styleHelper.HasTextAlignment())
+            {
+                m_textEdit->setAlignment(styleHelper.GetTextAlignment(m_textEdit->alignment()));
+            }
         }
 
         UpdateSizing();
@@ -217,21 +194,29 @@ namespace GraphCanvas
     void CommentTextGraphicsWidget::RefreshDisplay()
     {
         updateGeometry();
+        m_layout->invalidate();
         update();
     }
 
     void CommentTextGraphicsWidget::SetComment(const AZStd::string& comment)
     {
+        m_commentText = comment;
         if (!comment.empty())
         {
             m_displayLabel->SetLabel(comment);
-            m_textEdit->setPlainText(comment.c_str());
+            if (m_textEdit)
+            {
+                m_textEdit->setPlainText(comment.c_str());
+            }
         }
         else
         {
             // Hack to force the minimum height based on the style's font/size
             m_displayLabel->SetLabel(" ");
-            m_textEdit->setPlainText(" ");
+            if (m_textEdit)
+            {
+                m_textEdit->setPlainText(" ");
+            }
         }
 
         UpdateSizing();
@@ -239,7 +224,7 @@ namespace GraphCanvas
 
     AZStd::string CommentTextGraphicsWidget::GetComment() const
     {
-        return m_textEdit->toPlainText().toUtf8().data();
+        return m_commentText;
     }
 
     Styling::StyleHelper& CommentTextGraphicsWidget::GetStyleHelper()
@@ -257,42 +242,7 @@ namespace GraphCanvas
         if (m_commentMode != commentMode)
         {
             m_commentMode = commentMode;
-
-            prepareGeometryChange();
-
-            switch (m_commentMode)
-            {
-            case CommentMode::BlockComment:
-                setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-                m_layout->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-                m_textEdit->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-                m_displayLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-                m_proxyWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-
-                m_textEdit->setWordWrapMode(QTextOption::WrapMode::NoWrap);
-
-                m_displayLabel->SetElide(true);
-                m_displayLabel->SetWrap(false);
-                m_displayLabel->SetWrapMode(GraphCanvasLabel::WrapMode::BoundingWidth);
-                break;
-            case CommentMode::Comment:
-                setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-                m_layout->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
-                m_textEdit->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-                m_displayLabel->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
-                m_proxyWidget->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
-
-                m_textEdit->setWordWrapMode(QTextOption::WrapMode::WordWrap);
-
-                m_displayLabel->SetElide(false);
-                m_displayLabel->SetWrap(true);
-                m_displayLabel->SetWrapMode(GraphCanvasLabel::WrapMode::MaximumWidth);
-                break;
-            default:
-                AZ_Warning("Graph Canvas", false, "Unhandled Comment Mode: %i", m_commentMode);
-            }
-
-            adjustSize();
+            UpdateSizePolicies();
         }
     }
 
@@ -305,7 +255,14 @@ namespace GraphCanvas
     {
         if (m_editable != editable)
         {
-            m_editable = editable;
+            m_editable = editable;            
+
+            if (!m_editable)
+            {
+                SubmitValue();
+            }
+
+            (m_editable ? SetupProxyWidget() : CleanupProxyWidget());
             UpdateLayout();
 
             if (m_editable)
@@ -318,12 +275,10 @@ namespace GraphCanvas
                 UpdateSizing();
 
                 StyledEntityRequestBus::Event(GetEntityId(), &StyledEntityRequests::AddSelectorState, Styling::States::Editing);
+
                 m_textEdit->selectAll();
 
                 SceneMemberUIRequestBus::Event(GetEntityId(), &SceneMemberUIRequests::SetSelected, true);
-
-                // Set the focus after a short delay to give Qt time to update
-                m_timer.start();
             }
             else
             {
@@ -353,49 +308,60 @@ namespace GraphCanvas
 
     void CommentTextGraphicsWidget::UpdateSizing()
     {
-        AZStd::string value = GetComment();
+        AZStd::string value = (m_textEdit ? AZStd::string(m_textEdit->toPlainText().toUtf8().data()) : m_commentText);
         m_displayLabel->SetLabel(value);
-
-        QSizeF oldSize = m_textEdit->minimumSize();
 
         prepareGeometryChange();
 
-        // As we update the label with the new contents, adjust the editable widget size to match
-        if (m_commentMode == CommentMode::Comment)
+        if (m_textEdit)
         {
-            m_textEdit->setMinimumSize(m_displayLabel->preferredSize().toSize());
-            m_textEdit->setMaximumSize(m_displayLabel->preferredSize().toSize());
-        }
-        else if (m_commentMode == CommentMode::BlockComment)
-        {
-            QSizeF preferredSize = m_displayLabel->preferredSize();
-            QRectF displaySize = m_displayLabel->GetDisplayedSize();
+            QSizeF oldSize = m_textEdit->minimumSize();
 
-            displaySize.setHeight(preferredSize.height());
-
-            if (displaySize.width() == 0 || displaySize.height() == 0)
+            // As we update the label with the new contents, adjust the editable widget size to match
+            if (m_commentMode == CommentMode::Comment)
             {
-                return;
+                m_textEdit->setMinimumSize(m_displayLabel->preferredSize().toSize());
+                m_textEdit->setMaximumSize(m_displayLabel->preferredSize().toSize());
+            }
+            else if (m_commentMode == CommentMode::BlockComment)
+            {
+                QSizeF preferredSize = m_displayLabel->preferredSize();
+                QRectF displaySize = m_displayLabel->GetDisplayedSize();
+
+                displaySize.setHeight(preferredSize.height());
+
+                if (displaySize.width() == 0)
+                {
+                    m_textEdit->setMinimumHeight(aznumeric_cast<int>(preferredSize.height()));
+                    m_textEdit->setMaximumHeight(aznumeric_cast<int>(preferredSize.height()));
+                }
+                else
+                {
+                    m_textEdit->setMinimumSize(displaySize.size().toSize());
+                    m_textEdit->setMaximumSize(displaySize.size().toSize());
+                }
             }
 
-            m_textEdit->setMinimumSize(displaySize.size().toSize());
-            m_textEdit->setMaximumSize(displaySize.size().toSize());
-        }
+            QSizeF newSize = m_textEdit->minimumSize();
 
-        QSizeF newSize = m_textEdit->minimumSize();
-
-        if (oldSize != newSize)
-        {
-            CommentNotificationBus::Event(GetEntityId(), &CommentNotifications::OnCommentSizeChanged, oldSize, newSize);
+            if (oldSize != newSize)
+            {
+                CommentNotificationBus::Event(GetEntityId(), &CommentNotifications::OnCommentSizeChanged, oldSize, newSize);
+            }
         }
 
         updateGeometry();
-        adjustSize();
     }
 
     void CommentTextGraphicsWidget::SubmitValue()
     {
-        CommentRequestBus::Event(GetEntityId(), &CommentRequests::SetComment, GetComment());
+        if (m_textEdit)
+        {
+            m_commentText = m_textEdit->toPlainText().toUtf8().data();
+        }
+
+        CommentRequestBus::Event(GetEntityId(), &CommentRequests::SetComment, m_commentText);
+        CommentNotificationBus::Event(GetEntityId(), &CommentNotifications::OnCommentChanged, m_commentText);
         UpdateSizing();
     }
 
@@ -415,5 +381,106 @@ namespace GraphCanvas
 
         return consumeEvent;
     }
+
+    void CommentTextGraphicsWidget::UpdateSizePolicies()
+    {
+        prepareGeometryChange();
+
+        switch (m_commentMode)
+        {
+        case CommentMode::BlockComment:
+            if (m_textEdit)
+            {
+                m_textEdit->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+                m_textEdit->setWordWrapMode(QTextOption::WrapMode::NoWrap);
+                m_proxyWidget->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+            }
+
+            setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+            m_layout->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+            m_displayLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+
+            m_displayLabel->SetElide(true);
+            m_displayLabel->SetWrap(false);
+            m_displayLabel->SetWrapMode(GraphCanvasLabel::WrapMode::BoundingWidth);
+
+            break;
+        case CommentMode::Comment:
+            if (m_textEdit)
+            {
+                m_textEdit->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+                m_textEdit->setWordWrapMode(QTextOption::WrapMode::WordWrap);
+                m_proxyWidget->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+            }
+
+            setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+            m_layout->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+            m_displayLabel->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
+
+            m_displayLabel->SetElide(false);
+            m_displayLabel->SetWrap(true);
+            m_displayLabel->SetWrapMode(GraphCanvasLabel::WrapMode::MaximumWidth);
+            break;
+        default:
+            AZ_Warning("Graph Canvas", false, "Unhandled Comment Mode: %i", m_commentMode);
+        }
+
+        updateGeometry();
+    }
+
+    void CommentTextGraphicsWidget::SetupProxyWidget()
+    {
+        if (!m_textEdit)
+        {
+            m_proxyWidget = new QGraphicsProxyWidget();
+            m_proxyWidget->setFocusPolicy(Qt::FocusPolicy::StrongFocus);
+            
+            m_textEdit = aznew Internal::FocusableTextEdit();
+            m_textEdit->setProperty("HasNoWindowDecorations", true);
+            m_textEdit->setProperty("DisableFocusWindowFix", true);
+            m_textEdit->setFocusPolicy(Qt::FocusPolicy::StrongFocus);
+
+            m_textEdit->setHorizontalScrollBarPolicy(Qt::ScrollBarPolicy::ScrollBarAlwaysOff);
+            m_textEdit->setVerticalScrollBarPolicy(Qt::ScrollBarPolicy::ScrollBarAlwaysOff);
+            m_textEdit->setSizeAdjustPolicy(QAbstractScrollArea::SizeAdjustPolicy::AdjustToContents);
+            m_textEdit->setEnabled(true);
+            
+            m_proxyWidget->setWidget(m_textEdit);           
+
+            UpdateSizePolicies();
+            
+            m_textEdit->setPlainText(m_commentText.c_str());
+
+            QTimer::singleShot(0, [&]()
+            {
+                m_textEdit->setFocus(Qt::FocusReason::MouseFocusReason);
+                m_proxyWidget->setFocus(Qt::FocusReason::MouseFocusReason);
+            });
+
+            QObject::connect(m_textEdit, &Internal::FocusableTextEdit::textChanged, [this]() { this->UpdateSizing(); });
+            QObject::connect(m_textEdit, &Internal::FocusableTextEdit::OnFocusIn, [this]() { this->m_layoutLock = true; });
+            QObject::connect(m_textEdit, &Internal::FocusableTextEdit::OnFocusOut, [this]() { this->SubmitValue(); this->m_layoutLock = false; this->SetEditable(false); });
+            QObject::connect(m_textEdit, &Internal::FocusableTextEdit::EnterPressed, [this]() 
+            { 
+                QTimer::singleShot(0, [this]()
+                {
+                    this->SubmitValue(); 
+                    this->m_layoutLock = false; 
+                    this->SetEditable(false);
+                });
+            });
+        }
+    }
+
+    void CommentTextGraphicsWidget::CleanupProxyWidget()
+    {
+        if (m_textEdit)
+        {
+            delete m_textEdit; // NB: this implicitly deletes m_proxy widget
+            m_textEdit = nullptr;
+            m_proxyWidget = nullptr;
+        }
+    }
+
 #include <Source/Components/Nodes/Comment/CommentTextGraphicsWidget.moc>
 }

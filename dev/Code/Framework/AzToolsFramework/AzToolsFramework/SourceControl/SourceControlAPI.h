@@ -39,6 +39,7 @@ namespace AzToolsFramework
         SCF_PendingDelete   = (1 << 5), // file marked for removal
         SCF_OpenByUser      = (1 << 6), // currently open for checkout / staging
         SCF_Tracked         = (1 << 7), // file is under source control
+        SCF_PendingMove     = (1 << 8), // file marked for move
     };
 
     struct SourceControlFileInfo
@@ -95,6 +96,8 @@ namespace AzToolsFramework
 
     // use bind if you need additional context.
     typedef AZStd::function<void(bool success, SourceControlFileInfo info)> SourceControlResponseCallback;
+
+    typedef AZStd::function<void(bool success, AZStd::vector<SourceControlFileInfo> info)> SourceControlResponseCallbackBulk;
 
     enum class SourceControlSettingStatus : int
     {
@@ -155,18 +158,26 @@ namespace AzToolsFramework
         static const AZ::EBusHandlerPolicy HandlerPolicy = AZ::EBusHandlerPolicy::Single; // there's only one source control listener right now
         static const AZ::EBusAddressPolicy AddressPolicy = AZ::EBusAddressPolicy::Single;  // theres only one source control listener right now
         typedef AZStd::recursive_mutex MutexType;
-        static const bool LocklessDispatch = true;
 
         virtual ~SourceControlCommands() {}
 
         //! Get information on the file state
         virtual void GetFileInfo(const char* fullFilePath, const SourceControlResponseCallback& respCallback) = 0;
 
+        //! Get information on the file state for multiple files.  Path(s) may contain wildcards
+        virtual void GetBulkFileInfo(const AZStd::unordered_set<AZStd::string>& fullFilePaths, const SourceControlResponseCallbackBulk& respCallback) = 0;
+
         //! Attempt to make a file ready for editing
         virtual void RequestEdit(const char* fullFilePath, bool allowMultiCheckout, const SourceControlResponseCallback& respCallback) = 0;
 
+        //! Attempt to make a set of files ready for editing
+        virtual void RequestEditBulk(const AZStd::unordered_set<AZStd::string>& fullFilePaths, const SourceControlResponseCallbackBulk& respCallback) = 0;
+
         //! Attempt to delete a file
         virtual void RequestDelete(const char* fullFilePath, const SourceControlResponseCallback& respCallback) = 0;
+
+        //! Attempt to delete multiple files.  Path may contain wildcards
+        virtual void RequestDeleteBulk(const char* fullFilePath, const SourceControlResponseCallbackBulk& respCallback) = 0;
 
         //! Attempt to revert a file
         virtual void RequestRevert(const char* fullFilePath, const SourceControlResponseCallback& respCallback) = 0;
@@ -176,6 +187,9 @@ namespace AzToolsFramework
 
         //! Attempt to rename or move a file
         virtual void RequestRename(const char* sourcePathFull, const char* destPathFull, const SourceControlResponseCallback& respCallback) = 0;
+
+        //! Attempt to rename or move multiple files.  Path may contain wildcards
+        virtual void RequestRenameBulk(const char* sourcePathFull, const char* destPathFull, const SourceControlResponseCallbackBulk& respCallback) = 0;
     };
 
     using SourceControlCommandBus = AZ::EBus<SourceControlCommands>;

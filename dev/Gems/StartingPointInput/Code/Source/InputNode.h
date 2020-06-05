@@ -17,10 +17,9 @@
 #include <ScriptCanvas/Core/Node.h>
 #include <ScriptCanvas/Core/Graph.h>
 #include <ScriptCanvas/CodeGen/CodeGen.h>
-#include <ScriptCanvas/Grammar/NodeVisitor.h>
 
 // CryCommon
-#include <CryCommon/InputEventBus.h>
+#include <InputEventBus.h>
 
 #include <AzCore/RTTI/TypeInfo.h>
 
@@ -60,12 +59,12 @@ namespace InputNodes
 
         //////////////////////////////////////////////////////////////////////////
         /// ScriptCanvas_Node
-        void OnInputSignal(const ScriptCanvas::SlotId& slotId) override;
+        void OnInputChanged(const ScriptCanvas::Datum& input, const ScriptCanvas::SlotId& slotId) override;
 
     protected:
         //////////////////////////////////////////////////////////////////////////
         /// Node
-        void OnActivate() override;
+        void OnPostActivate() override;
         void OnDeactivate() override;
 
         //////////////////////////////////////////////////////////////////////////

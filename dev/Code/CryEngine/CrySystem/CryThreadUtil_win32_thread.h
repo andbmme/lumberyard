@@ -16,6 +16,15 @@
 // This header should only be include by SystemThreading.cpp only
 // It provides an interface for WinApi intrinsics
 // It's only client should be CThreadManager which should manage all thread interaction
+
+#pragma once
+
+#if defined(AZ_RESTRICTED_PLATFORM)
+#undef AZ_RESTRICTED_SECTION
+#define CRYTHREADUTIL_WIN32_THREAD_H_SECTION_1 1
+#define CRYTHREADUTIL_WIN32_THREAD_H_SECTION_2 2
+#endif
+
 #if !defined(INCLUDED_FROM_SYSTEM_THREADING_CPP)
 #   error "CRYTEK INTERNAL HEADER. ONLY INCLUDE FROM SYSTEMTHRADING.CPP."
 #endif
@@ -33,6 +42,19 @@ static string GetLastErrorAsString()
         return "";
     }
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION CRYTHREADUTIL_WIN32_THREAD_H_SECTION_1
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/CryThreadUtil_win32_thread_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/CryThreadUtil_win32_thread_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/CryThreadUtil_win32_thread_h_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#else
     LPSTR messageBuffer = nullptr;
     size_t size = FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, errorMessageID, MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), messageBuffer, 0, NULL);
 
@@ -42,6 +64,7 @@ static string GetLastErrorAsString()
     LocalFree(messageBuffer);
 
     return message;
+#endif
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -176,7 +199,21 @@ namespace CryThreadUtil
 
         // Create thread
         unsigned int threadId = 0;
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION CRYTHREADUTIL_WIN32_THREAD_H_SECTION_2
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/CryThreadUtil_win32_thread_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/CryThreadUtil_win32_thread_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/CryThreadUtil_win32_thread_h_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#else
         *pThreadHandle = (void*)_beginthreadex(NULL, nStackSize, threadDesc.fpEntryFunc, threadDesc.pArgList, CREATE_SUSPENDED, &threadId);
+#endif
 
         if (!(*pThreadHandle))
         {
@@ -211,6 +248,9 @@ namespace CryThreadUtil
     ///////////////////////////////////////////////////////////////////////////
     void EnableFloatExceptions(EFPE_Severity eFPESeverity)
     {
+#pragma warning( push )
+#pragma warning(disable: 4996)
+
         // Optimization
         // Enable DAZ/FZ
         // Denormals Are Zeros
@@ -265,7 +305,9 @@ namespace CryThreadUtil
             }
         }
 #endif // _RELEASE
-    }
+
+#pragma warning( pop )
+}
 
     //////////////////////////////////////////////////////////////////////////
     void EnableFloatExceptions(threadID nThreadId, EFPE_Severity eFPESeverity)
@@ -293,7 +335,7 @@ namespace CryThreadUtil
         SuspendThread(hThread);
 
         CONTEXT ctx;
-        memset(&ctx, sizeof(ctx), 0);
+        memset(&ctx, 0, sizeof(ctx));
         ctx.ContextFlags = CONTEXT_ALL;
         if (GetThreadContext(hThread, &ctx) == 0)
         {
@@ -396,11 +438,7 @@ namespace CryThreadUtil
     {
         uint temp = 0;
         _clearfp();
-#ifdef AZ_OS32
-        const unsigned int kAllowedBits = _MCW_DN | _MCW_EM | _MCW_RC | _MCW_IC | _MCW_PC;
-#else
         const unsigned int kAllowedBits = _MCW_DN | _MCW_EM | _MCW_RC;
-#endif
         _controlfp_s(&temp, nMask, kAllowedBits);
     }
 }

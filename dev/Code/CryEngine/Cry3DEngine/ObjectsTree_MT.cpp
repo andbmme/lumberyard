@@ -21,6 +21,7 @@
 #include "ICryAnimation.h"
 #include "LightEntity.h"
 #include <CryProfileMarker.h>
+#include <Terrain/Bus/LegacyTerrainBus.h>
 
 #ifdef WIN32
 #include <CryWindows.h>
@@ -51,29 +52,31 @@ void CObjManager::BeginOcclusionCulling(const SRenderingPassInfo& passInfo)
 }
 
 //////////////////////////////////////////////////////////////////////////
-void CObjManager::EndOcclusionCulling()
+void CObjManager::EndOcclusionCulling(bool waitForOcclusionJobCompletion)
 {
     AZ_TRACE_METHOD();
     if (!gEnv->IsDedicated())
     {
-        m_CullThread.CullEnd();
+        m_CullThread.CullEnd(waitForOcclusionJobCompletion);
     }
 }
 
 //////////////////////////////////////////////////////////////////////////
 void CObjManager::RenderBufferedRenderMeshes(const SRenderingPassInfo& passInfo)
 {
-    FUNCTION_PROFILER_3DENGINE_LEGACYONLY;
-    AZ_TRACE_METHOD();
+    AZ_PROFILE_FUNCTION(AZ::Debug::ProfileCategory::Renderer);
 
     CRYPROFILE_SCOPE_PROFILE_MARKER("RenderBufferedRenderMeshes");
     SCheckOcclusionOutput outputData;
     while (1)
     {
-        // process till we know that no more procers are working
-        if (!GetObjManager()->PopFromCullOutputQueue(&outputData))
         {
-            break;
+            AZ_PROFILE_SCOPE_STALL(AZ::Debug::ProfileCategory::Renderer, "PopFromCullOutputQueue");
+            // process till we know that no more procers are working
+            if (!GetObjManager()->PopFromCullOutputQueue(&outputData))
+            {
+                break;
+            }
         }
 
         switch (outputData.type)
@@ -103,9 +106,11 @@ void CObjManager::RenderBufferedRenderMeshes(const SRenderingPassInfo& passInfo)
                 passInfo,
                 outputData.rendItemSorter);
             break;
+
         case SCheckOcclusionOutput::TERRAIN:
-            GetTerrain()->AddVisSector(outputData.terrain.pTerrainNode);
+            LegacyTerrain::LegacyTerrainDataRequestBus::Broadcast(&LegacyTerrain::LegacyTerrainDataRequests::AddVisSector, outputData.terrain.pTerrainNode);
             break;
+
         case SCheckOcclusionOutput::DEFORMABLE_BRUSH:
             outputData.deformable_brush.pBrush->m_pDeform->RenderInternalDeform(outputData.deformable_brush.pRenderObject,
                 outputData.deformable_brush.nLod,
@@ -119,6 +124,15 @@ void CObjManager::RenderBufferedRenderMeshes(const SRenderingPassInfo& passInfo)
                 passInfo,
                 outputData.rendItemSorter);
             break;
+#ifdef LY_TERRAIN_RUNTIME
+        case SCheckOcclusionOutput::TERRAIN_SYSTEM:
+            {
+                SRendParams rParams;
+                rParams.rendItemSorter = outputData.rendItemSorter.GetValue();
+                outputData.terrain_system.pTerrainNode->Render(rParams, passInfo);
+            }
+            break;
+#endif
         default:
             CryFatalError("Got Unknown Output type from CheckOcclusion");
             break;

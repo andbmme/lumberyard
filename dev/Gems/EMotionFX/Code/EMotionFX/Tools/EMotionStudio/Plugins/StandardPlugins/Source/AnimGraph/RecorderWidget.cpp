@@ -15,12 +15,15 @@
 #include <QWidget>
 #include <QPushButton>
 #include <QHBoxLayout>
+#include <QMessageBox>
+#include <QFileDialog>
 #include <EMotionFX/Source/Recorder.h>
 #include <EMotionFX/Source/AnimGraphMotionNode.h>
 #include "../../../../EMStudioSDK/Source/EMStudioManager.h"
 #include <MCore/Source/LogManager.h>
 #include "../TimeView/TimeViewPlugin.h"
 #include "../TimeView/TimeInfoWidget.h"
+#include "../TimeView/TrackDataHeaderWidget.h"
 #include "../TimeView/TrackDataWidget.h"
 #include <EMotionFX/Tools/EMotionStudio/EMStudioSDK/Source/MetricsEventSender.h>
 
@@ -31,6 +34,7 @@ namespace EMStudio
     RecorderWidget::RecorderWidget(AnimGraphPlugin* plugin, QWidget* parent)
         : QWidget(parent)
     {
+        EMotionFX::RecorderNotificationBus::Handler::BusConnect();
         mPlugin = plugin;
 
         // add the buttons to add, remove and clear the motions
@@ -49,10 +53,9 @@ namespace EMStudio
         mLastFrameButton    = new QPushButton();
         mNextFrameButton    = new QPushButton();
         mOpenButton         = nullptr;
-        mSaveButton         = nullptr;
         mConfigButton       = nullptr;
         //mOpenButton       = new QPushButton();
-        //mSaveButton       = new QPushButton();
+        mSaveButton       = new QPushButton();
         //mConfigButton     = new QPushButton();
 
         EMStudioManager::MakeTransparentButton(mRecordButton,          "/Images/Icons/RecordButton.png",   "Start recording");
@@ -65,7 +68,7 @@ namespace EMStudio
         EMStudioManager::MakeTransparentButton(mLastFrameButton,       "/Images/Icons/SkipForward.png",    "Last frame");
 
         //EMStudioManager::MakeTransparentButton( mOpenButton,          "/Images/Menu/FileOpen.png",        "Open a recording" );
-        //EMStudioManager::MakeTransparentButton( mSaveButton,          "/Images/Menu/FileSave.png",        "Save the current recording" );
+        EMStudioManager::MakeTransparentButton( mSaveButton,          "/Images/Menu/FileSave.png",        "Save the current recording" );
         //EMStudioManager::MakeTransparentButton( mConfigButton,        "/Images/Icons/Edit.png",           "Config the recorder" );
 
         buttonsLayout->addWidget(mRecordButton);
@@ -91,19 +94,19 @@ namespace EMStudio
         buttonsLayout->addWidget(mClearButton);
 
         //buttonsLayout->addWidget(mOpenButton);
-        //buttonsLayout->addWidget(mSaveButton);
+        buttonsLayout->addWidget(mSaveButton);
         //buttonsLayout->addWidget(mConfigButton);
 
-        connect(mRecordButton, SIGNAL(released()), this, SLOT(OnRecordButton()));
-        connect(mPlayButton, SIGNAL(released()), this, SLOT(OnPlayButton()));
-        connect(mFirstFrameButton, SIGNAL(released()), this, SLOT(OnFirstFrameButton()));
-        connect(mPrevFrameButton, SIGNAL(released()), this, SLOT(OnPrevFrameButton()));
-        connect(mNextFrameButton, SIGNAL(released()), this, SLOT(OnNextFrameButton()));
-        connect(mLastFrameButton, SIGNAL(released()), this, SLOT(OnLastFrameButton()));
-        connect(mClearButton, SIGNAL(released()), this, SLOT(OnClearButton()));
+        connect(mRecordButton, &QPushButton::released, this, &RecorderWidget::OnRecordButton);
+        connect(mPlayButton, &QPushButton::released, this, &RecorderWidget::OnPlayButton);
+        connect(mFirstFrameButton, &QPushButton::released, this, &RecorderWidget::OnFirstFrameButton);
+        connect(mPrevFrameButton, &QPushButton::released, this, &RecorderWidget::OnPrevFrameButton);
+        connect(mNextFrameButton, &QPushButton::released, this, &RecorderWidget::OnNextFrameButton);
+        connect(mLastFrameButton, &QPushButton::released, this, &RecorderWidget::OnLastFrameButton);
+        connect(mClearButton, &QPushButton::released, this, &RecorderWidget::OnClearButton);
 
         //connect(mOpenButton, SIGNAL(released()), this, SLOT(OnOpenButton()));
-        //connect(mSaveButton, SIGNAL(released()), this, SLOT(OnSaveButton()));
+        connect(mSaveButton, &QPushButton::released, this, &RecorderWidget::OnSaveButton);
         //connect(mConfigButton, SIGNAL(released()), this, SLOT(OnPlayButton()));
 
         spacerWidget = new QWidget();
@@ -157,8 +160,14 @@ namespace EMStudio
         TimeViewPlugin* timeViewPlugin = GetTimeViewPlugin();
         if (timeViewPlugin)
         {
-            connect(timeViewPlugin, SIGNAL(ManualTimeChangeStart(float)), this, SLOT(OnTimeChangeStart(float)));
+            connect(timeViewPlugin, &TimeViewPlugin::ManualTimeChangeStart, this, &RecorderWidget::OnTimeChangeStart);
         }
+    }
+
+
+    void RecorderWidget::OnRecordingFailed(const AZStd::string& why)
+    {
+        QMessageBox::critical(this, "EMotionFX recording failed", why.c_str());
     }
 
 
@@ -181,7 +190,7 @@ namespace EMStudio
 
             if (mFilterButtonGroup->GetButton(0, 0)->isChecked())
             {
-                settings.mNodeHistoryTypeIDs.Add(EMotionFX::AnimGraphMotionNode::TYPE_ID);
+                settings.mNodeHistoryTypes.insert(azrtti_typeid<EMotionFX::AnimGraphMotionNode>());
             }
 
             EMotionFX::GetRecorder().StartRecording(settings);
@@ -217,6 +226,7 @@ namespace EMStudio
                 timeViewPlugin->OnZoomAll();
                 timeViewPlugin->SetCurrentTime(0.0f);
                 timeViewPlugin->GetTrackDataWidget()->setFocus();
+                timeViewPlugin->GetTrackDataHeaderWidget()->setFocus();
             }
 
             //mFilterButtonGroup->setEnabled(true);
@@ -365,6 +375,20 @@ namespace EMStudio
     // save recording button pressed
     void RecorderWidget::OnSaveButton()
     {
+        QString filter = "EMotionFX Recordings (*.emfxrecording)";
+        const QString fileName = QFileDialog::getSaveFileName(
+            this,
+            "Save Recording",
+            QString(),
+            filter,
+            &filter
+        );
+
+        if (!fileName.isEmpty())
+        {
+            EMotionFX::GetRecorder().SaveToFile(fileName.toUtf8().constData());
+        }
+
         UpdateButtons();
     }
 
@@ -395,7 +419,7 @@ namespace EMStudio
             mNextFrameButton->setEnabled(false);
             mLastFrameButton->setEnabled(false);
             //mOpenButton->setEnabled(true);
-            //mSaveButton->setEnabled(true);
+            mSaveButton->setEnabled(true);
             //mConfigButton->setEnabled(false);
             mClearButton->setEnabled(false);
             mPlayButton->setEnabled(false);
@@ -412,7 +436,7 @@ namespace EMStudio
             mNextFrameButton->setEnabled(true);
             mLastFrameButton->setEnabled(true);
             //mOpenButton->setEnabled(true);
-            //mSaveButton->setEnabled(true);
+            mSaveButton->setEnabled(true);
             //mConfigButton->setEnabled(true);
             mClearButton->setEnabled(true);
             mPlayButton->setEnabled(true);
@@ -437,7 +461,7 @@ namespace EMStudio
             mNextFrameButton->setEnabled(false);
             mLastFrameButton->setEnabled(false);
             //mOpenButton->setEnabled(true);
-            //mSaveButton->setEnabled(true);
+            mSaveButton->setEnabled(true);
             //mConfigButton->setEnabled(true);
             mClearButton->setEnabled(false);
             mPlayButton->setEnabled(false);
@@ -452,7 +476,7 @@ namespace EMStudio
             mNextFrameButton->setEnabled(true);
             mLastFrameButton->setEnabled(true);
             //mOpenButton->setEnabled(true);
-            //mSaveButton->setEnabled(true);
+            mSaveButton->setEnabled(true);
             //mConfigButton->setEnabled(true);
             mClearButton->setEnabled(true);
             mPlayButton->setEnabled(true);

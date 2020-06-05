@@ -16,6 +16,14 @@
 #include <AzCore/Slice/SliceComponent.h>
 #include <AzCore/Serialization/ObjectStream.h>
 
+namespace AZ
+{
+    namespace IO
+    {
+        class FileIOStream;
+    }
+}
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 //! Bus interface for tools to talk to the LyShine system
 //! It is valid to use this bus from resource compilers or the UI Editor
@@ -41,7 +49,7 @@ public:
     //! Load a canvas but do not init or activate the entities
     //! The CanvasAssetHandle is an opaque pointer only valid to be passed to the
     //! methods below.
-    virtual CanvasAssetHandle* LoadCanvasFromStream(AZ::IO::FileIOStream& stream, const AZ::ObjectStream::FilterDescriptor& filterDesc) = 0;
+    virtual CanvasAssetHandle* LoadCanvasFromStream(AZ::IO::GenericStream& stream, const AZ::ObjectStream::FilterDescriptor& filterDesc) = 0;
 
     //! Save a canvas to a stream
     virtual void SaveCanvasToStream(CanvasAssetHandle* canvas, AZ::IO::FileIOStream& stream) = 0;

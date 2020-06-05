@@ -18,165 +18,23 @@
 
 #include "terrain.h"
 #include "terrain_sector.h"
-#include "StatObj.h"
-#include "ObjMan.h"
-#include "3dEngine.h"
-#include "Vegetation.h"
-#include "RoadRenderNode.h"
-#include "MergedMeshRenderNode.h"
-#include "MergedMeshGeometry.h"
-#include "Brush.h"
-#include "DecalRenderNode.h"
-#include "WaterVolumeRenderNode.h"
-#include "IEntitySystem.h"
+#include <IEntitySystem.h>
+#include <MathConversion.h>
 
-
-#define RAD2BYTE(x) ((x)* 255.0f / float(g_PI2))
-#define BYTE2RAD(x) ((x)* float(g_PI2) / 255.0f)
 
 //////////////////////////////////////////////////////////////////////////
-IRenderNode* CTerrain::AddVegetationInstance(int nStaticGroupID, const Vec3& vPos, const float fScale, uint8 ucBright,
-    uint8 angle, uint8 angleX, uint8 angleY)
-{
-    if (vPos.x <= 0 || vPos.y <= 0 || vPos.x >= CTerrain::GetTerrainSize() || vPos.y >= CTerrain::GetTerrainSize() || fScale * VEGETATION_CONV_FACTOR < 1.f)
-    {
-        return 0;
-    }
-    IRenderNode* renderNode = NULL;
-
-    assert(DEFAULT_SID >= 0 && DEFAULT_SID < GetObjManager()->GetListStaticTypes().Count());
-
-    if (nStaticGroupID < 0 || nStaticGroupID >= GetObjManager()->GetListStaticTypes()[DEFAULT_SID].Count())
-    {
-        return 0;
-    }
-
-    StatInstGroup& group = GetObjManager()->GetListStaticTypes()[DEFAULT_SID][nStaticGroupID];
-    if (!group.GetStatObj())
-    {
-        Warning("I3DEngine::AddStaticObject: Attempt to add object of undefined type");
-        return 0;
-    }
-    if (!group.bAutoMerged)
-    {
-        CVegetation* pEnt = (CVegetation*)Get3DEngine()->CreateRenderNode(eERType_Vegetation);
-        pEnt->SetScale(fScale);
-        pEnt->m_vPos = vPos;
-        pEnt->SetStatObjGroupIndex(nStaticGroupID);
-        pEnt->m_ucAngle = angle;
-        pEnt->m_ucAngleX = angleX;
-        pEnt->m_ucAngleY = angleY;
-        pEnt->CalcBBox();
-
-        float fEntLengthSquared = pEnt->GetBBox().GetSize().GetLengthSquared();
-        if (fEntLengthSquared > MAX_VALID_OBJECT_VOLUME || !_finite(fEntLengthSquared) || fEntLengthSquared <= 0)
-        {
-            Warning("CTerrain::AddVegetationInstance: Object has invalid bbox: %s,%s, GetRadius() = %.2f",
-                pEnt->GetName(), pEnt->GetEntityClassName(), sqrt_tpl(fEntLengthSquared) * 0.5f);
-        }
-
-        pEnt->Physicalize();
-        Get3DEngine()->RegisterEntity(pEnt);
-        renderNode = pEnt;
-    }
-    else
-    {
-        SProcVegSample sample;
-        sample.InstGroupId = nStaticGroupID;
-        sample.pos = vPos;
-        sample.scale = (uint8)SATURATEB(fScale * VEGETATION_CONV_FACTOR);
-        Matrix33 mr = Matrix33::CreateRotationXYZ(Ang3(BYTE2RAD(angleX), BYTE2RAD(angleY), BYTE2RAD(angle)));
-
-        if (group.GetAlignToTerrainAmount() != 0.f)
-        {
-            Matrix33 m33;
-            GetTerrain()->GetTerrainAlignmentMatrix(vPos, group.GetAlignToTerrainAmount(), m33);
-            sample.q = Quat(m33) * Quat(mr);
-        }
-        else
-        {
-            sample.q = Quat(mr);
-        }
-        sample.q.NormalizeSafe();
-        renderNode = m_pMergedMeshesManager->AddInstance(sample);
-    }
-
-    return renderNode;
-}
-
-void CTerrain::RemoveAllStaticObjects()
-{
-    if (!Get3DEngine()->IsObjectTreeReady())
-    {
-        return;
-    }
-
-    PodArray<SRNInfo> lstObjects;
-    Get3DEngine()->GetObjectTree()->MoveObjectsIntoList(&lstObjects, NULL);
-
-    for (int i = 0; i < lstObjects.Count(); i++)
-    {
-        IRenderNode* pNode = lstObjects.GetAt(i).pNode;
-        switch (pNode->GetRenderNodeType())
-        {
-        case eERType_Vegetation:
-            if (!(pNode->GetRndFlags() & ERF_PROCEDURAL))
-            {
-                pNode->ReleaseNode();
-            }
-            break;
-        case eERType_MergedMesh:
-            pNode->ReleaseNode();
-            break;
-        }
-    }
-}
-
 #define GET_Z_VAL(_x, _y) heightmap[(_x) * nTerrainSize + (_y)]
 
 void CTerrain::BuildErrorsTableForArea(
     float* pLodErrors, int nMaxLods,
     int X1, int Y1, int X2, int Y2,
     const float* heightmap,
-    int weightmapSize,
-    const SurfaceWeight* weightmap)
+    bool bSectorHasHoles,
+    bool bSectorHasMesh)
 {
     memset(pLodErrors, 0, nMaxLods * sizeof(pLodErrors[0]));
     int nSectorSize = CTerrain::GetSectorSize() / CTerrain::GetHeightMapUnitSize();
     int nTerrainSize = CTerrain::GetTerrainSize() / CTerrain::GetHeightMapUnitSize();
-
-    bool bSectorHasHoles = false;
-    bool bSectorHasMesh = false;
-
-    {
-        int nLodUnitSize = 1;
-        int x1 = max(0, X1 - nLodUnitSize);
-        int x2 = min(nTerrainSize - nLodUnitSize, X2 + nLodUnitSize);
-        int y1 = max(0, Y1 - nLodUnitSize);
-        int y2 = min(nTerrainSize - nLodUnitSize, Y2 + nLodUnitSize);
-
-        for (int X = x1; X < x2; X += nLodUnitSize)
-        {
-            for (int Y = y1; Y < y2; Y += nLodUnitSize)
-            {
-                int nSurfX = (X - X1);
-                int nSurfY = (Y - Y1);
-                if (nSurfX >= 0 && nSurfY >= 0 && nSurfX < weightmapSize && nSurfY < weightmapSize && weightmap)
-                {
-                    int nSurfCell = nSurfX * weightmapSize + nSurfY;
-                    assert(nSurfCell >= 0 && nSurfCell < weightmapSize * weightmapSize);
-                    if (weightmap[nSurfCell].Ids[0] == SurfaceWeight::Hole)
-                    {
-                        bSectorHasHoles = true;
-                    }
-                    else
-                    {
-                        bSectorHasMesh = true;
-                    }
-                }
-            }
-        }
-    }
 
     bool bHasHoleEdges = (bSectorHasHoles && bSectorHasMesh);
 
@@ -191,7 +49,7 @@ void CTerrain::BuildErrorsTableForArea(
         // Holes can arbitrarily affect the maximum difference based on the given CVar.
         if (bHasHoleEdges)
         {
-            fMaxDiff = max(fMaxDiff, GetFloatCVar(e_TerrainLodRatioHolesMin));
+            fMaxDiff = max(fMaxDiff, GetCVars()->e_TerrainLodRatioHolesMin);
         }
 
         int nLodUnitSize = (1 << nLod);
@@ -256,7 +114,7 @@ static float GetHeight(const float* heightmap, int heightmapSize, int x, int y)
     return heightmap[x * heightmapSize + y];
 }
 
-void CTerrain::SetTerrainElevation(int offsetX, int offsetY, int areaSize, const float* heightmap, int weightmapSize, const SurfaceWeight* weightmap)
+void CTerrain::SetTerrainElevation(int offsetX, int offsetY, int areaSize, const float* heightmap, int weightmapSize, const ITerrain::SurfaceWeight* weightmap)
 {
     LOADING_TIME_PROFILE_SECTION;
     FUNCTION_PROFILER_3DENGINE;
@@ -266,7 +124,6 @@ void CTerrain::SetTerrainElevation(int offsetX, int offsetY, int areaSize, const
     const Unit HeightmapSize = CTerrain::GetTerrainSize() / MetersPerUnit;
 
     ResetHeightMapCache();
-    InitHeightfieldPhysics();
 
     // everything is in units in this function
     assert(offsetX == ((offsetX >> m_UnitToSectorBitShift) << m_UnitToSectorBitShift));
@@ -284,8 +141,7 @@ void CTerrain::SetTerrainElevation(int offsetX, int offsetY, int areaSize, const
     const Sector SectorMaxX = (offsetX + areaSize) >> m_UnitToSectorBitShift;
     const Sector SectorMaxY = (offsetY + areaSize) >> m_UnitToSectorBitShift;
     // TODO : figure out if the water level should be used to calculate the Terrain node's AABB.
-    const float fOceanLevel = OceanToggle::IsActive() ? OceanRequest::GetOceanLevel() : GetWaterLevel();
-
+    float fOceanLevel = Get3DEngine()->GetWaterLevel();
     for (Sector sectorX = SectorMinX; sectorX < SectorMaxX; sectorX++)
     {
         for (Sector sectorY = SectorMinY; sectorY < SectorMaxY; sectorY++)
@@ -298,14 +154,14 @@ void CTerrain::SetTerrainElevation(int offsetX, int offsetY, int areaSize, const
             const Unit y2 = ((sectorY + 1) << m_UnitToSectorBitShift);
 
             // find min/max
-            float heightMin = GetHeight(heightmap, HeightmapSize, x1, y1);
+            float heightMin = ::GetHeight(heightmap, HeightmapSize, x1, y1);
             float heightMax = heightMin;
 
             for (Unit x = x1; x <= x2; x++)
             {
                 for (Unit y = y1; y <= y2; y++)
                 {
-                    float z = GetHeightClamped(heightmap, HeightmapSize, x, y);
+                    float z = ::GetHeightClamped(heightmap, HeightmapSize, x, y);
                     heightMax = max(heightMax, z);
                     heightMin = min(heightMin, z);
                 }
@@ -314,23 +170,8 @@ void CTerrain::SetTerrainElevation(int offsetX, int offsetY, int areaSize, const
             leafNode->m_LocalAABB.min.Set((float)(x1 * MetersPerUnit), (float)(y1 * MetersPerUnit), heightMin);
             leafNode->m_LocalAABB.max.Set((float)(x2 * MetersPerUnit), (float)(y2 * MetersPerUnit), max(heightMax + TerrainConstants::coloredVegetationMaxSafeHeight, fOceanLevel));
 
-            // Build height-based error metrics for sector.
-            {
-                if (!leafNode->m_ZErrorFromBaseLOD)
-                {
-                    leafNode->m_ZErrorFromBaseLOD = new float[m_UnitToSectorBitShift];
-                }
-
-                BuildErrorsTableForArea(
-                    leafNode->m_ZErrorFromBaseLOD,
-                    m_UnitToSectorBitShift,
-                    x1, y1, x2, y2,
-                    heightmap,
-                    weightmapSize,
-                    weightmap);
-
-                assert(leafNode->m_ZErrorFromBaseLOD[0] == 0);
-            }
+            bool sectorHasHoles = false;
+            bool sectorHasMeshData = false;
 
             // Assign height and surface ids to the system memory buffer.
             {
@@ -356,27 +197,57 @@ void CTerrain::SetTerrainElevation(int offsetX, int offsetY, int areaSize, const
                             // height values can index +1 off the end, but surface ids can't.
                             int indexGlobal = (x - offsetX) * weightmapSize + (y - offsetY);
                             tile.SetWeightByIndex(indexLocal, weightmap[indexGlobal]);
+
+                            if (weightmap[indexGlobal].Ids[0] == ITerrain::SurfaceWeight::Hole)
+                            {
+                                sectorHasHoles = true;
+                            }
+                            else
+                            {
+                                sectorHasMeshData = true;
+                            }
+
                         }
                     }
                 }
+            }
+
+            // Build height-based error metrics for sector.
+            {
+                if (!leafNode->m_ZErrorFromBaseLOD)
+                {
+                    leafNode->m_ZErrorFromBaseLOD = new float[m_UnitToSectorBitShift];
+                }
+
+                BuildErrorsTableForArea(
+                    leafNode->m_ZErrorFromBaseLOD,
+                    m_UnitToSectorBitShift,
+                    x1, y1, x2, y2,
+                    heightmap,
+                    sectorHasHoles,
+                    sectorHasMeshData);
+
+                assert(leafNode->m_ZErrorFromBaseLOD[0] == 0);
             }
 
             leafNode->PropagateChangesToRoot();
         }
     }
 
+    InitHeightfieldPhysics();
+
     if (GetCurAsyncTimeSec() - StartTime > 1)
     {
-        PrintMessage("CTerrain::SetTerrainElevation took %.2f sec", GetCurAsyncTimeSec() - StartTime);
+        AZ_Printf("LegacyTerrain", "CTerrain::SetTerrainElevation took %.2f sec", GetCurAsyncTimeSec() - StartTime);
     }
 
     if (Get3DEngine()->IsObjectTreeReady())
     {
-        Get3DEngine()->GetObjectTree()->UpdateTerrainNodes();
+        Get3DEngine()->GetIObjectTree()->UpdateTerrainNodes();
     }
 
     // update roads
-    if (Get3DEngine()->IsObjectTreeReady() && m_bEditor)
+    if (Get3DEngine()->IsObjectTreeReady() && IsEditor())
     {
         PodArray<IRenderNode*> lstRoads;
 
@@ -390,10 +261,10 @@ void CTerrain::SetTerrainElevation(int offsetX, int offsetY, int areaSize, const
                 (MeterF)(offsetY) * (MeterF)MetersPerUnit + (MeterF)areaSize * (MeterF)MetersPerUnit,
                 1024.f));
 
-        Get3DEngine()->GetObjectTree()->GetObjectsByType(lstRoads, eERType_Road, &aabb);
+        Get3DEngine()->GetIObjectTree()->GetObjectsByType(lstRoads, eERType_Road, &aabb);
         for (int i = 0; i < lstRoads.Count(); i++)
         {
-            CRoadRenderNode* pRoad = (CRoadRenderNode*)lstRoads[i];
+            IRoadRenderNode* pRoad = (IRoadRenderNode*)lstRoads[i];
             pRoad->OnTerrainChanged();
         }
     }
@@ -407,17 +278,4 @@ void CTerrain::ResetTerrainVertBuffers()
     {
         m_RootNode->ReleaseHeightMapGeometry(true, nullptr);
     }
-}
-
-void CTerrain::SetOceanWaterLevel(float fOceanWaterLevel)
-{
-    SetWaterLevel(fOceanWaterLevel);
-    pe_params_buoyancy pb;
-    pb.waterPlane.origin.Set(0, 0, fOceanWaterLevel);
-    if (gEnv->pPhysicalWorld)
-    {
-        gEnv->pPhysicalWorld->AddGlobalArea()->SetParams(&pb);
-    }
-    extern float g_oceanStep;
-    g_oceanStep = -1; // if e_PhysOceanCell is used, make it re-apply the params on Update
 }

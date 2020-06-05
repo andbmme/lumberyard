@@ -9,58 +9,64 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
+
 #pragma once
 
 #include <AzCore/Component/Component.h>
+
+#include "Rendering/EntityDebugDisplayComponent.h"
 #include "CylinderShape.h"
 
 namespace LmbrCentral
 {
+    /// Provide a Component interface for CylinderShape functionality.
     class CylinderShapeComponent
         : public AZ::Component
-        , public CylinderShape
     {
     public:
         AZ_COMPONENT(CylinderShapeComponent, CylinderShapeComponentTypeId);
+        static void Reflect(AZ::ReflectContext* context);
 
-        //////////////////////////////////////////////////////////////////////////
-        // AZ::Component interface implementation
+        // AZ::Component
         void Activate() override;
         void Deactivate() override;
         bool ReadInConfig(const AZ::ComponentConfig* baseConfig) override;
         bool WriteOutConfig(AZ::ComponentConfig* outBaseConfig) const override;
-        //////////////////////////////////////////////////////////////////////////    
-
-        // Get the configuration
-        CylinderShapeConfig& GetConfiguration() override { return m_configuration; }
-
-    protected:
-
-        static void GetProvidedServices(AZ::ComponentDescriptor::DependencyArrayType& provided)
-        {
-            provided.push_back(AZ_CRC("ShapeService", 0xe86aa5fe));
-            provided.push_back(AZ_CRC("CylinderShapeService", 0x507c688e));
-        }
-
-        static void GetIncompatibleServices(AZ::ComponentDescriptor::DependencyArrayType& incompatible)
-        {
-            incompatible.push_back(AZ_CRC("ShapeService", 0xe86aa5fe));
-            incompatible.push_back(AZ_CRC("CylinderShapeService", 0x507c688e));
-        }
-
-        static void GetRequiredServices(AZ::ComponentDescriptor::DependencyArrayType& required)
-        {
-            required.push_back(AZ_CRC("TransformService", 0x8ee22c50));
-        }
-
-        static void Reflect(AZ::ReflectContext* context);
 
     private:
+        static void GetProvidedServices(AZ::ComponentDescriptor::DependencyArrayType& provided);
+        static void GetIncompatibleServices(AZ::ComponentDescriptor::DependencyArrayType& incompatible);
+        static void GetRequiredServices(AZ::ComponentDescriptor::DependencyArrayType& required);
 
-        //////////////////////////////////////////////////////////////////////////
-        // Serialized data
+        CylinderShape m_cylinderShape; ///< Stores underlying cylinder type for this component.
+    };
 
-        //! Stores configuration of a cylinder for this component
-        CylinderShapeConfig m_configuration;
+    /// Concrete EntityDebugDisplay implementation for CylinderShape.
+    class CylinderShapeDebugDisplayComponent
+        : public EntityDebugDisplayComponent
+        , public ShapeComponentNotificationsBus::Handler
+    {
+    public:
+        AZ_COMPONENT(CylinderShapeDebugDisplayComponent, "{13F00855-7BB6-447A-9E8D-61F37275BC95}", EntityDebugDisplayComponent)
+        static void Reflect(AZ::ReflectContext* context);
+
+        CylinderShapeDebugDisplayComponent() = default;
+
+        // AZ::Component
+        void Activate() override;
+        void Deactivate() override;
+        bool ReadInConfig(const AZ::ComponentConfig* baseConfig) override;
+        bool WriteOutConfig(AZ::ComponentConfig* outBaseConfig) const override;
+
+        // EntityDebugDisplayComponent
+        void Draw(AzFramework::DebugDisplayRequests& debugDisplay) override;
+
+    private:
+        AZ_DISABLE_COPY_MOVE(CylinderShapeDebugDisplayComponent)
+
+        // ShapeComponentNotificationsBus
+        void OnShapeChanged(ShapeChangeReasons changeReason) override;
+
+        CylinderShapeConfig m_cylinderShapeConfig; ///< Stores configuration data for cylinder shape.
     };
 } // namespace LmbrCentral

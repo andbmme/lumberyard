@@ -288,6 +288,9 @@
                 },
                 "StreamSpecification": {
                     "StreamViewType": "NEW_AND_OLD_IMAGES"
+                },
+                "SSESpecification": {
+                    "SSEEnabled": true
                 }
             },
             "Type": "AWS::DynamoDB::Table"
@@ -424,6 +427,14 @@
                         "Role"
                     ]
                 },
+                "Environment": {
+                    "Variables": {
+                        "Fn::GetAtt": [
+                            "ServiceLambdaConfiguration",
+                            "CCSettings"
+                        ]
+                    }
+                },
                 "Runtime": {
                     "Fn::GetAtt": [
                         "ServiceLambdaConfiguration",
@@ -443,7 +454,7 @@
                     "Ref": "ConfigurationKey"
                 },
                 "FunctionName": "ServiceLambda",
-                "Runtime": "python2.7",
+                "Runtime": "python3.7",
                 "ServiceToken": {
                     "Ref": "ProjectResourceHandler"
                 },
@@ -640,6 +651,14 @@
                         "Role"
                     ]
                 },
+                "Environment": {
+                    "Variables": {
+                        "Fn::GetAtt": [
+                            "AnswersDynamoDbStreamLambdaConfiguration",
+                            "CCSettings"
+                        ]
+                    }
+                },
                 "Runtime": {
                     "Fn::GetAtt": [
                         "AnswersDynamoDbStreamLambdaConfiguration",
@@ -659,7 +678,7 @@
                     "Ref": "ConfigurationKey"
                 },
                 "FunctionName": "AnswersDynamoDbStreamLambda",
-                "Runtime": "python2.7",
+                "Runtime": "python3.7",
                 "ServiceToken": {
                     "Ref": "ProjectResourceHandler"
                 },
@@ -739,6 +758,14 @@
                         "Role"
                     ]
                 },
+                "Environment": {
+                    "Variables": {
+                        "Fn::GetAtt": [
+                            "ExportAnswerSubmissionsCSVLambdaConfiguration",
+                            "CCSettings"
+                        ]
+                    }
+                },
                 "Runtime": {
                     "Fn::GetAtt": [
                         "ExportAnswerSubmissionsCSVLambdaConfiguration",
@@ -758,7 +785,7 @@
                     "Ref": "ConfigurationKey"
                 },
                 "FunctionName": "ExportAnswerSubmissionsCSVLambda",
-                "Runtime": "python2.7",
+                "Runtime": "python3.7",
                 "ServiceToken": {
                     "Ref": "ProjectResourceHandler"
                 },
@@ -810,6 +837,14 @@
                         "Role"
                     ]
                 },
+                "Environment": {
+                    "Variables": {
+                        "Fn::GetAtt": [
+                            "DeleteAnswerSubmissionsLambdaConfiguration",
+                            "CCSettings"
+                        ]
+                    }
+                },
                 "Runtime": {
                     "Fn::GetAtt": [
                         "DeleteAnswerSubmissionsLambdaConfiguration",
@@ -829,7 +864,7 @@
                     "Ref": "ConfigurationKey"
                 },
                 "FunctionName": "DeleteAnswerSubmissionsLambda",
-                "Runtime": "python2.7",
+                "Runtime": "python3.7",
                 "ServiceToken": {
                     "Ref": "ProjectResourceHandler"
                 },
@@ -875,6 +910,15 @@
                 }
             },
             "Properties": {
+                "BucketEncryption": {
+                    "ServerSideEncryptionConfiguration": [
+                        {
+                            "ServerSideEncryptionByDefault": {
+                                "SSEAlgorithm": "AES256"
+                            }
+                        }
+                    ]
+                }
             },
             "Type": "AWS::S3::Bucket"
         }

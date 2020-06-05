@@ -10,45 +10,17 @@
 *
 */
 
-// include required headers
+#include <AzCore/Serialization/SerializeContext.h>
+#include <AzCore/Serialization/EditContext.h>
 #include "BlendTreeVector2ComposeNode.h"
 
 
 namespace EMotionFX
 {
-    // constructor
-    BlendTreeVector2ComposeNode::BlendTreeVector2ComposeNode(AnimGraph* animGraph)
-        : AnimGraphNode(animGraph, nullptr, TYPE_ID)
-    {
-        // allocate space for the variables
-        CreateAttributeValues();
-        RegisterPorts();
-        InitInternalAttributesForAllInstances();
-    }
+    AZ_CLASS_ALLOCATOR_IMPL(BlendTreeVector2ComposeNode, AnimGraphAllocator, 0)
 
-
-    // destructor
-    BlendTreeVector2ComposeNode::~BlendTreeVector2ComposeNode()
-    {
-    }
-
-
-    // create
-    BlendTreeVector2ComposeNode* BlendTreeVector2ComposeNode::Create(AnimGraph* animGraph)
-    {
-        return new BlendTreeVector2ComposeNode(animGraph);
-    }
-
-
-    // create unique data
-    AnimGraphObjectData* BlendTreeVector2ComposeNode::CreateObjectData()
-    {
-        return AnimGraphNodeData::Create(this, nullptr);
-    }
-
-
-    // register the ports
-    void BlendTreeVector2ComposeNode::RegisterPorts()
+    BlendTreeVector2ComposeNode::BlendTreeVector2ComposeNode()
+        : AnimGraphNode()
     {
         // setup the input ports
         InitInputPorts(2);
@@ -60,56 +32,74 @@ namespace EMotionFX
         SetupOutputPort("Vector", OUTPUTPORT_VECTOR, MCore::AttributeVector2::TYPE_ID, PORTID_OUTPUT_VECTOR);
     }
 
-
-    // register the parameters
-    void BlendTreeVector2ComposeNode::RegisterAttributes()
+    BlendTreeVector2ComposeNode::~BlendTreeVector2ComposeNode()
     {
     }
 
+    bool BlendTreeVector2ComposeNode::InitAfterLoading(AnimGraph* animGraph)
+    {
+        if (!AnimGraphNode::InitAfterLoading(animGraph))
+        {
+            return false;
+        }
 
-    // get the palette name
+        InitInternalAttributesForAllInstances();
+
+        Reinit();
+        return true;
+    }
+
     const char* BlendTreeVector2ComposeNode::GetPaletteName() const
     {
         return "Vector2 Compose";
     }
 
-
-    // get the category
     AnimGraphObject::ECategory BlendTreeVector2ComposeNode::GetPaletteCategory() const
     {
         return AnimGraphObject::CATEGORY_MATH;
     }
 
-
-    // create a clone of this node
-    AnimGraphObject* BlendTreeVector2ComposeNode::Clone(AnimGraph* animGraph)
-    {
-        // create the clone
-        BlendTreeVector2ComposeNode* clone = new BlendTreeVector2ComposeNode(animGraph);
-
-        // copy base class settings such as parameter values to the new clone
-        CopyBaseObjectTo(clone);
-
-        // return a pointer to the clone
-        return clone;
-    }
-
-
-    // the update function
     void BlendTreeVector2ComposeNode::Update(AnimGraphInstance* animGraphInstance, float timePassedInSeconds)
     {
-        // update all inputs
         UpdateAllIncomingNodes(animGraphInstance, timePassedInSeconds);
+        UpdateOutputPortValues(animGraphInstance);
+    }
 
+    void BlendTreeVector2ComposeNode::Output(AnimGraphInstance* animGraphInstance)
+    {
+        OutputAllIncomingNodes(animGraphInstance);
+        UpdateOutputPortValues(animGraphInstance);
+    }
+
+    void BlendTreeVector2ComposeNode::UpdateOutputPortValues(AnimGraphInstance* animGraphInstance)
+    {
         const float x = GetInputNumberAsFloat(animGraphInstance, INPUTPORT_X);
         const float y = GetInputNumberAsFloat(animGraphInstance, INPUTPORT_Y);
         GetOutputVector2(animGraphInstance, OUTPUTPORT_VECTOR)->SetValue(AZ::Vector2(x, y));
     }
 
-
-    // get the type string
-    const char* BlendTreeVector2ComposeNode::GetTypeString() const
+    void BlendTreeVector2ComposeNode::Reflect(AZ::ReflectContext* context)
     {
-        return "BlendTreeVector2ComposeNode";
+        AZ::SerializeContext* serializeContext = azrtti_cast<AZ::SerializeContext*>(context);
+        if (!serializeContext)
+        {
+            return;
+        }
+
+        serializeContext->Class<BlendTreeVector2ComposeNode, AnimGraphNode>()
+            ->Version(1);
+
+
+        AZ::EditContext* editContext = serializeContext->GetEditContext();
+        if (!editContext)
+        {
+            return;
+        }
+
+        editContext->Class<BlendTreeVector2ComposeNode>("Vector2 compose", "Vector2 compose attributes")
+            ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
+            ->Attribute(AZ::Edit::Attributes::AutoExpand, "")
+            ->Attribute(AZ::Edit::Attributes::Visibility, AZ::Edit::PropertyVisibility::ShowChildrenOnly)
+            ;
     }
-}   // namespace EMotionFX
+} // namespace EMotionFX

@@ -21,12 +21,12 @@ ComponentButton::ComponentButton(HierarchyWidget* hierarchy,
 
     QObject::connect(this,
         &QPushButton::clicked,
-        [ this, hierarchy ](bool checked)
+        hierarchy,
+        [hierarchy](bool checked)
         {
             HierarchyMenu contextMenu(hierarchy,
                 HierarchyMenu::Show::kAddComponents,
-                true,
-                nullptr);
+                true);
 
             contextMenu.exec(QCursor::pos());
         });

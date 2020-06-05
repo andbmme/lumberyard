@@ -57,10 +57,10 @@ namespace CurveEditorHelpers
     QColor LerpColor(const QColor& a, const QColor& b, float k)
     {
         float mk = 1.0f - k;
-        return QColor(a.red() * mk + b.red() * k,
-            a.green() * mk + b.green() * k,
-            a.blue() * mk + b.blue() * k,
-            a.alpha() * mk + b.alpha() * k);
+        return QColor(aznumeric_cast<int>(a.red() * mk + b.red() * k),
+            aznumeric_cast<int>(a.green() * mk + b.green() * k),
+            aznumeric_cast<int>(a.blue() * mk + b.blue() * k),
+            aznumeric_cast<int>(a.alpha() * mk + b.alpha() * k));
     }
 }
 
@@ -137,7 +137,7 @@ namespace
 
     Vec2 PointToVec2(QPointF point)
     {
-        return Vec2(point.x(), point.y());
+        return Vec2(aznumeric_cast<float>(point.x()), aznumeric_cast<float>(point.y()));
     }
 
     // This function returns a new key with position and weights affected by eTangentType_Smooth, eTangentType_Linear and eTangentType_Step for the outgoing tangent
@@ -204,7 +204,7 @@ namespace
     }
 
     QPainterPath CreatePathFromCurve(const SCurveEditorCurve& curve,
-        ECurveEditorCurveType curveType, std::function<Vec2(Vec2)> transformFunc)
+        ECurveEditorCurveType curveType, AZStd::function<Vec2(Vec2)> transformFunc)
     {
         QPainterPath path;
 
@@ -216,8 +216,6 @@ namespace
 
         if (curve.m_customInterpolator && curve.m_keys.size() > 1)
         {
-            assert(curve.m_customInterpolator->GetKeyCount() > 1);
-
             const float range_start = curve.m_customInterpolator->GetKeyTime(0);
             const float range_end = curve.m_customInterpolator->GetKeyTime(curve.m_customInterpolator->GetKeyCount() - 1);
             const float range_delta = range_end - range_start;
@@ -296,7 +294,7 @@ namespace
     }
 
     // Renders path outside of the current range of the curve
-    QPainterPath CreateExtrapolatedPathFromCurve(const SCurveEditorCurve& curve, std::function<Vec2(Vec2)> transformFunc, float windowWidth)
+    QPainterPath CreateExtrapolatedPathFromCurve(const SCurveEditorCurve& curve, AZStd::function<Vec2(Vec2)> transformFunc, float windowWidth)
     {
         QPainterPath path;
 
@@ -338,7 +336,7 @@ namespace
     }
 
     // Renders line between discontinuous path when step mode is used for a control point
-    QPainterPath CreateDiscontinuinityPathFromCurve(const SCurveEditorCurve& curve, ECurveEditorCurveType curveType, std::function<Vec2(Vec2)> transformFunc)
+    QPainterPath CreateDiscontinuinityPathFromCurve(const SCurveEditorCurve& curve, ECurveEditorCurveType curveType, AZStd::function<Vec2(Vec2)> transformFunc)
     {
         QPainterPath path;
 
@@ -401,7 +399,7 @@ namespace
         painter.drawRect(QRectF(point - kPointRectExtent, point + kPointRectExtent));
     }
 
-    void ForEachKey(SCurveEditorContent& content, std::function<void (SCurveEditorCurve& curve, SCurveEditorKey& key)> fun)
+    void ForEachKey(SCurveEditorContent& content, AZStd::function<void (SCurveEditorCurve& curve, SCurveEditorKey& key)> fun)
     {
         for (auto iter = content.m_curves.begin(); iter != content.m_curves.end(); ++iter)
         {
@@ -1122,7 +1120,7 @@ void CCurveEditor::paintEvent(QPaintEvent* pEvent)
             const QPen narrowCurvePen = QPen(penColor);
             if (!(m_optOutFlags & eOptOutDashedPath))
             {
-                const QPainterPath extrapolatedPath = CreateExtrapolatedPathFromCurve(curve, transformFunc, width());
+                const QPainterPath extrapolatedPath = CreateExtrapolatedPathFromCurve(curve, transformFunc, aznumeric_cast<float>(width()));
                 painter.setPen(narrowCurvePen);
                 painter.drawPath(extrapolatedPath);
             }
@@ -1182,7 +1180,7 @@ void CCurveEditor::paintEvent(QPaintEvent* pEvent)
             DrawingPrimitives::STimeSliderOptions timeSliderOptions;
             timeSliderOptions.m_rect = rect();
             timeSliderOptions.m_precision = rulerPrecision;
-            timeSliderOptions.m_position = transformFunc(Vec2(m_time, 0.0f)).x;
+            timeSliderOptions.m_position = aznumeric_cast<int>(transformFunc(Vec2(m_time, 0.0f)).x);
             timeSliderOptions.m_time = m_time;
             timeSliderOptions.m_bHasFocus = hasFocus();
             DrawingPrimitives::DrawTimeSlider(painter, palette, timeSliderOptions);
@@ -1763,8 +1761,8 @@ bool CCurveEditor::AddPointToCurve(const Vec2 point, SCurveEditorCurve* pCurve)
     // Makes sure that a new point can be only added at a safe distance
     if (pCurve->m_customInterpolator)
     {
-        const float w = kPointRectExtent.x() * 2;
-        const float h = kPointRectExtent.y() * 2;
+        const float w = aznumeric_cast<float>(kPointRectExtent.x() * 2);
+        const float h = aznumeric_cast<float>(kPointRectExtent.y() * 2);
         const float minDist = w * w + h * h;
         auto keys = pCurve->m_keys;
         for (int i = 0; i < keys.size(); i++)

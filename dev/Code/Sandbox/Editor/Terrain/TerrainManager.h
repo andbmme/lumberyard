@@ -21,6 +21,7 @@
 
 //////////////////////////////////////////////////////////////////////////
 // Dependencies
+#include <Terrain/Bus/LegacyTerrainBus.h>
 #include "Terrain/Heightmap.h"
 #include "DocMultiArchive.h"
 
@@ -33,6 +34,7 @@ class CSurfaceType;
 //////////////////////////////////////////////////////////////////////////
 // Class
 class CTerrainManager
+    : public LegacyTerrain::LegacyTerrainEditorDataRequestBus::Handler
 {
 public:
     CTerrainManager();
@@ -73,7 +75,8 @@ public:
     CLayer* FindLayer(const char* sLayerName) const;
     CLayer* FindLayerByLayerId(const uint32 dwLayerId) const;
     void SwapLayers(int layer1, int layer2);
-    void AddLayer(CLayer* layer) { m_layers.push_back(layer); };
+    void MoveLayer(int oldIndex, int newIndex);
+    void AddLayer(CLayer* layer);
     void RemoveLayer(CLayer* layer);
     void ClearLayers();
     void SerializeLayerSettings(CXmlArchive& xmlAr);
@@ -116,6 +119,14 @@ public:
     void GetTerrainMemoryUsage(ICrySizer* pSizer);
 
     QString GenerateUniqueLayerName(const QString& name) const;
+    //////////////////////////////////////////////////////////////////////////
+
+    //////////////////////////////////////////////////////////////////////////
+    // LegacyTerrain::LegacyTerrainEditorDataRequestBus
+    //////////////////////////////////////////////////////////////////////////
+    bool CreateTerrainSystemFromEditorData() override;
+    void DestroyTerrainSystem() override;
+    void RefreshEngineMacroTexture() override;
     //////////////////////////////////////////////////////////////////////////
 
 protected:

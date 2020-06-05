@@ -20,8 +20,8 @@ Node: filesystem structure, contains lists of nodes
    (:py:class:`waflib.Node.Nod3`, see the :py:class:`waflib.Context.Context` initializer). A reference to the context owning a node is held as self.ctx
 """
 
-import os, re, sys, shutil, hashlib, base64
-from waflib import Utils, Errors
+import os, re, sys, shutil, hashlib, base64, stat
+from waflib import Utils, Errors, Logs
 
 exclude_regs = '''
 **/*~
@@ -58,6 +58,9 @@ exclude_regs = '''
 Ant patterns for files and folders to exclude while doing the
 recursive traversal in :py:meth:`waflib.Node.Node.ant_glob`
 """
+
+BLDNODE_SUBPATH_ENGINE = '_e'	# This constant represents a subpath in the bldnode to represent tmp build files from an external engine node
+BLDNODE_SUBPATH_ROOT = '_r'		# This constant represents a subpath in the bldnode to represent tmp build files the root file system
 
 def split_path(path):
 	"""
@@ -184,14 +187,38 @@ class Node(object):
 
 	def delete(self):
 		"""Delete the file/folders, and remove this node from the tree. It becomes invalid after that"""
+
+		if hasattr(self, 'children') or os.path.isdir(self.abspath()):
+			rm_func = shutil.rmtree
+		elif os.path.isfile(self.abspath()):
+			rm_func = os.remove
+		else:
+			rm_func = None
+
 		try:
-			if hasattr(self, 'children'):
-				shutil.rmtree(self.abspath())
-			else:
-				os.remove(self.abspath())
+			if rm_func is not None:
+				rm_func(self.abspath())
+			self.evict()
+			return
+		except OSError:
+			pass
+		
+		try:
+			# Read the file attributes of the file so that we only need to add a +write to the permissions
+			mode = os.stat(self.abspath())
+			read_perm = (stat.S_IMODE(mode.st_mode) & stat.S_IREAD) == stat.S_IREAD
+			exec_perm = (stat.S_IMODE(mode.st_mode) & stat.S_IEXEC) == stat.S_IEXEC
+			
+			update_mode = stat.S_IREAD if read_perm else 0
+			update_mode |= stat.S_IEXEC if exec_perm else 0
+			update_mode |= stat.S_IWRITE
+			
+			os.chmod(self.abspath(), update_mode)
+			rm_func(self.abspath())
 		except OSError:
 			pass
 		self.evict()
+
 
 	def evict(self):
 		"""Internal - called when a node is removed"""
@@ -485,7 +512,7 @@ class Node(object):
 					if maxdepth:
 						for k in node.ant_iter(accept=accept, maxdepth=maxdepth - 1, pats=npats, dir=dir, src=src, remove=remove):
 							yield k
-		raise StopIteration
+		return
 
 	def ant_glob(self, *k, **kw):
 		"""
@@ -651,9 +678,13 @@ class Node(object):
 		y = id(self.ctx.bldnode)
 		lst = []
 		while cur.parent:
-			if id(cur) == y:
+			# Check the current node if it matches the bldnode (in case this node is coming from inside the BinTemp folder already)
+			# (First perform an id check, but also perform an absolute path check in case the node instances are not equal)
+			if id(cur) == y or cur.abspath() == self.ctx.bldnode.abspath():
 				return self
-			if id(cur) == x:
+			# Check the current node if it matches the srcnode (base), and then build up the subpath from the bldnode as the root.
+			# (First perform an id check, but also perform an absolute path check in case the node instances are not equal)
+			if id(cur) == x or cur.abspath() == self.ctx.srcnode.abspath():
 				lst.reverse()				
 				tmp = []
 				for i in lst:
@@ -678,22 +709,21 @@ class Node(object):
 		if expanded_path.startswith(expanded_engine_path):
 			# If the path starts with the engine root, then use a common __engine__ root instead
 			sub_lst = lst[len(self.ctx.engine_node_list):]
-			return self.ctx.bldnode.make_node(['__eng__'] + sub_lst)
+			return self.ctx.bldnode.make_node([BLDNODE_SUBPATH_ENGINE] + sub_lst)
 
 		# Try to use the shortest possible path between the length of the hash and the length of the original path.
 		# This will help minimize the chances of having the path too long for certain linkers (Microsoft @ 260 characters) to handle
 		expanded_path = '/'.join(lst)
 
 		hasher = hashlib.md5()
-		hasher.update(expanded_path)
+		hasher.update(expanded_path.encode('utf-8'))
 		hashed_and_encoded = hasher.hexdigest()
 
 		if len(expanded_path) > 32:
-			return self.ctx.bldnode.make_node(['__root__', hashed_and_encoded])
+			return self.ctx.bldnode.make_node([BLDNODE_SUBPATH_ROOT, hashed_and_encoded])
 		else:
-			return self.ctx.bldnode.make_node(['__root__'] + lst)
-
-
+			return self.ctx.bldnode.make_node([BLDNODE_SUBPATH_ROOT] + lst)
+	
 	def find_resource(self, lst):
 		"""
 		Try to find a declared build node or a source file
@@ -829,10 +859,20 @@ class Node(object):
 		except AttributeError:
 			pass
 
-		if not self.is_bld() or self.ctx.bldnode is self.ctx.srcnode:
-			self.sig = Utils.h_file(self.abspath())
-		self.cache_sig = ret = self.sig
-		return ret
+		def should_use_parent_task_sig():
+			if not self.is_bld() and hasattr(self, 'sig'):
+				# If node is outside of bld folder and is gerenerated, use parent task sig
+				return True
+			if os.path.splitext(self.name)[1] in ['.o', '.obj']:
+				# If node is object file, use parent task sig if exists
+				return hasattr(self, 'sig')
+
+		if should_use_parent_task_sig():
+			self.cache_sig = self.sig
+		else:
+			self.cache_sig = Utils.h_file(self.abspath())
+
+		return self.cache_sig
 
 
 	# TODO Waf 1.8

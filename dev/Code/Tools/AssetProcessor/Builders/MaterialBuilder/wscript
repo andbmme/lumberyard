@@ -18,11 +18,13 @@ def build(bld):
         target      = 'MaterialBuilder',
         vs_filter   = 'Tools/AssetProcessor/Builders',
         file_list   = ['materialbuilder.waf_files'],
-        platforms       = ['win', 'darwin'],
-        configurations  = ['debug_all', 'profile_all'],
+        platforms       = ['win', 'darwin','linux'],
+        configurations  = ['all'],
+        exclude_monolithic = True,
         disable_pch         = True,
         
-        test_all_file_list = ['materialbuilder_tests.waf_files'],
+        test_all_file_list  = ['materialbuilder_tests.waf_files'],
+        linux_rpath         = ['$ORIGIN/..']
     )
 
 

@@ -17,6 +17,7 @@
 
 #include <GraphCanvas/Components/SceneBus.h>
 #include <GraphCanvas/Components/Slots/SlotBus.h>
+#include <GraphCanvas/Utils/StateControllers/StateController.h>
 
 namespace GraphCanvas
 {
@@ -79,13 +80,15 @@ namespace GraphCanvas
         const AZ::EntityId& GetNode() const override;
         void SetNode(const AZ::EntityId&) override;
 
-        const AZStd::string& GetName() const  override { return m_slotConfiguration.m_name.GetDisplayString(); }
+        Endpoint GetEndpoint() const;
+
+        const AZStd::string GetName() const  override { return m_slotConfiguration.m_name.GetDisplayString(); }
         void SetName(const AZStd::string& name) override;
 
         TranslationKeyedString GetTranslationKeyedName() const override { return m_slotConfiguration.m_name; }
         void SetTranslationKeyedName(const TranslationKeyedString&) override;
 
-        const AZStd::string& GetTooltip() const override { return m_slotConfiguration.m_tooltip.GetDisplayString(); }
+        const AZStd::string GetTooltip() const override { return m_slotConfiguration.m_tooltip.GetDisplayString(); }
         void SetTooltip(const AZStd::string& tooltip)  override;
 
         TranslationKeyedString GetTranslationKeyedTooltip() const override { return m_slotConfiguration.m_tooltip; }
@@ -101,9 +104,20 @@ namespace GraphCanvas
         SlotGroup GetSlotGroup() const override { return m_slotConfiguration.m_slotGroup; }
         SlotType GetSlotType() const override { return m_slotType; }
 
-        bool CanAcceptConnection(const Endpoint& endpoint);
-        AZ::EntityId CreateConnection() const override;
-        AZ::EntityId CreateConnectionWithEndpoint(const Endpoint& endpoint) const;
+        void SetDisplayOrdering(int ordering) override;
+        int GetDisplayOrdering() const override;
+
+        bool IsConnectedTo(const Endpoint& endpoint) const override;
+
+        void FindConnectionsForEndpoints(const AZStd::unordered_set<GraphCanvas::Endpoint>& searchEndpoints, AZStd::unordered_set<ConnectionId>& connections) override;
+
+        bool CanDisplayConnectionTo(const Endpoint& endpoint) const override;
+        bool CanCreateConnectionTo(const Endpoint& endpoint) const override;
+
+        AZ::EntityId CreateConnectionWithEndpoint(const Endpoint& endpoint) override;
+
+        AZ::EntityId DisplayConnection() override;
+        AZ::EntityId DisplayConnectionWithEndpoint(const Endpoint& endpoint) override;
 
         AZStd::any* GetUserData() override;
 
@@ -112,16 +126,36 @@ namespace GraphCanvas
         AZ::EntityId GetLastConnection() const override;
         AZStd::vector<AZ::EntityId> GetConnections() const override;
 
-        void SetConnectionDisplayState(ConnectionDisplayState displayState) override;
+        void SetConnectionDisplayState(RootGraphicsItemDisplayState displayState) override;
+        void ReleaseConnectionDisplayState() override;
         void ClearConnections() override;
+
+        SlotConfiguration* CloneSlotConfiguration() const override;
+
+        void RemapSlotForModel(const Endpoint& endpoint) override;
+
+        bool HasModelRemapping() const override;
+
+        AZStd::vector< Endpoint > GetRemappedModelEndpoints() const override;
+
+        int GetLayoutPriority() const override;
+        void SetLayoutPriority(int priority) override;
         ////
 
     protected:
 
-        virtual AZ::Entity* ConstructConnectionEntity(const Endpoint& sourceEndpoint, const Endpoint& targetEndpoint) const;
+        void PopulateSlotConfiguration(SlotConfiguration& slotConfiguration) const;
+
+        AZ::EntityId CreateConnectionHelper(const Endpoint& otherEndpoint, bool createConnection);
+
+        SlotComponent(const SlotComponent&) = delete;
+        const SlotComponent& operator=(const SlotComponent&) = delete;
+        virtual AZ::Entity* ConstructConnectionEntity(const Endpoint& sourceEndpoint, const Endpoint& targetEndpoint, bool createModelConnection);
 
         void FinalizeDisplay();
         virtual void OnFinalizeDisplay();
+
+        AZStd::vector< Endpoint > m_modelRedirections;
 
         //! The Node this Slot belongs to.
         AZ::EntityId m_nodeId;
@@ -129,8 +163,16 @@ namespace GraphCanvas
         SlotType          m_slotType;
         SlotConfiguration m_slotConfiguration;
 
+        // The actual display ordering this slot is in
+        int               m_displayOrdering;
+
+        // The priority with which to layout this slot
+        int               m_layoutPriority;
+
         //! Keeps track of connections to this slot
         AZStd::vector<AZ::EntityId> m_connections;
+
+        StateSetter<RootGraphicsItemDisplayState> m_connectionDisplayStateStateSetter;
 
         //! Stores custom user data for this slot
         AZStd::any m_userData;

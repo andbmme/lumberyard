@@ -105,7 +105,7 @@ namespace UnitTest
     TEST(StringC, AZSWNPrintf)
     {
         wchar_t wbuffer32[32];
-        azswnprintf(wbuffer32, AZ_ARRAY_SIZE(wbuffer32), L"This is a buffer test %ls", L"Bla1");
+        azsnwprintf(wbuffer32, AZ_ARRAY_SIZE(wbuffer32), L"This is a buffer test %ls", L"Bla1");
         EXPECT_EQ(0, wcscmp(wbuffer32, L"This is a buffer test Bla1"));
     }
 
@@ -136,6 +136,7 @@ namespace UnitTest
     {
         char buffer32[32];
         azstrncpy(buffer32, AZ_ARRAY_SIZE(buffer32), "Gla Gla 1", 7);
+        // azstrncpy note: if count is reached before the entire array src was copied, the resulting character array is not null-terminated.
         buffer32[7] = '\0';
         EXPECT_EQ(0, strcmp(buffer32, "Gla Gla"));
     }
@@ -144,6 +145,8 @@ namespace UnitTest
     {
         char buffer32[32];
         azstrncpy(buffer32, AZ_ARRAY_SIZE(buffer32), "Gla Gla 1", 7);
+        // azstrncpy note: if count is reached before the entire array src was copied, the resulting character array is not null-terminated.
+        buffer32[7] = '\0';
         EXPECT_EQ(0, azstricmp(buffer32, "gla gla"));
     }
 
@@ -219,7 +222,6 @@ namespace UnitTest
         string str11(str2, 4, 3);
         AZ_TEST_VALIDATE_STRING(str11, 3);
 
-#if defined(AZ_HAS_RVALUE_REFS)
         string str12(sChar);
         string large = sCharLong;
 
@@ -264,7 +266,6 @@ namespace UnitTest
         AZ_TEST_VALIDATE_EMPTY_STRING(strSm);
         strLg.clear();
         AZ_TEST_VALIDATE_EMPTY_STRING(strLg);
-#endif // AZ_HAS_RVALUE_REFS
 
         str2.append(str3);
         AZ_TEST_VALIDATE_STRING(str2, 15);
@@ -434,6 +435,13 @@ namespace UnitTest
         str2[0] = 'G';
         AZ_TEST_ASSERT(str2.at(0) == 'G');
 
+        AZ_TEST_ASSERT(str2.front() == 'G');
+        str2.front() = 'X';
+        AZ_TEST_ASSERT(str2.front() == 'X');
+        AZ_TEST_ASSERT(str2.back() == 'c'); // From the insert of 2 'c's at the end() further up.
+        str2.back() = 'p';
+        AZ_TEST_ASSERT(str2.back() == 'p');
+
         AZ_TEST_ASSERT(str2.c_str() != 0);
         AZ_TEST_ASSERT(::strlen(str2.c_str()) == str2.length());
 
@@ -581,6 +589,24 @@ namespace UnitTest
         AZ_TEST_ASSERT(cmpRes == 0);
         cmpRes = str1.compare(11, 3, sChar, 3);
         AZ_TEST_ASSERT(cmpRes < 0);
+
+        using iteratorType = char;
+        auto testValue = str4;
+        reverse_iterator<iteratorType*> rend = testValue.rend();
+        reverse_iterator<const iteratorType*> crend1 = testValue.rend();
+        reverse_iterator<const iteratorType*> crend2 = testValue.crend();
+
+        reverse_iterator<iteratorType*> rbegin = testValue.rbegin();
+        reverse_iterator<const iteratorType*> crbegin1 = testValue.rbegin();
+        reverse_iterator<const iteratorType*> crbegin2 = testValue.crbegin();
+
+        AZ_TEST_ASSERT(rend == crend1);
+        AZ_TEST_ASSERT(crend1 == crend2);
+
+        AZ_TEST_ASSERT(rbegin == crbegin1);
+        AZ_TEST_ASSERT(crbegin1 == crbegin2);
+        
+        AZ_TEST_ASSERT(rbegin != rend);
 
         str1.set_capacity(3);
         AZ_TEST_VALIDATE_STRING(str1, 3);
@@ -1112,11 +1138,11 @@ namespace UnitTest
         AZ_TEST_ASSERT(cstr2 != "test");
         AZ_TEST_ASSERT(cstr2[2] == 's');
         AZ_TEST_ASSERT(cstr2.at(2) == 's');
-        AZ_TEST_START_ASSERTTEST;
+        AZ_TEST_START_TRACE_SUPPRESSION;
         AZ_TEST_ASSERT(cstr2.at(7) == 0);
-        AZ_TEST_STOP_ASSERTTEST(1);
+        AZ_TEST_STOP_TRACE_SUPPRESSION(1);
         AZ_TEST_ASSERT(!cstr2.empty());
-        AZ_TEST_ASSERT(cstr2.to_string() == string("Test"));
+        AZ_TEST_ASSERT(cstr2.data() == string("Test"));
         AZ_TEST_ASSERT((string)cstr2 == string("Test"));
 
         string_view cstr3 = cstr2;
@@ -1126,7 +1152,7 @@ namespace UnitTest
         AZ_TEST_ASSERT(cstr3 == string_view());
         AZ_TEST_ASSERT(cstr1 == cstr2);
 
-        cstr1.erase();
+        cstr1 = {};
         AZ_TEST_ASSERT(cstr1 == string_view());
         AZ_TEST_ASSERT(cstr1.size() == 0);
         AZ_TEST_ASSERT(cstr1.length() == 0);
@@ -1140,6 +1166,16 @@ namespace UnitTest
         AZStd::hash<string_view> h;
         AZStd::size_t value = h(cstr1);
         AZ_TEST_ASSERT(value != 0);
+
+        // testing empty string
+        AZStd::string emptyString;
+        string_view cstr4;
+        cstr4 = emptyString;
+        AZ_TEST_ASSERT(cstr4.data() != nullptr);
+        AZ_TEST_ASSERT(cstr4.size() == 0);
+        AZ_TEST_ASSERT(cstr4.length() == 0);
+        AZ_TEST_ASSERT(cstr4.begin() == cstr4.end());
+        AZ_TEST_ASSERT(cstr4.empty());
     }
 
     TEST_F(String, StringViewModifierTest)
@@ -1165,16 +1201,16 @@ namespace UnitTest
         EXPECT_EQ(view2.size() - 1, copyResult);
 
         char assertDest[destBufferSize] = { 0 };
-        AZ_TEST_START_ASSERTTEST;
+        AZ_TEST_START_TRACE_SUPPRESSION;
         view2.copy(assertDest, destBufferSize, view2.size() + 1);
-        AZ_TEST_STOP_ASSERTTEST(1);
+        AZ_TEST_STOP_TRACE_SUPPRESSION(1);
 
         // substr
         string_view subView2 = view2.substr(10);
         EXPECT_EQ("Haystack", subView2);
-        AZ_TEST_START_ASSERTTEST;
+        AZ_TEST_START_TRACE_SUPPRESSION;
         string_view assertSubView = view2.substr(view2.size() + 1);
-        AZ_TEST_STOP_ASSERTTEST(1);
+        AZ_TEST_STOP_TRACE_SUPPRESSION(1);
 
         // compare
         AZStd::size_t compareResult = view2.compare(1, view2.size() - 1, dest, copyResult);
@@ -1209,10 +1245,10 @@ namespace UnitTest
         EXPECT_EQ(1, rfindResult);
 
         rfindResult = nullptrView4.rfind("");
-        EXPECT_EQ(0, rfindResult);
+        EXPECT_EQ(string_view::npos, rfindResult);
 
         rfindResult = emptyView1.rfind("");
-        EXPECT_EQ(0, rfindResult);
+        EXPECT_EQ(string_view::npos, rfindResult);
 
         rfindResult = view2.rfind("z");
         EXPECT_EQ(string_view::npos, rfindResult);
@@ -1293,6 +1329,24 @@ namespace UnitTest
         string_view suffixRemovalView = view2;
         suffixRemovalView.remove_suffix(8);
         EXPECT_EQ("Needle in ", suffixRemovalView);
+
+        // starts_with
+        EXPECT_TRUE(view2.starts_with("Needle"));
+        EXPECT_TRUE(view2.starts_with('N'));
+        EXPECT_TRUE(view2.starts_with(AZStd::string_view("Needle")));
+
+        EXPECT_FALSE(view2.starts_with("Needle not"));
+        EXPECT_FALSE(view2.starts_with('n'));
+        EXPECT_FALSE(view2.starts_with(AZStd::string_view("Needle not")));
+
+        // ends_with
+        EXPECT_TRUE(view2.ends_with("Haystack"));
+        EXPECT_TRUE(view2.ends_with('k'));
+        EXPECT_TRUE(view2.ends_with(AZStd::string_view("Haystack")));
+
+        EXPECT_FALSE(view2.ends_with("Hayqueue"));
+        EXPECT_FALSE(view2.ends_with('e'));
+        EXPECT_FALSE(view2.ends_with(AZStd::string_view("Hayqueue")));
     }
 
     TEST_F(String, StringViewCmpOperatorTest)
@@ -1363,5 +1417,567 @@ namespace UnitTest
         EXPECT_GE(beaverView, bigBeaver);
         EXPECT_GE(compareStr, beaverView);
         EXPECT_GE(microBeaverStr, beaverView);
+    }
+
+    TEST_F(String, StringViewPrintf)
+    {
+        AZStd::string s = "This is a long string";
+        AZStd::string_view view0;
+        AZStd::string_view view1 = s;
+        AZStd::string_view view2{&s[10], 4};
+
+        AZStd::string result;
+
+        result = AZStd::string::format("%s %.*s %s", "[", AZ_STRING_ARG(view0), "]");
+        EXPECT_EQ(AZStd::string{"[  ]"}, result);
+
+        result = AZStd::string::format("%s %.*s %s", "[", AZ_STRING_ARG(view1), "]");
+        EXPECT_EQ(AZStd::string{"[ This is a long string ]"}, result);
+
+        result = AZStd::string::format("%s %.*s %s", "[", AZ_STRING_ARG(view2), "]");
+        EXPECT_EQ(AZStd::string{"[ long ]"}, result);
+
+        result = AZStd::string::format("%s %.*s %s", "[", AZ_STRING_ARG(s), "]");
+        EXPECT_EQ(AZStd::string{"[ This is a long string ]"}, result);
+
+        // Testing AZ_STRING_FORMATTER too
+        result = AZStd::string::format("%s" AZ_STRING_FORMAT "%s", "[", AZ_STRING_ARG(view2), "]");
+        EXPECT_EQ(AZStd::string{"[long]"}, result);
+    }
+
+    template<typename T>
+    class BasicStringViewConstexprFixture
+        : public ScopedAllocatorSetupFixture
+    {};
+
+    using StringViewElementTypes = ::testing::Types<char, wchar_t>;
+    TYPED_TEST_CASE(BasicStringViewConstexprFixture, StringViewElementTypes);
+    TYPED_TEST(BasicStringViewConstexprFixture, StringView_DefaultConstructorsIsConstexpr)
+    {
+        constexpr basic_string_view<TypeParam> defaultView1;
+        constexpr basic_string_view<TypeParam> defaultView2;
+        static_assert(defaultView1 == defaultView2, "string_view constructor should be constexpr");
+    }
+
+    TYPED_TEST(BasicStringViewConstexprFixture, StringView_CharTConstructorsAreConstexpr)
+    {
+        // null terminated compile time string
+        constexpr const TypeParam* compileTimeString = []() constexpr -> const TypeParam*
+        {
+            if constexpr (AZStd::is_same_v<TypeParam, char>)
+            {
+                return "HelloWorld\0";
+            }
+            else if constexpr (AZStd::is_same_v<TypeParam, wchar_t>)
+            {
+                return L"HelloWorld\0";
+            }
+
+            return {};
+        }();
+        constexpr basic_string_view<TypeParam> charTView1(compileTimeString);
+        static_assert(charTView1.size() == 10, "string_view constructor should be constexpr");
+        // non-null terminated compile time string
+        constexpr const TypeParam* compileTimeString2 = []() constexpr -> const TypeParam*
+        {
+            if constexpr (AZStd::is_same_v<TypeParam, char>)
+            {
+                return "GoodbyeWorld";
+            }
+            else if constexpr (AZStd::is_same_v<TypeParam, wchar_t>)
+            {
+                return L"GoodbyeWorld";
+            }
+
+            return {};
+        }();
+        constexpr basic_string_view<TypeParam> charTViewWithLength(compileTimeString2, 7);
+        static_assert(charTViewWithLength.size() == 7, "string_view constructor should be constexpr");
+    }
+
+    TYPED_TEST(BasicStringViewConstexprFixture, StringView_CopyConstructorsIsConstexpr)
+    {
+        // null terminated compile time string
+        constexpr const TypeParam* compileTimeString = []() constexpr-> const TypeParam*
+        {
+            if constexpr (AZStd::is_same_v<TypeParam, char>)
+            {
+                return "HelloWorld\0";
+            }
+            else if constexpr (AZStd::is_same_v<TypeParam, wchar_t>)
+            {
+                return L"HelloWorld\0";
+            }
+
+            return {};
+        }();
+        constexpr basic_string_view<TypeParam> copyView1(compileTimeString);
+        constexpr basic_string_view<TypeParam> copyView2(copyView1);
+        static_assert(copyView1 == copyView2, "string_view constructor should be constexpr");
+    }
+
+    TYPED_TEST(BasicStringViewConstexprFixture, StringView_AssignmentOperatorIsConstexpr)
+    {
+        // null terminated compile time string
+        constexpr const TypeParam* compileTimeString1 = []() constexpr-> const TypeParam*
+        {
+            if constexpr (AZStd::is_same_v<TypeParam, char>)
+            {
+                return "HelloWorld\0";
+            }
+            else if constexpr (AZStd::is_same_v<TypeParam, wchar_t>)
+            {
+                return L"HelloWorld\0";
+            }
+
+            return {};
+        }();
+        constexpr basic_string_view<TypeParam> assignView1(compileTimeString1);
+        auto assignment_test_func = [](basic_string_view<TypeParam> sourceView) constexpr -> basic_string_view<TypeParam>
+        {
+            constexpr const TypeParam* const compileTimeString2 = []() constexpr-> const TypeParam*
+            {
+                if constexpr (AZStd::is_same_v<TypeParam, char>)
+                {
+                    return "GoodbyeWorld\0";
+                }
+                else if constexpr (AZStd::is_same_v<TypeParam, wchar_t>)
+                {
+                    return L"GoodbyeWorld\0";
+                }
+
+                return {};
+            }();
+            basic_string_view<TypeParam> assignView2(compileTimeString2);
+            assignView2 = sourceView;
+            return assignView2;
+        };
+
+        static_assert(assignment_test_func(assignView1) == assignView1, "The assigned string_view should compare equal to the original");
+    }
+
+    TYPED_TEST(BasicStringViewConstexprFixture, StringView_IteratorsAreConstexpr)
+    {
+        // null terminated compile time string
+        constexpr const TypeParam* compileTimeString1 = []() constexpr-> const TypeParam*
+        {
+            if constexpr (AZStd::is_same_v<TypeParam, char>)
+            {
+                return "HelloWorld\0";
+            }
+            else if constexpr (AZStd::is_same_v<TypeParam, wchar_t>)
+            {
+                return L"HelloWorld\0";
+            }
+
+            return {};
+        }();
+        constexpr basic_string_view<TypeParam> iteratorView(compileTimeString1);
+        constexpr typename basic_string_view<TypeParam>::iterator beginIt = iteratorView.begin();
+        constexpr typename basic_string_view<TypeParam>::const_iterator cbeginIt = iteratorView.cbegin();
+        constexpr typename basic_string_view<TypeParam>::iterator endIt = iteratorView.end();
+        constexpr typename basic_string_view<TypeParam>::const_iterator cendIt = iteratorView.cend();
+        constexpr typename basic_string_view<TypeParam>::reverse_iterator rbeginIt = iteratorView.rbegin();
+        constexpr typename basic_string_view<TypeParam>::const_reverse_iterator crbeginIt = iteratorView.crbegin();
+        constexpr typename basic_string_view<TypeParam>::reverse_iterator rendIt = iteratorView.rend();
+        constexpr typename basic_string_view<TypeParam>::const_reverse_iterator crendIt = iteratorView.crend();
+        static_assert(beginIt != endIt, "begin and iterators should be different");
+        static_assert(cbeginIt != cendIt, "begin and iterators should be different");
+        static_assert(rbeginIt != rendIt, "begin and iterators should be different");
+        static_assert(crbeginIt != crendIt, "begin and iterators should be different");
+
+        static_assert(AZStd::begin(iteratorView) != AZStd::end(iteratorView), "non-member begin and end functions should return different iterators");
+    }
+
+    TYPED_TEST(BasicStringViewConstexprFixture, StringView_AccessOperatorsAreConstexpr)
+    {
+        // null terminated compile time string
+        constexpr const TypeParam* compileTimeString1 = []() constexpr-> const TypeParam*
+        {
+            if constexpr (AZStd::is_same_v<TypeParam, char>)
+            {
+                return "HelloWorld\0";
+            }
+            else if constexpr (AZStd::is_same_v<TypeParam, wchar_t>)
+            {
+                return L"HelloWorld\0";
+            }
+
+            return {};
+        }();
+        constexpr basic_string_view<TypeParam> elementView1(compileTimeString1);
+        static_assert(elementView1[4] == 'o', "character at index 4 in string_view should be 'o'");
+        static_assert(elementView1.at(5) == 'W', "character at index 5 in string_view should be 'W'");
+    }
+
+    TYPED_TEST(BasicStringViewConstexprFixture, StringView_FrontAndBackAreConstexpr)
+    {
+        // null terminated compile time string
+        constexpr const TypeParam* compileTimeString1 = []() constexpr-> const TypeParam*
+        {
+            if constexpr (AZStd::is_same_v<TypeParam, char>)
+            {
+                return "HelloWorld\0";
+            }
+            else if constexpr (AZStd::is_same_v<TypeParam, wchar_t>)
+            {
+                return L"HelloWorld\0";
+            }
+
+            return {};
+        }();
+        constexpr basic_string_view<TypeParam> elementView1(compileTimeString1);
+        static_assert(elementView1.front() == 'H', "Fourth character in string_view should be 'H'");
+        static_assert(elementView1.back() == 'd', "Fifth character in string_view should be 'd'");
+    }
+
+    TYPED_TEST(BasicStringViewConstexprFixture, StringView_DataIsConstexpr)
+    {
+        // null terminated compile time string
+        constexpr const TypeParam* compileTimeString1 = []() constexpr-> const TypeParam*
+        {
+            if constexpr (AZStd::is_same_v<TypeParam, char>)
+            {
+                return "HelloWorld\0";
+            }
+            else if constexpr (AZStd::is_same_v<TypeParam, wchar_t>)
+            {
+                return L"HelloWorld\0";
+            }
+
+            return {};
+        }();
+        constexpr const TypeParam* compileTimeString2 = []() constexpr-> const TypeParam*
+        {
+            if constexpr (AZStd::is_same_v<TypeParam, char>)
+            {
+                return "OthelloWorld\0";
+            }
+            else if constexpr (AZStd::is_same_v<TypeParam, wchar_t>)
+            {
+                return L"OthelloWorld\0";
+            }
+
+            return {};
+        }();
+        static constexpr basic_string_view<TypeParam> elementView1(compileTimeString1);
+        static constexpr basic_string_view<TypeParam> elementView2(compileTimeString2);
+        static_assert(elementView1.data(), "string_view.data() should be non-nullptr");
+    }
+
+    TYPED_TEST(BasicStringViewConstexprFixture, StringView_SizeOperatorsConstexpr)
+    {
+        // null terminated compile time string
+        constexpr const TypeParam* compileTimeString1 = []() constexpr-> const TypeParam*
+        {
+            if constexpr (AZStd::is_same_v<TypeParam, char>)
+            {
+                return "HelloWorld\0";
+            }
+            else if constexpr (AZStd::is_same_v<TypeParam, wchar_t>)
+            {
+                return L"HelloWorld\0";
+            }
+
+            return {};
+        }();
+        constexpr basic_string_view<TypeParam> sizeView1(compileTimeString1);
+        static_assert(sizeView1.size() == sizeView1.length(), "string_views size and length function should return the same value");
+        static_assert(!sizeView1.empty(), "string_views should not be empty");
+        static_assert(sizeView1.max_size() != 0, "string_views max_size should be greater than 0");
+    }
+
+    TEST_F(String, StringView_ModifiersAreConstexpr)
+    {
+        using TypeParam = char;
+        // null terminated compile time string
+        auto MakeCompileTimeString1 = []() constexpr -> const TypeParam*
+        {
+            return "HelloWorld";
+        };
+        constexpr const TypeParam* compileTimeString1 = MakeCompileTimeString1();
+        constexpr basic_string_view<TypeParam> modifierView("HelloWorld");
+        // A constexpr lambda is used to evaluate non constexpr string_view instances' member functions which
+        // have been marked as constexpr at compile time
+        // The google test function being run is not a constexpr function and therefore will evaulate
+        // non-constexpr string_view variables at runtime. This would cause static_assert to state
+        // that the expression is evaluated at runtime
+        auto remove_prefix_test_func = [](basic_string_view<TypeParam> sourceView) constexpr -> basic_string_view<TypeParam>
+        {
+            basic_string_view<TypeParam> lstripView(sourceView);
+            lstripView.remove_prefix(5);
+            return lstripView;
+        };
+        auto remove_suffix_test_func = [](basic_string_view<TypeParam> sourceView) constexpr -> basic_string_view<TypeParam>
+        {
+            basic_string_view<TypeParam> rstripView(sourceView);
+            rstripView.remove_suffix(5);
+            return rstripView;
+        };
+
+        static_assert(remove_prefix_test_func(modifierView) == "World", "string_view should compare equal to World");
+        static_assert(remove_suffix_test_func(modifierView) == "Hello", "string_view should compare equal to Hello");
+    }
+
+    TEST_F(String, StringView_SubstrIsConstexpr)
+    {
+        using TypeParam = char;
+        auto MakeCompileTimeString1 = []() constexpr -> const TypeParam*
+        {
+            return "HelloWorld";
+        };
+        constexpr const TypeParam* compileTimeString1 = MakeCompileTimeString1();;
+        constexpr basic_string_view<TypeParam> fullView(compileTimeString1);
+        auto substr_test_func = [](basic_string_view<TypeParam> sourceView) constexpr -> basic_string_view<TypeParam>
+        {
+            return sourceView.substr(3, 5);
+        };
+
+        static_assert(substr_test_func(fullView) == "loWor", "string_view substring should result in string \"lloWo\"");
+    }
+
+    TEST_F(String, StringView_StartsAndEndsWithAreConstexpr)
+    {
+        using TypeParam = char;
+        auto MakeCompileTimeString1 = []() constexpr -> const TypeParam*
+        {
+            return "elloGovernor";
+        };
+        constexpr const TypeParam* compileTimeString1 = MakeCompileTimeString1();
+        constexpr basic_string_view<TypeParam> withView(compileTimeString1);
+        static_assert(withView.starts_with("ello"), "string_view should start with \"ello\"");
+        // Regression in VS2017 15.8 and 15.9 where __builtin_memcmp fails in valid checks
+#if AZ_COMPILER_MSVC < 1915 && AZ_COMPILER_MSVC > 1916
+        static_assert(withView.ends_with("Governor"), "string_view should end with \"Governor\"");
+#endif
+    }
+
+    template<typename> constexpr const char* MakeCompileTimeString1 ="the quick brown fox jumped over the lazy dog";
+    template<> constexpr const wchar_t* MakeCompileTimeString1<wchar_t> = L"the quick brown fox jumped over the lazy dog";
+    template<typename> constexpr const char* MakeSearchString = "o";
+    template<> constexpr const wchar_t* MakeSearchString<wchar_t> = L"o";
+    template<typename> constexpr const char* MakeTestString1 = "fox";
+    template<> constexpr const wchar_t* MakeTestString1<wchar_t> = L"fox";
+    template<typename> constexpr const char* MakeTestString2 = "the";
+    template<> constexpr const wchar_t* MakeTestString2<wchar_t> = L"the";
+    template<typename> constexpr const char* MakeTestString3 = "browning";
+    template<> constexpr const wchar_t* MakeTestString3<wchar_t> = L"browning";
+    template<typename> constexpr const char* MakeTestString4 = "e";
+    template<> constexpr const wchar_t* MakeTestString4<wchar_t> = L"e";
+    template<typename> constexpr const char* MakeTestString5 = "dino";
+    template<> constexpr const wchar_t* MakeTestString5<wchar_t> = L"dino";
+    template<typename> constexpr const char* MakeTestString6 = "eh ";
+    template<> constexpr const wchar_t* MakeTestString6<wchar_t> = L"eh ";
+    template<typename> constexpr const char* MakeTestString7 = "eh";
+    template<> constexpr const wchar_t* MakeTestString7<wchar_t> = L"eh";
+    template<typename> constexpr const char* MakeTestString8 = "cat";
+    template<> constexpr const wchar_t* MakeTestString8<wchar_t> = L"cat";
+    template<typename> constexpr const char* MakeTestString9 = "the ";
+    template<> constexpr const wchar_t* MakeTestString9<wchar_t> = L"the ";
+    template<typename> constexpr const char* MakeTestString10 = "dog ";
+    template<> constexpr const wchar_t* MakeTestString10<wchar_t> = L"dog ";
+
+    TYPED_TEST(BasicStringViewConstexprFixture, StringView_FindOperationsAreConstexpr)
+    {
+        constexpr const TypeParam* compileTimeString1 = MakeCompileTimeString1<TypeParam>;
+        constexpr basic_string_view<TypeParam> quickFoxView(compileTimeString1);
+        constexpr const TypeParam* searchString = MakeSearchString<TypeParam>;
+        constexpr basic_string_view<TypeParam> searchView(searchString);
+
+        constexpr const TypeParam* testString1 = MakeTestString1<TypeParam>;
+        constexpr const TypeParam* testString2 = MakeTestString2<TypeParam>;
+        constexpr const TypeParam* testString3 = MakeTestString3<TypeParam>;
+        constexpr const TypeParam* testString4 = MakeTestString4<TypeParam>;
+        constexpr const TypeParam* testString5 = MakeTestString5<TypeParam>;
+        constexpr const TypeParam* testString6 = MakeTestString6<TypeParam>;
+        constexpr const TypeParam* testString7 = MakeTestString7<TypeParam>;
+        constexpr const TypeParam* testString8 = MakeTestString8<TypeParam>;
+        constexpr const TypeParam* testString9 = MakeTestString9<TypeParam>;
+        constexpr const TypeParam* testString10 = MakeTestString10<TypeParam>;
+        // find test
+        static_assert(quickFoxView.find(searchView) == 12, "string_view find should result in index 12");
+        static_assert(quickFoxView.find('q') == 4, "string_view find should result in index 4");
+        static_assert(quickFoxView.find(testString1) == 16, "string_view find should result in index 16");
+        static_assert(quickFoxView.find(testString2, 3) == 32, "string_view find should result in index 32");
+        static_assert(quickFoxView.find(testString3, 0, 5) == 10, "string_view find should result in index 10");
+        // rfind test
+        static_assert(quickFoxView.rfind(searchView) == 42, "string_view rfind should result in index 42");
+        static_assert(quickFoxView.rfind('o') == 42, "string_view rfind should result in index 42");
+        static_assert(quickFoxView.rfind(testString2) == 32, "string_view rfind should result in index 32");
+        static_assert(quickFoxView.rfind(testString4, 32) == 29, "string_view rfind should result in index 29");
+        static_assert(quickFoxView.rfind(testString5, 40, 1) == 25, "string_view rfind should result in index 25");
+
+        // find_first_of test
+        static_assert(quickFoxView.find_first_of(searchView) == 12, "string_view find_first_of_test should result in index 12");
+        static_assert(quickFoxView.find_first_of('o') == 12, "string_view find_first_of should result in index 12");
+        static_assert(quickFoxView.find_first_of(testString6) == 1, "string_view find_first_of should result in index 1");
+        static_assert(quickFoxView.find_first_of(testString7, 6) == 24, "string_view find_first_of should result in index 24");
+        static_assert(quickFoxView.find_first_of(testString8, 0, 1) == 7, "string_view find_first_of should result in index 7");
+
+        // find_last_of test
+        static_assert(quickFoxView.find_last_of(searchView) == 42, "string_view find_last_of_test should result in index 42");
+        static_assert(quickFoxView.find_last_of('o') == 42, "string_view find_last_of should result in index 42");
+        static_assert(quickFoxView.find_last_of(testString6) == 40, "string_view find_last_of should result in index 40");
+        static_assert(quickFoxView.find_last_of(testString7, 31) == 29, "string_view find_last_of should result in index 29");
+        static_assert(quickFoxView.find_last_of(testString8, basic_string_view<TypeParam>::npos, 1) == 7, "string_view find_last_of should result in index 7");
+
+        // find_first_not_of test
+        constexpr basic_string_view<TypeParam> firstNotOfView(testString9);
+        static_assert(quickFoxView.find_first_not_of(firstNotOfView) == 4, "string_view find_first_not_of should result in index 0");
+        static_assert(quickFoxView.find_first_not_of('t') == 1, "string_view find_first_not_of should result in index 1");
+        static_assert(quickFoxView.find_first_not_of(testString9) == 4, "string_view find_first_not_of should result in index 4");
+        static_assert(quickFoxView.find_first_not_of(testString9, 31) == 36, "string_view find_first_not_of should result in index 36");
+        static_assert(quickFoxView.find_first_not_of(testString9, 0, 1) == 1, "string_view find_first_not_of should result in index 1");
+
+        // find_last_not_of test
+        constexpr basic_string_view<TypeParam> lastNotOfView(testString10);
+        static_assert(quickFoxView.find_last_not_of(lastNotOfView) == 39, "string_view find_last_not_of should result in index 39");
+        static_assert(quickFoxView.find_last_not_of('g') == 42, "string_view find_last_not_of should result in index 42");
+        static_assert(quickFoxView.find_last_not_of(testString10) == 39, "string_view find_last_not_of should result in index 39");
+        static_assert(quickFoxView.find_last_not_of(testString10, 27) == 24, "string_view find_last_not_of should result in index 24");
+        static_assert(quickFoxView.find_last_not_of(testString10, basic_string_view<TypeParam>::npos, 1) == 43, "string_view find_last_not_of should result in index 43");
+    }
+
+    TEST_F(String, StringView_CompareIsConstexpr)
+    {
+        using TypeParam = char;
+        auto MakeCompileTimeString1 = []() constexpr -> const TypeParam*
+        {
+            return "HelloWorld";
+        };
+        auto MakeCompileTimeString2 = []() constexpr -> const TypeParam*
+        {
+            return "HelloPearl";
+        };
+        constexpr const TypeParam* compileTimeString1 = MakeCompileTimeString1();
+        constexpr const TypeParam* compileTimeString2 = MakeCompileTimeString2();
+        constexpr basic_string_view<TypeParam> lhsView(compileTimeString1);
+        constexpr basic_string_view<TypeParam> rhsView(compileTimeString2);
+        static_assert(lhsView.compare(rhsView) > 0, R"("HelloWorld" > "HelloPearl")");
+        static_assert(lhsView.compare(0, 5, rhsView) < 0, R"("Hello" < HelloPearl")");
+        static_assert(lhsView.compare(2, 3, rhsView, 2, 3) == 0, R"("llo" == llo")");
+        static_assert(lhsView.compare("Hello") > 0, R"("HelloWorld" > Hello")");
+        static_assert(lhsView.compare(0, 5, "Hello") == 0, R"("Hello" == Hello")");
+        static_assert(lhsView.compare(0, 5, "HelloTheorello", 5) == 0, R"("Hello" == Hello")");
+    }
+
+    TEST_F(String, StringView_CompareOperatorsAreConstexpr)
+    {
+        using TypeParam = char;
+        auto MakeCompileTimeString1 = []() constexpr -> const TypeParam*
+        {
+            return "HelloWorld";
+        };
+        constexpr const TypeParam* compileTimeString1 = MakeCompileTimeString1();
+        constexpr basic_string_view<TypeParam> compareView(compileTimeString1);
+        static_assert(compareView == "HelloWorld", "string_view operator== comparison has failed");
+        static_assert(compareView != "MadWorld", "string_view operator!= comparison has failed");
+        static_assert(compareView < "JelloWorld", "string_view operator< comparison has failed");
+        static_assert("MelloWorld" > compareView, "string_view operator> comparison has failed");
+        static_assert(compareView <= "HelloWorld", "string_view operator== comparison has failed");
+        static_assert(compareView >= "HelloWorld", "string_view operator== comparison has failed");
+    }
+
+    TYPED_TEST(BasicStringViewConstexprFixture, StringView_SwapIsConstexpr)
+    {
+        auto swap_test_func = []() constexpr -> basic_string_view<TypeParam>
+        {
+            constexpr auto MakeCompileTimeString1 = []() constexpr -> const TypeParam*
+            {
+                if constexpr (AZStd::is_same_v<TypeParam, char>)
+                {
+                    return "NekuWorld";
+                }
+                else
+                {
+                    return L"NekuWorld";
+                }
+            };
+            constexpr auto MakeCompileTimeString2 = []() constexpr -> const TypeParam*
+            {
+                if constexpr (AZStd::is_same_v<TypeParam, char>)
+                {
+                    return "InuWorld";
+                }
+                else
+                {
+                    return L"InuWorld";
+                }
+            };
+            constexpr const TypeParam* compileTimeString1 = MakeCompileTimeString1();
+            constexpr const TypeParam* compileTimeString2 = MakeCompileTimeString2();
+            basic_string_view<TypeParam> lhsView(compileTimeString1);
+            basic_string_view<TypeParam> rhsView(compileTimeString2);
+            lhsView.swap(rhsView);
+            return lhsView;
+        };
+
+        constexpr auto MakeCompileTimeString3 = []() constexpr -> const TypeParam*
+        {
+            if constexpr (AZStd::is_same_v<TypeParam, char>)
+            {
+                return "InuWorld";
+            }
+            else
+            {
+                return L"InuWorld";
+            }
+        };
+        static_assert(swap_test_func() == MakeCompileTimeString3(), R"(string_view swap should have swapped around "NekuWorld" and "InuWorld")");
+    }
+
+    TYPED_TEST(BasicStringViewConstexprFixture, HashString_FunctionIsConstexpr)
+    {
+        auto MakeCompileTimeString1 = []() constexpr -> const TypeParam*
+        {
+            if constexpr (AZStd::is_same_v<TypeParam, char>)
+            {
+                return "HelloWorld";
+            }
+            else
+            {
+                return L"HelloWorld";
+            }
+        };
+        constexpr const TypeParam* compileTimeString1 = MakeCompileTimeString1();
+        constexpr basic_string_view<TypeParam> hashView(compileTimeString1);
+        constexpr size_t compileHash = AZStd::hash<basic_string_view<TypeParam>>{}(hashView);
+        static_assert(compileHash != 0, "Hash of \"HellowWorld\" should not be 0");
+    }
+
+    TEST_F(String, StringView_UserLiteralsSucceed)
+    {
+        constexpr auto charView{ "Test"_sv };
+        constexpr auto wcharView{ L"Super Test"_sv };
+        static_assert(charView == "Test", "char string literal should be \"Test\"");
+        static_assert(wcharView == L"Super Test", "char string literal should be \"Super Test\"");
+    }
+
+    template<typename T>
+    const T* GetFormatString()
+    {
+        return "%s";
+    }
+
+    template <>
+    const wchar_t* GetFormatString<wchar_t>()
+    {
+        return L"%s";
+    }
+
+    template<typename T>
+    class StringFormatFixture
+        : public UnitTest::AllocatorsTestFixture
+    {
+    };
+
+    using StringFormatTypesToTest = ::testing::Types<AZStd::string>; //, AZStd::wstring>;
+    TYPED_TEST_CASE(StringFormatFixture, StringFormatTypesToTest);
+
+    TYPED_TEST(StringFormatFixture, CanFormatStringLongerThan2048Chars)
+    {
+        TypeParam str(4096, 'x');
+        TypeParam formatted = TypeParam::format(GetFormatString<typename TypeParam::value_type>(), str.c_str());
+        EXPECT_EQ(str, formatted);
     }
 }

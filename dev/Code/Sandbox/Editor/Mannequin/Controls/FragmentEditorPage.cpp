@@ -426,6 +426,7 @@ void CFragmentEditorPage::OnToggleTimelineUnits()
 //////////////////////////////////////////////////////////////////////////
 void CFragmentEditorPage::OnReloadAnimations()
 {
+#ifdef EDITOR_PCDEBUGCODE
     if (m_modelViewport == NULL)
     {
         return;
@@ -451,6 +452,7 @@ void CFragmentEditorPage::OnReloadAnimations()
         }
     }
     SetTime(0.0f);
+#endif // EDITOR_PCDEBUGCODE
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -514,7 +516,7 @@ void CFragmentEditorPage::OnPlayMenu()
             action->setData(Scales[i].fScale);
         }
 
-        connect(menu, &QMenu::triggered, [&](QAction* action){ m_playSpeed = action->data().toDouble(); });
+        connect(menu, &QMenu::triggered, this, [&](QAction* action){ m_playSpeed = action->data().toDouble(); });
     }
 
     for (QAction* action : menu->actions())

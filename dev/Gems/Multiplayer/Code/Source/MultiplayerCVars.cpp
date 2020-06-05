@@ -12,29 +12,26 @@
 #include "Multiplayer_precompiled.h"
 
 #include <INetwork.h>
+#include <SFunctor.h>
 #include "MultiplayerCVars.h"
 #include "MultiplayerGem.h"
+#include "MultiplayerGameLiftClient.h"
 #include "Multiplayer/MultiplayerUtils.h"
 
 #include <GameLift/GameLiftBus.h>
+#include <GameLift/Session/GameLiftSessionDefs.h>
 #include <GameLift/Session/GameLiftServerService.h>
 #include <CertificateManager/ICertificateManagerGem.h>
 #include <CertificateManager/DataSource/FileDataSourceBus.h>
 
-
 #include <GridMate/Carrier/DefaultSimulator.h>
 #include <GridMate/Session/LANSession.h>
+#include <Multiplayer_Traits_Platform.h>
 
 namespace Multiplayer
 {
-#if !defined(BUILD_GAMELIFT_SERVER) && defined(BUILD_GAMELIFT_CLIENT)
-    static void StopGameLiftClient(IConsoleCmdArgs *args)
-    {
-        EBUS_EVENT(GameLift::GameLiftRequestBus, StopClientService);
-    }
-#endif
 
-#if BUILD_GAMELIFT_SERVER
+#if defined(BUILD_GAMELIFT_SERVER)
     static void StartGameLiftServer(IConsoleCmdArgs *args)
     {
         CRY_ASSERT(gEnv->pConsole);
@@ -91,7 +88,7 @@ namespace Multiplayer
             return;
         }
 
-        if (args->GetArgCount() == 2 && !stricmp(args->GetArg(1), "help"))
+        if (args->GetArgCount() == 2 && !azstricmp(args->GetArg(1), "help"))
         {
             CryLogAlways("gm_net_simulator off      - Disable simulator");
             CryLogAlways("gm_net_simulator param1:value1 param2:value2, ...      - Enable simulator with given parameters");
@@ -147,7 +144,11 @@ namespace Multiplayer
                 unsigned int param;
                 char key[64];
 
+#if AZ_TRAIT_USE_SECURE_CRT_FUNCTIONS
+                int numParams = sscanf_s(arg, "%64[^:]:%u", key, (unsigned int)AZ_ARRAY_SIZE(key), &param) - 1;
+#else
                 int numParams = sscanf(arg, "%64[^:]:%u", key, &param) - 1;
+#endif
 
                 if (numParams <= 0)
                 {
@@ -155,91 +156,91 @@ namespace Multiplayer
                     return;
                 }
 
-                if (!stricmp(key, "oLatMin"))
+                if (!azstricmp(key, "oLatMin"))
                 {
                     oLatMin = param;
                 }
-                else if (!stricmp(key, "oLatMax"))
+                else if (!azstricmp(key, "oLatMax"))
                 {
                     oLatMax = param;
                 }
-                else if (!stricmp(key, "iLatMin"))
+                else if (!azstricmp(key, "iLatMin"))
                 {
                     iLatMin = param;
                 }
-                else if (!stricmp(key, "iLatMax"))
+                else if (!azstricmp(key, "iLatMax"))
                 {
                     iLatMax = param;
                 }
-                else if (!stricmp(key, "oBandMin"))
+                else if (!azstricmp(key, "oBandMin"))
                 {
                     oBandMin = param;
                 }
-                else if (!stricmp(key, "oBandMax"))
+                else if (!azstricmp(key, "oBandMax"))
                 {
                     oBandMax = param;
                 }
-                else if (!stricmp(key, "iBandMin"))
+                else if (!azstricmp(key, "iBandMin"))
                 {
                     iBandMin = param;
                 }
-                else if (!stricmp(key, "iBandMax"))
+                else if (!azstricmp(key, "iBandMax"))
                 {
                     iBandMax = param;
                 }
-                else if (!stricmp(key, "oLossMin"))
+                else if (!azstricmp(key, "oLossMin"))
                 {
                     oLossMin = param;
                 }
-                else if (!stricmp(key, "oLossMax"))
+                else if (!azstricmp(key, "oLossMax"))
                 {
                     oLossMax = param;
                 }
-                else if (!stricmp(key, "iLossMin"))
+                else if (!azstricmp(key, "iLossMin"))
                 {
                     iLossMin = param;
                 }
-                else if (!stricmp(key, "iLossMax"))
+                else if (!azstricmp(key, "iLossMax"))
                 {
                     iLossMax = param;
                 }
-                else if (!stricmp(key, "oDropMin"))
+                else if (!azstricmp(key, "oDropMin"))
                 {
                     oDropMin = param;
                 }
-                else if (!stricmp(key, "oDropMax"))
+                else if (!azstricmp(key, "oDropMax"))
                 {
                     oDropMax = param;
                 }
-                else if (!stricmp(key, "oDropPeriodMin"))
+                else if (!azstricmp(key, "oDropPeriodMin"))
                 {
                     oDropPeriodMin = param;
                 }
-                else if (!stricmp(key, "oDropPeriodMax"))
+                else if (!azstricmp(key, "oDropPeriodMax"))
                 {
                     oDropPeriodMax = param;
                 }
-                else if (!stricmp(key, "iDropMin"))
+                else if (!azstricmp(key, "iDropMin"))
                 {
                     iDropMin = param;
                 }
-                else if (!stricmp(key, "iDropMax"))
+                else if (!azstricmp(key, "iDropMax"))
                 {
                     iDropMax = param;
                 }
-                else if (!stricmp(key, "iDropPeriodMin"))
+                else if (!azstricmp(key, "iDropPeriodMin"))
                 {
                     iDropPeriodMin = param;
                 }
-                else if (!stricmp(key, "iDropPeriodMax"))
+                else if (!azstricmp(key, "iDropPeriodMax"))
                 {
                     iDropPeriodMax = param;
                 }
-                else if (!stricmp(key, "oReorder"))
+                else if (!azstricmp(key, "oReorder"))
                 {
                     oReorder = param != 0;
                 }
-                else if (!stricmp(key, "iReorder"))
+                else if (!azstricmp(key, "iReorder"))
                 {
                     iReorder = param != 0;
                 }
@@ -290,7 +291,7 @@ namespace Multiplayer
         }
         else
         {
-            AZ_Warning("CertificateManager", "Failed to load Private Key '%s'.", filename->GetString());
+            AZ_Warning("CertificateManager", false, "Failed to load Private Key '%s'.", filename->GetString());
         }
     }
 
@@ -303,7 +304,7 @@ namespace Multiplayer
         }
         else
         {
-            AZ_Warning("CertificateManager", "Failed to load Certificate '%s'.", filename->GetString());
+            AZ_Warning("CertificateManager", false, "Failed to load Certificate '%s'.", filename->GetString());
         }
     }
 
@@ -316,7 +317,7 @@ namespace Multiplayer
             }
         else
         {
-            AZ_Warning("CertificateManager", "Failed to load CA '%s'.", filename->GetString());
+            AZ_Warning("CertificateManager", false, "Failed to load CA '%s'.", filename->GetString());
         }
     }
 
@@ -423,7 +424,7 @@ namespace Multiplayer
             REGISTER_COMMAND("mpsearch", MPJoinLANCmd, 0, "try to find a LAN session");
             REGISTER_COMMAND("mpdisconnect", MPDisconnectCmd, 0, "disconnect from our session");
 
-            REGISTER_INT("gm_version", 1, 0, "Set the gridmate version number.");
+            REGISTER_INT("gm_version", 1, VF_CONST_CVAR, "Set the gridmate version number.");
 
 #ifdef NET_SUPPORT_SECURE_SOCKET_DRIVER
             REGISTER_CVAR2("gm_netsec_enable", &MultiplayerModule::s_NetsecEnabled, MultiplayerModule::s_NetsecEnabled, VF_NULL,
@@ -444,32 +445,48 @@ namespace Multiplayer
             REGISTER_FLOAT("gm_disconnectDetectionPacketLossThreshold", 0.3f, VF_NULL, "Packet loss percentage threshold (0.0..1.0, 1.0 is 100%), connection will be dropped once actual packet loss exceeds this value");
             REGISTER_INT("gm_recvPacketsLimit", 0, VF_NULL, "Maximum packets per second allowed to be received from an existing connection");
 
+            REGISTER_INT("gm_maxSearchResults", GridMate::SearchParams::s_defaultMaxSessions, VF_NULL, "Maximum number of search results to be returned from a session search.");
             REGISTER_STRING("gm_ipversion", "IPv4", 0, "IP protocol version. (Can be 'IPv4' or 'IPv6')");
-            REGISTER_STRING("gm_securityData", "", 0, "Security data for session.");
+            REGISTER_STRING("gm_securityData", "", 0, AZ_TRAIT_MULTIPLAYER_REGISTER_CVAR_SECURITY_DATA_DESC);
             REGISTER_INT_CB("gm_replicasSendTime", 0, VF_NULL, "Time interval between replicas sends (in milliseconds), 0 will bound sends to GridMate tick rate", OnReplicasSendTimeChanged);
             REGISTER_INT_CB("gm_replicasSendLimit", 0, VF_DEV_ONLY, "Replica data send limit in bytes per second. 0 - limiter turned off. (Dev build only)", OnReplicasSendLimitChanged);
             REGISTER_FLOAT_CB("gm_burstTimeLimit", 10.f, VF_DEV_ONLY, "Burst in bandwidth will be allowed for the given amount of time(in seconds). Burst will only be allowed if bandwidth is not capped at the time of burst. (Dev build only)", OnReplicasBurstRangeChanged);
 
+#if AZ_TRAIT_MULTIPLAYER_USE_MATCH_MAKER_CVARS
+            REGISTER_STRING(AZ_TRAIT_MULTIPLAYER_CVAR_MATCH_MAKER_SESSION_TEMPLATE, "GroupBuildingLobby", 0, AZ_TRAIT_MULTIPLAYER_CVAR_MATCH_MAKER_SESSION_TEMPLATE_DESC);
+            REGISTER_STRING(AZ_TRAIT_MULTIPLAYER_CVAR_MATCH_MAKER_ID, "DefaultHopper", 0, AZ_TRAIT_MULTIPLAYER_CVAR_MATCH_MAKER_ID_DESC);
+#endif
 
-#if !defined(BUILD_GAMELIFT_SERVER) && defined(BUILD_GAMELIFT_CLIENT)
+#if defined(BUILD_GAMELIFT_CLIENT)
             REGISTER_STRING("gamelift_fleet_id", "", VF_DUMPTODISK, "Id of GameLift Fleet to use with this client.");
+            REGISTER_STRING("gamelift_queue_name", "", VF_DUMPTODISK, "Name of GameLift Queue to use with this client.");
             REGISTER_STRING("gamelift_aws_access_key", "", VF_DUMPTODISK, "AWS Access Key.");
             REGISTER_STRING("gamelift_aws_secret_key", "", VF_DUMPTODISK, "AWS Secret Key.");
             REGISTER_STRING("gamelift_aws_region", "us-west-2", VF_DUMPTODISK, "AWS Region to use for GameLift.");
             REGISTER_STRING("gamelift_endpoint", "gamelift.us-west-2.amazonaws.com", VF_DUMPTODISK, "GameLift service endpoint.");
             REGISTER_STRING("gamelift_alias_id", "", VF_DUMPTODISK, "Id of GameLift alias to use with the client.");
+            REGISTER_STRING("gamelift_matchmaking_config_name", "", VF_DUMPTODISK, "Matchmaking config name");
+            REGISTER_INT("gamelift_uselocalserver", 0, VF_DEV_ONLY, "Set to non zero to use the local GameLift Server.");
+
+            REGISTER_COMMAND_DEV_ONLY("gamelift_host", MPHostGameLiftCmd, 0, "try to create and then join a GameLift session. gamelift_host <serverName> <mapName> <maxPlayers>");
+            REGISTER_COMMAND_DEV_ONLY("gamelift_join", MPJoinGameLiftCmd, 0, "try to join a GameLift session");
+            REGISTER_COMMAND_DEV_ONLY("gamelift_flexmatch", MPMatchmakingGameLiftCmd, 0, "try to matchmake a GameLift session creates or backfills matchmake game session. gamelift_flexmatch <configName>");
 
             // player IDs must be unique and anonymous
             bool includeBrackets = false;
             bool includeDashes = true;
             AZStd::string defaultPlayerId = AZ::Uuid::CreateRandom().ToString<AZStd::string>(includeBrackets, includeDashes);
             REGISTER_STRING("gamelift_player_id", defaultPlayerId.c_str(), VF_DUMPTODISK, "Player Id.");
-            REGISTER_COMMAND("gamelift_stop_client", StopGameLiftClient, VF_NULL, "Stops gamelift session service and terminates the session if it had one.");
+            REGISTER_COMMAND("gamelift_stop_client", StopGameLiftClient, VF_NULL, "Stops GameLift session service and terminates the session if it had one.");
 #endif
 
-#if BUILD_GAMELIFT_SERVER
-            REGISTER_COMMAND("gamelift_start_server", StartGameLiftServer, VF_NULL, "Start up the gamelift server. This will initialize gameLift server API.\nThe session will start after GameLift intialization");
-            REGISTER_COMMAND("gamelift_stop_server", StopGameLiftServer, VF_NULL, "Stops gamelift session service and terminates the session if it had one.");
+#if defined(BUILD_GAMELIFT_SERVER)
+            REGISTER_COMMAND("gamelift_start_server", StartGameLiftServer, VF_NULL, "Start up the GameLift server. This will initialize gameLift server API.\nThe session will start after GameLift initialization");
+            REGISTER_COMMAND("gamelift_stop_server", StopGameLiftServer, VF_NULL, "Stops GameLift session service and terminates the session if it had one.");
+            REGISTER_INT("gamelift_flexmatch_enable", 0, VF_NULL, "Enable Custom backfill");
+            REGISTER_INT("gamelift_flexmatch_onplayerremoved_enable", 0, VF_NULL, "Enables creating backfill tickets on player disconnect.");
+            REGISTER_INT("gamelift_flexmatch_minimumplayersessioncount", 2, VF_NULL, "Minimum player session count in a matchmaking config. Same as min players in matchmaking rule set");
+            REGISTER_FLOAT("gamlift_flexmatch_start_delay", 5.0F, VF_NULL, "initial delay for custom backfill in seconds.");
 #endif
         }
     }
@@ -478,43 +495,44 @@ namespace Multiplayer
     {
         if (gEnv && !gEnv->IsEditor())
         {
-#if !defined(BUILD_GAMELIFT_SERVER) && defined(BUILD_GAMELIFT_CLIENT)
-            if (gEnv->pConsole)
-            {
-                gEnv->pConsole->RemoveCommand("gamelift_start_client");
-            }
+#if defined(BUILD_GAMELIFT_CLIENT)
+            UNREGISTER_COMMAND("gamelift_start_client");
             UNREGISTER_CVAR("gamelift_player_id");
             UNREGISTER_CVAR("gamelift_alias_id");
+            UNREGISTER_CVAR("gamelift_uselocalserver");
             UNREGISTER_CVAR("gamelift_endpoint");
             UNREGISTER_CVAR("gamelift_aws_region");
             UNREGISTER_CVAR("gamelift_aws_secret_key");
             UNREGISTER_CVAR("gamelift_aws_access_key");
             UNREGISTER_CVAR("gamelift_fleet_id");
+            UNREGISTER_CVAR("gamelift_queue_name");
+            UNREGISTER_CVAR("gamelift_matchmaking_config_name");
 #endif
 
-#if BUILD_GAMELIFT_SERVER
-            if (gEnv->pConsole)
-            {
-                gEnv->pConsole->RemoveCommand("gamelift_stop_server");
-                gEnv->pConsole->RemoveCommand("gamelift_start_server");
-            }
+#if defined(BUILD_GAMELIFT_SERVER)
+            UNREGISTER_COMMAND("gamelift_stop_server");
+            UNREGISTER_COMMAND("gamelift_start_server");
+            UNREGISTER_COMMAND("gamelift_flexmatch_enable");
+            UNREGISTER_COMMAND("gamelift_flexmatch_onplayerremoved_enable");
+            UNREGISTER_COMMAND("gamelift_flexmatch_minimumplayersessioncount");
+            UNREGISTER_COMMAND("gamlift_flexmatch_start_delay");
 #endif
 
-
-
+#if AZ_TRAIT_MULTIPLAYER_USE_MATCH_MAKER_CVARS
+            UNREGISTER_CVAR(AZ_TRAIT_MULTIPLAYER_CVAR_MATCH_MAKER_ID);
+            UNREGISTER_CVAR(AZ_TRAIT_MULTIPLAYER_CVAR_MATCH_MAKER_SESSION_TEMPLATE);
+#endif
             UNREGISTER_CVAR("gm_burstTimeLimit");
             UNREGISTER_CVAR("gm_replicasSendLimit");
             UNREGISTER_CVAR("gm_replicasSendTime");
             UNREGISTER_CVAR("gm_securityData");
             UNREGISTER_CVAR("gm_ipversion");
+            UNREGISTER_CVAR("gm_maxSearchResults");
             UNREGISTER_CVAR("gm_disconnectDetectionPacketLossThreshold");
             UNREGISTER_CVAR("gm_disconnectDetectionRttThreshold");
             UNREGISTER_CVAR("gm_disconnectDetection");
 
-            if (gEnv->pConsole)
-            {
-                gEnv->pConsole->RemoveCommand("gm_net_simulator");
-            }
+            UNREGISTER_COMMAND("gm_net_simulator");
 
 #ifdef NET_SUPPORT_SECURE_SOCKET_DRIVER
             UNREGISTER_CVAR("gm_netsec_ca");
@@ -524,12 +542,55 @@ namespace Multiplayer
 #endif
             UNREGISTER_CVAR("gm_version");
 
-            if (gEnv->pConsole)
+            UNREGISTER_COMMAND("mpdisconnect");
+            UNREGISTER_COMMAND("mpsearch");
+            UNREGISTER_COMMAND("mpjoin");
+            UNREGISTER_COMMAND("mphost");
             {
                 gEnv->pConsole->RemoveCommand("mpdisconnect");
                 gEnv->pConsole->RemoveCommand("mpsearch");
                 gEnv->pConsole->RemoveCommand("mpjoin");
                 gEnv->pConsole->RemoveCommand("mphost");
+            }
+        }
+    }
+
+    //------------------------------------------------------------------------
+    static void UpdateServerName(ICVar* serverNameCVar)
+    {
+        GridMate::GridSession* gridSession = nullptr;
+        EBUS_EVENT_RESULT(gridSession,Multiplayer::MultiplayerRequestBus,GetSession);
+
+        if (!(gridSession && gridSession->IsHost()))
+        {
+            return;
+        }
+
+        AZ_TracePrintf("MultiplayerModule", "Updating session server name to: %s", serverNameCVar->GetString());
+
+        GridMate::GridSessionParam serverNameParam;
+        serverNameParam.m_id = "sv_name";
+        serverNameParam.SetValue(serverNameCVar->GetString());
+        gridSession->SetParam(serverNameParam);
+    }
+
+    //------------------------------------------------------------------------
+    // It would be more convenient to setup this CVar change event listener in RegisterCVars, however,
+    // it is currently not possible to do so. This is due to Gem CVars being registered in response to
+    // CryHooksModule::OnCrySystemInitialized, while CryAction CVars (such as sv_servername) are not registered
+    // until after that event completes. Instead, this method is called during the system event
+    // ESYSTEM_EVENT_GAME_POST_INIT, which does occur after CryAction's CVars have been registered.
+    void MultiplayerCVars::PostInitRegistration()
+    {
+        ISystem* system = nullptr;
+        CrySystemRequestBus::BroadcastResult(system, &CrySystemRequestBus::Events::GetCrySystem);
+        if (system && system->GetIConsole())
+        {
+            if (ICVar* serverNameCVar = system->GetIConsole()->GetCVar("sv_servername"))
+            {
+                SFunctor onServerNameChange;
+                onServerNameChange.Set(UpdateServerName, serverNameCVar);
+                serverNameCVar->AddOnChangeFunctor(onServerNameChange);
             }
         }
     }
@@ -588,7 +649,6 @@ namespace Multiplayer
         carrierDesc.m_enableDisconnectDetection = !!gEnv->pConsole->GetCVar("gm_disconnectDetection")->GetIVal();
         carrierDesc.m_connectionTimeoutMS = 10000;
         carrierDesc.m_threadUpdateTimeMS = 30;
-        carrierDesc.m_version = gEnv->pConsole->GetCVar("gm_version")->GetIVal();
         carrierDesc.m_disconnectDetectionRttThreshold = gEnv->pConsole->GetCVar("gm_disconnectDetectionRttThreshold")->GetFVal();
         carrierDesc.m_disconnectDetectionPacketLossThreshold = gEnv->pConsole->GetCVar("gm_disconnectDetectionPacketLossThreshold")->GetFVal();
         carrierDesc.m_maxConnections = gEnv->pConsole->GetCVar("sv_maxplayers")->GetIVal();
@@ -641,7 +701,7 @@ namespace Multiplayer
 
         const char* serveraddr = gEnv->pConsole->GetCVar("cl_serveraddr")->GetString();
         // LANSession doesn't support names. At least handle localhost here.
-        if (!serveraddr || 0 == stricmp("localhost", serveraddr))
+        if (!serveraddr || 0 == azstricmp("localhost", serveraddr))
         {
             serveraddr = "127.0.0.1";
         }
@@ -659,12 +719,69 @@ namespace Multiplayer
         GridMate::LANSearchParams searchParams;
         searchParams.m_serverAddress = serveraddr;
         searchParams.m_serverPort = gEnv->pConsole->GetCVar("cl_serverport")->GetIVal() + 1;
+        searchParams.m_version = gEnv->pConsole->GetCVar("gm_version")->GetIVal();
         searchParams.m_listenPort = 0; // Always use ephemeral port for searches for the time being, until we change the API to allow users to customize this.
 
         s_instance->m_search = nullptr;
 
         EBUS_EVENT_ID_RESULT(s_instance->m_search,gridMate,GridMate::LANSessionServiceBus,StartGridSearch,searchParams);
     }
+
+#if defined(BUILD_GAMELIFT_CLIENT)
+    //------------------------------------------------------------------------
+    void MultiplayerCVars::MPHostGameLiftCmd(IConsoleCmdArgs* args)
+    {
+        if (args->GetArgCount() != 4)
+        {
+            AZ_TracePrintf("MultiplayerModule", "gamelift_host: Invalid number of arguments.");
+            return;
+        }
+
+        const char* serverName = args->GetArg(1);
+        const char* mapName = args->GetArg(2);
+
+        AZ::u32 maxPlayers = strtoul(args->GetArg(3), nullptr, 0);
+        if (maxPlayers == 0 || maxPlayers == ULONG_MAX)
+        {
+            AZ_TracePrintf("MultiplayerModule", "Invalid value for maxPlayers");
+            return;
+        }
+
+        MultiplayerGameLiftClientBus::Broadcast(
+            &MultiplayerGameLiftClientBus::Events::HostGameLiftSession, serverName, mapName, maxPlayers);
+    }
+
+    //------------------------------------------------------------------------
+    void MultiplayerCVars::MPJoinGameLiftCmd(IConsoleCmdArgs* args)
+    {
+        AZ_UNUSED(args);
+        MultiplayerGameLiftClientBus::Broadcast(
+            &MultiplayerGameLiftClientBus::Events::JoinGameLiftSession);
+    }
+
+    //------------------------------------------------------------------------
+    void MultiplayerCVars::StopGameLiftClient(IConsoleCmdArgs *args)
+    {
+        AZ_UNUSED(args);
+        MultiplayerGameLiftClientBus::Broadcast(
+            &MultiplayerGameLiftClientBus::Events::StopGameLiftClientService);
+    }
+
+    //------------------------------------------------------------------------
+    void MultiplayerCVars::MPMatchmakingGameLiftCmd(IConsoleCmdArgs *args)
+    {
+        if (args->GetArgCount() != 2)
+        {
+            AZ_TracePrintf("MultiplayerModule", "gamelift_flexmatch: Invalid number of arguments. Expected gamelift_flexmatch <configName>");
+            return;
+        }
+
+        const char* configName = args->GetArg(1);        
+
+        MultiplayerGameLiftClientBus::Broadcast(
+            &MultiplayerGameLiftClientBus::Events::StartGameLiftMatchmaking, configName);
+    }
+#endif
 
     //------------------------------------------------------------------------
     void MultiplayerCVars::MPDisconnectCmd(IConsoleCmdArgs* args)

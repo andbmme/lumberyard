@@ -17,18 +17,30 @@
 #include <AzCore/Component/Entity.h>
 #include <AzCore/Asset/AssetCommon.h>
 #include <AzCore/Outcome/Outcome.h>
+#include <AzCore/Math/Vector2.h>
+
+#include <GraphCanvas/Types/Types.h>
 
 #include <ScriptCanvas/Bus/ScriptCanvasBus.h>
 #include <ScriptCanvas/Bus/NodeIdPair.h>
 
+#include <ScriptCanvas/Data/Data.h>
+
 namespace GraphCanvas
 {
     struct Endpoint;
+
+    class GraphCanvasMimeEvent;
+    class GraphCanvasTreeItem;
 }
 
 namespace ScriptCanvasEditor
 {
+    struct CategoryInformation;
+    struct NodePaletteModelInformation;
+
     class ScriptCanvasAsset;
+
     namespace Widget
     {
         struct GraphTabMetadata;
@@ -43,32 +55,52 @@ namespace ScriptCanvasEditor
 
         //! Opens an existing graph and returns the tab index in which it was open in.
         //! \param Asset structure used for holding ScriptCanvas Graph
-        //! \param hostId of optional entity id of entity used to open the ScriptCanvas Asset. This will be used to track the Entity Context in which the graph was loaded in
         //! \return index of open tab if the asset was able to be open successfully or error message of why the open failed
-        virtual AZ::Outcome<int, AZStd::string> OpenScriptCanvasAsset(const AZ::Data::Asset<ScriptCanvasAsset>& scriptCanvasAsset, int tabIndex = -1, AZ::EntityId hostId = AZ::EntityId()) = 0;
+        virtual AZ::Outcome<int, AZStd::string> OpenScriptCanvasAsset(const AZ::Data::Asset<ScriptCanvasAsset>& scriptCanvasAsset, int tabIndex = -1) = 0;
+        virtual AZ::Outcome<int, AZStd::string> OpenScriptCanvasAssetId(const AZ::Data::AssetId& scriptCanvasAsset) = 0;        
+        
         virtual int CloseScriptCanvasAsset(const AZ::Data::AssetId&) = 0;
+
+        virtual bool CreateScriptCanvasAssetFor(const AZ::EntityId& requestingEntityId) = 0;
+
+        virtual bool IsScriptCanvasAssetOpen(const AZ::Data::AssetId& assetId) const = 0;
 
         virtual void OnChangeActiveGraphTab(const Widget::GraphTabMetadata&) {}
 
-        virtual AZ::EntityId GetActiveSceneId() const
+        virtual ScriptCanvas::ScriptCanvasId GetActiveScriptCanvasId() const
         {
-            return AZ::EntityId();
+            return ScriptCanvas::ScriptCanvasId();
         }
 
-        virtual AZ::EntityId GetActiveGraphId() const
+        virtual GraphCanvas::GraphId GetActiveGraphCanvasGraphId() const
         {
-            return AZ::EntityId();
+            return GraphCanvas::GraphId();
         }
 
-        virtual AZ::EntityId GetGraphId(const AZ::EntityId& /*sceneId*/) const
+        virtual GraphCanvas::GraphId GetGraphCanvasGraphId(const ScriptCanvas::ScriptCanvasId& scriptCanvasEntityId) const
         {
-            return AZ::EntityId();
+            return GraphCanvas::GraphId();
         }
 
-        virtual AZ::EntityId GetSceneId(const AZ::EntityId& /*graphId*/) const
+        virtual ScriptCanvas::ScriptCanvasId GetScriptCanvasId(const GraphCanvas::GraphId& graphCanvasSceneId) const
         {
-            return AZ::EntityId();
+            return ScriptCanvas::ScriptCanvasId();
         }
+
+        virtual GraphCanvas::GraphId FindGraphCanvasGraphIdByAssetId(const AZ::Data::AssetId& assetId) const
+        {
+            return GraphCanvas::GraphId();
+        }
+
+        virtual ScriptCanvas::ScriptCanvasId FindScriptCanvasIdByAssetId(const AZ::Data::AssetId& assetId) const
+        {
+            return ScriptCanvas::ScriptCanvasId();
+        }
+        
+        virtual bool IsInUndoRedo(const AZ::EntityId& graphCanvasGraphId) const = 0;
+        virtual bool IsScriptCanvasInUndoRedo(const ScriptCanvas::ScriptCanvasId& scriptCanvasId) const = 0;
+
+        virtual bool IsActiveGraphInUndoRedo() const = 0;
 
         virtual void UpdateName(const AZ::EntityId& /*graphId*/, const AZStd::string& /*name*/) {}
 
@@ -77,8 +109,8 @@ namespace ScriptCanvasEditor
 
         virtual void DisconnectEndpoints(const AZ::EntityId& /*sceneId*/, const AZStd::vector<GraphCanvas::Endpoint>& /*endpoints*/) {}
 
-        virtual void PostUndoPoint(AZ::EntityId /*sceneId*/) = 0;
-        virtual void SignalSceneDirty(const AZ::EntityId& sceneId) = 0;
+        virtual void PostUndoPoint(ScriptCanvas::ScriptCanvasId /*sceneId*/) = 0;
+        virtual void SignalSceneDirty(const ScriptCanvas::ScriptCanvasId& sceneId) = 0;
 
         // Increment the value of the ignore undo point tracker
         virtual void PushPreventUndoStateUpdate() = 0;
@@ -87,18 +119,76 @@ namespace ScriptCanvasEditor
         // Sets the value of the ignore undo point tracker to 0.
         // Therefore allowing undo points to be posted
         virtual void ClearPreventUndoStateUpdate() = 0;
+
+        virtual void TriggerUndo() = 0;
+        virtual void TriggerRedo() = 0;
+
+        virtual const CategoryInformation* FindNodePaletteCategoryInformation(AZStd::string_view categoryPath) const = 0;
+        virtual const NodePaletteModelInformation* FindNodePaletteModelInformation(const ScriptCanvas::NodeTypeIdentifier& nodeType) const = 0;
     };
 
     using GeneralRequestBus = AZ::EBus<GeneralRequests>;
+
+    class GeneralEditorNotifications
+        : public AZ::EBusTraits
+    {
+    public:
+        static const AZ::EBusHandlerPolicy HandlerPolicy = AZ::EBusHandlerPolicy::Multiple;
+        static const AZ::EBusAddressPolicy AddressPolicy = AZ::EBusAddressPolicy::ById;
+        using BusIdType = ScriptCanvas::ScriptCanvasId;
+
+        virtual void OnUndoRedoBegin() {}
+        virtual void OnUndoRedoEnd() {}
+    };
+
+    using GeneralEditorNotificationBus = AZ::EBus<GeneralEditorNotifications>;
+
+    class GeneralAssetNotifications
+        : public AZ::EBusTraits
+    {
+    public:
+        static const AZ::EBusHandlerPolicy HandlerPolicy = AZ::EBusHandlerPolicy::Multiple;
+        static const AZ::EBusAddressPolicy AddressPolicy = AZ::EBusAddressPolicy::ById;
+        using BusIdType = AZ::Data::AssetId;
+
+        virtual void OnAssetVisualized() {};
+        virtual void OnAssetUnloaded() {};
+    };
+
+    using GeneralAssetNotificationBus = AZ::EBus<GeneralAssetNotifications>;
 
     class NodeCreationNotifications : public AZ::EBusTraits
     {
     public:
         static const AZ::EBusAddressPolicy AddressPolicy = AZ::EBusAddressPolicy::ById;
-        using BusIdType = AZ::EntityId;
+        using BusIdType = ScriptCanvas::ScriptCanvasId;
 
         virtual void OnGraphCanvasNodeCreated(const AZ::EntityId& nodeId) = 0;
     };
 
     using NodeCreationNotificationBus = AZ::EBus<NodeCreationNotifications>;
+
+    class VariablePaletteRequests : public AZ::EBusTraits
+    {
+    public:
+        static const AZ::EBusAddressPolicy AddressPolicy = AZ::EBusAddressPolicy::Single;
+
+        virtual void RegisterVariableType(const ScriptCanvas::Data::Type& variabletype) = 0;
+    };
+
+    using VariablePaletteRequestBus = AZ::EBus<VariablePaletteRequests>;
+
+    class AutomationRequests : public AZ::EBusTraits
+    {
+    public:
+        static const AZ::EBusAddressPolicy AddressPolicy = AZ::EBusAddressPolicy::Single;
+
+        virtual NodeIdPair ProcessCreateNodeMimeEvent(GraphCanvas::GraphCanvasMimeEvent* mimeEvent, const AZ::EntityId& graphCanvasGraphId, AZ::Vector2 nodeCreationPos) = 0;
+        virtual const GraphCanvas::GraphCanvasTreeItem* GetNodePaletteRoot() const = 0;
+
+        virtual void SignalAutomationBegin() = 0;
+        virtual void SignalAutomationEnd() = 0;
+    };
+
+    using AutomationRequestBus = AZ::EBus<AutomationRequests>;
 }

@@ -15,16 +15,23 @@ def build(bld):
 
     defines = ['UNICODE']
 
-    bld.CryEngineStaticLibrary(
+    parameters = dict(
         target          = 'AssetBuilderSDK',
         vs_filter       = 'Tools/AssetProcessor',
         file_list       = ['assetbuilder.waf_files'],
-        platforms       = ['win', 'darwin'],
-        configurations  = ['debug_all', 'profile_all'],
+        platforms       = ['win', 'darwin', 'linux'],
+        configurations  = ['all'],
+        exclude_monolithic = True,
         disable_pch     = True,
-        use             = ['AzToolsFramework'],
+        use             = ['AzCore', 'AzToolsFramework', 'AzFramework'],
         export_includes = ['.'],
         defines         = defines,
-    )
 
+        # Compiler Specific
+        msvc_cxxflags       = ['/W4'],
+    )
+    for p0, p1, p2, p3 in bld.env['RESTRICTED_PLATFORMS']:
+        parameters['{}_file_list'.format(p1)] = ['AssetBuilderSDK/{0}/assetbuildersdk_{1}.waf_files'.format(p0, p1)]
+
+    bld.CryEngineStaticLibrary(**parameters)
 

@@ -21,19 +21,22 @@ namespace ScriptCanvas
         {
             void Log::OnInputSignal(const SlotId& slotId)
             {
-                static const int textSlotIndex = 0;
-                const Datum* input = GetInput(textSlotIndex);
+                auto valueDatum = FindDatum(GetSlotId("Value"));
+                if (!valueDatum)
+                {
+                    return;
+                }
 
                 AZStd::string text;
-                if (input && !input->Empty())
+                if (!valueDatum->Empty())
                 {
-                    input->ToString(text);
+                    valueDatum->ToString(text);
                 }
 
                 if (!text.empty())
                 {
                     AZ_TracePrintf("Script Canvas", "%s\n", text.c_str());
-                    LogNotificationBus::Event(GetGraphId(), &LogNotifications::LogMessage, text);
+                    LogNotificationBus::Event(GetOwningScriptCanvasId(), &LogNotifications::LogMessage, text);
                 }
 
                 SignalOutput(GetSlotId("Out"));

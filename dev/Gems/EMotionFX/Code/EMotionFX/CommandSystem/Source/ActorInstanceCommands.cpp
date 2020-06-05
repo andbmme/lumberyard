@@ -14,6 +14,8 @@
 #include "ActorInstanceCommands.h"
 #include <EMotionFX/Source/Attachment.h>
 #include <EMotionFX/Source/ActorManager.h>
+#include <MCore/Source/LogManager.h>
+#include <MCore/Source/StringConversions.h>
 #include "CommandManager.h"
 
 
@@ -38,7 +40,7 @@ namespace CommandSystem
 
 
     // execute the command
-    bool CommandCreateActorInstance::Execute(const MCore::CommandLine& parameters, MCore::String& outResult)
+    bool CommandCreateActorInstance::Execute(const MCore::CommandLine& parameters, AZStd::string& outResult)
     {
         EMotionFX::Actor* actor;
         if (parameters.CheckIfHasParameter("actorID"))
@@ -49,7 +51,7 @@ namespace CommandSystem
             actor = EMotionFX::GetActorManager().FindActorByID(actorID);
             if (actor == nullptr)
             {
-                outResult.Format("Cannot create actor instance. Actor ID %i is not valid.", actorID);
+                outResult = AZStd::string::format("Cannot create actor instance. Actor ID %i is not valid.", actorID);
                 return false;
             }
         }
@@ -83,7 +85,7 @@ namespace CommandSystem
             scale = AZ::Vector3::CreateOne();
         }
 
-        MCore::Quaternion rot(rotV4.GetX(), rotV4.GetY(), rotV4.GetZ(), rotV4.GetW());
+        AZ::Quaternion rot(rotV4.GetX(), rotV4.GetY(), rotV4.GetZ(), rotV4.GetW());
 
         // check if we have to select the new actor instances created by this command automatically
         const bool select = parameters.GetValueAsBool("autoSelect", this);
@@ -99,7 +101,7 @@ namespace CommandSystem
             actorInstanceID = parameters.GetValueAsInt("actorInstanceID", MCORE_INVALIDINDEX32);
             if (EMotionFX::GetActorManager().FindActorInstanceByID(actorInstanceID))
             {
-                outResult.Format("Cannot create actor instance. Actor instance ID %i is already in use.", actorInstanceID);
+                outResult = AZStd::string::format("Cannot create actor instance. Actor instance ID %i is already in use.", actorInstanceID);
                 return false;
             }
         }
@@ -119,7 +121,7 @@ namespace CommandSystem
         mPreviouslyUsedID = newInstance->GetID();
 
         // setup the position, rotation and scale
-        AZ::Vector3 newPos = newInstance->GetLocalPosition();
+        AZ::Vector3 newPos = newInstance->GetLocalSpaceTransform().mPosition;
         if (parameters.CheckIfHasParameter("xPos"))
         {
             newPos.SetX(parameters.GetValueAsFloat("xPos", this));
@@ -132,15 +134,18 @@ namespace CommandSystem
         {
             newPos.SetZ(parameters.GetValueAsFloat("zPos", this));
         }
-        newInstance->SetLocalPosition(newPos);
+        newInstance->SetLocalSpacePosition(newPos);
+        newInstance->SetLocalSpaceRotation(rot);
 
-        newInstance->SetLocalRotation(rot);
-        newInstance->SetLocalScale(scale);
+        EMFX_SCALECODE
+        (
+            newInstance->SetLocalSpaceScale(scale);
+        )
 
         // add the actor instance to the selection
         if (select)
         {
-            GetCommandManager()->ExecuteCommandInsideCommand(MCore::String().Format("Select -actorInstanceID %i", newInstance->GetID()).AsChar(), outResult);
+            GetCommandManager()->ExecuteCommandInsideCommand(AZStd::string::format("Select -actorInstanceID %i", newInstance->GetID()).c_str(), outResult);
 
             if (EMotionFX::GetActorManager().GetNumActorInstances() == 1 && GetCommandManager()->GetLockSelection() == false)
             {
@@ -158,13 +163,13 @@ namespace CommandSystem
         GetCommandManager()->SetWorkspaceDirtyFlag(true);
 
         // return the id of the newly created actor instance
-        outResult = MCore::String(newInstance->GetID());
+        AZStd::to_string(outResult, newInstance->GetID());
         return true;
     }
 
 
     // undo the command
-    bool CommandCreateActorInstance::Undo(const MCore::CommandLine& parameters, MCore::String& outResult)
+    bool CommandCreateActorInstance::Undo(const MCore::CommandLine& parameters, AZStd::string& outResult)
     {
         // check if we have to unselect the actors created by this command
         const bool unselect = parameters.GetValueAsBool("autoSelect", this);
@@ -180,14 +185,14 @@ namespace CommandSystem
         EMotionFX::ActorInstance* actorInstance = EMotionFX::GetActorManager().FindActorInstanceByID(actorInstanceID);
         if (actorInstance == nullptr)
         {
-            outResult.Format("Cannot undo create actor instance command. Actor instance ID %i is not valid.", actorInstanceID);
+            outResult = AZStd::string::format("Cannot undo create actor instance command. Actor instance ID %i is not valid.", actorInstanceID);
             return false;
         }
 
         // remove the actor instance from the selection
         if (unselect)
         {
-            GetCommandManager()->ExecuteCommandInsideCommand(MCore::String().Format("Unselect -actorInstanceID %i", actorInstanceID).AsChar(), outResult);
+            GetCommandManager()->ExecuteCommandInsideCommand(AZStd::string::format("Unselect -actorInstanceID %i", actorInstanceID), outResult);
 
             if (EMotionFX::GetActorManager().GetNumActorInstances() == 1 && GetCommandManager()->GetLockSelection() == false)
             {
@@ -229,7 +234,7 @@ namespace CommandSystem
         //GetSyntax().AddParameter("xSpacing",      "The x-axis spacing between the instances.",                                                                                                                                                        MCore::CommandSyntax::PARAMTYPE_FLOAT,      "5.0");
         //GetSyntax().AddParameter("ySpacing",      "The y-axis spacing between the instances.",                                                                                                                                                        MCore::CommandSyntax::PARAMTYPE_FLOAT,      "0.0");
         //GetSyntax().AddParameter("zSpacing",      "The z-axis spacing between the instances.",                                                                                                                                                        MCore::CommandSyntax::PARAMTYPE_FLOAT,      "0.0");
-        GetSyntax().AddParameter("autoSelect",      "Automatically add the the newly created actor instance to the selection.",                                                                                                                         MCore::CommandSyntax::PARAMTYPE_BOOLEAN,    "Yes");
+        GetSyntax().AddParameter("autoSelect",      "Automatically add the the newly created actor instance to the selection.",                                                                                                                         MCore::CommandSyntax::PARAMTYPE_BOOLEAN,    "true");
     }
 
 
@@ -257,7 +262,7 @@ namespace CommandSystem
 
 
     // execute
-    bool CommandAdjustActorInstance::Execute(const MCore::CommandLine& parameters, MCore::String& outResult)
+    bool CommandAdjustActorInstance::Execute(const MCore::CommandLine& parameters, AZStd::string& outResult)
     {
         const uint32 actorInstanceID = parameters.GetValueAsInt("actorInstanceID", MCORE_INVALIDINDEX32);
 
@@ -265,7 +270,7 @@ namespace CommandSystem
         EMotionFX::ActorInstance* actorInstance = EMotionFX::GetActorManager().FindActorInstanceByID(actorInstanceID);
         if (actorInstance == nullptr)
         {
-            outResult.Format("Cannot adjust actor instance. Actor instance ID %i is not valid.", actorInstanceID);
+            outResult = AZStd::string::format("Cannot adjust actor instance. Actor instance ID %i is not valid.", actorInstanceID);
             return false;
         }
 
@@ -273,25 +278,28 @@ namespace CommandSystem
         if (parameters.CheckIfHasParameter("pos"))
         {
             AZ::Vector3 value       = parameters.GetValueAsVector3("pos", this);
-            mOldPosition            = actorInstance->GetLocalPosition();
-            actorInstance->SetLocalPosition(value);
+            mOldPosition            = actorInstance->GetLocalSpaceTransform().mPosition;
+            actorInstance->SetLocalSpacePosition(value);
         }
 
         // set the rotation
         if (parameters.CheckIfHasParameter("rot"))
         {
             AZ::Vector4 value   = parameters.GetValueAsVector4("rot", this);
-            mOldRotation            = actorInstance->GetLocalRotation();
-            actorInstance->SetLocalRotation(MCore::Quaternion(value.GetX(), value.GetY(), value.GetZ(), value.GetW()));
+            mOldRotation        = actorInstance->GetLocalSpaceTransform().mRotation;
+            actorInstance->SetLocalSpaceRotation(AZ::Quaternion(value.GetX(), value.GetY(), value.GetZ(), value.GetW()));
         }
 
         // set the scale
-        if (parameters.CheckIfHasParameter("scale"))
-        {
-            AZ::Vector3 value       = parameters.GetValueAsVector3("scale", this);
-            mOldScale               = actorInstance->GetLocalScale();
-            actorInstance->SetLocalScale(value);
-        }
+        EMFX_SCALECODE
+        (
+            if (parameters.CheckIfHasParameter("scale"))
+            {
+                AZ::Vector3 value       = parameters.GetValueAsVector3("scale", this);
+                mOldScale               = actorInstance->GetLocalSpaceTransform().mScale;
+                actorInstance->SetLocalSpaceScale(value);
+            }
+        )
 
         // set the LOD level
         if (parameters.CheckIfHasParameter("lodLevel"))
@@ -317,18 +325,6 @@ namespace CommandSystem
             actorInstance->SetRender(value);
         }
 
-        // set the attachment fast updating flag
-        if (parameters.CheckIfHasParameter("attachmentFastUpdate"))
-        {
-            EMotionFX::Attachment* attachment = actorInstance->GetSelfAttachment();
-            if (attachment)
-            {
-                const bool value            = parameters.GetValueAsBool("attachmentFastUpdate", this);
-                mOldAttachmentFastUpdate    = attachment->GetAllowFastUpdates();
-                attachment->SetAllowFastUpdates(value);
-            }
-        }
-
         // mark the workspace as dirty
         mOldWorkspaceDirtyFlag = GetCommandManager()->GetWorkspaceDirtyFlag();
         GetCommandManager()->SetWorkspaceDirtyFlag(true);
@@ -338,7 +334,7 @@ namespace CommandSystem
 
 
     // undo the command
-    bool CommandAdjustActorInstance::Undo(const MCore::CommandLine& parameters, MCore::String& outResult)
+    bool CommandAdjustActorInstance::Undo(const MCore::CommandLine& parameters, AZStd::string& outResult)
     {
         const uint32 actorInstanceID = parameters.GetValueAsInt("actorInstanceID", MCORE_INVALIDINDEX32);
 
@@ -346,27 +342,30 @@ namespace CommandSystem
         EMotionFX::ActorInstance* actorInstance = EMotionFX::GetActorManager().FindActorInstanceByID(actorInstanceID);
         if (actorInstance == nullptr)
         {
-            outResult.Format("Cannot adjust actor instance. Actor instance ID %i is not valid.", actorInstanceID);
+            outResult = AZStd::string::format("Cannot adjust actor instance. Actor instance ID %i is not valid.", actorInstanceID);
             return false;
         }
 
         // set the position
         if (parameters.CheckIfHasParameter("pos"))
         {
-            actorInstance->SetLocalPosition(mOldPosition);
+            actorInstance->SetLocalSpacePosition(mOldPosition);
         }
 
         // set the rotation
         if (parameters.CheckIfHasParameter("rot"))
         {
-            actorInstance->SetLocalRotation(mOldRotation);
+            actorInstance->SetLocalSpaceRotation(mOldRotation);
         }
 
         // set the scale
-        if (parameters.CheckIfHasParameter("scale"))
-        {
-            actorInstance->SetLocalScale(mOldScale);
-        }
+        EMFX_SCALECODE
+        (
+            if (parameters.CheckIfHasParameter("scale"))
+            {
+                actorInstance->SetLocalSpaceScale(mOldScale);
+            }
+        )
 
         // set the LOD level
         if (parameters.CheckIfHasParameter("lodLevel"))
@@ -386,16 +385,6 @@ namespace CommandSystem
             actorInstance->SetRender(mOldDoRender);
         }
 
-        // set the attachment fast updating flag
-        if (parameters.CheckIfHasParameter("attachmentFastUpdate"))
-        {
-            EMotionFX::Attachment* attachment = actorInstance->GetSelfAttachment();
-            if (attachment)
-            {
-                attachment->SetAllowFastUpdates(mOldAttachmentFastUpdate);
-            }
-        }
-
         // restore the workspace dirty flag
         GetCommandManager()->SetWorkspaceDirtyFlag(mOldWorkspaceDirtyFlag);
 
@@ -412,9 +401,8 @@ namespace CommandSystem
         GetSyntax().AddParameter("rot", "The rotation of the actor instance.", MCore::CommandSyntax::PARAMTYPE_VECTOR4, "0.0,0.0,0.0,1.0");
         GetSyntax().AddParameter("scale", "The scale of the actor instance.", MCore::CommandSyntax::PARAMTYPE_VECTOR3, "0.0,0.0,0.0");
         GetSyntax().AddParameter("lodLevel", "The LOD level. Values higher than [GetNumLODLevels()-1] will be clamped to the maximum LOD.", MCore::CommandSyntax::PARAMTYPE_INT, "0");
-        GetSyntax().AddParameter("isVisible", "The visibility flag. In case of true the actor instance is getting updated, in case of false the OnUpdate() will be skipped.", MCore::CommandSyntax::PARAMTYPE_BOOLEAN, "Yes");
-        GetSyntax().AddParameter("doRender", "This flag specifies if the actor instance is getting rendered or not. In case of true the actor instance is rendered, in case of false it will not be visible.", MCore::CommandSyntax::PARAMTYPE_BOOLEAN, "Yes");
-        GetSyntax().AddParameter("attachmentFastUpdate", "This flag specifies if the actor instance is allowed to get updated quickly in case it is an attachment. In case of true the actor instance attachment is getting updated in the fast mode, in case of false it will be updated in the normal way.", MCore::CommandSyntax::PARAMTYPE_BOOLEAN, "No");
+        GetSyntax().AddParameter("isVisible", "The visibility flag. In case of true the actor instance is getting updated, in case of false the OnUpdate() will be skipped.", MCore::CommandSyntax::PARAMTYPE_BOOLEAN, "true");
+        GetSyntax().AddParameter("doRender", "This flag specifies if the actor instance is getting rendered or not. In case of true the actor instance is rendered, in case of false it will not be visible.", MCore::CommandSyntax::PARAMTYPE_BOOLEAN, "true");
     }
 
 
@@ -443,7 +431,7 @@ namespace CommandSystem
 
 
     // execute
-    bool CommandRemoveActorInstance::Execute(const MCore::CommandLine& parameters, MCore::String& outResult)
+    bool CommandRemoveActorInstance::Execute(const MCore::CommandLine& parameters, AZStd::string& outResult)
     {
         const uint32 actorInstanceID = parameters.GetValueAsInt("actorInstanceID", MCORE_INVALIDINDEX32);
 
@@ -451,28 +439,20 @@ namespace CommandSystem
         EMotionFX::ActorInstance* actorInstance = EMotionFX::GetActorManager().FindActorInstanceByID(actorInstanceID);
         if (actorInstance == nullptr)
         {
-            outResult.Format("Cannot remove actor instance. Actor instance ID %i is not valid.", actorInstanceID);
+            outResult = AZStd::string::format("Cannot remove actor instance. Actor instance ID %i is not valid.", actorInstanceID);
             return false;
         }
 
         // store the old values before removing the instance
-        mOldPosition            = actorInstance->GetLocalPosition();
-        mOldRotation            = actorInstance->GetLocalRotation();
-        mOldScale               = actorInstance->GetLocalScale();
+        mOldPosition            = actorInstance->GetLocalSpaceTransform().mPosition;
+        mOldRotation            = actorInstance->GetLocalSpaceTransform().mRotation;
+        EMFX_SCALECODE
+        (
+            mOldScale = actorInstance->GetLocalSpaceTransform().mScale;
+        )
         mOldLODLevel            = actorInstance->GetLODLevel();
         mOldIsVisible           = actorInstance->GetIsVisible();
         mOldDoRender            = actorInstance->GetRender();
-
-        // fast update flag for the self attachment
-        EMotionFX::Attachment* attachment = actorInstance->GetSelfAttachment();
-        if (attachment)
-        {
-            mOldAttachmentFastUpdate = attachment->GetAllowFastUpdates();
-        }
-        else
-        {
-            mOldAttachmentFastUpdate = false;
-        }
 
         // remove the actor instance from the selection
         if (GetCommandManager()->GetLockSelection())
@@ -499,34 +479,33 @@ namespace CommandSystem
 
 
     // undo the command
-    bool CommandRemoveActorInstance::Undo(const MCore::CommandLine& parameters, MCore::String& outResult)
+    bool CommandRemoveActorInstance::Undo(const MCore::CommandLine& parameters, AZStd::string& outResult)
     {
         // get the actor instance ID and check if it is still available
         const uint32 actorInstanceID = parameters.GetValueAsInt("actorInstanceID", MCORE_INVALIDINDEX32);
         if (EMotionFX::GetActorManager().FindActorInstanceByID(actorInstanceID))
         {
-            outResult.Format("Cannot undo remove actor instance. Actor instance ID %i is already in use.", actorInstanceID);
+            outResult = AZStd::string::format("Cannot undo remove actor instance. Actor instance ID %i is already in use.", actorInstanceID);
             return false;
         }
 
         // create command group for creating/adjusting the actor instance
-        MCore::String commandString;
+        AZStd::string commandString;
         MCore::CommandGroup commandGroup("Undo remove actor instance", 2);
 
-        commandString.Format("CreateActorInstance -actorID %i -actorInstanceID %i", mOldActorID, actorInstanceID);
-        commandGroup.AddCommandString(commandString.AsChar());
+        commandString = AZStd::string::format("CreateActorInstance -actorID %i -actorInstanceID %i", mOldActorID, actorInstanceID);
+        commandGroup.AddCommandString(commandString.c_str());
 
-        commandString.Format("AdjustActorInstance -actorInstanceID %i -pos \"%s\" -rot \"%s\" -scale \"%s\" -lodLevel %d -isVisible \"%s\" -doRender \"%s\" -attachmentFastUpdate \"%s\"",
+        commandString = AZStd::string::format("AdjustActorInstance -actorInstanceID %i -pos \"%s\" -rot \"%s\" -scale \"%s\" -lodLevel %d -isVisible \"%s\" -doRender \"%s\"",
             actorInstanceID,
-            MCore::String(mOldPosition).AsChar(),
-            MCore::String(AZ::Vector4(mOldRotation.x, mOldRotation.y, mOldRotation.z, mOldRotation.w)).AsChar(),
-            MCore::String(mOldScale).AsChar(),
+            AZStd::to_string(mOldPosition).c_str(),
+            AZStd::to_string(mOldRotation).c_str(),
+            AZStd::to_string(mOldScale).c_str(),
             mOldLODLevel,
-            mOldIsVisible ? "true" : "false",
-            mOldDoRender ? "true" : "false",
-            mOldAttachmentFastUpdate ? "true" : "false"
+            AZStd::to_string(mOldIsVisible).c_str(),
+            AZStd::to_string(mOldDoRender).c_str()
             );
-        commandGroup.AddCommandString(commandString.AsChar());
+        commandGroup.AddCommandString(commandString);
 
         // execute the command group
         bool result = GetCommandManager()->ExecuteCommandGroupInsideCommand(commandGroup, outResult);
@@ -557,40 +536,27 @@ namespace CommandSystem
     //-------------------------------------------------------------------------------------
     void CloneActorInstance(EMotionFX::ActorInstance* actorInstance, MCore::CommandGroup* commandGroup)
     {
-        // return if actorinstance was not set
-        if (actorInstance == nullptr)
+        if (!actorInstance)
         {
-            MCore::LogError("Actor instance was not set. Unable to generate new instance.");
+            AZ_Error("EMotionFX", false, "Cannot clone invalid instance.");
             return;
         }
 
-        // get the transformation values
-        const AZ::Vector3& pos              = actorInstance->GetLocalPosition();
-        const AZ::Vector3& scale            = actorInstance->GetLocalScale();
-        const MCore::Quaternion& rotQuat    = actorInstance->GetLocalRotation();
-        const AZ::Vector4 rot               = AZ::Vector4(rotQuat.x, rotQuat.y, rotQuat.z, rotQuat.w);
+        const AZ::Vector3& pos = actorInstance->GetLocalSpaceTransform().mPosition;
+        const AZ::Quaternion& rot = actorInstance->GetLocalSpaceTransform().mRotation;
+        #ifndef EMFX_SCALE_DISABLED
+            const AZ::Vector3& scale = actorInstance->GetLocalSpaceTransform().mScale;
+        #else
+            const AZ::Vector3 scale = AZ::Vector3::CreateOne();
+        #endif
 
-        // create the command
-        MCore::String command;
-        command.Format("CreateActorInstance -actorID %i -xPos %f -yPos %f -zPos %f -xScale %f -yScale %f -zScale %f -rot \"%s\"",
+        const AZStd::string command = AZStd::string::format("CreateActorInstance -actorID %i -xPos %f -yPos %f -zPos %f -xScale %f -yScale %f -zScale %f -rot \"%s\"",
             actorInstance->GetActor()->GetID(),
-            pos.GetX(), pos.GetY(), pos.GetZ(),
-            scale.GetX(), scale.GetY(), scale.GetZ(),
-            MCore::String(rot).AsChar());
+            static_cast<float>(pos.GetX()), static_cast<float>(pos.GetY()), static_cast<float>(pos.GetZ()),
+            static_cast<float>(scale.GetX()), static_cast<float>(scale.GetY()), static_cast<float>(scale.GetZ()),
+            AZStd::to_string(rot).c_str());
 
-        // execute the command or add it to the given command group
-        if (commandGroup == nullptr)
-        {
-            MCore::String outResult;
-            if (GetCommandManager()->ExecuteCommand(command.AsChar(), outResult) == false)
-            {
-                MCore::LogError(outResult.AsChar());
-            }
-        }
-        else
-        {
-            commandGroup->AddCommandString(command);
-        }
+        CommandSystem::GetCommandManager()->ExecuteCommandOrAddToGroup(command, commandGroup, /*executeInsideCommand=*/false);
     }
 
 
@@ -622,10 +588,10 @@ namespace CommandSystem
         }
 
         // execute the commandgroup
-        MCore::String outResult;
+        AZStd::string outResult;
         if (GetCommandManager()->ExecuteCommandGroup(commandGroup, outResult, true) == false)
         {
-            MCore::LogError(outResult.AsChar());
+            MCore::LogError(outResult.c_str());
         }
     }
 
@@ -634,12 +600,12 @@ namespace CommandSystem
     void ResetToBindPose()
     {
         // execute the command
-        MCore::String outResult;
+        AZStd::string outResult;
         if (GetCommandManager()->ExecuteCommand("ResetToBindPose", outResult) == false)
         {
-            if (outResult.GetIsEmpty() == false)
+            if (outResult.empty() == false)
             {
-                MCore::LogError(outResult.AsChar());
+                MCore::LogError(outResult.c_str());
             }
         }
     }
@@ -654,7 +620,7 @@ namespace CommandSystem
 
         // create the command group
         MCore::CommandGroup commandGroup("Remove actor instances", numActorInstances);
-        MCore::String tempString;
+        AZStd::string tempString;
 
         // iterate over the selected instances and clone them
         for (uint32 i = 0; i < numActorInstances; ++i)
@@ -666,14 +632,14 @@ namespace CommandSystem
                 continue;
             }
 
-            tempString.Format("RemoveActorInstance -actorInstanceID %i", actorInstance->GetID());
-            commandGroup.AddCommandString(tempString.AsChar());
+            tempString = AZStd::string::format("RemoveActorInstance -actorInstanceID %i", actorInstance->GetID());
+            commandGroup.AddCommandString(tempString.c_str());
         }
 
         // execute the commandgroup
         if (GetCommandManager()->ExecuteCommandGroup(commandGroup, tempString) == false)
         {
-            MCore::LogError(tempString.AsChar());
+            MCore::LogError(tempString.c_str());
         }
     }
 
@@ -686,8 +652,8 @@ namespace CommandSystem
         const uint32 numActorInstances = selection.GetNumSelectedActorInstances();
 
         // create the command group
-        MCore::String outResult;
-        MCore::String command;
+        AZStd::string outResult;
+        AZStd::string command;
         MCore::CommandGroup commandGroup("Hide actor instances", numActorInstances * 2);
 
         // iterate over the selected instances
@@ -700,19 +666,19 @@ namespace CommandSystem
                 continue;
             }
 
-            command.Format("Unselect -actorInstanceID %i", actorInstance->GetID());
-            commandGroup.AddCommandString(command.AsChar());
+            command = AZStd::string::format("Unselect -actorInstanceID %i", actorInstance->GetID());
+            commandGroup.AddCommandString(command.c_str());
 
-            command.Format("AdjustActorInstance -actorInstanceID %i -doRender \"No\"", actorInstance->GetID());
-            commandGroup.AddCommandString(command.AsChar());
+            command = AZStd::string::format("AdjustActorInstance -actorInstanceID %i -doRender false", actorInstance->GetID());
+            commandGroup.AddCommandString(command.c_str());
         }
 
         // execute the commandgroup
         if (GetCommandManager()->ExecuteCommandGroup(commandGroup, outResult) == false)
         {
-            if (outResult.GetIsEmpty() == false)
+            if (outResult.empty() == false)
             {
-                MCore::LogError(outResult.AsChar());
+                MCore::LogError(outResult.c_str());
             }
         }
     }
@@ -726,8 +692,8 @@ namespace CommandSystem
         const uint32 numActorInstances = selection.GetNumSelectedActorInstances();
 
         // create the command group
-        MCore::String outResult;
-        MCore::String command;
+        AZStd::string outResult;
+        AZStd::string command;
         MCore::CommandGroup commandGroup("Unhide actor instances", numActorInstances * 2);
 
         // iterate over the selected instances
@@ -740,16 +706,16 @@ namespace CommandSystem
                 continue;
             }
 
-            command.Format("AdjustActorInstance -actorInstanceID %i -doRender \"Yes\"", actorInstance->GetID());
-            commandGroup.AddCommandString(command.AsChar());
+            command = AZStd::string::format("AdjustActorInstance -actorInstanceID %i -doRender true", actorInstance->GetID());
+            commandGroup.AddCommandString(command.c_str());
         }
 
         // execute the commandgroup
         if (GetCommandManager()->ExecuteCommandGroup(commandGroup, outResult) == false)
         {
-            if (outResult.GetIsEmpty() == false)
+            if (outResult.empty() == false)
             {
-                MCore::LogError(outResult.AsChar());
+                MCore::LogError(outResult.c_str());
             }
         }
     }
@@ -763,8 +729,8 @@ namespace CommandSystem
         const uint32 numActorInstances = selection.GetNumSelectedActorInstances();
 
         // create the command group
-        MCore::String outResult;
-        MCore::String command;
+        AZStd::string outResult;
+        AZStd::string command;
         MCore::CommandGroup commandGroup("Unselect all actor instances", numActorInstances + 1);
 
         // iterate over the selected instances and clone them
@@ -778,8 +744,8 @@ namespace CommandSystem
             }
 
             // add the remove command
-            command.Format("Unselect -actorInstanceID %i", actorInstance->GetID());
-            commandGroup.AddCommandString(command.AsChar());
+            command = AZStd::string::format("Unselect -actorInstanceID %i", actorInstance->GetID());
+            commandGroup.AddCommandString(command.c_str());
         }
 
         // disable selection lock, if actor has been deselected
@@ -791,7 +757,7 @@ namespace CommandSystem
         // execute the commandgroup
         if (GetCommandManager()->ExecuteCommandGroup(commandGroup, outResult) == false)
         {
-            MCore::LogError(outResult.AsChar());
+            MCore::LogError(outResult.c_str());
         }
     }
 } // namespace CommandSystem

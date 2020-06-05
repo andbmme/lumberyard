@@ -14,6 +14,7 @@
 #include "StdAfx.h"
 
 #include "terrain.h"
+#include <Terrain/Bus/TerrainProviderBus.h>
 
 float CTerrain::GetBilinearZ(MeterF xWS, MeterF yWS) const
 {
@@ -28,7 +29,7 @@ float CTerrain::GetBilinearZ(MeterF xWS, MeterF yWS) const
     float x1 = xWS * CTerrain::GetInvUnitSize();
     float y1 = yWS * CTerrain::GetInvUnitSize();
 
-    if (!Cry3DEngineBase::GetTerrain() || x1 < 1 || y1 < 1)
+    if (!GetTerrain() || x1 < 0 || y1 < 0)
     {
         return TERRAIN_BOTTOM_LEVEL;
     }
@@ -38,7 +39,7 @@ float CTerrain::GetBilinearZ(MeterF xWS, MeterF yWS) const
 
     int nHMSize = CTerrain::GetTerrainSize() / CTerrain::GetHeightMapUnitSize();
 
-    if (!Cry3DEngineBase::GetTerrain() || nX < 1 || nY < 1 || nX >= nHMSize || nY >= nHMSize)
+    if (!GetTerrain() || nX < 0 || nY < 0 || nX >= nHMSize || nY >= nHMSize)
     {
         fZ = TERRAIN_BOTTOM_LEVEL;
     }
@@ -82,7 +83,7 @@ float CTerrain::GetBilinearZ(MeterF xWS, MeterF yWS) const
     return fZ;
 }
 
-bool CTerrain::RayTrace(Vec3 const& vStart, Vec3 const& vEnd, SRayTrace* prt)
+bool CTerrain::RayTrace(Vec3 const& vStart, Vec3 const& vEnd, LegacyTerrain::SRayTrace* prt)
 {
     FUNCTION_PROFILER_3DENGINE;
 
@@ -94,8 +95,8 @@ bool CTerrain::RayTrace(Vec3 const& vStart, Vec3 const& vEnd, SRayTrace* prt)
     }
 
     // Temp storage to avoid tests.
-    SRayTrace s_rt;
-    SRayTrace& rt = prt ? *prt : s_rt;
+    LegacyTerrain::SRayTrace s_rt;
+    LegacyTerrain::SRayTrace& rt = prt ? *prt : s_rt;
 
     float fUnitSize = (float)CTerrain::GetHeightMapUnitSize();
     float fInvUnitSize = CTerrain::GetInvUnitSize();
@@ -128,7 +129,7 @@ bool CTerrain::RayTrace(Vec3 const& vStart, Vec3 const& vEnd, SRayTrace* prt)
 
             // Get cell for starting point.
             int nType = tile.GetWeight(nX, nY).PrimaryId();
-            if (nType != SurfaceWeight::Hole)
+            if (nType != ITerrain::SurfaceWeight::Hole)
             {
                 // Get cell vertex values.
                 float afZ[4];
@@ -305,16 +306,13 @@ bool CTerrain::RayTrace(Vec3 const& vStart, Vec3 const& vEnd, SRayTrace* prt)
 
 bool CTerrain::IsHole(Meter x, Meter y) const
 {
-    int nX_units = x >> m_MeterToUnitBitShift;
-    int nY_units = y >> m_MeterToUnitBitShift;
-    int nTerrainSize_units = (CTerrain::GetTerrainSize() >> m_MeterToUnitBitShift) - 2;
-
-    if (nX_units < 0 || nX_units > nTerrainSize_units || nY_units < 0 || nY_units > nTerrainSize_units)
+    if (x >= 0 && y >= 0 && x <= CTerrain::GetTerrainSize() && y <= CTerrain::GetTerrainSize())
     {
-        return false;
+        return GetSurfaceWeight_Units(x >> m_MeterToUnitBitShift, y >> m_MeterToUnitBitShift).PrimaryId() == ITerrain::SurfaceWeight::Hole;
     }
 
-    return GetSurfaceWeight_Units(nX_units, nY_units).PrimaryId() == SurfaceWeight::Hole;
+    // Conceptually *everything* outside the bounds of the terrain is a hole.
+    return true;
 }
 
 ITerrain::SurfaceWeight CTerrain::GetSurfaceWeight(Meter x, Meter y) const
@@ -324,10 +322,10 @@ ITerrain::SurfaceWeight CTerrain::GetSurfaceWeight(Meter x, Meter y) const
         return GetSurfaceWeight_Units(x >> m_MeterToUnitBitShift, y >> m_MeterToUnitBitShift);
     }
 
-    return SurfaceWeight();
+    return ITerrain::SurfaceWeight();
 }
 
-float CTerrain::GetZ(Meter x, Meter y) const
+float CTerrain::GetZ(int x, int y) const
 {
     if (!m_RootNode)
     {
@@ -349,7 +347,7 @@ ITerrain::SurfaceWeight CTerrain::GetSurfaceWeight_Units(Unit x, Unit y) const
             return tile.GetWeight(x, y);
         }
     }
-    return SurfaceWeight();
+    return ITerrain::SurfaceWeight();
 }
 
 float CTerrain::GetZ_Unit(Unit x, Unit y) const
@@ -406,48 +404,118 @@ namespace
     }
 }
 
-float CTerrain::GetHeightFromUnits_Callback(int ix, int iy)
+float CTerrain::GetHeightFromTerrain_Callback(int ix, int iy)
 {
-    const uint32 idx = encodeby1(ix & ((nHMCacheSize - 1))) | (encodeby1(iy & ((nHMCacheSize - 1))) << 1);
-    CTerrain::SCachedHeight& rCache = m_arrCacheHeight[idx];
-    if (rCache.x == ix && rCache.y == iy)
+#ifdef LY_TERRAIN_RUNTIME
+    if (Terrain::TerrainProviderRequestBus::HasHandlers())
     {
+        float height = 0.0f;
+        Terrain::TerrainProviderRequestBus::BroadcastResult(height, &Terrain::TerrainProviderRequestBus::Events::GetHeightAtIndexedPosition, ix, iy);
+        return height;
+    }
+    else
+#endif
+    {
+        const uint32 idx = encodeby1(ix & ((nHMCacheSize - 1))) | (encodeby1(iy & ((nHMCacheSize - 1))) << 1);
+        CTerrain::SCachedHeight& rCache = m_arrCacheHeight[idx];
+        if (rCache.x == ix && rCache.y == iy)
+        {
+            return rCache.fHeight;
+        }
+
+        CTerrain* terrain = CTerrain::GetTerrain();
+
+        if (!terrain)
+        {
+            return 0.0f;
+        }
+
+        rCache.fHeight = terrain->GetZ_Unit(ix, iy);
+        //REMARK: This function is called by multiple CryPhysics threads. To keep it lockless it is imperative
+        //to set the x and y AFTER fHeight.
+        rCache.x = ix;
+        rCache.y = iy;
         return rCache.fHeight;
     }
+}
 
-    rCache.x = ix;
-    rCache.y = iy;
+unsigned char CTerrain::GetSurfaceTypeFromTerrain_Callback(int ix, int iy)
+{
+#ifdef LY_TERRAIN_RUNTIME
+    if (Terrain::TerrainProviderRequestBus::HasHandlers())
+    {
+        unsigned char surfaceType = 0;
+        Terrain::TerrainProviderRequestBus::BroadcastResult(surfaceType, &Terrain::TerrainProviderRequestBus::Events::GetSurfaceTypeAtIndexedPosition, ix, iy);
+        return surfaceType;
+    }
+    else
+#endif
+    {
+        const uint32 idx = encodeby1(ix & ((nHMCacheSize - 1))) | (encodeby1(iy & ((nHMCacheSize - 1))) << 1);
+        CTerrain::SCachedSurfType& rCache = m_arrCacheSurfType[idx];
+        if (rCache.x == ix && rCache.y == iy)
+        {
+            return rCache.surfType;
+        }
 
-    CTerrain* terrain = CTerrain::GetTerrain();
+        CTerrain* terrain = CTerrain::GetTerrain();
+        if (!terrain)
+        {
+            return 0;
+        }
 
-    if (!terrain)
+        rCache.surfType = terrain->GetSurfaceWeight_Units(ix, iy).PrimaryId();
+        //REMARK: This function is called by multiple CryPhysics threads. To keep it lockless it is imperative
+        //to set the x and y AFTER surfType.
+        rCache.x = ix;
+        rCache.y = iy;
+        return rCache.surfType;
+    }
+}
+
+float CTerrain::GetSlope(int x, int y) const
+{
+    if ((x < 0) || (y < 0) || (x > (GetTerrainSize() - 1)) || (y > (GetTerrainSize() - 1)))
     {
         return 0.0f;
     }
 
-    rCache.fHeight = terrain->GetZ_Unit(ix, iy);
-    return rCache.fHeight;
-}
-
-unsigned char CTerrain::GetSurfaceTypeFromUnits_Callback(int ix, int iy)
-{
-    const uint32 idx = encodeby1(ix & ((nHMCacheSize - 1))) | (encodeby1(iy & ((nHMCacheSize - 1))) << 1);
-    CTerrain::SCachedSurfType& rCache = m_arrCacheSurfType[idx];
-    if (rCache.x == ix && rCache.y == iy)
-    {
-        return rCache.surfType;
-    }
-
-    CTerrain* terrain = CTerrain::GetTerrain();
-    if (!terrain)
+    if (!m_RootNode)
     {
         return 0;
     }
 
+    return GetSlope_Unit(x >> m_MeterToUnitBitShift, y >> m_MeterToUnitBitShift);
+}
 
-    rCache.x = ix;
-    rCache.y = iy;
-    rCache.surfType = terrain->GetSurfaceWeight_Units(ix, iy).PrimaryId();
+float CTerrain::GetSlope_Unit(Unit nX_units, Unit nY_units) const
+{
+    const float h = GetHeightFromTerrain_Callback(nX_units, nY_units);
 
-    return rCache.surfType;
+    const float xm1_ym1 = GetHeightFromTerrain_Callback(nX_units - 1, nY_units - 1);
+    const float x_ym1 =   GetHeightFromTerrain_Callback(nX_units,     nY_units - 1);
+    const float xp1_ym1 = GetHeightFromTerrain_Callback(nX_units + 1, nY_units - 1);
+
+    const float xm1_y =   GetHeightFromTerrain_Callback(nX_units - 1, nY_units);
+    const float xp1_y =   GetHeightFromTerrain_Callback(nX_units + 1, nY_units);
+
+    const float xm1_yp1 = GetHeightFromTerrain_Callback(nX_units - 1, nY_units + 1);
+    const float x_yp1 =   GetHeightFromTerrain_Callback(nX_units,     nY_units + 1);
+    const float xp1_yp1 = GetHeightFromTerrain_Callback(nX_units + 1, nY_units + 1);
+
+    float fs =
+       (fabs_tpl(xm1_ym1 - h) +
+        fabs_tpl(x_ym1 - h) +
+        fabs_tpl(xp1_ym1 - h) +
+        fabs_tpl(xm1_y - h) +
+        fabs_tpl(xp1_y - h) +
+        fabs_tpl(xm1_yp1 - h) +
+        fabs_tpl(x_yp1 - h) +
+        fabs_tpl(xp1_yp1 - h));
+    fs = fs * 8.0f;
+    if (fs > 255.0f)
+    {
+        fs = 255.0f;
+    }
+    return fs;
 }

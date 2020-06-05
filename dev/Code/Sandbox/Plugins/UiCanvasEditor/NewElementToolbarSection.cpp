@@ -21,14 +21,14 @@ NewElementToolbarSection::NewElementToolbarSection(QToolBar* parent, bool addSep
         QPushButton* button = new QPushButton("New...", parent);
         QObject::connect(button,
             &QPushButton::clicked,
+            editorWindow,
             [editorWindow](bool checked)
             {
                 HierarchyMenu contextMenu(editorWindow->GetHierarchy(),
                     (HierarchyMenu::Show::kNew_EmptyElementAtRoot |
                      HierarchyMenu::Show::kNew_ElementFromPrefabsAtRoot |
                      HierarchyMenu::Show::kNew_InstantiateSliceAtRoot),
-                    false,
-                    nullptr);
+                    false);
 
                 contextMenu.exec(QCursor::pos());
             });

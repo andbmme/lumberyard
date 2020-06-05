@@ -13,9 +13,13 @@
 
 #include <AzCore/Component/TickBus.h>
 
+AZ_PUSH_DISABLE_WARNING(4127 4251 4800, "-Wunknown-warning-option") // 4127: conditional expression is constant
+                                                                    // 4251: 'QLocale::d': class 'QSharedDataPointer<QLocalePrivate>' needs to have dll-interface to be used by clients of class 'QLocale'
+                                                                    // 4800: 'int': forcing value to bool 'true' or 'false' (performance warning)
 #include <QObject>
 #include <QPixmap>
 #include <QFutureWatcher>
+AZ_POP_DISABLE_WARNING
 
 namespace AzToolsFramework
 {
@@ -29,18 +33,32 @@ namespace AzToolsFramework
         class ThumbnailKey
             : public QObject
         {
+            friend class ThumbnailContext;
+
             Q_OBJECT
         public:
+            AZ_RTTI(ThumbnailKey, "{43F20F6B-333D-4226-8E4F-331A62315255}");
+
             ThumbnailKey() = default;
             virtual ~ThumbnailKey() = default;
+
+            bool IsReady() const;
+
+            virtual bool UpdateThumbnail();
+
 Q_SIGNALS:
             //! Updated signal is dispatched whenever thumbnail data was changed. Anyone using this thumbnail should listen to this.
-            void Updated() const;
+            void ThumbnailUpdatedSignal() const;
+            //! Force update mapped thumbnails
+            void UpdateThumbnailSignal() const;
+
+        private:
+            bool m_ready = false;
         };
 
-        typedef QSharedPointer<const ThumbnailKey> SharedThumbnailKey;
+        typedef QSharedPointer<ThumbnailKey> SharedThumbnailKey;
 
-        #define MAKE_TKEY(type, ...) QSharedPointer<const type>(new type(__VA_ARGS__))
+        #define MAKE_TKEY(type, ...) QSharedPointer<type>(new type(__VA_ARGS__))
 
         //! Thumbnail is the base class in thumbnailer system.
         /*
@@ -72,6 +90,9 @@ Q_SIGNALS:
 
 Q_SIGNALS:
             void Updated() const;
+
+        public Q_SLOTS:
+            virtual void Update() {}
 
         protected:
             QFutureWatcher<void> m_watcher;

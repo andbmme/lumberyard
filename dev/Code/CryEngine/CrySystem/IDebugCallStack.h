@@ -35,19 +35,12 @@ public:
     static IDebugCallStack* instance();
 
     virtual int handleException(EXCEPTION_POINTERS* exception_pointer){return 0; }
-    virtual void CollectCurrentCallStack(int maxStackEntries = MAX_DEBUG_STACK_ENTRIES){}
-    // Collects the low level callstack frames.
-    // Returns number of collected stack frames.
-    virtual int CollectCallStackFrames(void** pCallstack, int maxStackEntries) { return 0; }
-
-    // collects low level callstack for given thread handle
-    virtual int CollectCallStack(HANDLE thread, void** pCallstack, int maxStackEntries) { return 0; }
 
     // returns the module name of a given address
     virtual string GetModuleNameForAddr(void* addr) { return "[unknown]"; }
 
     // returns the function name of a given address together with source file and line number (if available) of a given address
-    virtual bool GetProcNameForAddr(void* addr, string& procName, void*& baseAddr, string& filename, int& line)
+    virtual void GetProcNameForAddr(void* addr, string& procName, void*& baseAddr, string& filename, int& line)
     {
         filename = "[unknown]";
         line = 0;
@@ -57,15 +50,10 @@ public:
 #else
         procName.Format("[%08X]", addr);
 #endif
-        return false;
     }
 
     // returns current filename
     virtual string GetCurrentFilename()  { return "[unknown]"; }
-
-    // initialize symbols
-    virtual void InitSymbols() {}
-    virtual void DoneSymbols() {}
 
     //! Dumps Current Call Stack to log.
     virtual void LogCallstack();
@@ -77,9 +65,6 @@ public:
 
     virtual void FileCreationCallback(void (* postBackupProcess)());
 
-    //! Get current call stack information.
-    void getCallStack(std::vector<string>& functions) { functions = m_functions; }
-
     static void WriteLineToLog(const char* format, ...);
 
     virtual void StartMemLog();
@@ -90,14 +75,13 @@ protected:
     virtual ~IDebugCallStack();
 
     static const char* TranslateExceptionCode(DWORD dwExcept);
-    static void PutVersion(char* str);
+    static void PutVersion(char* str, size_t length);
 
     static void Screenshot(const char* szFileName);
 
     bool m_bIsFatalError;
     static const char* const s_szFatalErrorCode;
 
-    std::vector<string> m_functions;
     void (* m_postBackupProcess)();
 
     AZ::IO::HandleType m_memAllocFileHandle;

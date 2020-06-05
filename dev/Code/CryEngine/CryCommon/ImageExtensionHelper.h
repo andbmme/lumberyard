@@ -11,8 +11,6 @@
 */
 // Original file Copyright Crytek GMBH or its affiliates, used under license.
 
-#ifndef CRYINCLUDE_CRYCOMMON_IMAGEEXTENSIONHELPER_H
-#define CRYINCLUDE_CRYCOMMON_IMAGEEXTENSIONHELPER_H
 #pragma once
 
 #include <ITexture.h>
@@ -21,7 +19,35 @@
 #include <Cry_Vector3.h>
 #include <Cry_Color.h>
 
+#if defined(AZ_RESTRICTED_PLATFORM) || defined(AZ_TOOLS_EXPAND_FOR_RESTRICTED_PLATFORMS)
+#undef AZ_RESTRICTED_SECTION
+#define IMAGEEXTENSIONHELPER_H_SECTION_1 1
+#define IMAGEEXTENSIONHELPER_H_SECTION_2 2
+#define IMAGEEXTENSIONHELPER_H_SECTION_CONSTS 3
+#define IMAGEEXTENSIONHELPER_H_SECTION_ISNATIVE 4
+#endif
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION IMAGEEXTENSIONHELPER_H_SECTION_1
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/ImageExtensionHelper_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/ImageExtensionHelper_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/ImageExtensionHelper_h_salem.inl"
+    #endif
+#endif
+
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION IMAGEEXTENSIONHELPER_H_SECTION_2
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/ImageExtensionHelper_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/ImageExtensionHelper_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/ImageExtensionHelper_h_salem.inl"
+    #endif
+#endif
 
 #ifndef MAKEFOURCC
     #define MAKEFOURCC(ch0, ch1, ch2, ch3)                \
@@ -42,7 +68,7 @@
 // usually added to the end of DDS files
 
 //Needed to write out DDS files on Mac
-#if defined(AZ_PLATFORM_APPLE)
+#if AZ_TRAIT_OS_PLATFORM_APPLE || defined(AZ_PLATFORM_LINUX)
 #define    DDPF_ALPHAPIXELS     0x00000001  // Texture contains alpha data
 #define    DDPF_ALPHA           0x00000002  // For alpha channel only uncompressed data
 #define    DDPF_FOURCC          0x00000004  // Texture contains compressed RGB data
@@ -148,9 +174,9 @@ namespace CImageExtensionHelper
         // we're unable to use native enums because of TypeInfo(), so we use DWORD instead.
         DWORD /*DXGI_FORMAT*/ dxgiFormat;
         DWORD /*D3D10_RESOURCE_DIMENSION*/ resourceDimension;
-        UINT miscFlag;
-        UINT arraySize;
-        UINT reserved;
+        unsigned int miscFlag;
+        unsigned int arraySize;
+        unsigned int reserved;
 
         AUTO_STRUCT_INFO
     };
@@ -220,18 +246,12 @@ namespace CImageExtensionHelper
     const static uint32 EIF_Greyscale           =        0x8;  // hint for the engine (e.g. greyscale light beams can be applied to shadow mask), can be for DXT1 because compression artfacts don't count as color
     const static uint32 EIF_SupressEngineReduce =       0x10;  // info for the engine: don't reduce texture resolution on this texture
     const static uint32 EIF_UNUSED_BIT          =       0x40;  // Free to use
-    const static uint32 EIF_Compressed          =      0x200;  // info for the engine: it's an MCT or PTC compressed texture for XBox // ACCEPTED_USE
     const static uint32 EIF_AttachedAlpha       =      0x400;  // info for the engine: it's a texture with attached alpha channel
     const static uint32 EIF_SRGBRead            =      0x800;  // info for the engine: if gamma corrected rendering is on, this texture requires SRGBRead (it's not stored in linear)
-    const static uint32 EIF_XBox360Native       =     0x1000;  // info for the engine: native XBox360 texture format // ACCEPTED_USE
-    const static uint32 EIF_PS3Native           =     0x2000;  // info for the engine: native PS3 texture format // ACCEPTED_USE
-    const static uint32 EIF_X360NotPretiled     =     0x4000;  // info for the engine: the texture cannot be pretiled // ACCEPTED_USE
     const static uint32 EIF_DontResize          =     0x8000;  // info for the engine: for dds textures that shouldn't be resized with r_TexResolution
     const static uint32 EIF_RenormalizedTexture =    0x10000;  // info for the engine: for dds textures that have renormalized color range
     const static uint32 EIF_CafeNative          =    0x20000;  // info for the engine: native Cafe texture format
-    const static uint32 EIF_OrbisNative         =    0x40000;  // info for the engine: native Orbis texture format // ACCEPTED_USE
     const static uint32 EIF_Tiled               =    0x80000;  // info for the engine: texture has been tiled for the platform
-    const static uint32 EIF_DurangoNative       =   0x100000;  // info for the engine: native Durango texture format // ACCEPTED_USE
     const static uint32 EIF_Splitted            =   0x200000;  // info for the engine: this texture is splitted
     const static uint32 EIF_Colormodel          =  0x7000000;  // info for the engine: bitmask: colormodel used in the texture
     const static uint32 EIF_Colormodel_RGB      =  0x0000000;  // info for the engine: colormodel is RGB (default)
@@ -239,6 +259,24 @@ namespace CImageExtensionHelper
     const static uint32 EIF_Colormodel_YCC      =  0x2000000;  // info for the engine: colormodel is Y'CbCr (used for reflectance)
     const static uint32 EIF_Colormodel_YFF      =  0x3000000;  // info for the engine: colormodel is Y'FbFr (used for reflectance)
     const static uint32 EIF_Colormodel_IRB      =  0x4000000;  // info for the engine: colormodel is IRB (used for reflectance)
+
+#if defined(AZ_PLATFORM_XENIA) || defined(TOOLS_SUPPORT_XENIA)
+#define AZ_RESTRICTED_SECTION IMAGEEXTENSIONHELPER_H_SECTION_CONSTS
+#include "Xenia/ImageExtensionHelper_h_xenia.inl"
+#undef AZ_RESTRICTED_SECTION
+#endif
+
+#if defined(AZ_PLATFORM_PROVO) || defined(TOOLS_SUPPORT_PROVO)
+#define AZ_RESTRICTED_SECTION IMAGEEXTENSIONHELPER_H_SECTION_CONSTS
+#include "Provo/ImageExtensionHelper_h_provo.inl"
+#undef AZ_RESTRICTED_SECTION
+#endif
+
+#if defined(AZ_PLATFORM_SALEM) || defined(TOOLS_SUPPORT_SALEM)
+#define AZ_RESTRICTED_SECTION IMAGEEXTENSIONHELPER_H_SECTION_CONSTS
+#include "Salem/ImageExtensionHelper_h_salem.inl"
+#undef AZ_RESTRICTED_SECTION
+#endif
 
     enum ETileMode
     {
@@ -298,7 +336,20 @@ namespace CImageExtensionHelper
     //   true, if this texture is ready for this platform
     inline const bool IsImageNative(const uint32 nFlags)
     {
-        return (nFlags & (EIF_XBox360Native | EIF_PS3Native)) == 0; // ACCEPTED_USE
+        return (nFlags & (0
+#if defined(AZ_PLATFORM_XENIA) || defined(TOOLS_SUPPORT_XENIA)
+#define AZ_RESTRICTED_SECTION IMAGEEXTENSIONHELPER_H_SECTION_ISNATIVE
+#include "Xenia/ImageExtensionHelper_h_xenia.inl"
+#endif
+#if defined(AZ_PLATFORM_PROVO) || defined(TOOLS_SUPPORT_PROVO)
+#define AZ_RESTRICTED_SECTION IMAGEEXTENSIONHELPER_H_SECTION_ISNATIVE
+#include "Provo/ImageExtensionHelper_h_provo.inl"
+#endif
+#if defined(AZ_PLATFORM_SALEM) || defined(TOOLS_SUPPORT_SALEM)
+#define AZ_RESTRICTED_SECTION IMAGEEXTENSIONHELPER_H_SECTION_ISNATIVE
+#include "Salem/ImageExtensionHelper_h_salem.inl"
+#endif
+        )) == 0;
     }
 
     // Arguments:
@@ -372,14 +423,13 @@ namespace CImageExtensionHelper
         return 0;   // chunk does not exist
     }
 
-    //  Confetti BEGIN: Igor Lobanchikov
     static ILINE Vec2i GetBlockDim(const ETEX_Format eTF)
     {
         if (eTF == eTF_BC1 || eTF == eTF_BC2 || eTF == eTF_BC3 || eTF == eTF_BC5U || eTF == eTF_BC5S || eTF == eTF_BC4U || eTF == eTF_BC4S || eTF == eTF_CTX1 || eTF == eTF_BC6UH || eTF == eTF_BC6SH || eTF == eTF_BC7 || eTF == eTF_EAC_R11 || eTF == eTF_EAC_RG11 || eTF == eTF_ETC2 || eTF == eTF_ETC2A)
         {
             return Vec2i(4, 4);
         }
-        //  Igor: Apple requires the following for the texture:
+        //  Apple requires the following for the texture:
         //  Height and width must be a power of 2
         //  Height and width must be at least 8
         //  Must be square
@@ -439,14 +489,12 @@ namespace CImageExtensionHelper
             return 8 / 8;
         case eTF_R16:
             return 16 / 8;
-        //  Confetti BEGIN: Igor Lobanchikov
         case eTF_R16U:
             return 16 / 8;
         case eTF_R16G16U:
             return 32 / 8;
         case eTF_R10G10B10A2UI:
             return 32 / 8;
-        //  Confetti End: Igor Lobanchikov
         case eTF_R16F:
             return 16 / 8;
         case eTF_R32F:
@@ -552,7 +600,6 @@ namespace CImageExtensionHelper
         return 0;
     }
 
-    //  Confetti End: Igor Lobanchikov
 
     inline bool IsBlockCompressed(ETEX_Format eTF)
     {
@@ -573,7 +620,6 @@ namespace CImageExtensionHelper
                 eTF == eTF_EAC_RG11      ||
                 eTF == eTF_PVRTC2        ||
                 eTF == eTF_PVRTC4        ||
-                //  Confetti BEGIN: Igor Lobanchikov
                 eTF == eTF_ASTC_4x4      ||
                 eTF == eTF_ASTC_5x4      ||
                 eTF == eTF_ASTC_5x5      ||
@@ -588,7 +634,6 @@ namespace CImageExtensionHelper
                 eTF == eTF_ASTC_10x10    ||
                 eTF == eTF_ASTC_12x10    ||
                 eTF == eTF_ASTC_12x12
-                //  Confetti End: Igor Lobanchikov
                 );
     }
 
@@ -627,7 +672,6 @@ namespace CImageExtensionHelper
                 eTF == eTF_EAC_RG11      ||
                 eTF == eTF_PVRTC2        ||
                 eTF == eTF_PVRTC4        ||
-                //  Confetti BEGIN: Igor Lobanchikov
                 eTF == eTF_ASTC_4x4 ||
                 eTF == eTF_ASTC_5x4 ||
                 eTF == eTF_ASTC_5x5 ||
@@ -642,7 +686,6 @@ namespace CImageExtensionHelper
                 eTF == eTF_ASTC_10x10 ||
                 eTF == eTF_ASTC_12x10 ||
                 eTF == eTF_ASTC_12x12
-                //  Confetti End: Igor Lobanchikov
                 );
     }
 
@@ -750,7 +793,6 @@ namespace CImageExtensionHelper
         case eTF_PVRTC4:
             return "PVRTC4";
 
-        //  Confetti BEGIN: Igor Lobanchikov
         case eTF_ASTC_4x4:
             return "ASTC_4x4";
         case eTF_ASTC_5x4:
@@ -779,7 +821,6 @@ namespace CImageExtensionHelper
             return "ASTC_12x10";
         case eTF_ASTC_12x12:
             return "ASTC_12x12";
-        //  Confetti End: Igor Lobanchikov
 
         case eTF_A8L8:
             return "A8L8";
@@ -807,320 +848,318 @@ namespace CImageExtensionHelper
     // Warning: duplicate code.
     inline ETEX_Format TextureFormatForName(const char* sETF)
     {
-        if (!stricmp(sETF, "Unknown"))
+        if (!azstricmp(sETF, "Unknown"))
         {
             return eTF_Unknown;
         }
 
-        if (!stricmp(sETF, "R8G8B8A8S"))
+        if (!azstricmp(sETF, "R8G8B8A8S"))
         {
             return eTF_R8G8B8A8S;
         }
-        if (!stricmp(sETF, "R8G8B8A8"))
+        if (!azstricmp(sETF, "R8G8B8A8"))
         {
             return eTF_R8G8B8A8;
         }
 
-        if (!stricmp(sETF, "A8"))
+        if (!azstricmp(sETF, "A8"))
         {
             return eTF_A8;
         }
-        if (!stricmp(sETF, "R8"))
+        if (!azstricmp(sETF, "R8"))
         {
             return eTF_R8;
         }
-        if (!stricmp(sETF, "R8S"))
+        if (!azstricmp(sETF, "R8S"))
         {
             return eTF_R8S;
         }
-        if (!stricmp(sETF, "R16"))
+        if (!azstricmp(sETF, "R16"))
         {
             return eTF_R16;
         }
-        if (!stricmp(sETF, "R16F"))
+        if (!azstricmp(sETF, "R16F"))
         {
             return eTF_R16F;
         }
-        if (!stricmp(sETF, "R32F"))
+        if (!azstricmp(sETF, "R32F"))
         {
             return eTF_R32F;
         }
-        if (!stricmp(sETF, "R8G8"))
+        if (!azstricmp(sETF, "R8G8"))
         {
             return eTF_R8G8;
         }
-        if (!stricmp(sETF, "R8G8S"))
+        if (!azstricmp(sETF, "R8G8S"))
         {
             return eTF_R8G8S;
         }
-        if (!stricmp(sETF, "R16G16"))
+        if (!azstricmp(sETF, "R16G16"))
         {
             return eTF_R16G16;
         }
-        if (!stricmp(sETF, "R16G16S"))
+        if (!azstricmp(sETF, "R16G16S"))
         {
             return eTF_R16G16S;
         }
-        if (!stricmp(sETF, "R16G16F"))
+        if (!azstricmp(sETF, "R16G16F"))
         {
             return eTF_R16G16F;
         }
-        if (!stricmp(sETF, "R11G11B10F"))
+        if (!azstricmp(sETF, "R11G11B10F"))
         {
             return eTF_R11G11B10F;
         }
-        if (!stricmp(sETF, "R10G10B10A2"))
+        if (!azstricmp(sETF, "R10G10B10A2"))
         {
             return eTF_R10G10B10A2;
         }
-        if (!stricmp(sETF, "R16G16B16A16"))
+        if (!azstricmp(sETF, "R16G16B16A16"))
         {
             return eTF_R16G16B16A16;
         }
-        if (!stricmp(sETF, "R16G16B16A16S"))
+        if (!azstricmp(sETF, "R16G16B16A16S"))
         {
             return eTF_R16G16B16A16S;
         }
-        if (!stricmp(sETF, "R16G16B16A16F"))
+        if (!azstricmp(sETF, "R16G16B16A16F"))
         {
             return eTF_R16G16B16A16F;
         }
-        if (!stricmp(sETF, "R32G32B32A32F"))
+        if (!azstricmp(sETF, "R32G32B32A32F"))
         {
             return eTF_R32G32B32A32F;
         }
 
-        if (!stricmp(sETF, "CTX1"))
+        if (!azstricmp(sETF, "CTX1"))
         {
             return eTF_CTX1;
         }
-        if (!stricmp(sETF, "BC1"))
+        if (!azstricmp(sETF, "BC1"))
         {
             return eTF_BC1;
         }
-        if (!stricmp(sETF, "BC2"))
+        if (!azstricmp(sETF, "BC2"))
         {
             return eTF_BC2;
         }
-        if (!stricmp(sETF, "BC3"))
+        if (!azstricmp(sETF, "BC3"))
         {
             return eTF_BC3;
         }
-        if (!stricmp(sETF, "BC4"))
+        if (!azstricmp(sETF, "BC4"))
         {
             return eTF_BC4U;
         }
-        if (!stricmp(sETF, "BC4S"))
+        if (!azstricmp(sETF, "BC4S"))
         {
             return eTF_BC4S;
         }
-        if (!stricmp(sETF, "BC5"))
+        if (!azstricmp(sETF, "BC5"))
         {
             return eTF_BC5U;
         }
-        if (!stricmp(sETF, "BC5S"))
+        if (!azstricmp(sETF, "BC5S"))
         {
             return eTF_BC5S;
         }
-        if (!stricmp(sETF, "BC6UH"))
+        if (!azstricmp(sETF, "BC6UH"))
         {
             return eTF_BC6UH;
         }
-        if (!stricmp(sETF, "BC6SH"))
+        if (!azstricmp(sETF, "BC6SH"))
         {
             return eTF_BC6SH;
         }
-        if (!stricmp(sETF, "BC7"))
+        if (!azstricmp(sETF, "BC7"))
         {
             return eTF_BC7;
         }
-        if (!stricmp(sETF, "R9G9B9E5"))
+        if (!azstricmp(sETF, "R9G9B9E5"))
         {
             return eTF_R9G9B9E5;
         }
 
-        if (!stricmp(sETF, "D16"))
+        if (!azstricmp(sETF, "D16"))
         {
             return eTF_D16;
         }
-        if (!stricmp(sETF, "D24S8"))
+        if (!azstricmp(sETF, "D24S8"))
         {
             return eTF_D24S8;
         }
-        if (!stricmp(sETF, "D32F"))
+        if (!azstricmp(sETF, "D32F"))
         {
             return eTF_D32F;
         }
-        if (!stricmp(sETF, "D32FS8"))
+        if (!azstricmp(sETF, "D32FS8"))
         {
             return eTF_D32FS8;
         }
 
-        if (!stricmp(sETF, "R5G5B5"))
+        if (!azstricmp(sETF, "R5G5B5"))
         {
             return eTF_B5G6R5;
         }
-        if (!stricmp(sETF, "R5G6B5"))
+        if (!azstricmp(sETF, "R5G6B5"))
         {
             return eTF_B5G5R5;
         }
-        if (!stricmp(sETF, "B4G4R4A4"))
+        if (!azstricmp(sETF, "B4G4R4A4"))
         {
             return eTF_B4G4R4A4;
         }
 
-        if (!stricmp(sETF, "EAC_R11"))
+        if (!azstricmp(sETF, "EAC_R11"))
         {
             return eTF_EAC_R11;
         }
-        if (!stricmp(sETF, "EAC_RG11"))
+        if (!azstricmp(sETF, "EAC_RG11"))
         {
             return eTF_EAC_RG11;
         }
-        if (!stricmp(sETF, "ETC2"))
+        if (!azstricmp(sETF, "ETC2"))
         {
             return eTF_ETC2;
         }
-        if (!stricmp(sETF, "ETC2A"))
+        if (!azstricmp(sETF, "ETC2A"))
         {
             return eTF_ETC2A;
         }
 
-        if (!stricmp(sETF, "PVRTC2"))
+        if (!azstricmp(sETF, "PVRTC2"))
         {
             return eTF_PVRTC2;
         }
-        if (!stricmp(sETF, "PVRTC4"))
+        if (!azstricmp(sETF, "PVRTC4"))
         {
             return eTF_PVRTC4;
         }
 
-        //  Confetti BEGIN: Igor Lobanchikov
-        if (!stricmp(sETF, "ASTC_4x4"))
+        if (!azstricmp(sETF, "ASTC_4x4"))
         {
             return eTF_ASTC_4x4;
         }
-        if (!stricmp(sETF, "ASTC_5x4"))
+        if (!azstricmp(sETF, "ASTC_5x4"))
         {
             return eTF_ASTC_5x4;
         }
-        if (!stricmp(sETF, "ASTC_5x5"))
+        if (!azstricmp(sETF, "ASTC_5x5"))
         {
             return eTF_ASTC_5x5;
         }
-        if (!stricmp(sETF, "ASTC_6x5"))
+        if (!azstricmp(sETF, "ASTC_6x5"))
         {
             return eTF_ASTC_6x5;
         }
-        if (!stricmp(sETF, "ASTC_6x6"))
+        if (!azstricmp(sETF, "ASTC_6x6"))
         {
             return eTF_ASTC_6x6;
         }
-        if (!stricmp(sETF, "ASTC_8x5"))
+        if (!azstricmp(sETF, "ASTC_8x5"))
         {
             return eTF_ASTC_8x5;
         }
-        if (!stricmp(sETF, "ASTC_8x6"))
+        if (!azstricmp(sETF, "ASTC_8x6"))
         {
             return eTF_ASTC_8x6;
         }
-        if (!stricmp(sETF, "ASTC_8x8"))
+        if (!azstricmp(sETF, "ASTC_8x8"))
         {
             return eTF_ASTC_8x8;
         }
-        if (!stricmp(sETF, "ASTC_10x5"))
+        if (!azstricmp(sETF, "ASTC_10x5"))
         {
             return eTF_ASTC_10x5;
         }
-        if (!stricmp(sETF, "ASTC_10x6"))
+        if (!azstricmp(sETF, "ASTC_10x6"))
         {
             return eTF_ASTC_10x6;
         }
-        if (!stricmp(sETF, "ASTC_10x8"))
+        if (!azstricmp(sETF, "ASTC_10x8"))
         {
             return eTF_ASTC_10x8;
         }
-        if (!stricmp(sETF, "ASTC_10x10"))
+        if (!azstricmp(sETF, "ASTC_10x10"))
         {
             return eTF_ASTC_10x10;
         }
-        if (!stricmp(sETF, "ASTC_12x10"))
+        if (!azstricmp(sETF, "ASTC_12x10"))
         {
             return eTF_ASTC_12x10;
         }
-        if (!stricmp(sETF, "ASTC_12x12"))
+        if (!azstricmp(sETF, "ASTC_12x12"))
         {
             return eTF_ASTC_12x12;
         }
-        //  Confetti End: Igor Lobanchikov
 
-        if (!stricmp(sETF, "A8L8"))
+        if (!azstricmp(sETF, "A8L8"))
         {
             return eTF_A8L8;
         }
-        if (!stricmp(sETF, "L8"))
+        if (!azstricmp(sETF, "L8"))
         {
             return eTF_L8;
         }
-        if (!stricmp(sETF, "L8V8U8"))
+        if (!azstricmp(sETF, "L8V8U8"))
         {
             return eTF_L8V8U8;
         }
-        if (!stricmp(sETF, "B8G8R8"))
+        if (!azstricmp(sETF, "B8G8R8"))
         {
             return eTF_B8G8R8;
         }
-        if (!stricmp(sETF, "L8V8U8X8"))
+        if (!azstricmp(sETF, "L8V8U8X8"))
         {
             return eTF_L8V8U8X8;
         }
-        if (!stricmp(sETF, "B8G8R8X8"))
+        if (!azstricmp(sETF, "B8G8R8X8"))
         {
             return eTF_B8G8R8X8;
         }
-        if (!stricmp(sETF, "B8G8R8A8"))
+        if (!azstricmp(sETF, "B8G8R8A8"))
         {
             return eTF_B8G8R8A8;
         }
 
-        if (!stricmp(sETF, "V8U8"))
+        if (!azstricmp(sETF, "V8U8"))
         {
             return eTF_R8G8S;
         }
-        if (!stricmp(sETF, "V16U16"))
+        if (!azstricmp(sETF, "V16U16"))
         {
             return eTF_R16G16S;
         }
 
-        if (!stricmp(sETF, "DXT1"))
+        if (!azstricmp(sETF, "DXT1"))
         {
             return eTF_BC1;
         }
-        if (!stricmp(sETF, "DXT3"))
+        if (!azstricmp(sETF, "DXT3"))
         {
             return eTF_BC2;
         }
-        if (!stricmp(sETF, "DXT5"))
+        if (!azstricmp(sETF, "DXT5"))
         {
             return eTF_BC3;
         }
-        if (!stricmp(sETF, "ATI1"))
+        if (!azstricmp(sETF, "ATI1"))
         {
             return eTF_BC4U;
         }
-        if (!stricmp(sETF, "ATI2"))
+        if (!azstricmp(sETF, "ATI2"))
         {
             return eTF_BC5U;
         }
-        if (!stricmp(sETF, "3DCp"))
+        if (!azstricmp(sETF, "3DCp"))
         {
             return eTF_BC4U;
         }
-        if (!stricmp(sETF, "3DC"))
+        if (!azstricmp(sETF, "3DC"))
         {
             return eTF_BC5U;
         }
-        if (!stricmp(sETF, "RGBE"))
+        if (!azstricmp(sETF, "RGBE"))
         {
             return eTF_R9G9B9E5;
         }
@@ -1173,31 +1212,31 @@ namespace CImageExtensionHelper
 
     inline ETEX_Type TextureTypeForName(const char* sETT)
     {
-        if (!_stricmp(sETT, "1D"))
+        if (!azstricmp(sETT, "1D"))
         {
             return eTT_1D;
         }
-        if (!_stricmp(sETT, "2D"))
+        if (!azstricmp(sETT, "2D"))
         {
             return eTT_2D;
         }
-        if (!_stricmp(sETT, "3D"))
+        if (!azstricmp(sETT, "3D"))
         {
             return eTT_3D;
         }
-        if (!_stricmp(sETT, "Cube"))
+        if (!azstricmp(sETT, "Cube"))
         {
             return eTT_Cube;
         }
-        if (!stricmp(sETT, "Auto2D"))
+        if (!azstricmp(sETT, "Auto2D"))
         {
             return eTT_Auto2D;
         }
-        if (!stricmp(sETT, "Dyn2D"))
+        if (!azstricmp(sETT, "Dyn2D"))
         {
             return eTT_Dyn2D;
         }
-        if (!stricmp(sETT, "User"))
+        if (!azstricmp(sETT, "User"))
         {
             return eTT_User;
         }
@@ -1207,27 +1246,27 @@ namespace CImageExtensionHelper
 
     inline bool HasAlphaForName(const char* sETF)
     {
-        if (!stricmp(sETF, "R8G8B8A8S"))
+        if (!azstricmp(sETF, "R8G8B8A8S"))
         {
             return true;
         }
-        if (!stricmp(sETF, "R8G8B8A8"))
+        if (!azstricmp(sETF, "R8G8B8A8"))
         {
             return true;
         }
-        if (!_stricmp(sETF, "A8"))
+        if (!azstricmp(sETF, "A8"))
         {
-            if (!_stricmp(sETF, "A8L8"))
+            if (!azstricmp(sETF, "A8L8"))
             {
-                if (!_stricmp(sETF, "BC1") || !_stricmp(sETF, "DXT1"))
+                if (!azstricmp(sETF, "BC1") || !azstricmp(sETF, "DXT1"))
                 {
-                    if (!_stricmp(sETF, "BC2") || !_stricmp(sETF, "DXT3"))
+                    if (!azstricmp(sETF, "BC2") || !azstricmp(sETF, "DXT3"))
                     {
-                        if (!_stricmp(sETF, "BC3") || !_stricmp(sETF, "DXT5"))
+                        if (!azstricmp(sETF, "BC3") || !azstricmp(sETF, "DXT5"))
                         {
-                            if (!_stricmp(sETF, "BC7"))
+                            if (!azstricmp(sETF, "BC7"))
                             {
-                                if (!stricmp(sETF, "A8"))
+                                if (!azstricmp(sETF, "A8"))
                                 {
                                     return true;
                                 }
@@ -1237,64 +1276,64 @@ namespace CImageExtensionHelper
                 }
             }
         }
-        if (!stricmp(sETF, "R10G10B10A2"))
+        if (!azstricmp(sETF, "R10G10B10A2"))
         {
             return true;
         }
-        if (!stricmp(sETF, "R16G16B16A16"))
+        if (!azstricmp(sETF, "R16G16B16A16"))
         {
             return true;
         }
-        if (!stricmp(sETF, "R16G16B16A16S"))
+        if (!azstricmp(sETF, "R16G16B16A16S"))
         {
             return true;
         }
-        if (!stricmp(sETF, "R16G16B16A16F"))
+        if (!azstricmp(sETF, "R16G16B16A16F"))
         {
             return true;
         }
-        if (!stricmp(sETF, "R32G32B32A32F"))
-        {
-            return true;
-        }
-
-        if (!stricmp(sETF, "BC2"))
-        {
-            return true;
-        }
-        if (!stricmp(sETF, "BC3"))
-        {
-            return true;
-        }
-        if (!stricmp(sETF, "BC7"))
+        if (!azstricmp(sETF, "R32G32B32A32F"))
         {
             return true;
         }
 
-        if (!stricmp(sETF, "B4G4R4A4"))
+        if (!azstricmp(sETF, "BC2"))
+        {
+            return true;
+        }
+        if (!azstricmp(sETF, "BC3"))
+        {
+            return true;
+        }
+        if (!azstricmp(sETF, "BC7"))
         {
             return true;
         }
 
-        if (!stricmp(sETF, "ETC2A"))
+        if (!azstricmp(sETF, "B4G4R4A4"))
         {
             return true;
         }
 
-        if (!stricmp(sETF, "A8L8"))
-        {
-            return true;
-        }
-        if (!stricmp(sETF, "B8G8R8A8"))
+        if (!azstricmp(sETF, "ETC2A"))
         {
             return true;
         }
 
-        if (!stricmp(sETF, "DXT3"))
+        if (!azstricmp(sETF, "A8L8"))
         {
             return true;
         }
-        if (!stricmp(sETF, "DXT5"))
+        if (!azstricmp(sETF, "B8G8R8A8"))
+        {
+            return true;
+        }
+
+        if (!azstricmp(sETF, "DXT3"))
+        {
+            return true;
+        }
+        if (!azstricmp(sETF, "DXT5"))
         {
             return true;
         }
@@ -1417,7 +1456,6 @@ namespace DDSFormats
     const CImageExtensionHelper::DDS_PIXELFORMAT DDSPF_ETC2A =
     { sizeof(CImageExtensionHelper::DDS_PIXELFORMAT), DDS_FOURCC, MAKEFOURCC('E', 'T', '2', 'A'), 0, 0, 0, 0, 0 };
 
-    //  Confetti BEGIN: Igor Lobanchikov
     const CImageExtensionHelper::DDS_PIXELFORMAT DDSPF_PVRTC2 =
     { sizeof(CImageExtensionHelper::DDS_PIXELFORMAT), DDS_FOURCC, MAKEFOURCC('P', 'V', 'R', '2'), 0, 0, 0, 0, 0 };
 
@@ -1465,7 +1503,6 @@ namespace DDSFormats
 
     const CImageExtensionHelper::DDS_PIXELFORMAT DDSPF_ASTC_12x12 =
     { sizeof(CImageExtensionHelper::DDS_PIXELFORMAT), DDS_FOURCC, MAKEFOURCC('A', 'S', 'C', 'C'), 0, 0, 0, 0, 0 };
-    //  Confetti End: Igor Lobanchikov
 
     const CImageExtensionHelper::DDS_PIXELFORMAT DDSPF_R32F =
     { sizeof(CImageExtensionHelper::DDS_PIXELFORMAT), DDS_FOURCC, DDS_FOURCC_R32F, 32, 0, 0, 0, 0 };
@@ -1651,7 +1688,6 @@ namespace DDSFormats
         {
             return eTF_A8;
         }
-        //  Confetti BEGIN: Igor Lobanchikov
         else if (ddspf.dwFourCC == DDSPF_PVRTC2.dwFourCC)
         {
             return eTF_PVRTC2;
@@ -1716,7 +1752,6 @@ namespace DDSFormats
         {
             return eTF_ASTC_12x12;
         }
-        //  Confetti End: Igor Lobanchikov
 
         assert(0);
         return eTF_Unknown;
@@ -1872,7 +1907,6 @@ namespace DDSFormats
             case DXGI_FORMAT_PVRTC4_UNORM_SRGB:
                 return eTF_PVRTC4;
 #endif
-                //  Confetti BEGIN: Igor Lobanchikov
 #if defined(ANDROID) //|| defined(CRY_USE_METAL)
             case DXGI_FORMAT_ASTC_4x4_TYPELESS:
                 return eTF_ASTC_4x4;
@@ -1959,7 +1993,6 @@ namespace DDSFormats
             case DXGI_FORMAT_ASTC_12x12_UNORM_SRGB:
                 return eTF_ASTC_12x12;
 #endif
-            //  Confetti End: Igor Lobanchikov
             // only available as hardware format under DX9
             case DXGI_FORMAT_B8G8R8A8_TYPELESS:
                 return eTF_B8G8R8A8;
@@ -2074,7 +2107,6 @@ namespace DDSFormats
         case eTF_PVRTC4:
             return DDSPF_PVRTC4;
 
-        //  Confetti BEGIN: Igor Lobanchikov
         case eTF_ASTC_4x4:
             return DDSPF_ASTC_4x4;
         case eTF_ASTC_5x4:
@@ -2103,7 +2135,6 @@ namespace DDSFormats
             return DDSPF_ASTC_12x10;
         case eTF_ASTC_12x12:
             return DDSPF_ASTC_12x12;
-        //  Confetti End: Igor Lobanchikov
         default:
             assert(0);
             return DDSPF_A8B8G8R8;
@@ -2197,5 +2228,3 @@ namespace CImageExtensionHelper
         return NameForTextureFormat(nFormat);
     }
 };
-
-#endif // CRYINCLUDE_CRYCOMMON_IMAGEEXTENSIONHELPER_H

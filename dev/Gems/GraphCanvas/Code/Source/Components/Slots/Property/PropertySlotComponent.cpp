@@ -13,10 +13,10 @@
 
 #include <Components/Slots/Property/PropertySlotComponent.h>
 
-#include <Components/Connections/ConnectionFilters/ConnectionFilters.h>
 #include <Components/Slots/Property/PropertySlotLayoutComponent.h>
 #include <Components/Slots/SlotConnectionFilterComponent.h>
 #include <Components/StylingComponent.h>
+#include <GraphCanvas/Components/Connections/ConnectionFilters/ConnectionFilters.h>
 
 namespace GraphCanvas
 {
@@ -94,12 +94,23 @@ namespace GraphCanvas
         PropertySlotBus::Handler::BusDisconnect();
     }
 
+    int PropertySlotComponent::GetLayoutPriority() const
+    {
+        // Going to want property slots to always be at the top of a display group.
+        return std::numeric_limits<int>().max();
+    }
+
+    void PropertySlotComponent::SetLayoutPriority(int priority)
+    {
+        AZ_UNUSED(priority);
+    }
+
     const AZ::Crc32& PropertySlotComponent::GetPropertyId() const
     {
         return m_propertyId;
     }
 
-    AZ::Entity* PropertySlotComponent::ConstructConnectionEntity(const Endpoint& sourceEndpoint, const Endpoint& targetEndpoint) const
+    AZ::Entity* PropertySlotComponent::ConstructConnectionEntity(const Endpoint& sourceEndpoint, const Endpoint& targetEndpoint, bool createModelConnection)
     {
         AZ_Error("Graph Canvas", false, "Property slots cannot have connections.");
         return nullptr;

@@ -16,6 +16,8 @@
 
 #include <Core/Common.h>
 #include <vector>
+#include <string>
+#include <AzCore/std/parallel/atomic.h>
 
 class TiXmlElement;
 
@@ -30,18 +32,23 @@ enum ECrySimpleJobState
     ECSJS_ERROR_COMPRESS,
     ECSJS_ERROR_FILEIO,
     ECSJS_ERROR_INVALID_PROFILE,
+    ECSJS_ERROR_INVALID_PROJECT,
     ECSJS_ERROR_INVALID_PLATFORM,
     ECSJS_ERROR_INVALID_PROGRAM,
     ECSJS_ERROR_INVALID_ENTRY,
     ECSJS_ERROR_INVALID_COMPILEFLAGS,
+    ECSJS_ERROR_INVALID_COMPILER,
+    ECSJS_ERROR_INVALID_LANGUAGE,
     ECSJS_ERROR_INVALID_SHADERREQUESTLINE,
+    ECSJS_ERROR_INVALID_SHADERLIST,
 };
 
 class CCrySimpleJob
 {
     ECrySimpleJobState      m_State;
     uint32_t                            m_RequestIP;
-    static volatile AtomicCountType m_GlobalRequestNumber;
+    static AZStd::atomic_long m_GlobalRequestNumber;
+    
 
 protected:
     virtual bool                    ExecuteCommand(const std::string& rCmd, std::string& outError);
@@ -60,7 +67,7 @@ public:
     }
     ECrySimpleJobState      State() const { return m_State; }
     const uint32_t&             RequestIP() const { return m_RequestIP; }
-    static volatile AtomicCountType GlobalRequestNumber() { return m_GlobalRequestNumber; }
+    static long GlobalRequestNumber() { return m_GlobalRequestNumber; }
 };
 
 #endif

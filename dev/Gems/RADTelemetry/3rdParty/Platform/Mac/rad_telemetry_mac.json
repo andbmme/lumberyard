@@ -1,0 +1,18 @@
+{
+  "platform": {
+    "darwin_x64": {
+      "sharedlibpath" : [
+        "External/Lib"
+      ],
+      "importlibpath": [
+        "External/Lib"
+      ],
+      "import": [
+        "librad_tm_mac_x64_link.a"
+      ],
+      "shared": [
+        "librad_tm_mac_x64.dylib"
+      ]
+    }
+  }
+}

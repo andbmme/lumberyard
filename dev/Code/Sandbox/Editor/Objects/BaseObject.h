@@ -25,7 +25,7 @@
 #include "ObjectLoader.h"
 #include "Util/Variable.h"
 
-#include "AZCore/Math/Guid.h"
+#include "AzCore/Math/Guid.h"
 
 //////////////////////////////////////////////////////////////////////////
 // forward declarations.
@@ -329,13 +329,13 @@ public:
     bool IsHiddenBySpec() const;
     //! Returns true if object frozen.
     virtual bool IsFrozen() const;
-    //! Returns true if object is selected.
-    bool IsSelected() const { return CheckFlags(OBJFLAG_SELECTED); }
     //! Returns true if object is shared between missions.
     bool IsShared() const { return CheckFlags(OBJFLAG_SHARED); }
 
-    // Check if object potentially can be selected.
-    bool IsSelectable() const;
+    //! Returns true if object is selected.
+    virtual bool IsSelected() const { return CheckFlags(OBJFLAG_SELECTED); }
+    //! Returns true if object can be selected.
+    virtual bool IsSelectable() const;
 
     // Return texture icon.
     bool HaveTextureIcon() const { return m_nTextureIcon != 0; };
@@ -856,12 +856,14 @@ protected:
     Matrix33 GetWorldRotTM() const;
     Matrix33 GetWorldScaleTM() const;
 
+    AZ_PUSH_DISABLE_DLL_EXPORT_MEMBER_WARNING
     //! World space object's position.
     Vec3 m_pos;
     //! Object's Rotation angles.
     Quat m_rotate;
     //! Object's scale value.
     Vec3 m_scale;
+    AZ_POP_DISABLE_DLL_EXPORT_MEMBER_WARNING
 
 private:
     friend class CUndoBaseObject;
@@ -870,7 +872,6 @@ private:
 
     void OnMenuShowInAssetBrowser();
     void OnMenuProperties();
-    void OnMenuEditTags();
 
     //! Set class description for this object,
     //! Only called once after creation by ObjectManager.
@@ -904,6 +905,7 @@ private:
     // PRIVATE FIELDS
     //////////////////////////////////////////////////////////////////////////
 private:
+    AZ_PUSH_DISABLE_DLL_EXPORT_MEMBER_WARNING
     //Default ObjType
     ObjectType m_objType;
 
@@ -949,6 +951,9 @@ private:
     //! Number of reference to this object.
     //! When reference count reach zero, object will delete itself.
     int m_numRefs;
+
+    int m_nIconFlags;
+
     //////////////////////////////////////////////////////////////////////////
     //! Child animation nodes.
     Childs m_childs;
@@ -959,7 +964,6 @@ private:
     CMaterial* m_pMaterial;
 
     AABB m_worldBounds;
-    bool m_bInSelectionBox;
 
     // The transform delegate
     ITransformDelegate* m_pTransformDelegate;
@@ -974,11 +978,13 @@ private:
     mutable uint32 m_bMatrixInWorldSpace : 1;
     mutable uint32 m_bMatrixValid : 1;
     mutable uint32 m_bWorldBoxValid : 1;
+    uint32 m_bInSelectionBox : 1;
     uint32 m_nMaterialLayersMask : 8;
     uint32 m_nMinSpec : 8;
 
     Vec3 m_vDrawIconPos;
-    int m_nIconFlags;
+    AZ_POP_DISABLE_DLL_EXPORT_MEMBER_WARNING
+
     uint64 m_hideOrder;
 };
 

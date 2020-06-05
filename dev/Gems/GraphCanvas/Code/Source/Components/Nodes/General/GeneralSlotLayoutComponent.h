@@ -21,7 +21,7 @@
 #include <GraphCanvas/Components/SceneBus.h>
 #include <GraphCanvas/Components/Slots/SlotBus.h>
 #include <GraphCanvas/Components/StyleBus.h>
-#include <Styling/StyleHelper.h>
+#include <GraphCanvas/Styling/StyleHelper.h>
 
 namespace GraphCanvas
 {
@@ -103,6 +103,7 @@ namespace GraphCanvas
 
         class LinearSlotGroupWidget
             : public QGraphicsWidget
+            , public SlotUINotificationBus::MultiHandler
         {
         public:
             AZ_CLASS_ALLOCATOR(LinearSlotGroupWidget, AZ::SystemAllocator, 0);
@@ -111,23 +112,31 @@ namespace GraphCanvas
             void DisplaySlot(const AZ::EntityId& slotId);
             void RemoveSlot(const AZ::EntityId& slotId);
 
-            const AZStd::vector< AZ::EntityId >& GetInputSlots() const;
-            const AZStd::vector< AZ::EntityId >& GetOutputSlots() const;
+            const AZStd::vector< SlotLayoutInfo >& GetInputSlots() const;
+            const AZStd::vector< SlotLayoutInfo >& GetOutputSlots() const;
 
             bool IsEmpty() const;
             void UpdateStyle(const Styling::StyleHelper& styleHelper);
 
+            // SlotUINotificationBus
+            void OnSlotLayoutPriorityChanged(int layoutPriority) override;
+            ////
+
         private:
+
+            int LayoutSlot(QGraphicsLinearLayout* layout, AZStd::vector<SlotLayoutInfo>& slotList, const SlotLayoutInfo& slotInfo);
 
             QGraphicsLayoutItem* GetLayoutItem(const AZ::EntityId& slotId) const;
 
             QGraphicsWidget* m_horizontalSpacer;
 
             QGraphicsLinearLayout* m_inputs;
-            AZStd::vector< AZ::EntityId > m_inputSlots;
+            AZStd::vector< SlotLayoutInfo > m_inputSlots;
+            AZStd::unordered_set< SlotId >  m_inputSlotSet;
 
             QGraphicsLinearLayout* m_outputs;
-            AZStd::vector< AZ::EntityId > m_outputSlots;
+            AZStd::vector< SlotLayoutInfo > m_outputSlots;
+            AZStd::unordered_set< SlotId >  m_outputSlotSet;
         };
 
     public:
@@ -144,8 +153,8 @@ namespace GraphCanvas
         // NodeNotificationBus
         void OnNodeActivated() override;
 
-        void OnSlotAdded(const AZ::EntityId& slot) override;        
-        void OnSlotRemoved(const AZ::EntityId& slot) override;
+        void OnSlotAddedToNode(const AZ::EntityId& slot) override;        
+        void OnSlotRemovedFromNode(const AZ::EntityId& slot) override;
         ////
 
         // NodeSlotsRequestBus
@@ -159,7 +168,9 @@ namespace GraphCanvas
         // SlotLayoutRequestBus
         void SetDividersEnabled(bool enabled) override;
         void ConfigureSlotGroup(SlotGroup group, SlotGroupConfiguration configuration) override;
+        int GetSlotGroupDisplayOrder(SlotGroup group) const override;
 
+        bool IsSlotGroupVisible(SlotGroup group) const override;
         void SetSlotGroupVisible(SlotGroup group, bool visible) override;
         void ClearSlotGroup(SlotGroup group);
         ////
@@ -169,10 +180,7 @@ namespace GraphCanvas
         ////
 
     protected:
-
-        // QGraphicsItem
-        void paint(QPainter* painter, const QStyleOptionGraphicsItem* option, QWidget* widget = nullptr) override;
-
+        
         const AZ::EntityId& GetEntityId() const { return m_entityId; }
 
     private:

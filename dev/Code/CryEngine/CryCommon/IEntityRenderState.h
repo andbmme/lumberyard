@@ -33,8 +33,7 @@ struct SRendItemSorter;
 struct SFrameLodInfo;
 struct pe_params_area;
 struct pe_articgeomparams;
-
-class CTerrainNode;
+struct ITerrainNode;
 
 // @NOTE: When removing an item from this enum, replace it with a dummy - ID's from this enum are stored in data and should not change.
 enum EERType
@@ -44,7 +43,7 @@ enum EERType
     eERType_Vegetation,
     eERType_Light,
     eERType_Cloud,
-    eERType_Dummy_1, // used to be eERType_VoxelObject, preserve order for compatibility
+    eERType_TerrainSystem, // used to be eERType_Dummy_1 which used to be eERType_VoxelObject, preserve order for compatibility
     eERType_FogVolume,
     eERType_Decal,
     eERType_ParticleEmitter,
@@ -76,6 +75,7 @@ enum ERNListType
     eRNListType_Brush,
     eRNListType_Vegetation,
     eRNListType_DecalsAndRoads,
+    eRNListType_TerrainSystem,
     eRNListType_ListsNum,
     eRNListType_First = eRNListType_Unknown, // This should be the last member
     // And it counts on eRNListType_Unknown
@@ -116,10 +116,11 @@ enum EOcclusionObjectType
 #define ERF_NO_PHYSICS                  BIT(17)
 #define ERF_NO_DECALNODE_DECALS         BIT(18)
 #define ERF_REGISTER_BY_POSITION        BIT(19)
-// UNUSED                               BIT(20)
+#define ERF_COMPONENT_ENTITY            BIT(20)
 #define ERF_RECVWIND                    BIT(21)
 #define ERF_COLLISION_PROXY             BIT(22) // Collision proxy is a special object that is only visible in editor
 // and used for physical collisions with player and vehicles.
+#define ERF_LOD_BBOX_BASED              BIT(23) // Lod changes based on bounding boxes.
 #define ERF_SPEC_BIT0                   BIT(24) // Bit0 of min config specification.
 #define ERF_SPEC_BIT1                   BIT(25) // Bit1 of min config specification.
 #define ERF_SPEC_BIT2                   BIT(26) // Bit2 of min config specification.
@@ -147,15 +148,27 @@ struct IShadowCaster
     uint8 m_cStaticShadowLod;
 };
 
+// Optional filter function for octree queries to perform custom filtering of the results.
+// return true to keep the render node, false to filter it out.
+using ObjectTreeQueryFilterCallback = AZStd::function<bool(IRenderNode*, EERType)>;
+
 struct IOctreeNode
 {
 public:
-    CTerrainNode* GetTerrainNode() const { return (CTerrainNode*) (m_pTerrainNode & ~0x1); }
-    void SetTerrainNode(CTerrainNode* node) { m_pTerrainNode = (m_pTerrainNode & 0x1) | ((INT_PTR) node); }
+    virtual ~IOctreeNode() {};
+
+    ITerrainNode* GetTerrainNode() const { return (ITerrainNode*) (m_pTerrainNode & ~0x1); }
+    void SetTerrainNode(ITerrainNode* node) { m_pTerrainNode = (m_pTerrainNode & 0x1) | ((INT_PTR) node); }
 
     // If true - this node needs to be recompiled for example update nodes max view distance.
     bool IsCompiled() const { return (bool) (m_pTerrainNode & 0x1); }
     void SetCompiled(bool compiled) { m_pTerrainNode = ((int) compiled) | (m_pTerrainNode & ~0x1); }
+
+    virtual void MarkAsUncompiled(const IRenderNode* pRenderNode = NULL) = 0;
+
+    virtual void UpdateTerrainNodes(ITerrainNode* pParentNode = 0) = 0;
+
+    virtual void GetObjectsByType(PodArray<IRenderNode*>& lstObjects, EERType objType, const AABB* pBBox, ObjectTreeQueryFilterCallback filterCallback = nullptr) = 0;
 
     struct CVisArea* m_pVisArea;
 
@@ -317,6 +330,18 @@ struct IRenderNode
     //   Queries override material of this instance.
     virtual _smart_ptr<IMaterial> GetMaterial(Vec3* pHitPos = NULL) = 0;
     virtual _smart_ptr<IMaterial> GetMaterialOverride() = 0;
+    virtual void GetMaterials(AZStd::vector<_smart_ptr<IMaterial>>& materials)
+    {
+        _smart_ptr<IMaterial> currentMaterial = GetMaterialOverride();
+        if (!currentMaterial)
+        {
+            currentMaterial = GetMaterial();
+        }
+        if (currentMaterial)
+        {
+            materials.push_back(currentMaterial);
+        }
+    }
 
     // Used by the editor during export
     virtual void SetCollisionClassIndex(int tableIndex) {}
@@ -363,10 +388,8 @@ struct IRenderNode
         VM_Dynamic, // Real-time every-frame voxelization on GPU
     };
 
-#if defined(FEATURE_SVO_GI)
     virtual EVoxelGIMode GetVoxelGIMode() { return VM_None; }
     virtual void SetDesiredVoxelGIMode(EVoxelGIMode voxelMode) {}
-#endif
 
     virtual void SetMinSpec(int nMinSpec) { m_dwRndFlags &= ~ERF_SPEC_BITS_MASK; m_dwRndFlags |= (nMinSpec << ERF_SPEC_BITS_SHIFT) & ERF_SPEC_BITS_MASK; };
 
@@ -432,7 +455,7 @@ struct IRenderNode
 
     // Returns:
     //   Current VisArea or null if in outdoors or entity was not registered in 3dengine.
-    CTerrainNode* GetEntityTerrainNode() const { return (m_pOcNode && !m_pOcNode->m_pVisArea) ? m_pOcNode->GetTerrainNode() : NULL; }
+    ITerrainNode* GetEntityTerrainNode() const { return (m_pOcNode && !m_pOcNode->m_pVisArea) ? m_pOcNode->GetTerrainNode() : NULL; }
 
     // Summary:
     //   Makes object visible at any distance.
@@ -483,6 +506,10 @@ struct IRenderNode
         case eERType_Decal:
         case eERType_Road:
             return eRNListType_DecalsAndRoads;
+#ifdef LY_TERRAIN_RUNTIME
+        case eERType_TerrainSystem:
+            return eRNListType_TerrainSystem;
+#endif
         default:
             return eRNListType_Unknown;
         }
@@ -558,12 +585,21 @@ inline IStatObj* IRenderNode::GetEntityStatObj(unsigned int nPartId, unsigned in
 struct IVegetation
     : public IRenderNode
 {
-    virtual float GetScale(void) const = 0;
+    virtual float GetScale() const = 0;
+    virtual void SetUniformScale(float fScale) = 0;
+    virtual void SetPosition(const Vec3& pos) = 0;
+    virtual void SetRotation(const Ang3& rotation) = 0;
+    virtual void PrepareBBox() = 0;
+
+    // Query or set whether this is a static or a dynamic vegetation instance
+    virtual bool IsDynamic() const = 0;
+    virtual void SetDynamic(bool isDynamicInstance) = 0;
 };
 
 struct IBrush
     : public IRenderNode
 {
+    virtual float GetScale(void) const = 0;
     virtual const Matrix34& GetMatrix() const = 0;
     virtual void SetDrawLast(bool enable) = 0;
 };
@@ -617,7 +653,17 @@ struct IRoadRenderNode
     virtual void SetPhysicalize(bool bVal) = 0;
     virtual void GetClipPlanes(Plane* pPlanes, int nPlanesNum, int nVertId = 0) = 0;
     virtual void GetTexCoordInfo(float* pTexCoordInfo) = 0;
+    virtual void OnTerrainChanged() = 0;
     // </interfuscator:shuffle>
+
+    // This flag is used to account for legacy entities which used to serialize the node without parent objects.
+    // Now there are runtime components which spawn the rendering node, however we need to support legacy code as well. 
+    // Remove this flag when legacy entities are removed entirely
+    bool m_hasToBeSerialised = true;
+    // Whether or not ends of the road should be faded out
+    bool m_bAlphaBlendRoadEnds = true;
+    // Whether or not the road segments should be extended to overlap at the point where roads are split
+    bool m_addOverlapBetweenSectors = false;
 };
 
 // Summary:
@@ -735,6 +781,7 @@ struct SDecalProperties
         m_radius = 1.0f;
         m_depth = 1.0f;
         m_opacity = 1.0f;
+        m_angleAttenuation = 1.0f;
         m_maxViewDist = 8000.0f;
         m_minSpec = EngineSpec::Low;
     }
@@ -756,6 +803,7 @@ struct SDecalProperties
     float m_depth;
     const char* m_pMaterialName;
     float m_opacity;
+    float m_angleAttenuation;
     float m_maxViewDist;
     EngineSpec m_minSpec;
 };
@@ -820,6 +868,11 @@ struct IWaterVolumeRenderNode
 
     virtual IPhysicalEntity* SetAndCreatePhysicsArea(const Vec3* pVertices, unsigned int numVertices) = 0;
     // </interfuscator:shuffle>
+
+    // This flag is used to account for legacy entities which used to serialize the node without parent objects.
+    // Now there are runtime components which spawn the rendering node, however we need to support legacy code as well. 
+    // Remove this flag when legacy entities are removed entirely
+    bool m_hasToBeSerialised = true;
 };
 
 // Description:

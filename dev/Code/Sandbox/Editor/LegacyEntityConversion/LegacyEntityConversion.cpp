@@ -18,10 +18,17 @@
 #include <AzCore/Component/Entity.h>
 #include <AzCore/Serialization/SerializeContext.h>
 #include <AzFramework/Components/CameraBus.h>
+#include <AzFramework/Physics/Shape.h>
+#include <AzFramework/Physics/Material.h>
+#include <AzFramework/Physics/SystemBus.h>
 #include <AzToolsFramework/API/AssetDatabaseBus.h>
 #include <AzToolsFramework/API/ToolsApplicationAPI.h>
+#include <AzToolsFramework/SourceControl/SourceControlAPI.h>
 #include <AzToolsFramework/ToolsComponents/EditorComponentBase.h>
 #include <AzToolsFramework/ToolsComponents/TransformComponent.h>
+
+#include <QDateTime>
+#include <QElapsedTimer>
 
 #include <LmbrCentral/Ai/NavigationAreaBus.h>
 #include <LmbrCentral/Rendering/DecalComponentBus.h>
@@ -33,10 +40,9 @@
 #include <LmbrCentral/Rendering/ParticleComponentBus.h>
 #include <LmbrCentral/Rendering/FogVolumeComponentBus.h>
 #include <LmbrCentral/Rendering/GeomCacheComponentBus.h>
-#include <LmbrCentral/Rendering/MeshAsset.h>
 #include <LmbrCentral/Shape/BoxShapeComponentBus.h>
 #include <LmbrCentral/Shape/SphereShapeComponentBus.h>
-#include <LmbrCentral/Shape/PolygonPrismShapeComponentBus.h>
+#include <LmbrCentral/Shape/EditorPolygonPrismShapeComponentBus.h>
 
 // crycommon
 #include "MathConversion.h"
@@ -56,8 +62,6 @@
 #include "Objects/DecalObject.h"
 #include "Objects/MiscEntities.h" //Has CGeomCacheEntity
 #include "Material/Material.h"
-
-#include <AzCore/Math/VectorConversions.h>
 
 namespace LegacyConversionInternal
 {
@@ -135,7 +139,6 @@ namespace LegacyConversionInternal
         AZ::Data::AssetCatalogRequestBus::BroadcastResult(assetId, &AZ::Data::AssetCatalogRequests::GetAssetIdByPath, meshFileName.c_str(), AZ::Data::s_invalidAssetType, false);
 
         AZ::Uuid meshComponentId = "{FC315B86-3280-4D03-B4F0-5553D7D08432}";
-        bool isCDF = false;
         // its okay for us to not have a mesh, but if we're using a CDF file as our mesh, we need to use a skinned mesh component instead
         if (assetId.IsValid())
         {
@@ -146,13 +149,18 @@ namespace LegacyConversionInternal
             {
                 // switch to a skinned mesh
                 meshComponentId = "{D3E1A9FC-56C9-4997-B56B-DA186EE2D62A}";
-                isCDF = true;
             }
         }
 
         AZ::ComponentTypeList componentsToAdd {
             meshComponentId
         };
+
+        if ((isBrush || isSimpleEntity) && physics)
+        {
+            componentsToAdd.push_back("{2D559EB0-F6FE-46E0-9FCE-E8F375177724}"); // rigid body collider (mesh) shape
+            componentsToAdd.push_back("{C8D8C366-F7B7-42F6-8B86-E58FFF4AF984}"); // static physics component
+        }
 
         AZ::Outcome<AZ::EntityId, LegacyConversionResult> conversionResult = CreateEntityForConversion(entityToConvert, componentsToAdd);
         if (!conversionResult.IsSuccess())
@@ -277,7 +285,7 @@ namespace LegacyConversionInternal
 
     /*
         This is used to invert the legacy IgnoreVisAreas param
-        to the new UseVisAreas param. 
+        to the new UseVisAreas param.
      */
     bool UseVisAreaAdapter(const bool& ignoreVisAreas)
     {
@@ -417,7 +425,7 @@ namespace LegacyConversionInternal
 
         if (!objectIsProjectorLight && !objectIsPointLight && !objectIsAreaLight)
         {
-            AZ_Warning("Legacy Entity Converter", "Conversion failed for %s. Unknown type of Light", entityObject->GetName().toUtf8().data());
+            AZ_Warning("Legacy Entity Converter", false, "Conversion failed for %s. Unknown type of Light", entityObject->GetName().toUtf8().data());
             return LegacyConversionResult::Ignored;
         }
 
@@ -994,7 +1002,7 @@ namespace LegacyConversionInternal
         auto shapeComponentId = isSphereShape
             ? "{2EA56CBF-63C8-41D9-84D5-0EC2BECE748E}" //EditorSphereShapeComponent
             : "{2ADD9043-48E8-4263-859A-72E0024372BF}"; //EditorBoxShapeComponent
-        auto windComponentId = "{61E5864D-F553-4A37-9A03-B9F836F1D3DC}"; // WindVolumeComponent
+        auto windComponentId = "{61E5864D-F553-4A37-9A03-B9F836F1D3DC}"; // EditorWindVolumeComponent
         auto conversionResult = CreateEntityForConversion(entityToConvert, {
             shapeComponentId,
             windComponentId
@@ -1015,7 +1023,7 @@ namespace LegacyConversionInternal
         success &= ConvertVarHierarchy<float>(newEntity, windComponentId, { AZ_CRC("Air Density", 0xadc8eb2f) }, "AirDensity", varBlock);
         success &= ConvertVarHierarchy<float>(newEntity, windComponentId, { AZ_CRC("Air Resistance", 0xec64bb06) }, "AirResistance", varBlock);
         success &= ConvertVarHierarchy<float>(newEntity, windComponentId, { AZ_CRC("Speed", 0x0f26fef6) }, "Speed", varBlock);
-        success &= ConvertVarHierarchy<float>(newEntity, windComponentId, { AZ_CRC("FalloffInner", 0xc87f0b6a) }, "FalloffInner", varBlock);
+        success &= ConvertVarHierarchy<float>(newEntity, windComponentId, { AZ_CRC("Falloff", 0x4f6d2cf8) }, "FalloffInner", varBlock);
         success &= ConvertVarHierarchy<Vec3, AZ::Vector3>(newEntity, windComponentId, { AZ_CRC("Direction", 0x3e4ad1b3) }, "Dir", varBlock, LYVec3ToAZVec3);
         success &= GetVec3("Size", varBlock, size);
         if (isSphereShape)
@@ -1101,6 +1109,7 @@ namespace LegacyConversionInternal
 
         // refresh/update then nav mesh after the areas have been created
         LmbrCentral::NavigationAreaRequestBus::Event(newEntityId, &LmbrCentral::NavigationAreaRequests::RefreshArea);
+        LmbrCentral::EditorPolygonPrismShapeComponentRequestsBus::Event(newEntityId, &LmbrCentral::EditorPolygonPrismShapeComponentRequests::GenerateVertices);
 
         if (!conversionSuccess)
         {
@@ -1173,10 +1182,25 @@ namespace LegacyConversionInternal
         if (CVarBlock* varBlock = entityToConvert->GetVarBlock())
         {
             conversionSuccess &= ConvertVarHierarchy<float>(newEntity, editorDecalComponentId, { AZ_CRC("View Distance Multiplier", 0xa5643f50), AZ_CRC("EditorDecalConfiguration", 0x912ed516) }, "ViewDistanceMultiplier", varBlock);
-            conversionSuccess &= ConvertVarHierarchy<int>(newEntity, editorDecalComponentId, { AZ_CRC("ProjectionType", 0x1fef2617), AZ_CRC("EditorDecalConfiguration", 0x912ed516) }, "ProjectionType", varBlock);
-            conversionSuccess &= ConvertVarHierarchy<bool>(newEntity, editorDecalComponentId, { AZ_CRC("Deferred", 0xa364e89a), AZ_CRC("EditorDecalConfiguration", 0x912ed516) }, "Deferred", varBlock);
             conversionSuccess &= ConvertVarHierarchy<int, AZ::u32>(newEntity, editorDecalComponentId, { AZ_CRC("SortPriority", 0xb35a33a7), AZ_CRC("EditorDecalConfiguration", 0x912ed516) }, "SortPriority", varBlock);
             conversionSuccess &= ConvertVarHierarchy<float>(newEntity, editorDecalComponentId, { AZ_CRC("Depth", 0xfaa31c69), AZ_CRC("EditorDecalConfiguration", 0x912ed516) }, "ProjectionDepth", varBlock);
+
+            bool deferred = false;
+            if (ConvertOldVar<bool, bool>("Deferred", varBlock, &deferred))
+            {
+                conversionSuccess &= SetVarHierarchy<bool>(newEntity, editorDecalComponentId, { AZ_CRC("Deferred", 0xa364e89a), AZ_CRC("EditorDecalConfiguration", 0x912ed516) }, deferred);
+            }
+
+            if (deferred)
+            {
+                // Set the projection type to OnTerrainAndStaticObjects as this matches the rendering path of the 
+                // decal object with the deferred flag set.
+                conversionSuccess &= SetVarHierarchy<int>(newEntity, editorDecalComponentId, { AZ_CRC("ProjectionType", 0x1fef2617), AZ_CRC("EditorDecalConfiguration", 0x912ed516) }, SDecalProperties::eProjectOnTerrainAndStaticObjects);
+            }
+            else
+            {
+                conversionSuccess &= ConvertVarHierarchy<int>(newEntity, editorDecalComponentId, { AZ_CRC("ProjectionType", 0x1fef2617), AZ_CRC("EditorDecalConfiguration", 0x912ed516) }, "ProjectionType", varBlock);
+            }
         }
 
         AZ::u32 engineSpec;
@@ -1373,7 +1397,7 @@ namespace LegacyConversionInternal
         AZ::ComponentTypeList componentList = { "{FC315B86-3280-4D03-B4F0-5553D7D08432}" }; //EditorMeshComponent
         AZ::LegacyConversion::LegacyConversionRequestBus::BroadcastResult(result, &AZ::LegacyConversion::LegacyConversionRequests::CreateConvertedEntity, entityToConvert, true, componentList);
 
-        AZ::Entity *entity = result.GetValue();
+        AZ::Entity* entity = result.GetValue();
         AZ::EntityId entityId = entity->GetId();
 
         //Change name to something reasonable like "GeomCache2_FirstFrameStandin"
@@ -1440,7 +1464,7 @@ namespace LegacyConversionInternal
             return (result.GetError() == AZ::LegacyConversion::CreateEntityResult::FailedNoParent) ? AZ::LegacyConversion::LegacyConversionResult::Ignored : AZ::LegacyConversion::LegacyConversionResult::Failed;
         }
 
-        AZ::Entity *entity = result.GetValue();
+        AZ::Entity* entity = result.GetValue();
         AZ::EntityId entityId = entity->GetId();
 
         //Retrieve geom cache asset
@@ -1512,6 +1536,158 @@ namespace LegacyConversionInternal
 
         return AZ::LegacyConversion::LegacyConversionResult::HandledDeleteEntity;
     }
+
+    LegacyConversionResult ConvertDesignerObject(CBaseObject* entityToConvert)
+    {
+        if (!IsClassOf(entityToConvert, "Designer"))
+        {
+            return LegacyConversionResult::Ignored;
+        }
+
+        IStatObj* statObj = entityToConvert->GetIStatObj();
+        if (statObj == nullptr)
+        {
+            return LegacyConversionResult::Failed;
+        }
+
+        AZStd::string levelName = "";
+        AzToolsFramework::EditorRequestBus::BroadcastResult(
+            levelName, &AzToolsFramework::EditorRequests::GetLevelName);
+
+        const QString designerObjectName = entityToConvert->GetName();
+        // where we should put the new converted meshes
+        const QString relativeDesignerObjectPath = "/Objects/DesignerConversion/";
+        
+        // create full path to new cgf file to be created
+        // group designer objects into the level they were created in (in order to prevent name collisions)
+        // note: it is not possible to have two designer objects named the same thing in a level
+        QString designerObjectAbsolutePath = Path::GetEditingGameDataFolder().c_str();
+        designerObjectAbsolutePath += relativeDesignerObjectPath + QString(levelName.c_str()) + "/" + designerObjectName;
+        designerObjectAbsolutePath = Path::ToUnixPath(Path::RemoveBackslash(designerObjectAbsolutePath));
+
+        AZ::IO::FileIOBase* fileIO = AZ::IO::FileIOBase::GetInstance();
+        QString designerObjectDirectoryAbsolutePath = Path::GetPath(designerObjectAbsolutePath).toUtf8().data();
+        // create directory if it does not already exist
+        if (!fileIO->Exists(designerObjectDirectoryAbsolutePath.toUtf8().data()))
+        {
+            fileIO->CreatePath(designerObjectDirectoryAbsolutePath.toUtf8().data());
+        }
+
+        // if the designer object is intentionally hidden, set the material back to the default
+        // and ensure we set the visible state of the component to false
+        bool visible = true;
+        if ((statObj->GetMaterial()->GetFlags() & MTL_FLAG_NODRAW) != 0)
+        {
+            statObj->SetMaterial(gEnv->p3DEngine->GetMaterialManager()->GetDefaultMaterial());
+            visible = false;
+        }
+
+        // create the cgf file
+        const QString designerObjectAbsolutePathWithExtension = designerObjectAbsolutePath + ".cgf";
+        statObj->SaveToCGF(designerObjectAbsolutePathWithExtension.toUtf8().data());
+
+        // checkout P4 file
+        AzToolsFramework::SourceControlCommandBus::Broadcast(
+            &AzToolsFramework::SourceControlCommandBus::Events::RequestEdit,
+            designerObjectAbsolutePathWithExtension.toUtf8().data(), true,
+            [](bool /*success*/, const AzToolsFramework::SourceControlFileInfo& /*info*/){});
+
+        // create an asset id for the newly created file
+        AZ::Data::AssetId assetId;
+        AZ::Data::AssetCatalogRequestBus::BroadcastResult(
+            assetId, &AZ::Data::AssetCatalogRequests::GetAssetIdByPath,
+            Path::GetRelativePath(designerObjectAbsolutePathWithExtension).toUtf8().data(),
+            azrtti_typeid<LmbrCentral::MeshAsset>(), true);
+
+        AZ::Outcome<AZ::EntityId, LegacyConversionResult> conversionResult =
+            CreateEntityForConversion(entityToConvert, {
+                "{FC315B86-3280-4D03-B4F0-5553D7D08432}", // MeshComponent
+                "{2D559EB0-F6FE-46E0-9FCE-E8F375177724}", // MeshColliderComponent
+                "{C8D8C366-F7B7-42F6-8B86-E58FFF4AF984}" // StaticPhysicsComponent
+            });
+
+        if (!conversionResult.IsSuccess())
+        {
+            return conversionResult.GetError();
+        }
+
+        const AZ::EntityId entityId = conversionResult.GetValue();
+        // set newly created mesh asset on MeshComponent
+        LmbrCentral::MeshComponentRequestBus::Event(
+            entityId, &LmbrCentral::MeshComponentRequests::SetMeshAsset, assetId);
+        LmbrCentral::MeshComponentRequestBus::Event(
+            entityId, &LmbrCentral::MeshComponentRequests::SetVisibility, visible);
+
+        AZ::Entity* entity = nullptr;
+        AZ::ComponentApplicationBus::BroadcastResult(entity, &AZ::ComponentApplicationBus::Events::FindEntity, entityId);
+        // set transform to be static
+        SetVarHierarchy<bool>(entity, AZ::EditorTransformComponentTypeId, { AZ_CRC("IsStatic", 0x460427c9) }, true);
+
+        AzToolsFramework::ToolsApplicationRequestBus::Broadcast(
+            &AzToolsFramework::ToolsApplicationRequests::AddDirtyEntity, entityId);
+            
+        return LegacyConversionResult::HandledDeleteEntity;
+    }
+
+    static AZStd::string Utf8FromQString(const QString& qt)
+    {
+        const QByteArray utf8 = qt.toUtf8();
+        return AZStd::string(utf8.constData(), utf8.size());
+    }
+
+    // Set the material selection in the collider configuration based the surface type name
+    static void SetColliderMaterialSelection(IMaterial* cryMaterial, Physics::ColliderConfiguration& configuration)
+    {
+        const AZ::Data::Asset<Physics::MaterialLibraryAsset>* defaultMaterialLibrary = AZ::Interface<Physics::System>::Get()->GetDefaultMaterialLibraryAssetPtr();
+
+        if (!cryMaterial)
+        {
+            AZ_Error("LegacyConversion", false,
+                "Invalid material when converting object");
+            return;
+        }
+
+        ISurfaceType* crySurfaceType = cryMaterial->GetSurfaceType();
+        if (!crySurfaceType)
+        {
+            AZ_Error("LegacyConversion", false,
+                "SetColliderMaterialSelection: No surface type for material %s", cryMaterial->GetName());
+            return;
+        }
+
+        if (!defaultMaterialLibrary->GetId().IsValid() || !defaultMaterialLibrary->Get())
+        {
+            AZ_Error("LegacyConversion", false,
+                "SetColliderMaterialSelection: Invalid physics default material library: %s, check if loaded", defaultMaterialLibrary->GetHint().c_str());
+            return;
+        }
+
+        AZStd::string_view surfaceNameLY = crySurfaceType->GetName();
+
+        // CryMaterials start with "mat_", we removed this part in our Physics Materials
+        const AZStd::string_view matStr = "mat_";
+        if (surfaceNameLY.starts_with(matStr))
+        {
+            surfaceNameLY.remove_prefix(matStr.size());
+        }
+
+        Physics::MaterialFromAssetConfiguration material;
+        if (defaultMaterialLibrary->Get()->GetDataForMaterialName(surfaceNameLY, material))
+        {
+            configuration.m_materialSelection.SetMaterialLibrary(defaultMaterialLibrary->GetId());
+            configuration.m_materialSelection.SetMaterialId(material.m_id);
+        }
+        else
+        {
+            AZ_Error("LegacyConversion", false,
+                "SetColliderMaterialSelection: Unable to find physics material with same crysurface name: %s", crySurfaceType->GetName());
+        }
+    }
+
+    static void SetCollisionParamsForCollider(Physics::ColliderConfiguration& colliderConfig)
+    {
+        // Set up your own Collision parameters here
+    }
 }
 
 namespace AZ
@@ -1522,7 +1698,8 @@ namespace AZ
 
         Converter::Converter()
         {
-            BusConnect();
+            LegacyConversionEventBus::Handler::BusConnect();
+            AzToolsFramework::EditorEntityContextNotificationBus::Handler::BusConnect();
         }
 
         typedef LegacyConversionResult(* EntityConvertFunc)(CBaseObject* entityToConvert);
@@ -1550,13 +1727,14 @@ namespace AZ
                 ConvertAreaBoxEntity,
                 ConvertAreaSphereEntity,
                 ConvertNavigationSeed,
-                //ConvertWindVolumeEntity, Disabled for v1.12
+                ConvertWindVolumeEntity,
                 ConvertNavigationAreaEntity,
                 ConvertTagPointEntity,
                 ConvertDecalEntity,
                 ConvertFogVolumeEntity,
                 ConvertDistanceClouds,
                 ConvertGeomCache,
+                ConvertDesignerObject,
             };
 
             for (EntityConvertFunc convertFunc : entityConvertFuncs)
@@ -1580,5 +1758,115 @@ namespace AZ
         {
             return true;
         }
+
+        void Converter::OnSaveStreamForGameBegin(AZ::IO::GenericStream& gameStream, AZ::DataStream::StreamType streamType, AZStd::vector<AZStd::unique_ptr<AZ::Entity>>& levelEntities)
+        {
+            Physics::System* physSystem = AZ::Interface<Physics::System>::Get();
+            if (!physSystem)
+            {
+                AZ_Error("LegacyConversion", false,
+                    "Can't convert CryPhysics object, no Physics system is available. Make sure a Physics Gem is enabled(ex: PhysX)");
+                return;
+            }
+
+            ConvertIngameDesignerObjects(levelEntities);
+        }
+
+        // Conversion of Designer objects to entities that live in the Game mode only
+        void Converter::ConvertIngameDesignerObjects(AZStd::vector<AZStd::unique_ptr<AZ::Entity>>& levelEntities)
+        {
+            QElapsedTimer timer;
+            timer.start();
+
+            AZ::u32 designerObjectsCounter = 0;
+
+            DynArray<CBaseObject*> objects;
+            GetIEditor()->GetObjectManager()->GetObjects(objects);
+            for (CBaseObject* entityToConvert : objects)
+            {
+                CObjectClassDesc* classDesc = entityToConvert->GetClassDesc();
+                if (!classDesc)
+                {
+                    continue;
+                }
+
+                if (GetIEditor()->GetClassFactory()->FindClass("Designer") == classDesc)
+                {
+                    IStatObj* statObj = entityToConvert->GetIStatObj();
+                    if (statObj == nullptr)
+                    {
+                        continue;
+                    }
+
+                    const QString designerObjectName = entityToConvert->GetName();
+
+                    // Create the run time entity with required components
+                    AZ::Entity* exportEntity = aznew AZ::Entity(designerObjectName.toUtf8().data());
+
+                    // Set Transform
+                    const Vec3 position = entityToConvert->GetPos();
+                    const Quat rotation = entityToConvert->GetRotation();
+                    const Vec3 scale = entityToConvert->GetScale();
+
+                    AZ::Transform newEntityTransform = AZ::Transform::CreateFromQuaternionAndTranslation(
+                        LYQuaternionToAZQuaternion(rotation),
+                        LYVec3ToAZVec3(position));
+                    newEntityTransform.MultiplyByScale(LYVec3ToAZVec3(scale));
+
+                    auto transformComponent = exportEntity->CreateComponent<AzToolsFramework::Components::TransformComponent>();
+                    transformComponent->SetWorldTM(newEntityTransform);
+
+                    // Set the transform component to be static.
+                    SetVarHierarchy(exportEntity, AZ::AzTypeInfo<AzToolsFramework::Components::TransformComponent>::Uuid(),
+                        { AZ_CRC("IsStatic", 0x460427c9) }, true);
+
+                    exportEntity->Init();
+
+                    // Retrieve and convert mesh data to LY
+                    IIndexedMesh* mesh = statObj->GetIndexedMesh(true);
+                    AZStd::vector<AZ::Vector3> vertexData;
+                    AZStd::vector<AZ::u32> faceIndexValues;
+                    int vertCount = mesh->GetMesh()->GetVertexCount();
+                    vertexData.resize(vertCount);
+                    for (int i = 0; i < vertCount; ++i)
+                    {
+                        vertexData[i] = LYVec3ToAZVec3(mesh->GetMesh()->m_pPositions[i]);
+                    }
+
+                    // Cook it, Bon appetit
+                    AZStd::vector<AZ::u8> cookedData;
+                    bool cookSuccess = AZ::Interface<Physics::System>::Get()->CookTriangleMeshToMemory(vertexData.data(), vertexData.size(), mesh->GetMesh()->m_pIndices, mesh->GetMesh()->GetIndexCount(), cookedData);
+
+                    if (cookSuccess)
+                    {
+                        Physics::ColliderConfiguration colliderConfiguration;
+                        SetColliderMaterialSelection(statObj->GetMaterial(), colliderConfiguration);
+                        SetCollisionParamsForCollider(colliderConfiguration);
+
+                        Physics::CookedMeshShapeConfiguration shapeConfiguration;
+                        shapeConfiguration.SetCookedMeshData(cookedData.data(), cookedData.size(), Physics::CookedMeshShapeConfiguration::MeshType::TriangleMesh);
+
+                        AZ::Interface<Physics::SystemRequests>::Get()->AddColliderComponentToEntity(exportEntity, colliderConfiguration, shapeConfiguration, true);
+                    }
+                    else
+                    {
+                        AZ_Error("PhysX", false, "Failed to convert the Designer object %s to a pxmesh.",
+                            Utf8FromQString(designerObjectName).c_str());
+                    }
+
+                    exportEntity->Activate();
+                    levelEntities.push_back(AZStd::unique_ptr<AZ::Entity>(AZStd::move(exportEntity)));
+
+                    designerObjectsCounter++;
+                }
+            }
+
+            if (designerObjectsCounter > 0)
+            {
+                AZ_TracePrintf("PhysX", "PreProcessExportSlice: Conversion %d designer objects took %f seconds.",
+                    designerObjectsCounter, timer.elapsed() / 1000.0f);
+            }
+        }
+
     }
 }

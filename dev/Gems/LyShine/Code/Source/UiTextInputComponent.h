@@ -12,7 +12,6 @@
 #pragma once
 
 #include <LyShine/Bus/UiInteractableBus.h>
-#include <LyShine/Bus/UiUpdateBus.h>
 #include <LyShine/Bus/UiTextInputBus.h>
 #include <LyShine/Bus/UiInitializationBus.h>
 #include <LyShine/UiComponentTypes.h>
@@ -52,9 +51,9 @@ public: // member functions
     void LostActiveStatus() override;
     // ~UiInteractableInterface
 
-    // UiUpdateInterface
+    // UiCanvasUpdateNotification
     void Update(float deltaTime) override;
-    // ~UiUpdateInterface
+    // ~UiCanvasUpdateNotification
 
     // UiInitializationInterface
     void InGamePostActivate() override;
@@ -96,6 +95,9 @@ public: // member functions
     void SetText(const AZStd::string& text) override;
     AZ::EntityId GetPlaceHolderTextEntity() override;
     void SetPlaceHolderTextEntity(AZ::EntityId textEntity) override;
+
+    bool GetIsClipboardEnabled() override;
+    void SetIsClipboardEnabled(bool enableClipboard) override;
 
     // ~UiTextInputInterface
 
@@ -211,4 +213,6 @@ private: // data
     bool m_isPasswordField;             //!< True if m_textEntity should be treated as a password field, false otherwise
 
     bool m_clipInputText;               //!< True if input text should be visually clipped to child text element, false otherwise.
+
+    bool m_enableClipboard;             //!< True if copy/cut/paste should be supported, false otherwise.
 };

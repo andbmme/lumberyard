@@ -44,6 +44,7 @@ protected:
         QMap<int, QVariant> m_data;
         Folder* m_parent;
 
+        virtual ~Item() = default;
         virtual const Folder* asFolder() const { return 0; }        // need this as we don't have RTTI
     };
 
@@ -78,7 +79,9 @@ protected:
     Item* itemFromIndex(const QModelIndex& index) const;
     QModelIndex indexFromItem(Item* item, int col = 0) const;
 
+    AZ_PUSH_DISABLE_DLL_EXPORT_MEMBER_WARNING
     std::shared_ptr<Folder> m_root;
+    AZ_POP_DISABLE_DLL_EXPORT_MEMBER_WARNING
 };
 
 #endif // QABSTRACTQVARIANTTREEDATAMODEL_H

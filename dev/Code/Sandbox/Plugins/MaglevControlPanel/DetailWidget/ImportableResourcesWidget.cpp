@@ -60,7 +60,7 @@ ImportableResourcesWidget::ImportableResourcesWidget(QString resource_group, QSh
     //Keep the list window open so the user can import other resources after the current process finishes
     disconnect(GetPrimaryButton(), &QPushButton::clicked, this, &QDialog::accept);
     connect(GetPrimaryButton(), &QPushButton::clicked, this, &ImportableResourcesWidget::OnPrimaryButtonClick);
-    setMinimumSize(GetWidth(m_listTable) * 1.5, GetHeight(m_listTable));
+    setMinimumSize(aznumeric_cast<int>(GetWidth(m_listTable) * 1.5), GetHeight(m_listTable));
 }
 
 void ImportableResourcesWidget::CreateRegionRow()
@@ -157,7 +157,7 @@ void ImportableResourcesWidget::CreateResourcesTable()
     m_filterListProxyModel->setSourceModel(m_importerModel.data());
 
     //Generate the table to list all of the importable resources
-    m_listTable = new QTableView{};
+    m_listTable = new QTableView{this};
     m_listTable->setObjectName("ListTable");
     m_listTable->setModel(m_filterListProxyModel.data());
     m_listTable->verticalHeader()->hide();
@@ -170,7 +170,7 @@ void ImportableResourcesWidget::CreateResourcesTable()
     m_listTable->setContextMenuPolicy(Qt::CustomContextMenu);
     m_listTable->setEditTriggers(QTableView::NoEditTriggers);
     m_listTable->setSelectionMode(QTableView::NoSelection);
-    m_listTable->setColumnWidth(IAWSImporterModel::TypeColumn, m_listTable->columnWidth(IAWSImporterModel::TypeColumn) * 1.5);
+    m_listTable->setColumnWidth(IAWSImporterModel::TypeColumn, aznumeric_cast<int>(m_listTable->columnWidth(IAWSImporterModel::TypeColumn) * 1.5));
 
     QHeaderView* headerView = m_listTable->horizontalHeader();
     headerView->setSectionResizeMode(0, QHeaderView::ResizeMode::Stretch);
@@ -468,7 +468,7 @@ void ImportableResourcesWidget::ImportResource()
 
 void ImportableResourcesWidget::OnImporterOutput(const QVariant& output, const char* outputType)
 {
-    if (m_selectedRowList.length() > 0 && output == m_importerModel->item(m_selectedRowList[0], IAWSImporterModel::NameColumn)->text() + " imported sucessfully")
+    if (m_selectedRowList.length() > 0 && output == m_importerModel->item(m_selectedRowList[0], IAWSImporterModel::NameColumn)->text() + " imported successfully")
     {
         //Reset the checkstate for those successfully imported resources
         m_importerModel->item(m_selectedRowList[0], IAWSImporterModel::CheckableResourceColumn)->setCheckState(Qt::Unchecked);
@@ -559,7 +559,7 @@ int ImportableResourcesWidget::GetHeight(QTableView* table)
 {
     //Get the height of the table
     int height = table->horizontalHeader()->width() +
-        table->frameWidth() * 2 +
+        table->sizeHint().height() +
         table->verticalHeader()->length();
     return height;
 }

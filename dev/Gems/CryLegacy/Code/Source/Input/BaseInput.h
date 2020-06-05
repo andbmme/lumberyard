@@ -17,13 +17,10 @@
 //               the listener functionality and offers a uniform device
 //               interface using IInputDevice.
 
-#ifndef CRYINCLUDE_CRYINPUT_BASEINPUT_H
-#define CRYINCLUDE_CRYINPUT_BASEINPUT_H
 #pragma once
 
 #include <platform.h>
 #include <IInput.h>
-
 
 struct IInputDevice;
 class CInputCVars;
@@ -107,11 +104,6 @@ public:
     virtual void ClearBlockingInputs();
     virtual bool ShouldBlockInputEventPosting(const EKeyId keyId, const EInputDeviceType deviceType, const uint8 deviceIndex) const;
 
-    virtual IKinectInput* GetKinectInput()
-    {
-        return nullptr;
-    }
-
     virtual INaturalPointInput* GetNaturalPointInput(){return nullptr; }
 
     virtual bool GrabInput(bool bGrab);
@@ -167,10 +159,6 @@ private:
     //CVars
     CInputCVars*                    m_pCVars;
 
-
 protected:
     uint32                              m_platformFlags;
 };
-
-#endif // CRYINCLUDE_CRYINPUT_BASEINPUT_H
-

@@ -14,21 +14,31 @@
 
 #include "AWSBehaviorAPI.h"
 
+// The AWS Native SDK AWSAllocator triggers a warning due to accessing members of std::allocator directly.
+// AWSAllocator.h(70): warning C4996: 'std::allocator<T>::pointer': warning STL4010: Various members of std::allocator are deprecated in C++17.
+// Use std::allocator_traits instead of accessing these members directly.
+// You can define _SILENCE_CXX17_OLD_ALLOCATOR_MEMBERS_DEPRECATION_WARNING or _SILENCE_ALL_CXX17_DEPRECATION_WARNINGS to acknowledge that you have received this warning.
+
+#include <AzCore/PlatformDef.h>
+AZ_PUSH_DISABLE_WARNING(4251 4355 4996, "-Wunknown-warning-option")
 #include <aws/core/http/HttpClient.h>
 #include <aws/core/http/HttpClientFactory.h>
 #include <aws/core/auth/AWSCredentialsProvider.h>
+AZ_POP_DISABLE_WARNING
 
 #include <AzCore/Jobs/JobContext.h>
 #include <AzCore/Jobs/JobFunction.h>
 #include <AzCore/Jobs/JobManagerBus.h>
+#include <AzFramework/AzFramework_Traits_Platform.h>
 
 #include <CloudCanvas/CloudCanvasIdentityBus.h>
 #include <CloudGemFramework/ServiceJob.h>
 #include <CloudGemFramework/CloudGemFrameworkBus.h>
 #include <CloudCanvas/CloudCanvasMappingsBus.h>
+#include <CloudCanvasCommon/CloudCanvasCommonBus.h>
 
 /// To use a specific AWS API request you have to include each of these.
-#pragma warning(disable: 4355) // <future> includes ppltasks.h which throws a C4355 warning: 'this' used in base member initializer list
+AZ_PUSH_DISABLE_WARNING(4251 4355 4996, "-Wunknown-warning-option")
 #include <aws/lambda/LambdaClient.h>
 #include <aws/lambda/model/ListFunctionsRequest.h>
 #include <aws/lambda/model/ListFunctionsResult.h>
@@ -37,7 +47,7 @@
 #include <aws/core/auth/AWSCredentialsProvider.h>
 #include <aws/core/utils/Outcome.h>
 #include <aws/core/utils/memory/stl/AWSStringStream.h>
-#pragma warning(default: 4355)
+AZ_POP_DISABLE_WARNING
 
 namespace CloudGemAWSScriptBehaviors
 {
@@ -48,7 +58,6 @@ namespace CloudGemAWSScriptBehaviors
         m_jsonParam(),
         m_httpMethods()
     {
-        // VS2013 doesn't support initializer lists in constructors so 
         // instead just add them to the map here
         m_httpMethods["GET"] = Aws::Http::HttpMethod::HTTP_GET;
         m_httpMethods["POST"] = Aws::Http::HttpMethod::HTTP_POST;
@@ -140,14 +149,26 @@ namespace CloudGemAWSScriptBehaviors
     AZ::Job* AWSBehaviorAPI::CreateHttpJob(const AZStd::string& url) const
     {
         AZ::JobContext* jobContext{ nullptr };
-        EBUS_EVENT_RESULT(jobContext, AZ::JobManagerBus, GetGlobalContext);
+        EBUS_EVENT_RESULT(jobContext, CloudCanvasCommon::CloudCanvasCommonRequestBus, GetDefaultJobContext);
         AZ::Job* job{ nullptr };
         job = AZ::CreateJobFunction([this, url]()
         {
-            std::shared_ptr<Aws::Http::HttpClient> httpClient = Aws::Http::CreateHttpClient(Aws::Client::ClientConfiguration());
-
+            auto config = Aws::Client::ClientConfiguration();
+            config.enableTcpKeepAlive = AZ_TRAIT_AZFRAMEWORK_AWS_ENABLE_TCP_KEEP_ALIVE_SUPPORTED;
+            AZStd::string caFile;
+            CloudCanvas::RequestRootCAFileResult requestResult;
+            EBUS_EVENT_RESULT(requestResult, CloudCanvasCommon::CloudCanvasCommonRequestBus, RequestRootCAFile, caFile);
+            if (caFile.length())
+            {
+                AZ_TracePrintf("CloudCanvas", "AWSBehaviorAPI using caFile %s with request result %d", caFile.c_str(), requestResult);
+                config.caFile = caFile.c_str();
+            }
+            config.requestTimeoutMs = 0;
+            config.connectTimeoutMs = 30000;
+            
+            std::shared_ptr<Aws::Http::HttpClient> httpClient = Aws::Http::CreateHttpClient(config);
+            
             Aws::String requestURL{ url.c_str() };
-
             std::shared_ptr<Aws::Auth::AWSCredentialsProvider> credentialsProvider;
             EBUS_EVENT_RESULT(credentialsProvider, CloudGemFramework::CloudCanvasPlayerIdentityBus, GetPlayerCredentialsProvider);
             AZStd::unique_ptr<Aws::Client::AWSAuthV4Signer> authSigner;
@@ -166,11 +187,15 @@ namespace CloudGemAWSScriptBehaviors
                 AZ_Printf("AWSBehaviorAPI", "Unable to sign API request as no credentials provider available");
             }
 
-            auto httpResponse(httpClient->MakeRequest(*httpRequest, nullptr, nullptr));
+            auto httpResponse(httpClient->MakeRequest(httpRequest, nullptr, nullptr));
 
             if (!httpResponse)
             {
-                EBUS_EVENT(AWSBehaviorAPINotificationsBus, OnError, "No Response Received from request!  (Internal SDK Error)");
+                AZStd::function<void()> notifyOnMainThread = []()
+                {
+                    AWSBehaviorAPINotificationsBus::Broadcast(&AWSBehaviorAPINotificationsBus::Events::OnError, "No Response Received from request!  (Internal SDK Error)");
+                };
+                AZ::TickBus::QueueFunction(notifyOnMainThread);
                 return;
             }
 
@@ -180,16 +205,26 @@ namespace CloudGemAWSScriptBehaviors
 
             if (contentType != "application/json")
             {
-                EBUS_EVENT(AWSBehaviorAPINotificationsBus, OnError, "Unexpected content type returned from API request: " + contentType);
+                AZStd::function<void()> notifyOnMainThread = [contentType]()
+                {
+                    AWSBehaviorAPINotificationsBus::Broadcast(&AWSBehaviorAPINotificationsBus::Events::OnError, "Unexpected content type returned from API request: " + contentType);
+                };
+                AZ::TickBus::QueueFunction(notifyOnMainThread);
                 return;
             }
 
             auto& body = httpResponse->GetResponseBody();
             Aws::StringStream readableOut;
             readableOut << body.rdbuf();
+            Aws::String responseString = readableOut.str();
 
-            EBUS_EVENT(AWSBehaviorAPINotificationsBus, OnSuccess, AZStd::string("Success!"));
-            EBUS_EVENT(AWSBehaviorAPINotificationsBus, GetResponse, responseCode, readableOut.str().c_str());
+            // respond on the main thread because script context ebus behaviour handlers are not thread safe
+            AZStd::function<void()> notifyOnMainThread = [responseCode, responseString]()
+            {
+                AWSBehaviorAPINotificationsBus::Broadcast(&AWSBehaviorAPINotificationsBus::Events::OnSuccess, AZStd::string("Success!"));
+                AWSBehaviorAPINotificationsBus::Broadcast(&AWSBehaviorAPINotificationsBus::Events::GetResponse, responseCode, responseString.c_str());
+            };
+            AZ::TickBus::QueueFunction(notifyOnMainThread);
         }, true, jobContext);
         return job;
     }

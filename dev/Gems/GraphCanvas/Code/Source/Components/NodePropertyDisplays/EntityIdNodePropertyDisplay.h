@@ -11,58 +11,25 @@
 */
 #pragma once
 
-#include <qevent.h>
-#include <qobject.h>
+class QEvent;
 
 #include <AzCore/Component/EntityBus.h>
 
 #include <AzToolsFramework/UI/PropertyEditor/PropertyEntityIdCtrl.hxx>
 #include <AzToolsFramework/UI/PropertyEditor/EntityIdQLabel.hxx>
 
-#include <Components/NodePropertyDisplay/NodePropertyDisplay.h>
-#include <Components/NodePropertyDisplay/EntityIdDataInterface.h>
-
+#include <GraphCanvas/Components/NodePropertyDisplay/NodePropertyDisplay.h>
+#include <GraphCanvas/Components/NodePropertyDisplay/EntityIdDataInterface.h>
 #include <GraphCanvas/Components/MimeDataHandlerBus.h>
 
 namespace GraphCanvas
 {
     class GraphCanvasLabel;
-    class EntityIdNodePropertyDisplay;
-
-    class EntityIdGraphicsEventFilter
-        : public QGraphicsItem
-    {
-    public:
-        AZ_CLASS_ALLOCATOR(EntityIdGraphicsEventFilter, AZ::SystemAllocator, 0);
-        EntityIdGraphicsEventFilter(EntityIdNodePropertyDisplay* propertyDisplay);
-
-        bool sceneEventFilter(QGraphicsItem* watched, QEvent* event);
-
-        // QGraphicsItem overrides
-        QRectF boundingRect() const override
-        {
-            return QRectF();
-        }
-
-        void paint(QPainter*, const QStyleOptionGraphicsItem*, QWidget*) override
-        {
-        }
-
-    private:
-        EntityIdNodePropertyDisplay* m_owner;
-    };
     
     class EntityIdNodePropertyDisplay
         : public NodePropertyDisplay
         , public AZ::EntityBus::Handler
     {
-        enum class DragState
-        {
-            Idle,
-            Valid,
-            Invalid
-        };
-
         friend class EntityIdGraphicsEventFilter;
 
     public:
@@ -74,42 +41,37 @@ namespace GraphCanvas
         void RefreshStyle() override;
         void UpdateDisplay() override;
         
-        QGraphicsLayoutItem* GetDisabledGraphicsLayoutItem() const override;
-        QGraphicsLayoutItem* GetDisplayGraphicsLayoutItem() const override;
-        QGraphicsLayoutItem* GetEditableGraphicsLayoutItem() const override;
+        QGraphicsLayoutItem* GetDisabledGraphicsLayoutItem() override;
+        QGraphicsLayoutItem* GetDisplayGraphicsLayoutItem() override;
+        QGraphicsLayoutItem* GetEditableGraphicsLayoutItem() override;
         ////
 
         // AZ::EntityBus
         void OnEntityNameChanged(const AZStd::string& name) override;
         ////
 
-        void dragEnterEvent(QGraphicsSceneDragDropEvent* dragDropEvent);
-        void dragLeaveEvent(QGraphicsSceneDragDropEvent* dragDropEvent);
-        void dropEvent(QGraphicsSceneDragDropEvent* dragDropEvent);
+        // DataSlotNotifications
+        void OnDragDropStateStateChanged(const DragDropState& dragState) override;
+        ////
 
     protected:
 
         void ShowContextMenu(const QPoint&);
-
-        void OnIdSet() override;
     
     private:
-
-        void ResetDragState();
 
         void EditStart();
         void EditFinished();
         void SubmitValue();
+        void SetupProxyWidget();
+        void CleanupProxyWidget();
     
         EntityIdDataInterface*  m_dataInterface;
-        EntityIdGraphicsEventFilter* m_eventFilter;
     
         GraphCanvasLabel*                           m_disabledLabel;
         AzToolsFramework::PropertyEntityIdCtrl*     m_propertyEntityIdCtrl;
         AzToolsFramework::EntityIdQLabel            m_entityIdLabel;
         QGraphicsProxyWidget*                       m_proxyWidget;
         GraphCanvasLabel*                           m_displayLabel;
-
-        DragState                                   m_dragState;
     };
 }

@@ -126,6 +126,14 @@
                         "Role"
                     ]
                 },
+                "Environment": {
+                    "Variables": {
+                        "Fn::GetAtt": [
+                            "PackageVoiceLinesConfiguration",
+                            "CCSettings"
+                        ]
+                    }
+                },
                 "Runtime": {
                     "Fn::GetAtt": [
                         "PackageVoiceLinesConfiguration",
@@ -145,7 +153,7 @@
                     "Ref": "ConfigurationKey"
                 },
                 "FunctionName": "PackageVoiceLines",
-                "Runtime": "python2.7",
+                "Runtime": "python3.7",
                 "ServiceToken": {
                     "Ref": "ProjectResourceHandler"
                 },
@@ -183,6 +191,22 @@
                 }
             },
             "Type": "Custom::Polly"
+        },
+        "CharacterDefsBucketClearer": {
+            "Properties": {
+                "ServiceToken": {
+                    "Ref": "ProjectResourceHandler"
+                },
+                "Buckets": [
+                    {
+                        "Ref": "characterdefs"
+                    }
+                ]
+            },
+            "DependsOn": [
+                "characterdefs"
+            ],
+            "Type": "Custom::S3DeleteObjects"
         },
         "ServiceApi": {
             "Metadata": {
@@ -259,6 +283,14 @@
                         "Role"
                     ]
                 },
+                "Environment": {
+                    "Variables": {
+                        "Fn::GetAtt": [
+                            "ServiceLambdaConfiguration",
+                            "CCSettings"
+                        ]
+                    }
+                },
                 "Runtime": {
                     "Fn::GetAtt": [
                         "ServiceLambdaConfiguration",
@@ -278,7 +310,7 @@
                     "Ref": "ConfigurationKey"
                 },
                 "FunctionName": "ServiceLambda",
-                "Runtime": "python2.7",
+                "Runtime": "python3.7",
                 "ServiceToken": {
                     "Ref": "ProjectResourceHandler"
                 },

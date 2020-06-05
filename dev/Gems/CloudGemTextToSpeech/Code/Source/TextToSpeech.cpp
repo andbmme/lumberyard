@@ -14,10 +14,9 @@
 
 #include "CloudGemTextToSpeech/TextToSpeech.h"
 
-#include <CryAction.h>
 #include <fstream>
 
-#include <md5/md5.h>
+#include <md5.h>
 
 #include <AzCore/Component/Entity.h>
 #include <AzCore/Jobs/JobFunction.h>
@@ -27,19 +26,24 @@
 #include <CloudCanvasCommon/CloudCanvasCommonBus.h>
 #include <CloudGemFramework/AwsApiRequestJob.h>
 
-#pragma warning(disable: 4355)
+// The AWS Native SDK AWSAllocator triggers a warning due to accessing members of std::allocator directly.
+// AWSAllocator.h(70): warning C4996: 'std::allocator<T>::pointer': warning STL4010: Various members of std::allocator are deprecated in C++17.
+// Use std::allocator_traits instead of accessing these members directly.
+// You can define _SILENCE_CXX17_OLD_ALLOCATOR_MEMBERS_DEPRECATION_WARNING or _SILENCE_ALL_CXX17_DEPRECATION_WARNINGS to acknowledge that you have received this warning.
+
+AZ_PUSH_DISABLE_WARNING(4251 4355 4996, "-Wunknown-warning-option")
 #include <aws/core/utils/Outcome.h>
 #include <aws/core/utils/memory/stl/AWSStringStream.h>
 #include <aws/core/utils/memory/stl/AWSString.h>
 #include <aws/core/utils/json/JsonSerializer.h>
-#pragma warning(default: 4355)
+AZ_POP_DISABLE_WARNING
 
 namespace {
     const char* AUDIO_FILE_EXT_PCM = ".pcm";
     const char* AUDIO_FILE_EXT_WAV = ".wav";
     const char* SPEECH_MARKS_FILE_EXT = ".txt";
     const char* MAPPING_FILE_NAME = "character_mapping.json";
-    const char* MAIN_CACHE_LOCATION = "ttscache/";
+    const char* MAIN_CACHE_LOCATION = "@assets@/ttscache/";
     const char* USER_CACHE_LOCATION = "@user@/ttscache/";
 }
 
@@ -83,9 +87,9 @@ namespace CloudGemTextToSpeech
     AZStd::string TextToSpeech::GetVoiceFromCharacter(const AZStd::string& character)
     {
         auto characterInfo = LoadCharacterFromMappingsFile(character);
-        if (characterInfo.ValueExists("voice"))
+        if (characterInfo.View().ValueExists("voice"))
         {
-            return characterInfo.GetString("voice").c_str();
+            return characterInfo.View().GetString("voice").c_str();
         }
         return "";
     }
@@ -93,9 +97,9 @@ namespace CloudGemTextToSpeech
     AZStd::string TextToSpeech::GetSpeechMarksFromCharacter(const AZStd::string& character)
     {
         auto characterInfo = LoadCharacterFromMappingsFile(character);
-        if (characterInfo.ValueExists("speechMarks"))
+        if (characterInfo.View().ValueExists("speechMarks"))
         {
-            return characterInfo.GetString("speechMarks").c_str();
+            return characterInfo.View().GetString("speechMarks").c_str();
         }
         return "";
     }
@@ -105,13 +109,13 @@ namespace CloudGemTextToSpeech
         AZStd::vector<AZStd::string> tags;
         auto characterInfo = LoadCharacterFromMappingsFile(character);
 
-        if (characterInfo.ValueExists("ssmlTags"))
+        if (characterInfo.View().ValueExists("ssmlTags"))
         {
-            if (!characterInfo.GetObject("ssmlTags").IsListType())
+            if (!characterInfo.View().GetObject("ssmlTags").IsListType())
             {
                 return tags;
             }
-            auto tagsList = characterInfo.GetArray("ssmlTags");
+            auto tagsList = characterInfo.View().GetArray("ssmlTags");
             for (size_t i = 0; i < tagsList.GetLength(); i++)
             {
                 if (tagsList.GetItem(i).IsString())
@@ -126,9 +130,9 @@ namespace CloudGemTextToSpeech
     AZStd::string TextToSpeech::GetLanguageOverrideFromCharacter(const AZStd::string& character)
     {
         auto characterInfo = LoadCharacterFromMappingsFile(character);
-        if (characterInfo.ValueExists("ssmlLanguage"))
+        if (characterInfo.View().ValueExists("ssmlLanguage"))
         {
-            return characterInfo.GetString("ssmlLanguage").c_str();
+            return characterInfo.View().GetString("ssmlLanguage").c_str();
         }
 
         return "";
@@ -137,9 +141,9 @@ namespace CloudGemTextToSpeech
     int TextToSpeech::GetTimbreFromCharacter(const AZStd::string& character)
     {
         auto characterInfo = LoadCharacterFromMappingsFile(character);
-        if (characterInfo.ValueExists("timbre"))
+        if (characterInfo.View().ValueExists("timbre"))
         {
-            return characterInfo.GetInteger("timbre");
+            return characterInfo.View().GetInteger("timbre");
         }
 
         return 100;
@@ -160,11 +164,11 @@ namespace CloudGemTextToSpeech
         {
             Aws::IFStream inputFile(mappingFile.c_str());
             Aws::Utils::Json::JsonValue characterMapping(inputFile);
-            for (auto const &characterInfo : characterMapping.GetAllObjects())
+            for (auto const &characterInfo : characterMapping.View().GetAllObjects())
             {
                 if (characterInfo.first == character.c_str())
                 {
-                    return characterInfo.second;
+                    return characterInfo.second.Materialize();
                 }
             }
         }
@@ -176,16 +180,6 @@ namespace CloudGemTextToSpeech
         AZStd::string hash = voice + "-" + text;
         hash = GenerateMD5FromPayload(hash.c_str());
 
-        AZStd::string mainCachePath = ResolvePath(MAIN_CACHE_LOCATION, true);
-        if (!mainCachePath.length())
-        {
-            AZ_Printf("TextToSpeech", "Could not resolve main cache path for Text to Speech");
-        }
-        AZStd::string voiceFileExt = FindCachedVoiceFileExtension(mainCachePath, hash);
-        AZStd::string voiceFile = ResolvePath((mainCachePath + hash + voiceFileExt).c_str(), false);
-        AZStd::string marksFile = ResolvePath((mainCachePath + hash + "-" + speechMarks + SPEECH_MARKS_FILE_EXT).c_str(), false);
-
-
         AZStd::string userCachePath = ResolvePath(USER_CACHE_LOCATION, true);
         if (!userCachePath.length())
         {
@@ -194,8 +188,10 @@ namespace CloudGemTextToSpeech
         AZStd::string userVoiceFile = ResolvePath((userCachePath + hash  + AUDIO_FILE_EXT_PCM).c_str(), false);
         AZStd::string userMarksFile = ResolvePath((userCachePath + hash + "-" + speechMarks + SPEECH_MARKS_FILE_EXT).c_str(), false);
 
+        AZStd::string voiceFile;
+
         // Check both caches for the files you need.
-        if (userCachePath.length() > 0 && (AZ::IO::SystemFile::Exists(userVoiceFile.c_str()) && (userMarksFile.empty() || AZ::IO::SystemFile::Exists(userMarksFile.c_str()))))
+        if (userCachePath.length() > 0 && ( AZ::IO::SystemFile::Exists(userVoiceFile.c_str())) && (speechMarks.empty() || AZ::IO::SystemFile::Exists(userMarksFile.c_str())))
         {
             if (!speechMarks.empty())
             {
@@ -206,16 +202,16 @@ namespace CloudGemTextToSpeech
                 EBUS_EVENT_ID(m_entity->GetId(), TextToSpeechPlaybackBus, PlaySpeech,  GetAliasedUserCachePath(hash));
             }
         }
-        else if (mainCachePath.length() > 0 && (AZ::IO::FileIOBase::GetDirectInstance()->Exists(voiceFile.c_str()) && (speechMarks.empty() || AZ::IO::FileIOBase::GetDirectInstance()->Exists(marksFile.c_str()))))
+        else if (MainCacheFilesExist(hash, speechMarks, voiceFile))
         {
-            AZStd::string realtiveVoicePath = MAIN_CACHE_LOCATION + hash + voiceFileExt;
             if (!speechMarks.empty())
             {
-                EBUS_EVENT_ID(m_entity->GetId(), TextToSpeechPlaybackBus, PlayWithLipSync, realtiveVoicePath, marksFile);
+                AZStd::string marksFile{ MAIN_CACHE_LOCATION + hash + "-" + speechMarks + SPEECH_MARKS_FILE_EXT };
+                EBUS_EVENT_ID(m_entity->GetId(), TextToSpeechPlaybackBus, PlayWithLipSync, voiceFile, marksFile);
             }
             else
             {
-                EBUS_EVENT_ID(m_entity->GetId(), TextToSpeechPlaybackBus, PlaySpeech, realtiveVoicePath);
+                EBUS_EVENT_ID(m_entity->GetId(), TextToSpeechPlaybackBus, PlaySpeech, voiceFile);
             }
         }
         else
@@ -232,16 +228,30 @@ namespace CloudGemTextToSpeech
         }
     }
 
-    AZStd::string TextToSpeech::FindCachedVoiceFileExtension(const AZStd::string& dir, const AZStd::string& hash) const
+    bool TextToSpeech::MainCacheFilesExist(const AZStd::string& hash, const AZStd::string& speechMarks, AZStd::string& voiceFile)
     {
-        AZStd::string fullFileName = ResolvePath((dir + hash + AUDIO_FILE_EXT_WAV).c_str(), false);
-        if (AZ::IO::SystemFile::Exists(fullFileName.c_str()))
+        voiceFile = MAIN_CACHE_LOCATION + hash + AUDIO_FILE_EXT_PCM;
+        bool voiceFileSatisfied = AZ::IO::FileIOBase::GetInstance()->Exists(voiceFile.c_str());
+        if (!voiceFileSatisfied)
         {
-            return AUDIO_FILE_EXT_WAV;
+            voiceFile = MAIN_CACHE_LOCATION + hash + AUDIO_FILE_EXT_WAV;
+            voiceFileSatisfied = AZ::IO::FileIOBase::GetInstance()->Exists(voiceFile.c_str());
         }
-        return AUDIO_FILE_EXT_PCM;
-    }
 
+        if (!voiceFileSatisfied)
+        {
+            voiceFile.clear();
+        }
+
+        bool speechMarksSatisfied = true;
+        if (!speechMarks.empty())
+        {
+            AZStd::string marksFile{MAIN_CACHE_LOCATION + hash + "-" + speechMarks + SPEECH_MARKS_FILE_EXT};
+            speechMarksSatisfied = AZ::IO::FileIOBase::GetInstance()->Exists(marksFile.c_str());
+        }
+
+        return voiceFileSatisfied && speechMarksSatisfied;
+    }
 
     // ConversionNotificationBus::Handler
     void TextToSpeech::GotDownloadUrl(const AZStd::string& hash, const AZStd::string& url, const AZStd::string& speechMarks)
@@ -366,7 +376,7 @@ namespace CloudGemTextToSpeech
     AZStd::string TextToSpeech::ResolvePath(const char* path, bool isDir) const
     {
         char resolvedGameFolder[AZ_MAX_PATH_LEN] = { 0 };
-        if (!gEnv->pFileIO->ResolvePath(path, resolvedGameFolder, AZ_MAX_PATH_LEN))
+        if (!AZ::IO::FileIOBase::GetInstance()->ResolvePath(path, resolvedGameFolder, AZ_MAX_PATH_LEN))
         {
             return "";
         }

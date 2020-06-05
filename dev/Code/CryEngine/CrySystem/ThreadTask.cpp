@@ -20,6 +20,13 @@
 #pragma warning(disable : 6312) // Possible infinite loop: use of the constant EXCEPTION_CONTINUE_EXECUTION in the exception-filter expression of a try-except. Execution restarts in the protected block
 #pragma warning(disable : 6322) // Empty _except block
 
+
+#if defined(AZ_RESTRICTED_PLATFORM)
+#undef AZ_RESTRICTED_SECTION
+#define THREADTASK_CPP_SECTION_1 1
+#define THREADTASK_CPP_SECTION_2 2
+#endif
+
 #ifdef WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -256,6 +263,19 @@ void CThreadTask_Thread::ChangeProcessor(int nProcessor)
     }
     assert(THREAD_PRIORITY_IDLE <= m_nThreadPriority && m_nThreadPriority <= THREAD_PRIORITY_TIME_CRITICAL);
     SetThreadPriority(m_hThreadHandle, m_nThreadPriority);
+#define AZ_RESTRICTED_SECTION_IMPLEMENTED
+#elif defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION THREADTASK_CPP_SECTION_1
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/ThreadTask_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/ThreadTask_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/ThreadTask_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
 #elif defined(ANDROID)
     int err, syscallres;
     pid_t pid = gettid();
@@ -392,7 +412,7 @@ void CThreadTaskManager::InitThreads()
 
     // Create a dummy thread that is used for main thread.
     m_threads.resize(1);
-    m_threads[0] = new CThreadTask_Thread(this, "Main Thread", 0, ((CSystem*)gEnv->pSystem)->m_sys_main_CPU->GetIVal(), THREAD_PRIORITY_NORMAL);
+    m_threads[0] = new CThreadTask_Thread(this, "Main Thread", 0, AFFINITY_MASK_MAINTHREAD, THREAD_PRIORITY_NORMAL);
 
     CCpuFeatures* pCPU = ((CSystem*)gEnv->pSystem)->GetCPUFeatures();
 
@@ -719,16 +739,22 @@ void CThreadTaskManager::SetThreadName(threadID dwThreadId, const char* sThreadN
     }
 #endif
 
-    int old(CryGetIMemoryManager()->LocalSwitchToGlobalHeap());
-
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION THREADTASK_CPP_SECTION_2
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/ThreadTask_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/ThreadTask_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/ThreadTask_cpp_salem.inl"
+    #endif
+#endif
 
     {
         m_threadNameLock.Lock();
         m_threadNames[dwThreadId] = sThreadName;
         m_threadNameLock.Unlock();
     }
-
-    CryGetIMemoryManager()->LocalSwitchToHeap(old);
 }
 
 //////////////////////////////////////////////////////////////////////////

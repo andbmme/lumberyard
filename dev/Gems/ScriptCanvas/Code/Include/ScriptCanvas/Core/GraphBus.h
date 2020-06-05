@@ -24,12 +24,14 @@ namespace ScriptCanvas
 {
     struct GraphData;
     class Graph;
+    class Slot;
+
     //! These are public graph requests
     class GraphRequests : public AZ::EBusTraits
     {
     public:
         static const AZ::EBusAddressPolicy AddressPolicy = AZ::EBusAddressPolicy::ById;
-        using BusIdType = AZ::EntityId;
+        using BusIdType = ScriptCanvasId;
 
         //! Add a ScriptCanvas Node to the Graph
         virtual bool AddNode(const AZ::EntityId&) = 0;
@@ -41,10 +43,17 @@ namespace ScriptCanvas
         //! Remove a ScriptCanvas Connection from the Graph
         virtual bool RemoveConnection(const AZ::EntityId& nodeId) = 0;
 
+        //! Add an asset dependency to the Graph
+        virtual bool AddDependentAsset(AZ::EntityId nodeId, const AZ::TypeId assetType, const AZ::Data::AssetId assetId) = 0;
+        //! Remove an asset dependency from the Graph
+        virtual bool RemoveDependentAsset(AZ::EntityId nodeId) = 0;
+
         virtual AZStd::vector<AZ::EntityId> GetNodes() const = 0;
         virtual AZStd::vector<AZ::EntityId> GetConnections() const = 0;
         virtual AZStd::vector<Endpoint> GetConnectedEndpoints(const Endpoint& firstEndpoint) const = 0;
         virtual bool FindConnection(AZ::Entity*& connectionEntity, const Endpoint& firstEndpoint, const Endpoint& otherEndpoint) const = 0;
+
+        virtual Slot* FindSlot(const Endpoint& endpoint) const = 0;
         
         //! Retrieves the Entity this Graph component is located on
         //! NOTE: There can be multiple Graph components on the same entity so calling FindComponent may not not return this GraphComponent
@@ -57,7 +66,14 @@ namespace ScriptCanvas
         virtual bool Disconnect(const AZ::EntityId& sourceNodeId, const SlotId& sourceSlot, const AZ::EntityId& targetNodeId, const SlotId& targetSlot) = 0;
 
         virtual bool ConnectByEndpoint(const Endpoint& sourceEndpoint, const Endpoint& targetEndpoint) = 0;
-        virtual AZ::Outcome<void, AZStd::string> CanConnectByEndpoint(const Endpoint& sourceEndpoint, const Endpoint& targetEndpoint) const = 0;
+
+        //! Returns whether or not a new connecion can be created between two connections.
+        //! This will take into account if the endpoints are already connected
+        virtual AZ::Outcome<void, AZStd::string> CanCreateConnectionBetween(const Endpoint& sourceEndpoint, const Endpoint& targetEndpoint) const = 0;
+
+        //! Returns whether or not a connection could exist between the two connections.
+        //! Does not take into account if the endpoints are already connected.
+        virtual AZ::Outcome<void, AZStd::string> CanConnectionExistBetween(const Endpoint& sourceEndpoint, const Endpoint& targetEndpoint) const = 0;
 
         virtual bool DisconnectByEndpoint(const Endpoint& sourceEndpoint, const Endpoint& targetEndpoint) = 0;
         virtual bool DisconnectById(const AZ::EntityId& connectionId) = 0;
@@ -84,6 +100,13 @@ namespace ScriptCanvas
         virtual bool AddGraphData(const GraphData&) = 0;
         // Removes nodes and connections in the GraphData structure from the graph
         virtual void RemoveGraphData(const GraphData&) = 0;
+
+        // Signals wether or not a batch of graph data is being added and some extra steps are needed
+        // to maintain data integrity for dynamic nodes
+        virtual bool IsBatchAddingGraphData() const = 0;
+
+        virtual void SetIsGraphObserved(bool observed) = 0;
+        virtual bool IsGraphObserved() const = 0;
     };
 
     using GraphRequestBus = AZ::EBus<GraphRequests>;
@@ -92,7 +115,7 @@ namespace ScriptCanvas
     {
     public:
         static const AZ::EBusAddressPolicy AddressPolicy = AZ::EBusAddressPolicy::ById;
-        using BusIdType = AZ::EntityId;
+        using BusIdType = ScriptCanvasId;
 
         //! Notification when a node is added
         virtual void OnNodeAdded(const AZ::EntityId&) {}
@@ -105,24 +128,47 @@ namespace ScriptCanvas
 
         //! Notification when a connections is removed
         virtual void OnConnectionRemoved(const AZ::EntityId&) {}
+
+        //! Notification when a batch add for a graph begins
+        virtual void OnBatchAddBegin() {}
+
+        //! Notification when a batch add for a graph completes
+        virtual void OnBatchAddComplete() {};
     };
 
     using GraphNotificationBus = AZ::EBus<GraphNotifications>;
 
-	class EndpointNotifications : public AZ::EBusTraits
-	{
-	public:
-		static const AZ::EBusAddressPolicy AddressPolicy = AZ::EBusAddressPolicy::ById;
-		using BusIdType = Endpoint;
+    class GraphConfigurationRequests : public AZ::ComponentBus
+    {
+    public:
+        virtual const ScriptCanvas::ScriptCanvasId& GetScriptCanvasId() const = 0;
+    };
 
-		//! Notification when an endpoint has been connected.
-		//! \param the target Endpoint. The source Endpoint can be obtained using EndpointNotificationBus::GetCurrentBusId().
-		virtual void OnEndpointConnected(const Endpoint& targetEndpoint) {}
+    using GraphConfigurationRequestBus = AZ::EBus<GraphConfigurationRequests>;
 
-		//! Notification when an endpoint has been disconnected.
-		//! \param the target Endpoint. The source Endpoint can be obtained using EndpointNotificationBus::GetCurrentBusId().
-		virtual void OnEndpointDisconnected(const Endpoint& targetEndpoint) {}
-	};
+    // This bus is for anything co-components that needs to be configured with the graph.
+    class GraphConfigurationNotifications : public AZ::ComponentBus
+    {
+    public:
+        virtual void ConfigureScriptCanvasId(const ScriptCanvas::ScriptCanvasId& scriptCanvasId) = 0;
+    };
+
+    using GraphConfigurationNotificationBus = AZ::EBus<GraphConfigurationNotifications>;
+
+    class EndpointNotifications : public AZ::EBusTraits
+    {
+    public:
+        static const AZ::EBusAddressPolicy AddressPolicy = AZ::EBusAddressPolicy::ById;
+        using BusIdType = Endpoint;
+
+        //! Notification when an endpoint has been connected.
+        //! \param the target Endpoint. The source Endpoint can be obtained using EndpointNotificationBus::GetCurrentBusId().
+        virtual void OnEndpointConnected(const Endpoint& targetEndpoint) {}
+
+        //! Notification when an endpoint has been disconnected.
+        //! \param the target Endpoint. The source Endpoint can be obtained using EndpointNotificationBus::GetCurrentBusId().
+        virtual void OnEndpointDisconnected(const Endpoint& targetEndpoint) {}
+    };
 
     using EndpointNotificationBus = AZ::EBus<EndpointNotifications>;
 }

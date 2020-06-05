@@ -13,8 +13,8 @@
 
 #include <Components/Connections/DataConnections/DataConnectionGraphicsItem.h>
 
-#include <Components/ColorPaletteManager/ColorPaletteManagerBus.h>
 #include <GraphCanvas/Components/Slots/Data/DataSlotBus.h>
+#include <GraphCanvas/Components/StyleBus.h>
 
 namespace GraphCanvas
 {
@@ -60,6 +60,7 @@ namespace GraphCanvas
         : ConnectionGraphicsItem(connectionEntityId)
         , m_dataPinStyleMonitor((*this))
     {
+        RootGraphicsItemNotificationBus::Handler::BusConnect(connectionEntityId);
     }
 
     void DataConnectionGraphicsItem::OnStyleChanged()
@@ -81,6 +82,13 @@ namespace GraphCanvas
         m_dataPinStyleMonitor.SetSourceId(newSlotId);
         PopulateDataColor(m_sourceDataColor, newSlotId);
         UpdatePen();
+
+        if (DataSlotNotificationBus::MultiHandler::BusIsConnectedId(oldSlotId))
+        {
+            DataSlotNotificationBus::MultiHandler::BusDisconnect(oldSlotId);
+        }
+
+        DataSlotNotificationBus::MultiHandler::BusConnect(newSlotId);
     }
     
     void DataConnectionGraphicsItem::OnTargetSlotIdChanged(const AZ::EntityId& oldSlotId, const AZ::EntityId& newSlotId)
@@ -94,6 +102,34 @@ namespace GraphCanvas
         
         m_dataPinStyleMonitor.SetTargetId(newSlotId);
         PopulateDataColor(m_targetDataColor, newSlotId);
+        UpdatePen();
+
+        if (DataSlotNotificationBus::MultiHandler::BusIsConnectedId(oldSlotId))
+        {
+            DataSlotNotificationBus::MultiHandler::BusDisconnect(oldSlotId);
+        }
+
+        DataSlotNotificationBus::MultiHandler::BusConnect(newSlotId);
+    }
+
+    void DataConnectionGraphicsItem::OnDisplayTypeChanged(const AZ::Uuid&, const AZStd::vector<AZ::Uuid>&)
+    {
+        const AZ::EntityId* busId = DataSlotNotificationBus::GetCurrentBusId();
+
+        if (busId == nullptr)
+        {
+            return;
+        }
+
+        if (GetSourceSlotEntityId() == (*busId))
+        {
+            PopulateDataColor(m_sourceDataColor, (*busId));
+        }
+        else if(GetTargetSlotEntityId() == (*busId))
+        {
+            PopulateDataColor(m_targetDataColor, (*busId));
+        }
+
         UpdatePen();
     }
 
@@ -128,11 +164,26 @@ namespace GraphCanvas
         UpdatePen();
     }
 
+    void DataConnectionGraphicsItem::OnDisplayStateChanged(RootGraphicsItemDisplayState, RootGraphicsItemDisplayState)
+    {
+        UpdatePen();
+    }
+
+    Styling::ConnectionCurveType DataConnectionGraphicsItem::GetCurveStyle() const
+    {
+        Styling::ConnectionCurveType curveStyle = Styling::ConnectionCurveType::Straight;
+        AssetEditorSettingsRequestBus::EventResult(curveStyle, GetEditorId(), &AssetEditorSettingsRequests::GetDataConnectionCurveType);
+        return curveStyle;
+    }
+
     void DataConnectionGraphicsItem::UpdatePen()
     {
         ConnectionGraphicsItem::UpdatePen();
 
-        if (!isSelected() && GetDisplayState() == ConnectionDisplayState::None)
+        if (!isSelected()
+            && (GetDisplayState() == RootGraphicsItemDisplayState::Neutral
+                || GetDisplayState() == RootGraphicsItemDisplayState::PartialDisabled
+                || GetDisplayState() == RootGraphicsItemDisplayState::Disabled))
         {
             QLinearGradient gradient(path().pointAtPercent(0), path().pointAtPercent(1));
 
@@ -145,13 +196,8 @@ namespace GraphCanvas
             setPen(m_pen);
         }
     }
-	
-    void DataConnectionGraphicsItem::OnPathChanged()
-    {
-        UpdatePen();
-    }
 
-    void DataConnectionGraphicsItem::OnDisplayStateChanged()
+    void DataConnectionGraphicsItem::OnPathChanged()
     {
         UpdatePen();
     }
@@ -161,14 +207,36 @@ namespace GraphCanvas
         // Leave the color alone if we don't have a valid connection. Other logic deals with its coloring then.
         if (slotId.IsValid())
         {
-            AZ::Uuid dataType;
-            DataSlotRequestBus::EventResult(dataType, slotId, &DataSlotRequests::GetDataTypeId);
-
-            AZ::EntityId sceneId;
-            SceneMemberRequestBus::EventResult(sceneId, slotId, &SceneMemberRequests::GetScene);
+            DataValueType valueType = DataValueType::Unknown;
+            DataSlotRequestBus::EventResult(valueType, slotId, &DataSlotRequests::GetDataValueType);
 
             const Styling::StyleHelper* stylingHelper = nullptr;
-            ColorPaletteManagerRequestBus::EventResult(stylingHelper, sceneId, &ColorPaletteManagerRequests::FindDataColorPalette, dataType);
+            
+            if (valueType == DataValueType::Container)
+            {
+                size_t typeCount = 0;
+                DataSlotRequestBus::EventResult(typeCount, slotId, &DataSlotRequests::GetContainedTypesCount);
+
+                if (typeCount == 1)
+                {
+                    // Vector/Array/Set
+                    DataSlotRequestBus::EventResult(stylingHelper, slotId, &DataSlotRequests::GetContainedTypeColorPalette, 0);
+                }
+                else if(typeCount > 1)
+                {
+                    // Multi-Type container (e.g. Map)
+                    DataSlotRequestBus::EventResult(stylingHelper, slotId, &DataSlotRequests::GetDataColorPalette);
+                }
+                else
+                {
+                    // Container with no contained types (e.g. dynamic container slot)
+                    DataSlotRequestBus::EventResult(stylingHelper, slotId, &DataSlotRequests::GetDataColorPalette);
+                }
+            }
+            else
+            {
+                DataSlotRequestBus::EventResult(stylingHelper, slotId, &DataSlotRequests::GetDataColorPalette);
+            }
 
             if (stylingHelper != nullptr)
             {

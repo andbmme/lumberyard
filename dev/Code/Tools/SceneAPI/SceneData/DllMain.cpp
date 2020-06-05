@@ -21,67 +21,122 @@
 #include <SceneAPI/SceneData/ReflectionRegistrar.h>
 #include <SceneAPI/SceneData/Behaviors/Registry.h>
 
-static AZ::SceneAPI::SceneData::ManifestMetaInfoHandler* g_manifestMetaInfoHandler = nullptr;
-static AZ::SceneAPI::SceneData::Registry::ComponentDescriptorList g_componentDescriptors;
+namespace AZ {
+    namespace SceneAPI {
+        namespace SceneData {
+
+            static AZ::SceneAPI::SceneData::ManifestMetaInfoHandler* g_manifestMetaInfoHandler = nullptr;
+            static AZ::SceneAPI::SceneData::Registry::ComponentDescriptorList g_componentDescriptors;
+
+            void Initialize()
+            {
+                if (!g_manifestMetaInfoHandler)
+                {
+                    g_manifestMetaInfoHandler = aznew AZ::SceneAPI::SceneData::ManifestMetaInfoHandler();
+                }
+            }
+
+            void Reflect(AZ::SerializeContext* context)
+            {
+                if (!context)
+                {
+                    EBUS_EVENT_RESULT(context, AZ::ComponentApplicationBus, GetSerializeContext);
+                }
+                if (context)
+                {
+                    AZ::SceneAPI::RegisterDataTypeReflection(context);
+                }
+
+                // Descriptor registration is done in Reflect instead of Initialize because the ResourceCompilerScene initializes the libraries before
+                // there's an application.
+                if (g_componentDescriptors.empty())
+                {
+                    AZ::SceneAPI::SceneData::Registry::RegisterComponents(g_componentDescriptors);
+                    for (AZ::ComponentDescriptor* descriptor : g_componentDescriptors)
+                    {
+                        AZ::ComponentApplicationBus::Broadcast(&AZ::ComponentApplicationBus::Handler::RegisterComponentDescriptor, descriptor);
+                    }
+                }
+            }
+
+            void Activate()
+            {
+            }
+            
+            void Deactivate()
+            {
+            }
+
+            void Uninitialize()
+            {
+                AZ::SerializeContext* context = nullptr;
+                EBUS_EVENT_RESULT(context, AZ::ComponentApplicationBus, GetSerializeContext);
+                if (context)
+                {
+                    context->EnableRemoveReflection();
+                    Reflect(context);
+                    context->DisableRemoveReflection();
+                    context->CleanupModuleGenericClassInfo();
+                }
+
+                if (!g_componentDescriptors.empty())
+                {
+                    for (AZ::ComponentDescriptor* descriptor : g_componentDescriptors)
+                    {
+                        descriptor->ReleaseDescriptor();
+                    }
+                    g_componentDescriptors.clear();
+                    g_componentDescriptors.shrink_to_fit();
+                }
+
+                delete g_manifestMetaInfoHandler;
+                g_manifestMetaInfoHandler = nullptr;
+            }
+        } // namespace SceneData
+    } // namespace SceneAPI
+} // namespace AZ
+
+#if !defined(SCENE_DATA_STATIC)
 
 extern "C" AZ_DLL_EXPORT void InitializeDynamicModule(void* env)
 {
-    AZ::Environment::Attach(static_cast<AZ::EnvironmentInstance>(env));
-    
-    if (!g_manifestMetaInfoHandler)
+    if (AZ::Environment::IsReady())
     {
-        g_manifestMetaInfoHandler = aznew AZ::SceneAPI::SceneData::ManifestMetaInfoHandler();
+        return;
     }
+
+    AZ::Environment::Attach(static_cast<AZ::EnvironmentInstance>(env));
+
+    AZ::SceneAPI::SceneData::Initialize();
 }
 
 extern "C" AZ_DLL_EXPORT void Reflect(AZ::SerializeContext* context)
 {
-    if (!context)
-    {
-        EBUS_EVENT_RESULT(context, AZ::ComponentApplicationBus, GetSerializeContext);
-    }
-    if (context)
-    {
-        AZ::SceneAPI::RegisterDataTypeReflection(context);
-    }
-    
-    // Descriptor registration is done in Reflect instead of Initialize because the ResourceCompilerScene initializes the libraries before
-    // there's an application.
-    if (g_componentDescriptors.empty())
-    {
-        AZ::SceneAPI::SceneData::Registry::RegisterComponents(g_componentDescriptors);
-        for (AZ::ComponentDescriptor* descriptor : g_componentDescriptors)
-        {
-            AZ::ComponentApplicationBus::Broadcast(&AZ::ComponentApplicationBus::Handler::RegisterComponentDescriptor, descriptor);
-        }
-    }
+    AZ::SceneAPI::SceneData::Reflect(context);
 }
 
 extern "C" AZ_DLL_EXPORT void UninitializeDynamicModule()
 {
-    AZ::SerializeContext* context = nullptr;
-    EBUS_EVENT_RESULT(context, AZ::ComponentApplicationBus, GetSerializeContext);
-    if (context)
+    if (!AZ::Environment::IsReady())
     {
-        context->EnableRemoveReflection();
-        Reflect(context);
-        context->DisableRemoveReflection();
+        return;
     }
 
-    if (!g_componentDescriptors.empty())
-    {
-        for (AZ::ComponentDescriptor* descriptor : g_componentDescriptors)
-        {
-            descriptor->ReleaseDescriptor();
-        }
-        g_componentDescriptors.clear();
-        g_componentDescriptors.shrink_to_fit();
-    }
+    AZ::SceneAPI::SceneData::Uninitialize();
 
-    delete g_manifestMetaInfoHandler;
-    g_manifestMetaInfoHandler = nullptr;
+    // This module does not own these allocators, but must clear its cached EnvironmentVariables
+    // because it is linked into other modules, and thus does not get unloaded from memory always
+    if (AZ::AllocatorInstance<AZ::SystemAllocator>::IsReady())
+    {
+        AZ::AllocatorInstance<AZ::SystemAllocator>::Destroy();
+    }
+    if (AZ::AllocatorInstance<AZ::OSAllocator>::IsReady())
+    {
+        AZ::AllocatorInstance<AZ::OSAllocator>::Destroy();
+    }
 
     AZ::Environment::Detach();
 }
+#endif // !defined(SCENE_DATA_STATIC)
 
 #endif // !defined(AZ_MONOLITHIC_BUILD)

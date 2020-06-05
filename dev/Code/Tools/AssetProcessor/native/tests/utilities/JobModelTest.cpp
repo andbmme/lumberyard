@@ -10,7 +10,7 @@
 *
 */
 
-#include <native/tests/utilities/jobModelTest.h>
+#include <native/tests/utilities/JobModelTest.h>
 
 TEST_F(JobModelUnitTests, Test_RemoveMiddleJob)
 {
@@ -111,7 +111,7 @@ TEST_F(JobModelUnitTests, Test_RemoveAllJobsBySource)
 
     jobInfo1->m_jobState = AzToolsFramework::AssetSystem::JobStatus::Completed;
     m_unitTestJobModel->m_cachedJobs.push_back(jobInfo1);
-    m_unitTestJobModel->m_cachedJobsLookup.insert(jobInfo1->m_elementId, m_unitTestJobModel->m_cachedJobs.size() - 1);
+    m_unitTestJobModel->m_cachedJobsLookup.insert(jobInfo1->m_elementId, aznumeric_caster(m_unitTestJobModel->m_cachedJobs.size() - 1));
 
     AssetProcessor::QueueElementID elementId("source3.txt", "platform_2", "jobKey_3");
     auto iter = m_unitTestJobModel->m_cachedJobsLookup.find(elementId);
@@ -134,8 +134,43 @@ TEST_F(JobModelUnitTests, Test_RemoveAllJobsBySource)
     }
 }
 
+TEST_F(JobModelUnitTests, Test_RemoveAllJobsBySourceFolder)
+{
+    VerifyModel(); // verify up front for sanity.
+
+    AssetProcessor::CachedJobInfo* jobInfo = new AssetProcessor::CachedJobInfo();
+    jobInfo->m_elementId.SetInputAssetName("sourceFolder1/source.txt");
+    jobInfo->m_elementId.SetPlatform("platform");
+    jobInfo->m_elementId.SetJobDescriptor("jobKey");
+
+    jobInfo->m_jobState = AzToolsFramework::AssetSystem::JobStatus::Completed;
+    m_unitTestJobModel->m_cachedJobs.push_back(jobInfo);
+    m_unitTestJobModel->m_cachedJobsLookup.insert(jobInfo->m_elementId, aznumeric_caster(m_unitTestJobModel->m_cachedJobs.size() - 1));
+
+    AssetProcessor::QueueElementID elementId("sourceFolder1/source.txt", "platform", "jobKey");
+    auto iter = m_unitTestJobModel->m_cachedJobsLookup.find(elementId);
+    ASSERT_NE(iter, m_unitTestJobModel->m_cachedJobsLookup.end());
+    unsigned int jobIndex = iter.value();
+    ASSERT_EQ(jobIndex, 6); //last job
+
+    ASSERT_EQ(m_unitTestJobModel->m_cachedJobs.size(), 7);
+    m_unitTestJobModel->OnFolderRemoved("sourceFolder1");
+
+    ASSERT_EQ(m_unitTestJobModel->m_cachedJobs.size(), 6);
+    VerifyModel();
+
+    // make sure sourceFolder1/source.txt is completely gone.
+    for (int idx = 0; idx < m_unitTestJobModel->m_cachedJobs.size(); idx++)
+    {
+        AssetProcessor::CachedJobInfo* jobInfo = m_unitTestJobModel->m_cachedJobs[idx];
+        ASSERT_NE(jobInfo->m_elementId.GetInputAssetName(), QString::fromUtf8("sourceFolder1/source.txt"));
+    }
+}
+
 void JobModelUnitTests::SetUp()
 {
+    AssetProcessorTest::SetUp();
+
     m_unitTestJobModel = new UnitTestJobModel();
     AssetProcessor::CachedJobInfo* jobInfo1 = new AssetProcessor::CachedJobInfo();
     jobInfo1->m_elementId.SetInputAssetName("source1.txt");
@@ -143,47 +178,49 @@ void JobModelUnitTests::SetUp()
     jobInfo1->m_elementId.SetJobDescriptor("jobKey");
     jobInfo1->m_jobState = AzToolsFramework::AssetSystem::JobStatus::Completed;
     m_unitTestJobModel->m_cachedJobs.push_back(jobInfo1);
-    m_unitTestJobModel->m_cachedJobsLookup.insert(jobInfo1->m_elementId, m_unitTestJobModel->m_cachedJobs.size() - 1);
+    m_unitTestJobModel->m_cachedJobsLookup.insert(jobInfo1->m_elementId, aznumeric_caster(m_unitTestJobModel->m_cachedJobs.size() - 1));
 
     AssetProcessor::CachedJobInfo* jobInfo2 = new AssetProcessor::CachedJobInfo();
     jobInfo2->m_elementId.SetInputAssetName("source2.txt");
     jobInfo2->m_elementId.SetPlatform("platform");
     jobInfo2->m_elementId.SetJobDescriptor("jobKey");
     m_unitTestJobModel->m_cachedJobs.push_back(jobInfo2);
-    m_unitTestJobModel->m_cachedJobsLookup.insert(jobInfo2->m_elementId, m_unitTestJobModel->m_cachedJobs.size() - 1);
+    m_unitTestJobModel->m_cachedJobsLookup.insert(jobInfo2->m_elementId, aznumeric_caster(m_unitTestJobModel->m_cachedJobs.size() - 1));
 
     AssetProcessor::CachedJobInfo* jobInfo3 = new AssetProcessor::CachedJobInfo();
     jobInfo3->m_elementId.SetInputAssetName("source3.txt");
     jobInfo3->m_elementId.SetPlatform("platform");
     jobInfo3->m_elementId.SetJobDescriptor("jobKey");
     m_unitTestJobModel->m_cachedJobs.push_back(jobInfo3);
-    m_unitTestJobModel->m_cachedJobsLookup.insert(jobInfo3->m_elementId, m_unitTestJobModel->m_cachedJobs.size() - 1);
+    m_unitTestJobModel->m_cachedJobsLookup.insert(jobInfo3->m_elementId, aznumeric_caster(m_unitTestJobModel->m_cachedJobs.size() - 1));
 
     AssetProcessor::CachedJobInfo* jobInfo4 = new AssetProcessor::CachedJobInfo();
     jobInfo4->m_elementId.SetInputAssetName("source4.txt");
     jobInfo4->m_elementId.SetPlatform("platform");
     jobInfo4->m_elementId.SetJobDescriptor("jobKey");
     m_unitTestJobModel->m_cachedJobs.push_back(jobInfo4);
-    m_unitTestJobModel->m_cachedJobsLookup.insert(jobInfo4->m_elementId, m_unitTestJobModel->m_cachedJobs.size() - 1);
+    m_unitTestJobModel->m_cachedJobsLookup.insert(jobInfo4->m_elementId, aznumeric_caster(m_unitTestJobModel->m_cachedJobs.size() - 1));
 
     AssetProcessor::CachedJobInfo* jobInfo5 = new AssetProcessor::CachedJobInfo();
     jobInfo5->m_elementId.SetInputAssetName("source5.txt");
     jobInfo5->m_elementId.SetPlatform("platform");
     jobInfo5->m_elementId.SetJobDescriptor("jobKey");
     m_unitTestJobModel->m_cachedJobs.push_back(jobInfo5);
-    m_unitTestJobModel->m_cachedJobsLookup.insert(jobInfo5->m_elementId, m_unitTestJobModel->m_cachedJobs.size() - 1);
+    m_unitTestJobModel->m_cachedJobsLookup.insert(jobInfo5->m_elementId, aznumeric_caster(m_unitTestJobModel->m_cachedJobs.size() - 1));
 
     AssetProcessor::CachedJobInfo* jobInfo6 = new AssetProcessor::CachedJobInfo();
     jobInfo6->m_elementId.SetInputAssetName("source6.txt");
     jobInfo6->m_elementId.SetPlatform("platform");
     jobInfo6->m_elementId.SetJobDescriptor("jobKey");
     m_unitTestJobModel->m_cachedJobs.push_back(jobInfo6);
-    m_unitTestJobModel->m_cachedJobsLookup.insert(jobInfo6->m_elementId, m_unitTestJobModel->m_cachedJobs.size() - 1);
+    m_unitTestJobModel->m_cachedJobsLookup.insert(jobInfo6->m_elementId, aznumeric_caster(m_unitTestJobModel->m_cachedJobs.size() - 1));
 }
 
 void JobModelUnitTests::TearDown()
 {
     delete m_unitTestJobModel;
+
+    AssetProcessorTest::TearDown();
 }
 
 void JobModelUnitTests::VerifyModel()

@@ -12,6 +12,8 @@
 
 #pragma once
 
+#include <CloudCanvasPythonWorkerInterface.h>
+
 #include <QObject>
 #include <QVariantMap>
 #include <QVariantList>
@@ -19,44 +21,35 @@
 #include <QThread>
 #include <QSharedPointer>
 #include <QScopedPointer>
+#include <Include/PythonWorkerBus.h>
+// MSVC warns that these typedef members are being used and therefore must be acknowledged by using the following macro
+#pragma push_macro("_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS")
+#ifndef _SILENCE_ALL_CXX17_DEPRECATION_WARNINGS
+#define _SILENCE_ALL_CXX17_DEPRECATION_WARNINGS
+#endif
 
-#include <AzCore/EBus/EBus.h>
+// strdup is undefined in Code/CryEngine/CryCommon/platform.h, but it's required by PyBind11
+// Restore the function for the PythonWorker
+#pragma push_macro("strdup")
+#undef strdup
+#define strdup _strdup
+// Qt defines slots, which interferes with the use here.
+#pragma push_macro("slots")
+#undef slots
+#include <Python.h>
+#include <pybind11/pybind11.h>
+#pragma pop_macro("slots")
+#pragma pop_macro("strdup")
 
-// Suppress warning in pymath.h where a conflict with round exists with VS 12.0 math.h ::  pymath.h(22) : warning C4273: 'round' : inconsistent dll linkage
-#pragma warning(disable: 4273)
-#include <boost/python.hpp>
-#pragma warning(default: 4273)
+#pragma pop_macro("_SILENCE_ALL_CXX17_DEPRECATION_WARNINGS")
 
 class CloudCanvasLogger;
 
-namespace py = boost::python;
-
-using PythonWorkerRequestId = int;
-
-class PythonWorkerEvents : public AZ::EBusTraits
-{
-public:
-    using Bus = AZ::EBus<PythonWorkerEvents>;
-
-    // if any OnOutput returns true, it means the command was handled and the worker won't process any further
-    virtual bool OnPythonWorkerOutput(PythonWorkerRequestId requestId, const QString& key, const QVariant& value) = 0;
-};
-
-class PythonWorkerRequests : public AZ::EBusTraits
-{
-public:
-    using Bus = AZ::EBus<PythonWorkerRequests>;
-
-    static const AZ::EBusHandlerPolicy HandlerPolicy = AZ::EBusHandlerPolicy::Single;
-
-    virtual PythonWorkerRequestId AllocateRequestId() = 0;
-    virtual void ExecuteAsync(PythonWorkerRequestId requestId, const char* command, const QVariantMap& args = QVariantMap{}) = 0;
-    virtual bool IsStarted() = 0;
-};
+namespace py = PYBIND11_NAMESPACE;
 
 class PythonWorker
     : public QObject
-    , private PythonWorkerRequests::Bus::Handler
+    , protected PythonWorkerRequestsInterface
 {
     Q_OBJECT
 
@@ -75,7 +68,7 @@ public:
     PythonWorkerRequestId AllocateRequestId() override;
 
     void ExecuteAsync(PythonWorkerRequestId requestId, const char* command, const QVariantMap& args = QVariantMap{}) override;
-   
+
     // End the current interpreter and create a new one.
     //
     // WARNING: If there are any active threads ending the current interpreter
@@ -93,7 +86,7 @@ signals:
 private slots:
     void Execute(PythonWorkerRequestId requestId, QString command, QVariantMap args);
     void Reset();
-    
+
 private:
 
     QThread m_thread;
@@ -119,17 +112,6 @@ private:
     py::object m_execute;
     py::object m_viewOutputFunction;
 
-    class IoRedirect
-    {
-    public:
-
-        void Write(std::string const& str);
-    };
-
-    QScopedPointer<py::class_<IoRedirect> > m_ioRedirectDef;
-
-    IoRedirect m_ioRedirect {};
-
     void LogPythonException();
 
     QString MakeRootPath(const char* relativePath, bool& ok);
@@ -137,8 +119,8 @@ private:
     void LockPython();
     void UnlockPython();
 
-    bool CreateInterpreter();
-    bool InitializeInterpreter();
+    bool CreateInterpreter(const QString& pythonPath);
+    bool InitializeInterpreter(const QString& pythonPath);
     void DestroyInterpreter();
 
     py::dict QVariantMapToPyDict(const QVariantMap& map);

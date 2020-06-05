@@ -164,7 +164,7 @@
             "Metadata": {
                 "CloudCanvas": {
                     "Permissions": {
-						"AbstractRole": "ServiceApi",
+                        "AbstractRole": "ServiceApi",
                         "Action": "lambda:InvokeFunction"
                     }
                 }
@@ -184,12 +184,20 @@
                         ]
                     }
                 },
-                "Handler": "service.dispatch",
+                "Handler": "cgf_lambda_service.dispatch",
                 "Role": {
                     "Fn::GetAtt": [
                         "ServiceLambdaConfiguration",
                         "Role"
                     ]
+                },
+                "Environment": {
+                    "Variables": {
+                        "Fn::GetAtt": [
+                            "ServiceLambdaConfiguration",
+                            "CCSettings"
+                        ]
+                    }
                 },
                 "Runtime": {
                     "Fn::GetAtt": [
@@ -210,7 +218,7 @@
                     "Ref": "ConfigurationKey"
                 },
                 "FunctionName": "ServiceLambda",
-                "Runtime": "python2.7",
+                "Runtime": "python3.7",
                 "ServiceToken": {
                     "Ref": "ProjectResourceHandler"
                 },

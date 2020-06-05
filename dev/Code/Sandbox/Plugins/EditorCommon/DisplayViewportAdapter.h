@@ -22,12 +22,14 @@
 //Local
 #include "EditorCommonAPI.h"
 
-class QViewport;
+class EDITOR_COMMON_API QViewport;
 
+AZ_PUSH_DISABLE_DLL_EXPORT_BASECLASS_WARNING
 class EDITOR_COMMON_API CDisplayViewportAdapter
     : public ::IDisplayViewport
 {
 public:
+AZ_POP_DISABLE_DLL_EXPORT_BASECLASS_WARNING
     CDisplayViewportAdapter(QViewport* viewport);
 
     void Update() override;
@@ -35,6 +37,7 @@ public:
     float GetScreenScaleFactor(const Vec3& position) const override;
     float GetScreenScaleFactor(const CCamera& camera, const Vec3& object_position) override;
     bool HitTestLine(const Vec3& lineP1, const Vec3& lineP2, const QPoint& hitpoint, int pixelRadius, float* pToCameraDistance = 0) const override;
+    float GetDistanceToLine(const Vec3& lineP1, const Vec3& lineP2, const QPoint& point) const override;
     CBaseObjectsCache* GetVisibleObjectsCache() override;
     bool IsBoundsVisible(const AABB& box) const override;
     void GetPerpendicularAxis(EAxis* axis, bool* is2D) const override;
@@ -53,7 +56,9 @@ public:
     void setHitcontext(QPoint& vp, Vec3& raySrc, Vec3& rayDir) override;
 
 private:
+    AZ_PUSH_DISABLE_DLL_EXPORT_MEMBER_WARNING
     mutable Matrix34 m_viewMatrix;
     Matrix34 m_screenMatrix;
+    AZ_POP_DISABLE_DLL_EXPORT_MEMBER_WARNING
     QViewport* m_viewport;
 };

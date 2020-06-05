@@ -21,6 +21,7 @@
 
 #include <Widgets/GraphCanvasCheckBox.h>
 
+#include <GraphCanvas/Editor/GraphCanvasProfiler.h>
 #include <GraphCanvas/tools.h>
 
 namespace GraphCanvas
@@ -44,8 +45,7 @@ namespace GraphCanvas
     {
         prepareGeometryChange();
         m_styleHelper.SetStyle(entityId, styleElement);
-        updateGeometry();
-        adjustSize();        
+        updateGeometry();     
         update();
     }
 
@@ -55,7 +55,6 @@ namespace GraphCanvas
         m_styleHelper.SetScene(sceneId);
         m_styleHelper.SetStyle(style);
         updateGeometry();
-        adjustSize();
         update();
     }
     
@@ -77,6 +76,8 @@ namespace GraphCanvas
 
     void GraphCanvasCheckBox::paint(QPainter* painter, const QStyleOptionGraphicsItem* option, QWidget* widget /*= nullptr*/)
     {
+        GRAPH_CANVAS_DETAILED_PROFILE_FUNCTION();
+
         painter->save();
 
         // Background
@@ -124,7 +125,7 @@ namespace GraphCanvas
 
             QPen checkPen;
             checkPen.setColor(m_styleHelper.GetAttribute(Styling::Attribute::LineColor, QColor(0,0,0)));
-            checkPen.setWidth(m_styleHelper.GetAttribute(Styling::Attribute::LineWidth, 2.0));
+            checkPen.setWidth(m_styleHelper.GetAttribute(Styling::Attribute::LineWidth, 2));
 
             painter->setPen(checkPen);
 

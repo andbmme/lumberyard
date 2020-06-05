@@ -15,7 +15,6 @@
 #include "DriverD3D.h"
 #include "StringUtils.h"
 #include <AzCore/Debug/Profiler.h>
-#include <IJobManager_JobDelegator.h>
 
 #include "../Common/Textures/TextureStreamPool.h"
 
@@ -26,6 +25,18 @@
 
 void CTexture::InitStreamingDev()
 {
+
+#if defined(AZ_RESTRICTED_PLATFORM)
+#undef AZ_RESTRICTED_SECTION
+#define D3DTEXTURESSTREAMING_CPP_SECTION_1 1
+#define D3DTEXTURESSTREAMING_CPP_SECTION_2 2
+#define D3DTEXTURESSTREAMING_CPP_SECTION_3 3
+#define D3DTEXTURESSTREAMING_CPP_SECTION_4 4
+#define D3DTEXTURESSTREAMING_CPP_SECTION_5 5
+#define D3DTEXTURESSTREAMING_CPP_SECTION_6 6
+#define D3DTEXTURESSTREAMING_CPP_SECTION_7 7
+#endif
+
 #if defined(TEXSTRM_DEFERRED_UPLOAD)
     if (CRenderer::CV_r_texturesstreamingDeferred)
     {
@@ -48,14 +59,38 @@ bool CTexture::IsStillUsedByGPU()
     return false;
 }
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DTEXTURESSTREAMING_CPP_SECTION_1
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DTexturesStreaming_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DTexturesStreaming_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DTexturesStreaming_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#else
 
 bool CTexture::StreamPrepare_Platform()
 {
     return true;
 }
 
+#endif
 
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DTEXTURESSTREAMING_CPP_SECTION_2
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DTexturesStreaming_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DTexturesStreaming_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DTexturesStreaming_cpp_salem.inl"
+    #endif
+#endif
 
 void CTexture::StreamExpandMip(const void* vpRawData, int nMip, int nBaseMipOffset, int nSideDelta)
 {
@@ -75,17 +110,22 @@ void CTexture::StreamExpandMip(const void* vpRawData, int nMip, int nBaseMipOffs
     const int nSrcSidePitch = nSrcSurfaceSize + nSideDelta;
 
     SRenderThread* pRT = gRenDev->m_pRT;
-
-    for (int iSide = 0; iSide < nSides; ++iSide)
+    if (mh.m_Mips && mh.m_SideSize > 0)
     {
-        SMipData* mp = &mh.m_Mips[iSide];
-        if (!mp->DataArray)
+        for (int iSide = 0; iSide < nSides; ++iSide)
         {
-            mp->Init(mh.m_SideSize, Align(max(1, m_nWidth >> nMip), vMipAlign.x), Align(max(1, m_nHeight >> nMip), vMipAlign.y));
-        }
+            SMipData* mp = &mh.m_Mips[iSide];
+            if (mp)
+            {
+                if (!mp->DataArray)
+                {
+                    mp->Init(mh.m_SideSize, Align(max(1, m_nWidth >> nMip), vMipAlign.x), Align(max(1, m_nHeight >> nMip), vMipAlign.y));
+                }
 
-        const byte* pRawSideData = pRawData + nSrcSidePitch * iSide;
-        CTexture::ExpandMipFromFile(&mp->DataArray[0], mh.m_SideSize, pRawSideData, nSrcSurfaceSize, m_eTFSrc);
+                const byte* pRawSideData = pRawData + nSrcSidePitch * iSide;
+                CTexture::ExpandMipFromFile(&mp->DataArray[0], mh.m_SideSize, pRawSideData, nSrcSurfaceSize, m_eTFSrc);
+            }
+        }
     }
 }
 
@@ -100,7 +140,21 @@ void STexStreamOutState::CopyMips()
     {
         const int nOldMipOffset = m_nStartMip - tp->m_nMinMipVidUploaded;
         const int nNumMips = tp->GetNumMipsNonVirtual() - m_nStartMip;
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DTEXTURESSTREAMING_CPP_SECTION_3
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DTexturesStreaming_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DTexturesStreaming_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DTexturesStreaming_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#else
         CTexture::StreamCopyMipsTexToTex(tp->m_pFileTexMips->m_pPoolItem, 0 + nOldMipOffset, m_pNewPoolItem, 0, nNumMips);
+#endif
     }
     else
     {
@@ -184,6 +238,16 @@ int CTexture::StreamTrim(int nToMip)
         if (!bCopying)
 #endif
         {
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DTEXTURESSTREAMING_CPP_SECTION_4
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DTexturesStreaming_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DTexturesStreaming_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DTexturesStreaming_cpp_salem.inl"
+    #endif
+#endif
             // it is a sync operation anyway, so we do it in the render thread
             CTexture::StreamCopyMipsTexToTex(m_pFileTexMips->m_pPoolItem, 0 + nOldMipOffset, pNewPoolItem, 0, nNumMips);
             StreamAssignPoolItem(pNewPoolItem, nToMip);
@@ -518,6 +582,16 @@ void CTexture::StreamApplyDeferred(ID3D11CommandList* pCmdList)
 
 #endif
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DTEXTURESSTREAMING_CPP_SECTION_5
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DTexturesStreaming_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DTexturesStreaming_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DTexturesStreaming_cpp_salem.inl"
+    #endif
+#endif
 
 // Just remove item from the texture object and keep Item in Pool list for future use
 // This function doesn't release API texture
@@ -588,6 +662,16 @@ void CTexture::StreamAssignPoolItem(STexPoolItem* pItem, int nMinMip)
         pItem->m_pTex = this;
     }
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DTEXTURESSTREAMING_CPP_SECTION_6
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DTexturesStreaming_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DTexturesStreaming_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DTexturesStreaming_cpp_salem.inl"
+    #endif
+#endif
 
     SAFE_RELEASE(m_pDevTexture);
     m_pDevTexture = pItem->m_pDevTexture;
@@ -684,9 +768,6 @@ STexPoolItem* CTexture::StreamGetPoolItem(int nStartMip, int nMips, bool bShould
         }
     }
 
-    MEMSTAT_CONTEXT(EMemStatContextTypes::MSC_Texture, 0, "Creating Texture");
-    MEMSTAT_CONTEXT_FMT(EMemStatContextTypes::MSC_Texture, 0, "%s %ix%ix%i %08x", m_SrcName.c_str(), m_nWidth, m_nHeight, m_nMips, m_nFlags);
-
     STextureInfo ti;
     std::vector<STextureInfoData> srti;
     STextureInfo* pTI = NULL;
@@ -717,7 +798,6 @@ STexPoolItem* CTexture::StreamGetPoolItem(int nStartMip, int nMips, bool bShould
                 }
                 else
                 {
-                    //  Confetti BEGIN: Igor Lobanchikov
                     int nMipW = Align(max(1, m_nWidth >> nMip), vMipAlign.x);
                     int nPitch = 0;
                     const int BlockDim = vMipAlign.x;
@@ -730,7 +810,6 @@ STexPoolItem* CTexture::StreamGetPoolItem(int nStartMip, int nMips, bool bShould
                     {
                         nPitch = TextureDataSize(nMipW, 1, 1, 1, 1, m_eTFSrc);
                     }
-                    //  Confetti End: Igor Lobanchikov
 
                     ti.m_pData[nSRIdx].pSysMem = md.DataArray;
                     ti.m_pData[nSRIdx].SysMemPitch = nPitch;
@@ -770,6 +849,16 @@ void CTexture::StreamCopyMipsTexToTex(STexPoolItem* pSrcItem, int nMipSrc, STexP
     }
 }
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DTEXTURESSTREAMING_CPP_SECTION_7
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DTexturesStreaming_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DTexturesStreaming_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DTexturesStreaming_cpp_salem.inl"
+    #endif
+#endif
 
 // Debug routines /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #ifndef _RELEASE
@@ -826,7 +915,7 @@ void CTexture::OutputDebugInfo()
     }
 
     char szText[512];
-    sprintf_s(szText, "Size | WantedSize |  MF   | P |  Mips  |  N  | F | Z | S | Name");
+    sprintf_s(szText, "Size(MB) | WantedSize | MipFactor | HighPriority | #Mips(Desired/Current/Actual) | RoundID Normal/Fast | RecentlyUsed | Name");
     r->WriteXY(nX, nY, 1.f, 1.f, 1, 1, 0, 1, szText);
     if (CRenderer::CV_r_TexturesStreamingDebugDumpIntoLog)
     {

@@ -11,9 +11,14 @@
 */
 // Original file Copyright Crytek GMBH or its affiliates, used under license.
 
-#ifndef CRYINCLUDE_CRYCOMMON_INETWORKINGSTATE_H
-#define CRYINCLUDE_CRYCOMMON_INETWORKINGSTATE_H
 #pragma once
 
-
-#endif // CRYINCLUDE_CRYCOMMON_INETWORKINGSTATE_H
+#if defined(AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/INetworkingState_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/INetworkingState_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/INetworkingState_h_salem.inl"
+    #endif
+#endif

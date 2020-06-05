@@ -465,7 +465,7 @@ bool CStatObj::IsSameObject(const char* szFileName, const char* szGeomName)
     // cmp object names
     if (szGeomName)
     {
-        if (_stricmp(szGeomName, m_szGeomName) != 0)
+        if (azstricmp(szGeomName, m_szGeomName) != 0)
         {
             return false;
         }
@@ -490,7 +490,7 @@ bool CStatObj::IsSameObject(const char* szFileName, const char* szGeomName)
     *pszDest = 0;
 
     // cmp file names
-    if (_stricmp(szFileNameNorm, m_szFileName) != 0)
+    if (azstricmp(szFileNameNorm, m_szFileName) != 0)
     {
         return false;
     }
@@ -895,6 +895,8 @@ IStatObj* CStatObj::Clone(bool bCloneGeometry, bool bCloneChildren, bool bMeshes
     pNewObj->m_szFileName = m_szFileName;
     pNewObj->m_szGeomName = m_szGeomName;
 
+    pNewObj->m_cgfNodeName = m_cgfNodeName;
+
     // Default material.
     pNewObj->m_pMaterial = m_pMaterial;
 
@@ -967,7 +969,7 @@ IStatObj* CStatObj::Clone(bool bCloneGeometry, bool bCloneChildren, bool bMeshes
             {
                 pNewObj->m_subObjects[i].pStatObj = m_subObjects[i].pStatObj->Clone(bCloneGeometry, bCloneChildren, bMeshesOnly);
                 pNewObj->m_subObjects[i].pStatObj->AddRef();
-                ((CStatObj*)(pNewObj->m_subObjects[i].pStatObj))->m_pParentObject = this;
+                ((CStatObj*)(pNewObj->m_subObjects[i].pStatObj))->m_pParentObject = pNewObj;
             }
             else
             {
@@ -1140,8 +1142,8 @@ void CStatObj::TryMergeSubObjects(bool bFromStreaming)
                     CStatObj* pStatObj = new CStatObj();
                     pStatObj->m_szFileName = m_szFileName;
                     char lodName[32];
-                    strcpy(lodName, "-mlod");
-                    ltoa(i, lodName + 5, 10);
+                    azstrcpy(lodName, 32, "-mlod");
+                    azltoa(i, lodName + 5, AZ_ARRAY_SIZE(lodName) - 5, 10);
                     pStatObj->m_szFileName.append(lodName);
                     pStatObj->m_szGeomName = m_szGeomName;
                     pStatObj->m_bSubObject = true;
@@ -1173,7 +1175,6 @@ void CStatObj::MergeSubObjectsRenderMeshes(bool bFromStreaming, CStatObj* pLod0,
         return;
     }
 
-    MEMSTAT_CONTEXT(EMemStatContextTypes::MSC_Other, 0, "Merged StatObj");
     FUNCTION_PROFILER_3DENGINE;
     LOADING_TIME_PROFILE_SECTION;
 
@@ -1303,6 +1304,11 @@ bool CStatObj::CanMergeSubObjects()
         return false;
     }
 
+    if (!m_clothInverseMasses.empty())
+    {
+        return false;
+    }
+
     int nSubMeshes = 0;
     int nTotalVertexCount = 0;
     int nTotalTriCount = 0;
@@ -1315,7 +1321,11 @@ bool CStatObj::CanMergeSubObjects()
         if (pSubObj->pStatObj && pSubObj->nType == STATIC_SUB_OBJECT_MESH && !pSubObj->bHidden)
         {
             CStatObj* pStatObj = (CStatObj*)pSubObj->pStatObj;
-            if (pStatObj->m_pMaterial != m_pMaterial || pStatObj->m_nSpines) // All materials must be same, and no bendable foliage
+
+            // Conditions to not merge subobjects
+            if (pStatObj->m_pMaterial != m_pMaterial ||  // Different materials
+                pStatObj->m_nSpines ||                   // It's bendable foliage
+                !pStatObj->m_clothInverseMasses.empty()) // It's cloth
             {
                 return false;
             }
@@ -1405,7 +1415,7 @@ CStatObj::SSubObject* CStatObj::FindSubObject_CGA(const char* sNodeName)
     uint32 numSubObjects = m_subObjects.size();
     for (uint32 i = 0; i < numSubObjects; i++)
     {
-        if (_stricmp(m_subObjects[i].name.c_str(), sNodeName) == 0)
+        if (azstricmp(m_subObjects[i].name.c_str(), sNodeName) == 0)
         {
             return &m_subObjects[i];
         }

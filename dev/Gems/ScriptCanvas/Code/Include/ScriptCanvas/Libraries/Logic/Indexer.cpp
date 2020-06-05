@@ -10,8 +10,6 @@
 *
 */
 
-#include "precompiled.h"
-
 #include "Indexer.h"
 
 #include <Include/ScriptCanvas/Libraries/Logic/Indexer.generated.cpp>
@@ -22,24 +20,24 @@ namespace ScriptCanvas
     {
         namespace Logic
         {
-            Indexer::Indexer()
-                : Node()
-                , m_out(-1)
-            {}
-
-            void Indexer::OnInputSignal(const SlotId& slot)
+            void Indexer::OnInputSignal(const SlotId& slotId)
             {
-                auto slotIt = m_slotContainer.m_slotIdSlotMap.find(slot);
-                if (slotIt != m_slotContainer.m_slotIdSlotMap.end())
+                auto slotIndex = FindSlotIndex(slotId);
+                if (slotIndex < 0)
                 {
-                    m_out = slotIt->second;
+                    AZ_Warning("Script Canvas", false, "Could not find slot with id %s", slotId.ToString().c_str());
+                    return;
                 }
 
-                const Datum output = Datum::CreateInitializedCopy(m_out);
-                PushOutput(output, m_slotContainer.m_slots[k_outputIndex]);
+                const Datum output(slotIndex);
 
-                const SlotId outSlot = IndexerProperty::GetOutSlotId(this);
-                SignalOutput(outSlot);
+                const SlotId outSlotId = IndexerProperty::GetOutSlotId(this);
+                if (auto outSlot = GetSlot(outSlotId))
+                {
+                    PushOutput(output, *outSlot);
+                }
+
+                SignalOutput(outSlotId);
             }
         }
     }

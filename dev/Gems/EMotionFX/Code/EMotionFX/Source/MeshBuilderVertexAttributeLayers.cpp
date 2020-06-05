@@ -13,10 +13,14 @@
 // include the required headers
 #include "MeshBuilderVertexAttributeLayers.h"
 #include <MCore/Source/Compare.h>
-
+#include <EMotionFX/Source/Allocators.h>
 
 namespace EMotionFX
 {
+    AZ_CLASS_ALLOCATOR_IMPL(MeshBuilderVertexLookup, MeshAllocator, 0)
+    AZ_CLASS_ALLOCATOR_IMPL(MeshBuilderVertexAttributeLayer, MeshAllocator, 0)
+
+
     // creation
     MeshBuilderVertexAttributeLayerVector2* MeshBuilderVertexAttributeLayerVector2::Create(uint32 numOrgVerts, uint32 layerTypeID, bool isScale, bool isDeformable)
     {
@@ -55,7 +59,7 @@ namespace EMotionFX
 
     void MeshBuilderVertexAttributeLayerVector3::ConvertEndian(uint32 orgVtx, uint32 duplicate, MCore::Endian::EEndianType fromEndian, MCore::Endian::EEndianType targetEndian)
     {
-        AZ::PackedVector3f& value = mVertices[orgVtx][duplicate].mValue;
+        AZ::Vector3& value = mVertices[orgVtx][duplicate].mValue;
         MCore::Endian::ConvertVector3(&value, fromEndian, targetEndian);
     }
 
@@ -90,7 +94,7 @@ namespace EMotionFX
 
     bool MeshBuilderVertexAttributeLayerVector3::CheckIfIsVertexEqual(uint32 orgVtx, uint32 duplicate) const
     {
-        const AZ::PackedVector3f& value = mVertices[orgVtx][duplicate].mValue;
+        const AZ::Vector3& value = mVertices[orgVtx][duplicate].mValue;
         return  (
             MCore::Compare<float>::CheckIfIsClose(value.GetX(), mVertexValue.GetX(), 0.00001f) &&
             MCore::Compare<float>::CheckIfIsClose(value.GetY(), mVertexValue.GetY(), 0.00001f) &&

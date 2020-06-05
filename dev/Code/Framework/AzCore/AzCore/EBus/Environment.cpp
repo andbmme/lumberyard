@@ -21,7 +21,11 @@ namespace AZ
             // When we create Global context we store addition information for access 
             // to the TLS Environment and context index to support EBusEnvironmnets
             // hold a reference to the variable (even though we will never release it)
-            static EnvironmentVariable<Internal::EBusEnvironmentTLSAccessors> s_tlsAccessor = Environment::CreateVariable<Internal::EBusEnvironmentTLSAccessors>(Internal::EBusEnvironmentTLSAccessors::GetId());
+            static EnvironmentVariable<Internal::EBusEnvironmentTLSAccessors> s_tlsAccessor = nullptr;
+            if (!s_tlsAccessor)
+            {
+                s_tlsAccessor = Environment::CreateVariable<Internal::EBusEnvironmentTLSAccessors>(Internal::EBusEnvironmentTLSAccessors::GetId());
+            }
 
             m_ebusEnvironmentGetter = s_tlsAccessor->m_getter;
             m_ebusEnvironmentTLSIndex = s_tlsAccessor->m_numUniqueEBuses++;
@@ -65,6 +69,28 @@ namespace AZ
             s_tlsCurrentEnvironment = environment;
         }
 
+        EBusEnvironmentAllocator::EBusEnvironmentAllocator()
+            : m_name("EBusEnvironmentAllocator")
+        {
+            m_allocator = Environment::GetInstance()->GetAllocator();
+        }
+
+        EBusEnvironmentAllocator::EBusEnvironmentAllocator(const EBusEnvironmentAllocator& rhs)
+            : m_name(rhs.m_name)
+            , m_allocator(rhs.m_allocator)
+        {
+        }
+
+        EBusEnvironmentAllocator::pointer_type EBusEnvironmentAllocator::allocate(size_t byteSize, size_t alignment, int)
+        {
+            return m_allocator->Allocate(byteSize, alignment);
+        }
+        
+        void EBusEnvironmentAllocator::deallocate(pointer_type ptr, size_type, size_type)
+        {
+            m_allocator->DeAllocate(ptr);
+        }
+
     } // namespace Internal
 
     //////////////////////////////////////////////////////////////////////////
@@ -104,12 +130,8 @@ namespace AZ
         AZ_Assert(m_stackPrevEnvironment == reinterpret_cast<EBusEnvironment*>(AZ_INVALID_POINTER), "Environment %p is already active on another thread. This is illegal!", this);
 #endif // AZ_DEBUG_BUILD
 
-#if !defined(AZ_PLATFORM_APPLE) // thread_local not supported prior to iOS9 
         m_stackPrevEnvironment = m_tlsAccessor->m_getter();
         m_tlsAccessor->m_setter(this);
-#else
-        AZ_Error("System", false, "EBus environments are currently NOT support on Apple platforms! This is true until our minimal spec supports thread_local variables!");
-#endif
     }
 
     //////////////////////////////////////////////////////////////////////////
@@ -119,11 +141,7 @@ namespace AZ
         AZ_Assert(m_stackPrevEnvironment != reinterpret_cast<EBusEnvironment*>(AZ_INVALID_POINTER), "Environment %p is not active you can't call Deactivate!", this);
 #endif // AZ_DEBUG_BUILD
 
-#if !defined(AZ_PLATFORM_APPLE) // thread_local not supported prior to iOS9 
         m_tlsAccessor->m_setter(m_stackPrevEnvironment);
-#else
-        AZ_Error("System", false, "EBus environments are currently NOT support on Apple platforms! This is true until our minimal spec supports thread_local variables!");
-#endif // 
 
 #ifdef AZ_DEBUG_BUILD
         m_stackPrevEnvironment = reinterpret_cast<EBusEnvironment*>(AZ_INVALID_POINTER);

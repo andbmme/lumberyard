@@ -789,7 +789,7 @@ void SplineWidget::DrawGrid(QPainter* painter)
             if ((v >= m_valueRange.start && v <= m_valueRange.end) || fabs(v - m_valueRange.start) < 0.01f || fabs(v - m_valueRange.end) < 0.01f)
             {
                 painter->setPen(Qt::black);
-                painter->drawStaticText(m_rcClient.left() + 2, py - 8, QString::number(v));
+                painter->drawText(m_rcClient.left() + 2, py - 8, QString::number(v));
             }
         }
     }
@@ -1940,9 +1940,16 @@ void AbstractSplineWidget::StopTracking()
     }
     else if (m_pCurrentUndo && (m_cMousePos == m_cMouseDownPos))
     {
-        if (m_editMode == SelectMode && m_pCurrentUndo->IsSelectionChanged())
+        if (m_editMode == SelectMode)
         {
-            GetIEditor()->AcceptUndo("Key Selection");
+            if (m_pCurrentUndo->IsSelectionChanged())
+            {
+                GetIEditor()->AcceptUndo("Key Selection");
+            }
+            else
+            {
+                GetIEditor()->CancelUndo();
+            }
         }
         else if ((m_editMode == TrackingMode))
         {
@@ -1953,6 +1960,9 @@ void AbstractSplineWidget::StopTracking()
     {
         GetIEditor()->CancelUndo();
     }
+
+    // Undo has been accepted or cancelled, so clear the m_pCurrentUndo pointer.
+    m_pCurrentUndo = nullptr;
 
     m_editMode = NothingMode;
     releaseMouseImpl();
@@ -2376,8 +2386,7 @@ void AbstractSplineWidget::RedrawWindowAroundMarker()
     int redrawRangeEnd = (keyTimeIndex < int(m_keyTimes.size()) - 2 ? TimeToXOfs(m_keyTimes[keyTimeIndex + 2].time) : m_rcSpline.right() + 1);
 
     QRect rc(QPoint(redrawRangeStart, m_rcSpline.top()), QPoint(redrawRangeEnd, m_rcSpline.bottom() + 1) - QPoint(1, 1));
-    rc.normalized();
-    rc = rc.intersected(m_rcSpline);
+    rc = rc.normalized().intersected(m_rcSpline);
 
     m_TimeUpdateRect = QRect(QPoint(1, 2), QSize(2, 2));
     update(rc);

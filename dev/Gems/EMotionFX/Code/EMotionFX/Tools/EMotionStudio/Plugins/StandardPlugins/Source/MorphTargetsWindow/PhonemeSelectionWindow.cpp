@@ -10,11 +10,11 @@
 *
 */
 
-#include <AzFramework/StringFunc/StringFunc.h>
 #include "PhonemeSelectionWindow.h"
 #include "MorphTargetsWindowPlugin.h"
 #include <EMotionFX/Source/MorphSetup.h>
 #include "../../../../EMStudioSDK/Source/EMStudioManager.h"
+#include <MCore/Source/StringConversions.h>
 #include <QLabel>
 #include <QPixmap>
 #include <QVBoxLayout>
@@ -304,17 +304,17 @@ namespace EMStudio
         UpdateInterface();
 
         // connect signals to the slots
-        connect(mPossiblePhonemeSetsTable, SIGNAL(itemSelectionChanged()), this, SLOT(PhonemeSelectionChanged()));
-        connect(mSelectedPhonemeSetsTable, SIGNAL(itemSelectionChanged()), this, SLOT(PhonemeSelectionChanged()));
-        connect(mPossiblePhonemeSetsTable, SIGNAL(dataDropped()),          this, SLOT(RemoveSelectedPhonemeSets()));
-        connect(mRemovePhonemesButton,     SIGNAL(clicked()),              this, SLOT(RemoveSelectedPhonemeSets()));
-        connect(mRemovePhonemesButtonArrow, SIGNAL(clicked()),              this, SLOT(RemoveSelectedPhonemeSets()));
-        connect(mAddPhonemesButton,        SIGNAL(clicked()),              this, SLOT(AddSelectedPhonemeSets()));
-        connect(mAddPhonemesButtonArrow,   SIGNAL(clicked()),              this, SLOT(AddSelectedPhonemeSets()));
-        connect(mSelectedPhonemeSetsTable, SIGNAL(dataDropped()),          this, SLOT(AddSelectedPhonemeSets()));
-        connect(mClearPhonemesButton,      SIGNAL(clicked()),              this, SLOT(ClearSelectedPhonemeSets()));
-        connect(mPossiblePhonemeSetsTable, SIGNAL(itemDoubleClicked(QTableWidgetItem*)),   this, SLOT(AddSelectedPhonemeSets()));
-        connect(mSelectedPhonemeSetsTable, SIGNAL(itemDoubleClicked(QTableWidgetItem*)),   this, SLOT(RemoveSelectedPhonemeSets()));
+        connect(mPossiblePhonemeSetsTable, &DragTableWidget::itemSelectionChanged, this, &PhonemeSelectionWindow::PhonemeSelectionChanged);
+        connect(mSelectedPhonemeSetsTable, &DragTableWidget::itemSelectionChanged, this, &PhonemeSelectionWindow::PhonemeSelectionChanged);
+        connect(mPossiblePhonemeSetsTable, &DragTableWidget::dataDropped,          this, &PhonemeSelectionWindow::RemoveSelectedPhonemeSets);
+        connect(mRemovePhonemesButton,     &QPushButton::clicked,              this, &PhonemeSelectionWindow::RemoveSelectedPhonemeSets);
+        connect(mRemovePhonemesButtonArrow, &QPushButton::clicked,              this, &PhonemeSelectionWindow::RemoveSelectedPhonemeSets);
+        connect(mAddPhonemesButton,        &QPushButton::clicked,              this, &PhonemeSelectionWindow::AddSelectedPhonemeSets);
+        connect(mAddPhonemesButtonArrow,   &QPushButton::clicked,              this, &PhonemeSelectionWindow::AddSelectedPhonemeSets);
+        connect(mSelectedPhonemeSetsTable, &DragTableWidget::dataDropped,          this, &PhonemeSelectionWindow::AddSelectedPhonemeSets);
+        connect(mClearPhonemesButton,      &QPushButton::clicked,              this, &PhonemeSelectionWindow::ClearSelectedPhonemeSets);
+        connect(mPossiblePhonemeSetsTable, &DragTableWidget::itemDoubleClicked,   this, &PhonemeSelectionWindow::AddSelectedPhonemeSets);
+        connect(mSelectedPhonemeSetsTable, &DragTableWidget::itemDoubleClicked,   this, &PhonemeSelectionWindow::RemoveSelectedPhonemeSets);
     }
 
 
@@ -356,7 +356,7 @@ namespace EMStudio
 
             // get the phoneme set name
             EMotionFX::MorphTarget::EPhonemeSet phonemeSet = (EMotionFX::MorphTarget::EPhonemeSet)(1 << i);
-            const AZStd::string phonemeSetName = mMorphTarget->GetPhonemeSetString(phonemeSet).AsChar();
+            const AZStd::string phonemeSetName = mMorphTarget->GetPhonemeSetString(phonemeSet).c_str();
 
             // set the row count for the possible phoneme sets table
             mPossiblePhonemeSetsTable->setRowCount(insertPosition + 1);
@@ -367,7 +367,7 @@ namespace EMStudio
             mPossiblePhonemeSetsTable->setItem(insertPosition, 0, item);
 
             // create the visime widget and add it to the table
-            const AZStd::string filename = AZStd::string::format("%s/Images/Visimes/%s.png", MysticQt::GetDataDir().AsChar(), phonemeSetName.c_str());
+            const AZStd::string filename = AZStd::string::format("%s/Images/Visimes/%s.png", MysticQt::GetDataDir().c_str(), phonemeSetName.c_str());
             VisimeWidget* visimeWidget = new VisimeWidget(filename);
             mPossiblePhonemeSetsTable->setCellWidget(insertPosition, 0, visimeWidget);
 
@@ -379,21 +379,24 @@ namespace EMStudio
         }
 
         // fill the table with the selected phoneme sets
-        const MCore::String selectedPhonemeSets = mMorphTarget->GetPhonemeSetString(mMorphTarget->GetPhonemeSets());
-        const MCore::Array<MCore::String> splittedPhonemeSets = selectedPhonemeSets.Split(MCore::UnicodeCharacter::comma);
+        const AZStd::string selectedPhonemeSets = mMorphTarget->GetPhonemeSetString(mMorphTarget->GetPhonemeSets());
 
-        const uint32 numSelectedPhonemeSets = splittedPhonemeSets.GetLength();
+        AZStd::vector<AZStd::string> splittedPhonemeSets;
+        AzFramework::StringFunc::Tokenize(selectedPhonemeSets.c_str(), splittedPhonemeSets, MCore::CharacterConstants::comma, true /* keep empty strings */, true /* keep space strings */);
+
+
+        const uint32 numSelectedPhonemeSets = static_cast<uint32>(splittedPhonemeSets.size());
         mSelectedPhonemeSetsTable->setRowCount(numSelectedPhonemeSets);
         for (uint32 i = 0; i < numSelectedPhonemeSets; ++i)
         {
             // create dummy table widget item.
-            const EMotionFX::MorphTarget::EPhonemeSet phonemeSet = mMorphTarget->FindPhonemeSet(splittedPhonemeSets[i].AsChar());
-            QTableWidgetItem* item = new QTableWidgetItem(splittedPhonemeSets[i].AsChar());
+            const EMotionFX::MorphTarget::EPhonemeSet phonemeSet = mMorphTarget->FindPhonemeSet(splittedPhonemeSets[i].c_str());
+            QTableWidgetItem* item = new QTableWidgetItem(splittedPhonemeSets[i].c_str());
             item->setToolTip(GetPhonemeSetExample(phonemeSet));
             mSelectedPhonemeSetsTable->setItem(i, 0, item);
 
             // create the visime widget and add it to the table
-            const AZStd::string filename = AZStd::string::format("%s/Images/Visimes/%s.png", MysticQt::GetDataDir().AsChar(), splittedPhonemeSets[i].AsChar());
+            const AZStd::string filename = AZStd::string::format("%s/Images/Visimes/%s.png", MysticQt::GetDataDir().c_str(), splittedPhonemeSets[i].c_str());
             VisimeWidget* visimeWidget = new VisimeWidget(filename);
             mSelectedPhonemeSetsTable->setCellWidget(i, 0, visimeWidget);
 

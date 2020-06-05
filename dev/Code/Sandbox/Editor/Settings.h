@@ -104,12 +104,14 @@ struct SToolViewSettings
 struct SDeepSelectionSettings
 {
     SDeepSelectionSettings()
-        : fRange(1.f){}
+        : fRange(1.f)
+        , bStickDuplicate(false) {}
 
     //! If there are other objects hit within this value, one of them needs
     //! to be selected by user.
     //! If this value is 0.f, then deep selection mode won't work.
     float fRange;
+    bool bStickDuplicate;
 };
 
 //////////////////////////////////////////////////////////////////////////
@@ -148,81 +150,6 @@ struct SObjectColors
     float fBBoxAlpha;
     float fGeomAlpha;
     float fChildGeomAlpha;
-};
-
-//////////////////////////////////////////////////////////////////////////
-struct SHyperGraphColors
-{
-    SHyperGraphColors()
-    {
-        opacity = 75.0f;
-        colorArrow = QColor(25, 25, 25);
-        colorInArrowHighlighted = QColor(255, 0, 0);
-        colorOutArrowHighlighted = QColor(0, 161, 222);
-        colorPortEdgeHighlighted = QColor(0, 161, 222);
-        colorArrowDisabled = QColor(50, 50, 50);
-        colorNodeOutline = QColor(60, 60, 60);
-        colorNodeOutlineSelected = QColor(0, 161, 222);
-        colorNodeBkg = QColor(60, 60, 60);
-        colorNodeSelected = QColor(0, 161, 222);
-        colorTitleText = QColor(0, 0, 0);
-        colorTitleTextSelected = QColor(0, 0, 0);
-        colorText = QColor(191, 191, 191);
-        colorBackground = QColor(86, 86, 86);
-        colorGrid = QColor(80, 80, 80);
-        colorBreakPoint = QColor(255, 0, 0);
-        colorBreakPointDisabled = QColor(255, 0, 0);
-        colorBreakPointArrow = QColor(255, 255, 0);
-        colorEntityPortNotConnected = QColor(255, 90, 90);
-        colorPort = QColor(80, 80, 80);
-        colorPortSelected = QColor(0, 161, 222);
-        colorEntityTextInvalid = QColor(255, 255, 255);
-        colorDownArrow = QColor(25, 25, 25);
-        colorCustomNodeBkg = QColor(170, 170, 170);
-        colorCustomSelectedNodeBkg = QColor(225, 255, 245);
-        colorPortDebugging = QColor(228, 202, 66);
-        colorPortDebuggingText = QColor(0, 0, 0);
-        colorQuickSearchBackground = QColor(60, 60, 60);
-        colorQuickSearchResultText = QColor(0, 161, 222);
-        colorQuickSearchCountText = QColor(255, 255, 255);
-        colorQuickSearchBorder = QColor(0, 0, 0);
-        colorDebugNodeTitle = QColor(220, 180, 20);
-        colorDebugNode = QColor(190, 60, 60);
-    }
-
-    float opacity;
-    QColor colorArrow;
-    QColor colorInArrowHighlighted;
-    QColor colorOutArrowHighlighted;
-    QColor colorPortEdgeHighlighted;
-    QColor colorArrowDisabled;
-    QColor colorNodeOutline;
-    QColor colorNodeOutlineSelected;
-    QColor colorNodeBkg;
-    QColor colorNodeSelected;
-    QColor colorTitleTextSelected;
-    QColor colorTitleText;
-    QColor colorText;
-    QColor colorBackground;
-    QColor colorGrid;
-    QColor colorBreakPoint;
-    QColor colorBreakPointDisabled;
-    QColor colorBreakPointArrow;
-    QColor colorEntityPortNotConnected;
-    QColor colorPort;
-    QColor colorPortSelected;
-    QColor colorEntityTextInvalid;
-    QColor colorDownArrow;
-    QColor colorCustomNodeBkg;
-    QColor colorCustomSelectedNodeBkg;
-    QColor colorPortDebugging;
-    QColor colorPortDebuggingText;
-    QColor colorQuickSearchBackground;
-    QColor colorQuickSearchResultText;
-    QColor colorQuickSearchCountText;
-    QColor colorQuickSearchBorder;
-    QColor colorDebugNodeTitle;
-    QColor colorDebugNode;
 };
 
 //////////////////////////////////////////////////////////////////////////
@@ -337,6 +264,12 @@ struct SMetricsSettings
 };
 
 //////////////////////////////////////////////////////////////////////////
+struct SSliceSettings
+{
+    bool dynamicByDefault;
+};
+
+//////////////////////////////////////////////////////////////////////////
 struct SAssetBrowserSettings
 {
     // stores the default thumb size
@@ -413,7 +346,9 @@ struct SANDBOX_API SEditorSettings
     // Variables.
     //////////////////////////////////////////////////////////////////////////
     int undoLevels;
+    bool m_undoSliceOverrideSaveValue;
     bool bShowDashboardAtStartup;
+    bool m_showCircularDependencyError;
     bool bAutoloadLastLevelAtStartup;
     bool bMuteAudio;
     bool bEnableGameModeVR;
@@ -426,6 +361,7 @@ struct SANDBOX_API SEditorSettings
     bool invertYRotation;
     bool invertPan;
     bool stylusMode; // if stylus mode is enabled, no setCursorPos will be performed (WACOM tablets, etc)
+    bool restoreViewportCamera; // When true, restore the original editor viewport camera when exiting game mode
 
     //! Hide mask for objects.
     int objectHideMask;
@@ -438,6 +374,7 @@ struct SANDBOX_API SEditorSettings
     //////////////////////////////////////////////////////////////////////////
     SViewportsSettings viewports;
 
+    AZ_PUSH_DISABLE_DLL_EXPORT_MEMBER_WARNING
     SToolViewSettings toolViewSettings;
 
     //////////////////////////////////////////////////////////////////////////
@@ -514,12 +451,6 @@ struct SANDBOX_API SEditorSettings
 
     SGUI_Settings gui;
 
-    SHyperGraphColors hyperGraphColors;
-    bool              bFlowGraphMigrationEnabled;
-    bool              bFlowGraphShowNodeIDs;
-    bool              bFlowGraphShowToolTip;
-    bool              bFlowGraphEdgesOnTopOfNodes;
-    bool                            bFlowGraphHighlightEdges;
     bool              bApplyConfigSpecInEditor;
 
     ESystemConfigSpec editorConfigSpec;
@@ -560,11 +491,11 @@ struct SANDBOX_API SEditorSettings
     // Enable Double Clicking in Layer Editor
     bool bLayerDoubleClicking;
 
-    // FlowGraph scripting direction notification.
-    bool showFlowgraphNotification;
-
     // Enable the option do get detailed information about the loaded scene data in the Scene Settings window.
     bool enableSceneInspector;
+
+    // Enable the legacy UI (deprecated)
+    bool enableLegacyUI;
 
     // Deep Selection Mode Settings
     SDeepSelectionSettings deepSelectionSettings;
@@ -574,6 +505,7 @@ struct SANDBOX_API SEditorSettings
 
     // Vertex Snapping Settings
     SVertexSnappingSettings vertexSnappingSettings;
+    AZ_POP_DISABLE_DLL_EXPORT_MEMBER_WARNING
 
     // Mannequin Settings
     SMannequinSettings mannequinSettings;
@@ -597,7 +529,11 @@ struct SANDBOX_API SEditorSettings
 
     SMetricsSettings sMetricsSettings;
 
+    SSliceSettings sliceSettings;
+
     bool bEnableUI2;
+
+    bool newViewportInteractionModel = false; ///< Toggle for new Viewport Interaction Model.
 
 private:
     void SaveValue(const char* sSection, const char* sKey, int value);

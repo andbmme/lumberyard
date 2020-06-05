@@ -19,10 +19,7 @@
 #include "StatObj.h"
 #include "ObjMan.h"
 #include "VisAreas.h"
-#include "terrain_sector.h"
 #include "3dEngine.h"
-#include "3dEngine.h"
-#include "terrain.h"
 #include "ILMSerializationManager.h"
 #include "TimeOfDay.h"
 #include "AABBSV.h"
@@ -131,7 +128,7 @@ void CVisAreaManager::GetNearestCubeProbe(float& fMinDistance, int& nMaxPriority
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-void CVisAreaManager::GetObjectsByType(PodArray<IRenderNode*>& lstObjects, EERType objType, const AABB* pBBox)
+void CVisAreaManager::GetObjectsByType(PodArray<IRenderNode*>& lstObjects, EERType objType, const AABB* pBBox, ObjectTreeQueryFilterCallback filterCallback)
 {
     {
         uint32 dwSize = m_lstVisAreas.Count();
@@ -142,7 +139,7 @@ void CVisAreaManager::GetObjectsByType(PodArray<IRenderNode*>& lstObjects, EERTy
             {
                 if (!pBBox || Overlap::AABB_AABB(*m_lstVisAreas[dwI]->GetAABBox(), *pBBox))
                 {
-                    m_lstVisAreas[dwI]->m_pObjectsTree->GetObjectsByType(lstObjects, objType, pBBox);
+                    m_lstVisAreas[dwI]->m_pObjectsTree->GetObjectsByType(lstObjects, objType, pBBox, filterCallback);
                 }
             }
         }
@@ -157,7 +154,7 @@ void CVisAreaManager::GetObjectsByType(PodArray<IRenderNode*>& lstObjects, EERTy
             {
                 if (!pBBox || Overlap::AABB_AABB(*m_lstPortals[dwI]->GetAABBox(), *pBBox))
                 {
-                    m_lstPortals[dwI]->m_pObjectsTree->GetObjectsByType(lstObjects, objType, pBBox);
+                    m_lstPortals[dwI]->m_pObjectsTree->GetObjectsByType(lstObjects, objType, pBBox, filterCallback);
                 }
             }
         }
@@ -670,7 +667,7 @@ bool CVisArea::IsPointInsideVisArea(const Vec3& vPos) const
     const int kNumPoints = m_lstShapePoints.Count();
     if (kNumPoints)
     {
-        Vec3* pLstShapePoints = &m_lstShapePoints[0];
+        const Vec3* pLstShapePoints = &m_lstShapePoints[0];
         PrefetchLine(pLstShapePoints, 0);
         if (Overlap::Point_AABB(vPos, m_boxArea))
         {

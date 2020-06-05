@@ -47,7 +47,7 @@ namespace RenderGL
         void Render2DLines(Line2D* lines, uint32 numLines) override;
 
         // util mesh rendering
-        void RenderUtilMesh(UtilMesh* mesh, const MCore::RGBAColor& color, const MCore::Matrix& globalTM) override;
+        void RenderUtilMesh(UtilMesh* mesh, const MCore::RGBAColor& color, const AZ::Transform& globalTM) override;
         bool GetIsMeshRenderingSupported() const override           { return true; }
 
         // triangle rendering
@@ -99,7 +99,7 @@ namespace RenderGL
             MCORE_MEMORYOBJECTCATEGORY(GLRenderUtil::TextEntry, MCore::MCORE_DEFAULT_ALIGNMENT, MEMCATEGORY_RENDERING);
             uint32                  mX;
             uint32                  mY;
-            MCore::String           mText;
+            AZStd::string           mText;
             float                   mLifeTime;
             MCore::RGBAColor        mColor;
             float                   mFontSize;

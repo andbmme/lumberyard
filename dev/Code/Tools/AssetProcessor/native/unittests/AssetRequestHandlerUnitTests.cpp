@@ -9,7 +9,6 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
-#if defined(UNIT_TEST)
 #include "AssetRequestHandlerUnitTests.h"
 
 #include "native/utilities/assetUtils.h"
@@ -109,10 +108,10 @@ void AssetRequestHandlerUnitTests::StartTest()
     // ------- FIRST TEST ----------------- create a request to process an asset that does not exist in db and also does not exist in queue:
     QByteArray buffer;
     NetworkRequestID requestId(1, 1234);
-    AzFramework::AssetSystem::RequestAssetStatus request("test.dds", true);
+    AzFramework::AssetSystem::RequestAssetStatus request("test.dds", true, true);
     AssetProcessor::PackMessage(request, buffer);
     requestHandler.m_fenceFileName = QString();
-    QMetaObject::invokeMethod(&requestHandler, "OnNewIncomingRequest", Qt::DirectConnection, Q_ARG(unsigned int, requestId.first), Q_ARG(unsigned int, requestId.second), Q_ARG(QByteArray, buffer), Q_ARG(QString, "pc"));
+    requestHandler.OnNewIncomingRequest(requestId.first, requestId.second, buffer, "pc");
     QCoreApplication::processEvents(QEventLoop::AllEvents);
     UNIT_TEST_EXPECT_TRUE(requestHandler.m_requestReadyCount == 1);
     UNIT_TEST_EXPECT_TRUE(requestHandler.m_fencingFailed);
@@ -325,6 +324,3 @@ void AssetRequestHandlerUnitTests::StartTest()
 }
 
 #include <native/unittests/AssetRequestHandlerUnitTests.moc>
-
-#endif // UNIT_TEST
-

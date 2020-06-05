@@ -25,10 +25,14 @@
 #include "MotionEventTable.h"
 #include "Node.h"
 #include "EventManager.h"
+#include <EMotionFX/Source/Allocators.h>
 
 
 namespace EMotionFX
 {
+    AZ_CLASS_ALLOCATOR_IMPL(WaveletSkeletalMotion, MotionAllocator, 0)
+    AZ_CLASS_ALLOCATOR_IMPL(WaveletSkeletalMotion::Chunk, MotionAllocator, 0)
+
     //-------------------------------------------------------------------------------------------------
     // class WaveletSkeletalMotion::Chunk
     //-------------------------------------------------------------------------------------------------
@@ -75,7 +79,7 @@ namespace EMotionFX
     // create
     WaveletSkeletalMotion::Chunk* WaveletSkeletalMotion::Chunk::Create()
     {
-        return new Chunk();
+        return aznew Chunk();
     }
 
 
@@ -129,7 +133,7 @@ namespace EMotionFX
     // create
     WaveletSkeletalMotion* WaveletSkeletalMotion::Create(const char* name)
     {
-        return new WaveletSkeletalMotion(name);
+        return aznew WaveletSkeletalMotion(name);
     }
 
 
@@ -203,7 +207,7 @@ namespace EMotionFX
         )
 
         const uint32 numSubMotions = skeletalMotion->GetNumSubMotions();
-        mSubMotions.Resize(numSubMotions);
+        mSubMotions.resize(numSubMotions);
         mSubMotionMap.Resize(numSubMotions);
         for (uint32 i = 0; i < numSubMotions; ++i)
         {
@@ -242,8 +246,8 @@ namespace EMotionFX
 
         // pre-alloc space used for the compression
         BufferInfo buffers;
-        buffers.mUncompressedRotations  = (MCore::Quaternion*)MCore::Allocate(numSamples * sizeof(MCore::Quaternion) * numSubMotions);
-        buffers.mUncompressedVectors    = (AZ::PackedVector3f*)MCore::Allocate(numSamples * sizeof(AZ::PackedVector3f) * numSubMotions);
+        buffers.mUncompressedRotations  = (AZ::Quaternion*)MCore::AlignedAllocate(numSamples * sizeof(AZ::Quaternion) * numSubMotions);
+        buffers.mUncompressedVectors    = (AZ::Vector3*)MCore::AlignedAllocate(numSamples * sizeof(AZ::Vector3) * numSubMotions, static_cast<uint16>(AZStd::alignment_of<AZ::Vector3>()));
         buffers.mCoeffBuffer            = (float*)MCore::Allocate(sizeof(float) * numSamples * numSubMotions * 4 * 2);
         buffers.mQuantBuffer            = (int16*)MCore::Allocate(sizeof(int16) * numSamples * numSubMotions * 4 * 2);
 
@@ -260,7 +264,7 @@ namespace EMotionFX
         uint16 morphIndex = 0;
 
         const uint32 numMorphSubMotions = skeletalMotion->GetNumMorphSubMotions();
-        mMorphSubMotions.Resize(numMorphSubMotions);
+        mMorphSubMotions.resize(numMorphSubMotions);
         mMorphSubMotionMap.Resize(numMorphSubMotions);
         for (uint32 i = 0; i < numMorphSubMotions; ++i)
         {
@@ -296,8 +300,8 @@ namespace EMotionFX
         }
 
         // free temp buffers
-        MCore::Free(buffers.mUncompressedRotations);
-        MCore::Free(buffers.mUncompressedVectors);
+        MCore::AlignedFree(buffers.mUncompressedRotations);
+        MCore::AlignedFree(buffers.mUncompressedVectors);
         MCore::Free(buffers.mUncompressedMorphs);
         MCore::Free(buffers.mCoeffBuffer);
         MCore::Free(buffers.mQuantBuffer);
@@ -308,22 +312,22 @@ namespace EMotionFX
             SkeletalSubMotion* subMotion = skeletalMotion->GetSubMotion(s);
             if (subMotion->GetRotTrack())
             {
-                mUncompressedSize += (uint32)((mSecondsPerChunk * 30.0f) * mChunks.GetLength() * (sizeof(MCore::Quaternion) + sizeof(float)));
+                mUncompressedSize += (uint32)((mSecondsPerChunk * 30.0f) * mChunks.GetLength() * (sizeof(AZ::Quaternion) + sizeof(float)));
                 mOptimizedSize += subMotion->GetRotTrack()->GetNumKeys() * (sizeof(MCore::Compressed16BitQuaternion) + sizeof(float));
             }
 
             if (subMotion->GetPosTrack())
             {
-                mUncompressedSize += (uint32)((mSecondsPerChunk * 30.0f) * mChunks.GetLength() * (sizeof(AZ::PackedVector3f) + sizeof(float)));
-                mOptimizedSize += subMotion->GetPosTrack()->GetNumKeys() * (sizeof(AZ::PackedVector3f) + sizeof(float));
+                mUncompressedSize += (uint32)((mSecondsPerChunk * 30.0f) * mChunks.GetLength() * (sizeof(AZ::Vector3) + sizeof(float)));
+                mOptimizedSize += subMotion->GetPosTrack()->GetNumKeys() * (sizeof(AZ::Vector3) + sizeof(float));
             }
 
             EMFX_SCALECODE
             (
                 if (subMotion->GetScaleTrack())
                 {
-                    mUncompressedSize += (uint32)((mSecondsPerChunk * 30.0f) * mChunks.GetLength() * (sizeof(AZ::PackedVector3f) + sizeof(float)));
-                    mOptimizedSize += subMotion->GetScaleTrack()->GetNumKeys() * (sizeof(AZ::PackedVector3f) + sizeof(float));
+                    mUncompressedSize += (uint32)((mSecondsPerChunk * 30.0f) * mChunks.GetLength() * (sizeof(AZ::Vector3) + sizeof(float)));
+                    mOptimizedSize += subMotion->GetScaleTrack()->GetNumKeys() * (sizeof(AZ::Vector3) + sizeof(float));
                 }
             )
         }
@@ -390,14 +394,14 @@ namespace EMotionFX
             SkeletalSubMotion* subMotion = skelMotion->GetSubMotion(s);
 
             // process the rotation track
-            EMotionFX::KeyTrackLinear<MCore::Quaternion, MCore::Compressed16BitQuaternion>* rotTrack = subMotion->GetRotTrack();
+            EMotionFX::KeyTrackLinear<AZ::Quaternion, MCore::Compressed16BitQuaternion>* rotTrack = subMotion->GetRotTrack();
             if (rotTrack)
             {
                 // build the signal by sampling the original uncompressed motion
                 float curTime = startTime;
                 for (i = 0; i < numSamples; ++i)
                 {
-                    buffers.mUncompressedRotations[mNumRotTracks * numSamples + i] = rotTrack->GetValueAtTime(curTime).Normalized();
+                    buffers.mUncompressedRotations[mNumRotTracks * numSamples + i] = rotTrack->GetValueAtTime(curTime).GetNormalizedExact();
                     curTime += mSampleSpacing;
                 }
 
@@ -406,7 +410,7 @@ namespace EMotionFX
                     float* buffer = &buffers.mCoeffBuffer[(mNumRotTracks * numSamples * 4) + i * numSamples];
                     for (uint32 a = 0; a < numSamples; ++a)
                     {
-                        buffer[a] = buffers.mUncompressedRotations[mNumRotTracks * numSamples + a][i];
+                        buffer[a] = buffers.mUncompressedRotations[mNumRotTracks * numSamples + a].GetElement(i);
                     }
 
                     // calculate wavelet coefficients
@@ -429,7 +433,7 @@ namespace EMotionFX
                     SkeletalSubMotion* subMotion = skelMotion->GetSubMotion(s);
 
                     // process scale rotations
-                    EMotionFX::KeyTrackLinear<MCore::Quaternion, MCore::Compressed16BitQuaternion>* scaleRotTrack = subMotion->GetScaleRotTrack();
+                    EMotionFX::KeyTrackLinear<AZ::Quaternion, MCore::Compressed16BitQuaternion>* scaleRotTrack = subMotion->GetScaleRotTrack();
                     if (scaleRotTrack)
                     {
                         // build the signal by sampling the original uncompressed motion
@@ -496,7 +500,7 @@ namespace EMotionFX
                 float curTime = startTime;
                 for (i = 0; i < numSamples; ++i)
                 {
-                    buffers.mUncompressedVectors[mNumPosTracks * numSamples + i] = AZ::PackedVector3f(AZ::Vector3(posTrack->GetValueAtTime(curTime)) - subMotion->GetPosePos());
+                    buffers.mUncompressedVectors[mNumPosTracks * numSamples + i] = posTrack->GetValueAtTime(curTime) - subMotion->GetPosePos();
                     curTime += mSampleSpacing;
                 }
 
@@ -555,7 +559,7 @@ namespace EMotionFX
                 float curTime = startTime;
                 for (i = 0; i < numSamples; ++i)
                 {
-                    buffers.mUncompressedVectors[mNumScaleTracks * numSamples + i] = AZ::PackedVector3f(AZ::Vector3(scaleTrack->GetValueAtTime(curTime)) - subMotion->GetPoseScale());
+                    buffers.mUncompressedVectors[mNumScaleTracks * numSamples + i] = scaleTrack->GetValueAtTime(curTime) - subMotion->GetPoseScale();
                     curTime += mSampleSpacing;
                 }
 
@@ -717,7 +721,7 @@ namespace EMotionFX
             // inverse wavelet transform rotations
             if (mNumRotTracks > 0)
             {
-                MCore::Quaternion quat;
+                AZ::Quaternion quat;
                 targetChunk->mRotations = (MCore::Compressed16BitQuaternion*)MCore::Allocate(sizeof(MCore::Compressed16BitQuaternion) * targetChunk->mNumSamples * mNumRotTracks);
 
                 for (t = 0; t < mNumRotTracks; ++t)
@@ -730,10 +734,10 @@ namespace EMotionFX
                     for (i = 0; i < mSamplesPerChunk; ++i)
                     {
                         const uint32 offset = (t * numSamplesTimesFour) + i;
-                        quat.x = decompressedRotData[offset];
-                        quat.y = decompressedRotData[offset + mSamplesPerChunk];
-                        quat.z = decompressedRotData[offset + numSamplesTimesTwo];
-                        quat.w = decompressedRotData[offset + numSamplesTimesThree];
+                        quat.SetX(decompressedRotData[offset]);
+                        quat.SetY(decompressedRotData[offset + mSamplesPerChunk]);
+                        quat.SetZ(decompressedRotData[offset + numSamplesTimesTwo]);
+                        quat.SetW(decompressedRotData[offset + numSamplesTimesThree]);
                         quat.Normalize();
                         targetChunk->mRotations[(t * mSamplesPerChunk) + i].FromQuaternion(quat);
                     }
@@ -795,7 +799,7 @@ namespace EMotionFX
             targetChunk->mSizeInBytes += totalPosSamples * sizeof(float);
 
             AZ::Vector3 pos;
-            targetChunk->mPositions = (AZ::PackedVector3f*)MCore::Allocate(sizeof(AZ::PackedVector3f) * targetChunk->mNumSamples * mNumPosTracks);
+            targetChunk->mPositions = (AZ::Vector3*)MCore::AlignedAllocate(sizeof(AZ::Vector3) * targetChunk->mNumSamples * mNumPosTracks, static_cast<uint16>(AZStd::alignment_of<AZ::Vector3>()));
             for (t = 0; t < mNumPosTracks; ++t)
             {
                 for (i = 0; i < 3; ++i)
@@ -809,7 +813,7 @@ namespace EMotionFX
                     pos.SetX(decompressedPosData[offset]);
                     pos.SetY(decompressedPosData[offset + mSamplesPerChunk]);
                     pos.SetZ(decompressedPosData[offset + numSamplesTimesTwo]);
-                    targetChunk->mPositions[(t * mSamplesPerChunk) + i] = AZ::PackedVector3f(pos * mScale);
+                    targetChunk->mPositions[(t * mSamplesPerChunk) + i] = pos * mScale;
                 }
             }
         }
@@ -841,7 +845,7 @@ namespace EMotionFX
             targetChunk->mSizeInBytes += totalScaleSamples * sizeof(float);
 
             AZ::Vector3 scale;
-            targetChunk->mScales = (AZ::PackedVector3f*)MCore::Allocate(sizeof(AZ::PackedVector3f) * targetChunk->mNumSamples * mNumScaleTracks);
+            targetChunk->mScales = (AZ::Vector3*)MCore::AlignedAllocate(sizeof(AZ::Vector3) * targetChunk->mNumSamples * mNumScaleTracks, static_cast<uint16>(AZStd::alignment_of<AZ::Vector3>()));
             for (t = 0; t < mNumScaleTracks; ++t)
             {
                 for (i = 0; i < 3; ++i)
@@ -855,7 +859,7 @@ namespace EMotionFX
                     scale.SetX(decompressedScaleData[offset]);
                     scale.SetY(decompressedScaleData[offset + mSamplesPerChunk]);
                     scale.SetZ(decompressedScaleData[offset + numSamplesTimesTwo]);
-                    targetChunk->mScales[(t * mSamplesPerChunk) + i] = AZ::PackedVector3f(scale);
+                    targetChunk->mScales[(t * mSamplesPerChunk) + i] = scale;
                 }
             }
         }
@@ -923,13 +927,6 @@ namespace EMotionFX
     {
         ActorInstance*  actorInstance   = instance->GetActorInstance();
         Actor*          actor           = actorInstance->GetActor();
-        TransformData*  transformData   = actorInstance->GetTransformData();
-        const Pose*     bindPose        = transformData->GetBindPose();
-
-        //EMFX_SCALECODE
-        //(
-        //      Transform*  orgTransforms   = transformData->GetBindPoseLocalTransforms();
-        //  )
 
         // make sure the pose has the same number of transforms
         MCORE_ASSERT(outPose->GetNumTransforms() == actor->GetNumNodes());
@@ -951,6 +948,9 @@ namespace EMotionFX
         uint32 secondSampleIndex;
         decompressedChunk->CalcInterpolationValues(timeValue, &firstSampleIndex, &secondSampleIndex, &interpolateT);
 
+        const Skeleton* skeleton = actor->GetSkeleton();
+        const bool inPlace = instance->GetIsInPlace();
+
         //
         Transform sampledTransform;
 
@@ -961,75 +961,34 @@ namespace EMotionFX
         {
             const uint32    nodeNumber   = actorInstance->GetEnabledNode(i);
             MotionLink*     link         = instance->GetMotionLink(nodeNumber);
-            //Node*         node         = actor->GetNode(nodeNumber);
-            //Transform*        outTransform = &outPose->GetLocalTransformDirect(nodeNumber);
-            //      const Actor::NodeMirrorInfo& mirrorInfo = actor->GetNodeMirrorInfo(nodeNumber);
 
             // if there is no submotion linked to this node
             if (link->GetIsActive() == false)
             {
-                outTransform = inPose->GetLocalTransform(nodeNumber);
-                outPose->SetLocalTransform(nodeNumber, outTransform);
+                outTransform = inPose->GetLocalSpaceTransform(nodeNumber);
+                outPose->SetLocalSpaceTransform(nodeNumber, outTransform);
                 continue;
             }
 
             // get the current time and the submotion
             const uint32 subMotionIndex = link->GetSubMotionIndex();
-            SkeletalSubMotion* subMotion = mSubMotions[ subMotionIndex ];
-
-            decompressedChunk->GetTransformAtTime(subMotionIndex, interpolateT, firstSampleIndex, secondSampleIndex, &outTransform);
+            SkeletalSubMotion* subMotion = mSubMotions[subMotionIndex];
+            if (!(inPlace && skeleton->GetNode(nodeNumber)->GetIsRootNode()))
+            {
+                decompressedChunk->GetTransformAtTime(subMotionIndex, interpolateT, firstSampleIndex, secondSampleIndex, &outTransform);
+            }
+            else
+            {
+                outTransform = actorInstance->GetTransformData()->GetBindPose()->GetLocalSpaceTransform(nodeNumber);
+            }
 
             // perform basic retargeting
             if (instance->GetRetargetingEnabled())
             {
-                const Transform& bindTransform = bindPose->GetLocalTransform(nodeNumber);
-                AZ::Vector3 posOffset(0.0f, 0.0f, 0.0f);
-                AZ::Vector3 nodeOrgPos = bindTransform.mPosition;
-                /*
-                            // if we deal with the root node
-                            if (instance->GetRetargetRootIndex() == nodeNumber)
-                            {
-                                const float bindPoseHeight = subMotion->GetBindPosePos().y;
-                                if (Math::Abs(bindPoseHeight) > 0.0001f)
-                                {
-                                    posOffset.x = 0.0f;
-                                    posOffset.y = instance->GetRetargetRootOffset() * MCore::Clamp<float>(outTransform->mPosition.y / bindPoseHeight, 0.0f, 1.0f);
-                                    posOffset.z = 0.0f;
-                                    //posOffset = Vector3(0.0f, instance->GetRetargetRootOffset() * (outTransform->mPosition.y / nodeOrgPos.y), 0.0f);
-                                }
-                                else
-                                    posOffset = Vector3(0.0f, instance->GetRetargetRootOffset(), 0.0f);
-                            }
-                            else
-                                posOffset = nodeOrgPos - subMotion->GetBindPosePos();
-                */
+                BasicRetarget(instance, subMotion, nodeNumber, outTransform);
+            }
 
-                /*          // if we deal with the root node
-                            if (actor->GetRetargetRootIndex() == nodeNumber)
-                            {
-                                const int32 upIndex = MCore::GetCoordinateSystem().GetUpIndex();
-                                if (Math::Abs(nodeOrgPos[upIndex]) > 0.0001f)
-                                    posOffset[upIndex] = actor->GetRetargetOffset() * (outTransform->mPosition[upIndex] / nodeOrgPos[upIndex]);
-                                else
-                                    posOffset[upIndex] = actor->GetRetargetOffset();
-                            }
-                            else*/
-                posOffset = nodeOrgPos - subMotion->GetBindPosePos();
-
-                // calculate the displacement
-                //          Vector3 posOffset   = orgTransforms[nodeNumber].mPosition - subMotion->GetBindPosePos();
-
-                EMFX_SCALECODE
-                (
-                    AZ::Vector3 scaleOffset = bindTransform.mScale - subMotion->GetBindPoseScale();
-                    outTransform.mScale += scaleOffset;
-                )
-
-                // apply the displacements
-                outTransform.mPosition  += posOffset;
-            } // if retargeting enabled
-
-            outPose->SetLocalTransform(nodeNumber, outTransform);
+            outPose->SetLocalSpaceTransform(nodeNumber, outTransform);
         } // for all transforms
 
         // mirror
@@ -1071,11 +1030,6 @@ namespace EMotionFX
         TransformData*  transformData   = actorInstance->GetTransformData();
         const Pose*     bindPose        = transformData->GetBindPose();
 
-        //EMFX_SCALECODE
-        //(
-        //      Transform*  orgTransforms   = transformData->GetBindPoseLocalTransforms();
-        //  )
-
         // get the node index/number
         const uint32 nodeIndex      = node->GetNodeIndex();
         const uint32 threadIndex    = actorInstance->GetThreadIndex();
@@ -1087,58 +1041,38 @@ namespace EMotionFX
         const MotionLink* motionLink = instance->GetMotionLink(nodeIndex);
         if (motionLink->GetIsActive() == false)
         {
-            *outTransform = transformData->GetCurrentPose()->GetLocalTransform(nodeIndex);
+            *outTransform = transformData->GetCurrentPose()->GetLocalSpaceTransform(nodeIndex);
             return;
         }
 
         // get the current time and the submotion
+        const Skeleton* skeleton = actor->GetSkeleton();
+        const bool inPlace = instance->GetIsInPlace();
         SkeletalSubMotion* subMotion = mSubMotions[ motionLink->GetSubMotionIndex() ];
-
-        // get the transformation for the given node
-        decompressedChunk->GetTransformAtTime(motionLink->GetSubMotionIndex(), timeValue, outTransform);
+        if (!(inPlace && skeleton->GetNode(nodeIndex)->GetIsRootNode()))
+        {
+            decompressedChunk->GetTransformAtTime(motionLink->GetSubMotionIndex(), timeValue, outTransform);
+        }
+        else
+        {
+            *outTransform = actorInstance->GetTransformData()->GetBindPose()->GetLocalSpaceTransform(nodeIndex);
+        }
 
         // if we want to use retargeting
         if (enableRetargeting)
         {
-            const Transform& bindTransform = bindPose->GetLocalTransform(nodeIndex);
-
-            AZ::Vector3 posOffset(0, 0, 0);
-            AZ::Vector3 nodeOrgPos = bindTransform.mPosition;
-
-            /*      // if we deal with the root node
-                    if (actor->GetRetargetRootIndex() == nodeIndex)
-                    {
-                        const int32 upIndex = MCore::GetCoordinateSystem().GetUpIndex();
-                        if (Math::Abs(nodeOrgPos[upIndex]) > 0.0001f)
-                            posOffset[upIndex] = actor->GetRetargetOffset() * (outTransform->mPosition[upIndex] / nodeOrgPos[upIndex]);
-                        else
-                            posOffset[upIndex] = actor->GetRetargetOffset();
-                    }
-                    else*/
-            posOffset = nodeOrgPos - subMotion->GetBindPosePos();
-
-            // calculate the displacement
-            //Vector3 posOffset   = orgTransforms[nodeIndex].mPosition - subMotion->GetBindPosePos();
-
-            EMFX_SCALECODE
-            (
-                AZ::Vector3 scaleOffset = bindTransform.mScale - subMotion->GetBindPoseScale();
-                outTransform->mScale += scaleOffset;
-            )
-
-            // apply the displacements
-            outTransform->mPosition += posOffset;
+            BasicRetarget(instance, subMotion, nodeIndex, *outTransform);
         }
 
         // mirror
         if (instance->GetMirrorMotion() && actor->GetHasMirrorInfo())
         {
             const Actor::NodeMirrorInfo& mirrorInfo = actor->GetNodeMirrorInfo(nodeIndex);
-            Transform mirrored = bindPose->GetLocalTransform(nodeIndex);
+            Transform mirrored = bindPose->GetLocalSpaceTransform(nodeIndex);
             AZ::Vector3 mirrorAxis(0.0f, 0.0f, 0.0f);
             mirrorAxis.SetElement(mirrorInfo.mAxis, 1.0f);
             const uint32 motionSource = actor->GetNodeMirrorInfo(nodeIndex).mSourceNode;
-            mirrored.ApplyDeltaMirrored(bindPose->GetLocalTransform(motionSource), *outTransform, mirrorAxis, mirrorInfo.mFlags);
+            mirrored.ApplyDeltaMirrored(bindPose->GetLocalSpaceTransform(motionSource), *outTransform, mirrorAxis, mirrorInfo.mFlags);
             *outTransform = mirrored;
         }
     }
@@ -1271,7 +1205,7 @@ namespace EMotionFX
     {
         if (numItems == MCORE_INVALIDINDEX32)
         {
-            mSubMotionMap.Resize(mSubMotions.GetLength());
+            mSubMotionMap.Resize(static_cast<uint32>(mSubMotions.size()));
         }
         else
         {
@@ -1283,7 +1217,7 @@ namespace EMotionFX
     {
         if (numItems == MCORE_INVALIDINDEX32)
         {
-            mMorphSubMotionMap.Resize(mMorphSubMotions.GetLength());
+            mMorphSubMotionMap.Resize(static_cast<uint32>(mMorphSubMotions.size()));
         }
         else
         {
@@ -1322,10 +1256,8 @@ namespace EMotionFX
         mScale *= scaleFactor;
 
         // modify all submotions
-        const uint32 numSubMotions = mSubMotions.GetLength();
-        for (uint32 i = 0; i < numSubMotions; ++i)
+        for (SkeletalSubMotion* subMotion : mSubMotions)
         {
-            SkeletalSubMotion* subMotion = mSubMotions[i];
             subMotion->SetBindPosePos(subMotion->GetBindPosePos() * scaleFactor);
             subMotion->SetPosePos(subMotion->GetPosePos() * scaleFactor);
         }

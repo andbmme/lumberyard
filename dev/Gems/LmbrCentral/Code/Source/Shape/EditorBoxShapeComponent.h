@@ -14,19 +14,19 @@
 
 #include "BoxShape.h"
 #include "EditorBaseShapeComponent.h"
-#include <AzCore/std/containers/array.h>
-#include <AzCore/std/smart_ptr/shared_ptr.h>
-#include <AzToolsFramework/API/ToolsApplicationAPI.h>
-#include <AzToolsFramework/Manipulators/LinearManipulator.h>
+
+#include <AzFramework/Entity/EntityDebugDisplayBus.h>
+#include <AzToolsFramework/ComponentMode/ComponentModeDelegate.h>
+#include <AzToolsFramework/Manipulators/BoxManipulatorRequestBus.h>
+
 
 namespace LmbrCentral
 {
-    class EditorBoxShapeComponent;
-
+    /// Editor representation of Box Shape Component.
     class EditorBoxShapeComponent
         : public EditorBaseShapeComponent
-        , public BoxShape
-        , private AzToolsFramework::EntitySelectionEvents::Bus::Handler
+        , private AzFramework::EntityDebugDisplayEventBus::Handler
+        , private AzToolsFramework::BoxManipulatorRequestBus::Handler
     {
     public:
         AZ_EDITOR_COMPONENT(EditorBoxShapeComponent, EditorBoxShapeComponentTypeId, EditorBaseShapeComponent);
@@ -34,19 +34,10 @@ namespace LmbrCentral
 
         EditorBoxShapeComponent() = default;
 
-        // AZ::Component interface implementation
+        // AZ::Component
+        void Init() override;
         void Activate() override;
-        void Deactivate() override;
-
-        // EditorComponentBase implementation
-        void BuildGameEntity(AZ::Entity* gameEntity) override;
-
-        // AZ::TransformNotificationBus::Handler
-        void OnTransformChanged(const AZ::Transform& local, const AZ::Transform& world) override;
-
-        void DrawShape(AzFramework::EntityDebugDisplayRequests* displayContext) const override;
-
-        BoxShapeConfig& GetConfiguration() override { return m_configuration; }
+        void Deactivate() override;        
 
     protected:
         static void GetProvidedServices(AZ::ComponentDescriptor::DependencyArrayType& provided)
@@ -55,25 +46,32 @@ namespace LmbrCentral
             provided.push_back(AZ_CRC("BoxShapeService", 0x946a0032));
         }
 
+        // EditorComponentBase
+        void BuildGameEntity(AZ::Entity* gameEntity) override;
+
+        // AZ::TransformNotificationBus::Handler
+        void OnTransformChanged(const AZ::Transform& local, const AZ::Transform& world) override;
+
     private:
-        AZ_DISABLE_COPY_MOVE(EditorBoxShapeComponent);
+        AZ_DISABLE_COPY_MOVE(EditorBoxShapeComponent)
 
-        void ConfigurationChanged();
+        // AzFramework::EntityDebugDisplayEventBus
+        void DisplayEntityViewport(
+            const AzFramework::ViewportInfo& viewportInfo,
+            AzFramework::DebugDisplayRequests& debugDisplay) override;
 
-        /// AzToolsFramework::EntitySelectionEvents::Bus::Handler
-        void OnSelected() override;
-        void OnDeselected() override;
+        // AzToolsFramework::BoxManipulatorRequestBus
+        AZ::Vector3 GetDimensions() override;
+        void SetDimensions(const AZ::Vector3& dimensions) override;
+        AZ::Transform GetCurrentTransform() override;
+        AZ::Vector3 GetBoxScale() override;
 
-        BoxShapeConfig m_configuration; ///< Stores configuration of a Box for this component
+        void ConfigurationChanged();        
 
-        // Linear Manipulators
-        void RegisterManipulators();
-        void UnregisterManipulators();
-        void UpdateManipulators();
-
-        void OnMouseMoveManipulator(
-            const AzToolsFramework::LinearManipulator::Action& action, const AZ::Vector3& axis);
-
-        AZStd::array<AZStd::unique_ptr<AzToolsFramework::LinearManipulator>, 6> m_linearManipulators;
+        BoxShape m_boxShape; ///< Stores underlying box representation for this component.
+        
+        using ComponentModeDelegate = AzToolsFramework::ComponentModeFramework::ComponentModeDelegate;
+        ComponentModeDelegate m_componentModeDelegate; /**< Responsible for detecting ComponentMode activation
+                                                         *  and creating a concrete ComponentMode.*/
     };
 } // namespace LmbrCentral

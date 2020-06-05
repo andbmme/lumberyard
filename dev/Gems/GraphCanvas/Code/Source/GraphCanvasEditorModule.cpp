@@ -13,22 +13,27 @@
 #include <GraphCanvasModule.h>
 #include <GraphCanvas.h>
 
+#include <Components/BookmarkAnchor/BookmarkAnchorComponent.h>
+#include <Components/BookmarkAnchor/BookmarkAnchorLayerControllerComponent.h>
+#include <Components/BookmarkAnchor/BookmarkAnchorVisualComponent.h>
+#include <Components/BookmarkManagerComponent.h>
 #include <Components/GeometryComponent.h>
 #include <Components/GridComponent.h>
 #include <Components/GridVisualComponent.h>
+#include <Components/PersistentIdComponent.h>
 #include <Components/SceneComponent.h>
+#include <Components/SceneMemberComponent.h>
 #include <Components/StylingComponent.h>
 
-#include <Components/ColorPaletteManager/ColorPaletteManagerComponent.h>
-
 #include <Components/Connections/ConnectionComponent.h>
+#include <Components/Connections/ConnectionLayerControllerComponent.h>
 #include <Components/Connections/ConnectionVisualComponent.h>
 #include <Components/Connections/DataConnections/DataConnectionComponent.h>
 #include <Components/Connections/DataConnections/DataConnectionVisualComponent.h>
 
 #include <Components/Nodes/NodeComponent.h>
-#include <Components/Nodes/Comment/BlockCommentNodeLayoutComponent.h>
-#include <Components/Nodes/Comment/BlockCommentNodeFrameComponent.h>
+#include <Components/Nodes/NodeLayerControllerComponent.h>
+#include <Components/Nodes/Comment/CommentLayerControllerComponent.h>
 #include <Components/Nodes/Comment/CommentNodeFrameComponent.h>
 #include <Components/Nodes/Comment/CommentNodeLayoutComponent.h>
 #include <Components/Nodes/Comment/CommentNodeTextComponent.h>
@@ -36,6 +41,10 @@
 #include <Components/Nodes/General/GeneralNodeLayoutComponent.h>
 #include <Components/Nodes/General/GeneralNodeTitleComponent.h>
 #include <Components/Nodes/General/GeneralSlotLayoutComponent.h>
+#include <Components/Nodes/Group/CollapsedNodeGroupComponent.h>
+#include <Components/Nodes/Group/NodeGroupLayoutComponent.h>
+#include <Components/Nodes/Group/NodeGroupLayerControllerComponent.h>
+#include <Components/Nodes/Group/NodeGroupFrameComponent.h>
 #include <Components/Nodes/Wrapper/WrapperNodeLayoutComponent.h>
 
 #include <Components/Slots/SlotComponent.h>
@@ -45,11 +54,16 @@
 #include <Components/Slots/Default/DefaultSlotLayoutComponent.h>
 #include <Components/Slots/Execution/ExecutionSlotComponent.h>
 #include <Components/Slots/Execution/ExecutionSlotLayoutComponent.h>
+#include <Components/Slots/Extender/ExtenderSlotComponent.h>
+#include <Components/Slots/Extender/ExtenderSlotLayoutComponent.h>
 #include <Components/Slots/Property/PropertySlotComponent.h>
 #include <Components/Slots/Property/PropertySlotLayoutComponent.h>
 
-#include <Styling/Style.h>
-#include <Styling/PseudoElement.h>
+#include <GraphCanvas/Components/ColorPaletteManager/ColorPaletteManagerComponent.h>
+#include <GraphCanvas/Components/GraphCanvasPropertyBus.h>
+#include <GraphCanvas/Styling/Style.h>
+#include <GraphCanvas/Styling/StyleManager.h>
+#include <GraphCanvas/Styling/PseudoElement.h>
 
 namespace GraphCanvas
 {
@@ -61,21 +75,29 @@ namespace GraphCanvas
         m_descriptors.insert(m_descriptors.end(), {
 
             // Components
+            BookmarkManagerComponent::CreateDescriptor(),
+            GraphCanvasPropertyComponent::CreateDescriptor(),
             GraphCanvasSystemComponent::CreateDescriptor(),
+            LayerControllerComponent::CreateDescriptor(),
+            PersistentIdComponent::CreateDescriptor(),
             SceneComponent::CreateDescriptor(),
+            SceneMemberComponent::CreateDescriptor(),            
 
             // Background Grid
             GridComponent::CreateDescriptor(),
             GridVisualComponent::CreateDescriptor(),
 
+            // BookmarkAnchor
+            BookmarkAnchorComponent::CreateDescriptor(),
+            BookmarkAnchorLayerControllerComponent::CreateDescriptor(),
+            BookmarkAnchorVisualComponent::CreateDescriptor(),
+
             // General
             GeometryComponent::CreateDescriptor(),
 
-            // ColorPalette
-            ColorPaletteManagerComponent::CreateDescriptor(),
-
             // Connections
             ConnectionComponent::CreateDescriptor(),
+            ConnectionLayerControllerComponent::CreateDescriptor(),
             ConnectionVisualComponent::CreateDescriptor(),
 
             // Connections::DataConnections
@@ -84,13 +106,11 @@ namespace GraphCanvas
 
             // Nodes
             NodeComponent::CreateDescriptor(),
+            NodeLayerControllerComponent::CreateDescriptor(),
             NodeLayoutComponent::CreateDescriptor(),
 
-            // BlockCommentNode
-            BlockCommentNodeLayoutComponent::CreateDescriptor(),
-            BlockCommentNodeFrameComponent::CreateDescriptor(),
-
             // CommentNode
+            CommentLayerControllerComponent::CreateDescriptor(),
             CommentNodeFrameComponent::CreateDescriptor(),
             CommentNodeLayoutComponent::CreateDescriptor(),
             CommentNodeTextComponent::CreateDescriptor(),
@@ -100,6 +120,12 @@ namespace GraphCanvas
             GeneralSlotLayoutComponent::CreateDescriptor(),
             GeneralNodeFrameComponent::CreateDescriptor(),
             GeneralNodeLayoutComponent::CreateDescriptor(),
+
+            // NodeGroup
+            CollapsedNodeGroupComponent::CreateDescriptor(),
+            NodeGroupLayerControllerComponent::CreateDescriptor(),
+            NodeGroupLayoutComponent::CreateDescriptor(),
+            NodeGroupFrameComponent::CreateDescriptor(),
 
             // Wrapper Node
             WrapperNodeLayoutComponent::CreateDescriptor(),
@@ -117,6 +143,10 @@ namespace GraphCanvas
             ExecutionSlotComponent::CreateDescriptor(),
             ExecutionSlotLayoutComponent::CreateDescriptor(),
 
+            // Extender Slots
+            ExtenderSlotComponent::CreateDescriptor(),
+            ExtenderSlotLayoutComponent::CreateDescriptor(),
+
             // Property Slots
             PropertySlotComponent::CreateDescriptor(),
             PropertySlotLayoutComponent::CreateDescriptor(),
@@ -125,8 +155,11 @@ namespace GraphCanvas
             StylingComponent::CreateDescriptor(),
 
             Styling::ComputedStyle::CreateDescriptor(),
-            Styling::StyleSheet::CreateDescriptor(),
-            Styling::VirtualChildElement::CreateDescriptor()
+            Styling::VirtualChildElement::CreateDescriptor(),
+
+            // Deprecated Components
+            Deprecated::ColorPaletteManagerComponent::CreateDescriptor(),
+            Deprecated::StyleSheetComponent::CreateDescriptor()
         });
     }
 

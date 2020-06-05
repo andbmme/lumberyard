@@ -427,7 +427,9 @@ void CModelViewport::ReleaseObject()
     if (GetCharacterBase())
     {
         m_pCharacterBase = 0;
+#if defined(EDITOR_PCDEBUGCODE)
         m_pAnimationSystem->DeleteDebugInstances();
+#endif // defined(EDITOR_PCDEBUGCODE)
     }
 
     if (m_weaponModel)
@@ -1073,7 +1075,7 @@ void CModelViewport::OnEntityEvent(IEntity* pEntity, SEntityEvent& event)
 //////////////////////////////////////////////////////////////////////////
 void CModelViewport::CreateAudioListener()
 {
-    if (m_pAudioListener == NULL)
+    if (m_pAudioListener == NULL && gEnv->pEntitySystem)
     {
         SEntitySpawnParams oEntitySpawnParams;
         oEntitySpawnParams.sName  = "AudioListener";
@@ -1459,9 +1461,9 @@ void CModelViewport::OnLightMultiplier(IVariable* var)
 void CModelViewport::SetSelected(bool const bSelect)
 {
     // If a modelviewport gets activated, and listeners will be activated, disable the main viewport listener and re-enable when you lose focus.
-    if (gEnv->pGame)
+    if (gEnv->pSystem)
     {
-        IViewSystem* const pIViewSystem = gEnv->pGame->GetIGameFramework()->GetIViewSystem();
+        IViewSystem* const pIViewSystem = gEnv->pSystem->GetIViewSystem();
 
         if (pIViewSystem)
         {

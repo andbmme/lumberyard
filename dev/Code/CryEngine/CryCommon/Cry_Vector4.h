@@ -14,8 +14,6 @@
 // Description : Common vector class
 
 
-#ifndef CRYINCLUDE_CRYCOMMON_CRY_VECTOR4_H
-#define CRYINCLUDE_CRYCOMMON_CRY_VECTOR4_H
 #pragma once
 
 
@@ -247,7 +245,13 @@ typedef Vec4_tpl<real> Vec4r; // variable float precision. depending on the targ
 #if defined(WIN32) || defined(WIN64) || defined(LINUX) || defined(APPLE)
 typedef Vec4_tpl<f32> Vec4A;
 #elif defined(AZ_RESTRICTED_PLATFORM)
-#include AZ_RESTRICTED_FILE(Cry_Vector4_h)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/Cry_Vector4_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/Cry_Vector4_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/Cry_Vector4_h_salem.inl"
+    #endif
 #endif
 
 //vector self-addition
@@ -284,6 +288,3 @@ ILINE Vec4_tpl<F1> operator / (const Vec4_tpl<F1>& v0, const Vec4_tpl<F2>& v1)
 {
     return Vec4_tpl<F1>(v0.x / v1.x, v0.y / v1.y, v0.z / v1.z, v0.w / v1.w);
 }
-
-
-#endif // CRYINCLUDE_CRYCOMMON_CRY_VECTOR4_H

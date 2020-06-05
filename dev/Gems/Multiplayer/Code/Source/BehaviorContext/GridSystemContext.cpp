@@ -16,6 +16,16 @@
 #include <GridMate/NetworkGridMate.h>
 
 #include "Multiplayer/GridMateServiceWrapper/GridMateLANServiceWrapper.h"
+
+#include <Multiplayer_Traits_Platform.h>
+#include <Multiplayer_GridMateServiceWrapper_Platform.h>
+
+// Forward declarations for platform operations
+namespace Platform
+{
+    bool FetchParam(const char* key, const Multiplayer::SessionDesc& sessionDesc, GridMate::GridSessionParam& p);
+}
+
 #include "Multiplayer/MultiplayerUtils.h"
 
 namespace Multiplayer
@@ -167,6 +177,13 @@ namespace Multiplayer
             carrierDesc.m_disconnectDetectionRttThreshold = gridMateServiceParams.FetchValueOrDefault<float>("gm_disconnectDetectionRttThreshold", 500.0f);
             carrierDesc.m_disconnectDetectionPacketLossThreshold = gridMateServiceParams.FetchValueOrDefault<float>("gm_disconnectDetectionPacketLossThreshold", 0.3f);
 
+#if AZ_TRAIT_MULTIPLAYER_ASSIGN_NETWORK_FAMILY
+ #if AZ_TRAIT_MULTIPLAYER_GRID_SYSTEM_CHECK_SECURITY_DATA_ENABLE
+        AZ_TRAIT_MULTIPLAYER_GRID_SYSTEM_CHECK_SECURITY_DATA(AZ_TRAIT_MULTIPLAYER_SESSION_NAME, AZ_TRAIT_MULTIPLAYER_GRID_SYSTEM_CHECK_SECURITY_DATA_MESSAGE);
+ #endif
+        AZ_Error(AZ_TRAIT_MULTIPLAYER_SESSION_NAME, carrierDesc.m_familyType == AZ_TRAIT_MULTIPLAYER_ADDRESS_TYPE, AZ_TRAIT_MULTIPLAYER_DRIVER_MESSAGE);
+        carrierDesc.m_familyType = AZ_TRAIT_MULTIPLAYER_ADDRESS_TYPE;
+#endif
         }
 
         bool CreateServerForWrappedService(const SessionDesc& sessionDesc)
@@ -206,7 +223,7 @@ namespace Multiplayer
                     }
                     else if (!strcmp(param, "gm_ipversion"))
                     {
-                        p.SetValue(GridMate::Driver::BSD_AF_INET);
+                        p.SetValue(AZ_TRAIT_MULTIPLAYER_ADDRESS_TYPE);
                     }
                     return p;
                 };
@@ -255,11 +272,35 @@ namespace Multiplayer
     {
         void Reflect(AZ::ReflectContext* reflectContext)
         {
+            AZ::SerializeContext* serializeContext = azrtti_cast<AZ::SerializeContext*>(reflectContext);
+            if (serializeContext)
+            {
+                serializeContext->Class<SessionDesc>()
+                    ->Version(1)
+                    ->Field("Port", &SessionDesc::m_gamePort)
+                    ->Field("MaxPlayerSlots", &SessionDesc::m_maxPlayerSlots)
+                    ->Field("EnableDisconnectDetection", &SessionDesc::m_enableDisconnectDetection)
+                    ->Field("ConnectionTimeoutMS", &SessionDesc::m_connectionTimeoutMS)
+                    ->Field("ThreadUpdateTimeMS", &SessionDesc::m_threadUpdateTimeMS)
+                    ->Field("MapName", &SessionDesc::m_mapName)
+                    ->Field("ServerName", &SessionDesc::m_serverName)
+                    ->Field("ServiceType", &SessionDesc::m_serviceType)
+                ;
+            }
+
             AZ::BehaviorContext* behaviorContext = azrtti_cast<AZ::BehaviorContext*>(reflectContext);
             if (behaviorContext)
             {
                 behaviorContext->Class<GridMate::ServiceType>("GridServiceType")
                     ->Enum<(int)GridMate::ST_LAN>("LAN")
+#if defined(AZ_TOOLS_EXPAND_FOR_RESTRICTED_PLATFORMS)
+    #define AZ_RESTRICTED_PLATFORM_EXPANSION(CodeName, CODENAME, codename, PrivateName, PRIVATENAME, privatename, PublicName, PUBLICNAME, publicname, PublicAuxName1, PublicAuxName2, PublicAuxName3)\
+        ->Enum<GridMate::ST_##CODENAME>(PublicAuxName2)
+
+        AZ_TOOLS_EXPAND_FOR_RESTRICTED_PLATFORMS
+#undef AZ_RESTRICTED_PLATFORM_EXPANSION
+#endif
+                    ->Enum<(int)GridMate::ST_STEAM>("Steam")
                     ;
 
                 // expose the parameters for a GridSession
@@ -303,7 +344,7 @@ namespace Multiplayer
             }
             else if (!strcmp(key, "gm_ipversion"))
             {
-                p.SetValue(GridMate::Driver::BSD_AF_INET);
+                p.SetValue(AZ_TRAIT_MULTIPLAYER_ADDRESS_TYPE);
             }
             else if (!strcmp(key, "gm_disconnectDetection"))
             {
@@ -322,6 +363,10 @@ namespace Multiplayer
                 {
                     p.SetValue(gEnv->pConsole->GetCVar("gm_disconnectDetectionPacketLossThreshold")->GetFVal());
                 }
+            }
+            else if (Platform::FetchParam(key, sessionDesc, p))
+            {
+                return true;
             }
             return !p.m_value.empty();
         }
@@ -349,6 +394,13 @@ namespace Multiplayer
                 carrierDesc.m_disconnectDetectionPacketLossThreshold = gridMateServiceParams.FetchValueOrDefault<float>("gm_disconnectDetectionPacketLossThreshold", 0.3f);
             }
 
+#if AZ_TRAIT_MULTIPLAYER_ASSIGN_NETWORK_FAMILY
+ #if AZ_TRAIT_MULTIPLAYER_GRID_SYSTEM_CHECK_SECURITY_DATA_ENABLE
+            AZ_TRAIT_MULTIPLAYER_GRID_SYSTEM_CHECK_SECURITY_DATA(AZ_TRAIT_MULTIPLAYER_SESSION_NAME, AZ_TRAIT_MULTIPLAYER_GRID_SYSTEM_CHECK_SECURITY_DATA_MESSAGE);
+ #endif
+            AZ_Error(AZ_TRAIT_MULTIPLAYER_SESSION_NAME, carrierDesc.m_familyType == AZ_TRAIT_MULTIPLAYER_ADDRESS_TYPE, AZ_TRAIT_MULTIPLAYER_DRIVER_MESSAGE);
+            carrierDesc.m_familyType = AZ_TRAIT_MULTIPLAYER_ADDRESS_TYPE;
+#endif
         }
 
         /**
@@ -360,6 +412,10 @@ namespace Multiplayer
             {
             case GridMate::ST_LAN:
                 return aznew GridMateLANServiceWrapper();
+#if AZ_TRAIT_MULTIPLAYER_GRID_SYSTEM_HAS_PLATFORM_SERVICE_WRAPPER
+            case GridMate::AZ_TRAIT_MULTIPLAYER_GRIDMATE_SERVICE_TYPE_ENUM:
+                return aznew AZ_TRAIT_MULTIPLAYER_GRID_SYSTEM_HAS_PLATFORM_SERVICE_TYPE_CLASS();
+#endif
             default:
                 AZ_Assert(false, "Unsupported GridMate::ServiceType of %d", gridServiceType);
             }

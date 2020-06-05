@@ -153,9 +153,7 @@ void CHDRPostProcess::AddRenderTarget(uint32 nWidth, uint32 nHeight, const Color
     drt.fPriority        = fPriority;
     drt.lplpStorage      = pStorage;
     drt.nCustomID        = nCustomID;
-    //  Confetti BEGIN: Igor Lobanchikov
     drt.nPitch           = nWidth * CTexture::BytesPerBlock(Format);
-    //  Confetti End: Igor Lobanchikov
     cry_strcpy(drt.szName, szName);
     m_pRenderTargets.push_back(drt);
 }
@@ -212,7 +210,6 @@ void CTexture::GenerateHDRMaps()
 
     ETEX_Format nHDRFormat = eTF_R16G16B16A16F; // note: for main rendertarget R11G11B10 precision/range (even with rescaling) not enough for darks vs good blooming quality
 
-    //  Confetti BEGIN: Igor Lobanchikov :END
     ETEX_Format nHDRReducedFormat = r->UseHalfFloatRenderTargets() ? eTF_R11G11B10F : eTF_R10G10B10A2;
 
     uint32 nHDRTargetFlags = FT_DONT_RELEASE | (CRenderer::CV_r_msaa ? FT_USAGE_MSAA : 0);
@@ -225,7 +222,6 @@ void CTexture::GenerateHDRMaps()
         pHDRPostProcess->AddRenderTarget(r->GetWidth(), r->GetHeight(), Clr_Unknown, r->UseHalfFloatRenderTargets() ? nHDRFormat : nHDRReducedFormat, 1.0f, "$HDRTarget", &s_ptexHDRTarget, nHDRTargetFlagsUAV);
     }
 
-    //  Confetti BEGIN: Igor Lobanchikov :END
     pHDRPostProcess->AddRenderTarget(r->GetWidth(), r->GetHeight(), Clr_Unknown, nHDRReducedFormat, 1.0f, "$HDRTargetPrev", &s_ptexHDRTargetPrev);
 
     pHDRPostProcess->AddRenderTarget(r->GetWidth(), r->GetHeight(), Clr_Unknown, nHDRFormat, 1.0f, "$FurLightAcc", &s_ptexFurLightAcc, FT_DONT_RELEASE);
@@ -280,13 +276,11 @@ void CTexture::GenerateHDRMaps()
 
     pHDRPostProcess->AddRenderTarget(r->GetWidth() >> 1, r->GetHeight() >> 1, Clr_Unknown, nHDRFormat, 0.9f, "$HDRDofLayerNear", &s_ptexHDRDofLayers[0], FT_DONT_RELEASE);
     pHDRPostProcess->AddRenderTarget(r->GetWidth() >> 1, r->GetHeight() >> 1, Clr_Unknown, nHDRFormat, 0.9f, "$HDRDofLayerFar", &s_ptexHDRDofLayers[1], FT_DONT_RELEASE);
-    //  Confetti BEGIN: Igor Lobanchikov
 #if METAL
     pHDRPostProcess->AddRenderTarget(r->GetWidth() >> 1, r->GetHeight() >> 1, Clr_Unknown, eTF_R16F, 1.0f, "$MinCoC_0_Temp", &s_ptexSceneCoCTemp, FT_DONT_RELEASE);
 #else
     pHDRPostProcess->AddRenderTarget(r->GetWidth() >> 1, r->GetHeight() >> 1, Clr_Unknown, eTF_R16G16F, 1.0f, "$MinCoC_0_Temp", &s_ptexSceneCoCTemp, FT_DONT_RELEASE);
 #endif
-    //  Confetti End: Igor Lobanchikov
 
     pHDRPostProcess->AddRenderTarget(r->GetWidth(), r->GetHeight(), Clr_Unknown, eTF_R16G16F, 1.0, "$CoC_History0", &s_ptexSceneCoCHistory[0], FT_DONT_RELEASE);
     pHDRPostProcess->AddRenderTarget(r->GetWidth(), r->GetHeight(), Clr_Unknown, eTF_R16G16F, 1.0, "$CoC_History1", &s_ptexSceneCoCHistory[1], FT_DONT_RELEASE);
@@ -294,13 +288,11 @@ void CTexture::GenerateHDRMaps()
     for (i = 0; i < MIN_DOF_COC_K; i++)
     {
         sprintf_s(szName, "$MinCoC_%d", i);
-        //  Confetti BEGIN: Igor Lobanchikov
 #if METAL
         pHDRPostProcess->AddRenderTarget((r->m_dwHDRCropWidth >> 1) / (i + 1), (r->m_dwHDRCropHeight >> 1) / (i + 1), Clr_Unknown, eTF_R16F, 0.1f, szName, &s_ptexSceneCoC[i], FT_DONT_RELEASE, -1, true);
 #else
         pHDRPostProcess->AddRenderTarget((r->m_dwHDRCropWidth >> 1) / (i + 1), (r->m_dwHDRCropHeight >> 1) / (i + 1), Clr_Unknown, eTF_R16G16F, 0.1f, szName, &s_ptexSceneCoC[i], FT_DONT_RELEASE, -1, true);
 #endif
-        //  Confetti End: Igor Lobanchikov
     }
 
     if (gcpRendD3D->FX_GetEnabledGmemPath(nullptr))
@@ -660,11 +652,9 @@ void CHDRPostProcess::HalfResDownsampleHDRTarget()
     CTexture* pSrcRT = CTexture::s_ptexHDRTarget;
     CTexture* pDstRT = CTexture::s_ptexHDRTargetScaled[0];
 
-    //  Confetti BEGIN: Igor Lobanchikov
 #if defined(CRY_USE_METAL) || defined(ANDROID)
     gRenDev->RT_SetScissor(true, 0, 0, gcpRendD3D->m_HalfResRect.right, gcpRendD3D->m_HalfResRect.bottom);
 #endif
-    //  Confetti End: Igor Lobanchikov
 
     if (CRenderer::CV_r_HDRBloomQuality >= 2)
     {
@@ -675,11 +665,9 @@ void CHDRPostProcess::HalfResDownsampleHDRTarget()
         PostProcessUtils().StretchRect(pSrcRT, pDstRT, true);
     }
 
-    //  Confetti BEGIN: Igor Lobanchikov
 #ifdef CRY_USE_METAL
     gRenDev->RT_SetScissor(false, 0, 0, 0, 0);
 #endif
-    //  Confetti End: Igor Lobanchikov
 }
 
 
@@ -690,11 +678,9 @@ void CHDRPostProcess::QuarterResDownsampleHDRTarget()
     CTexture* pSrcRT = CTexture::s_ptexHDRTargetScaled[0];
     CTexture* pDstRT = CTexture::s_ptexHDRTargetScaled[1];
 
-    //  Confetti BEGIN: Igor Lobanchikov
 #if defined(CRY_USE_METAL) || defined(ANDROID)
     gRenDev->RT_SetScissor(true, 0, 0, (gcpRendD3D->m_HalfResRect.right + 1) >> 1, (gcpRendD3D->m_HalfResRect.bottom + 1) >> 1);
 #endif
-    //  Confetti End: Igor Lobanchikov
 
     // TODO: this pass seems redundant.  Can we get rid of it in non-gmem paths too?
     if (!gcpRendD3D->FX_GetEnabledGmemPath(nullptr))
@@ -729,11 +715,9 @@ void CHDRPostProcess::QuarterResDownsampleHDRTarget()
         PostProcessUtils().StretchRect(pSrcRT, pDstRT);
     }
 
-    //  Confetti BEGIN: Igor Lobanchikov
 #if defined(CRY_USE_METAL) || defined(ANDROID)
     gRenDev->RT_SetScissor(false, 0, 0, 0, 0);
 #endif
-    //  Confetti End: Igor Lobanchikov
 }
 
 
@@ -745,7 +729,12 @@ void CHDRPostProcess::MeasureLuminance()
     CD3D9Renderer* rd = gcpRendD3D;
 
     uint64 nFlagsShader_RT = gRenDev->m_RP.m_FlagsShader_RT;
-    gRenDev->m_RP.m_FlagsShader_RT &= ~(g_HWSR_MaskBit[HWSR_SAMPLE0] | g_HWSR_MaskBit[HWSR_SAMPLE1] | g_HWSR_MaskBit[HWSR_SAMPLE2] | g_HWSR_MaskBit[HWSR_SAMPLE5]);
+    gRenDev->m_RP.m_FlagsShader_RT &= ~(g_HWSR_MaskBit[HWSR_SAMPLE0] | g_HWSR_MaskBit[HWSR_SAMPLE1] | g_HWSR_MaskBit[HWSR_SAMPLE2] | g_HWSR_MaskBit[HWSR_SAMPLE4] | g_HWSR_MaskBit[HWSR_SAMPLE5]);
+
+    if (CRenderer::CV_r_SlimGBuffer == 1)
+    {
+        gRenDev->m_RP.m_FlagsShader_RT |= g_HWSR_MaskBit[HWSR_SLIM_GBUFFER];
+    }
 
     int32 dwCurTexture = NUM_HDR_TONEMAP_TEXTURES - 1;
     static CCryNameR Param1Name("SampleOffsets");
@@ -771,25 +760,33 @@ void CHDRPostProcess::MeasureLuminance()
 
     rd->FX_PushRenderTarget(0, CTexture::s_ptexHDRToneMaps[dwCurTexture], NULL);
 
-    // CONFETTI BEGIN: David Srour
-    // Metal Load/Store Actions
     rd->FX_SetColorDontCareActions(0, true, false);
     rd->FX_SetDepthDontCareActions(0, true, true);
     rd->FX_SetStencilDontCareActions(0, true, true);
-    // CONFETTI END
+
 
     rd->FX_SetActiveRenderTargets();
     rd->RT_SetViewport(0, 0, CTexture::s_ptexHDRToneMaps[dwCurTexture]->GetWidth(), CTexture::s_ptexHDRToneMaps[dwCurTexture]->GetHeight());
 
+    if (CRenderer::CV_r_HDREyeAdaptationMode == 2)
+    {
+        gRenDev->m_RP.m_FlagsShader_RT |= g_HWSR_MaskBit[HWSR_SAMPLE4];
+    }
+    else
+    {
+        CTexture::s_ptexSceneNormalsMap->Apply(1, nTexStateLinear);
+        CTexture::s_ptexSceneDiffuse->Apply(2, nTexStateLinear);
+        CTexture::s_ptexSceneSpecular->Apply(3, nTexStateLinear);
+    }
+    
     static CCryNameTSCRC TechName("HDRSampleLumInitial");
     m_shHDR->FXSetTechnique(TechName);
     m_shHDR->FXBegin(&nPasses, FEF_DONTSETTEXTURES | FEF_DONTSETSTATES);
     m_shHDR->FXBeginPass(0);
 
     CTexture::s_ptexHDRTargetScaled[1]->Apply(0, nTexStateLinear);
-    CTexture::s_ptexSceneNormalsMap->Apply(1, nTexStateLinear);
-    CTexture::s_ptexSceneDiffuse->Apply(2, nTexStateLinear);
-    CTexture::s_ptexSceneSpecular->Apply(3, nTexStateLinear);
+    
+    
 
     float s1 = 1.0f / static_cast<float>(CTexture::s_ptexHDRTargetScaled[1]->GetWidth());
     float t1 = 1.0f / static_cast<float>(CTexture::s_ptexHDRTargetScaled[1]->GetHeight());
@@ -885,7 +882,16 @@ void CHDRPostProcess::EyeAdaptation()
     const int32 lumMask = static_cast<int32>((sizeof(CTexture::s_ptexHDRAdaptedLuminanceCur) / sizeof(CTexture::s_ptexHDRAdaptedLuminanceCur[0]))) - 1;
     const int32 numTextures = static_cast<int32>(max(min(gRenDev->GetActiveGPUCount(), static_cast<uint32>(sizeof(CTexture::s_ptexHDRAdaptedLuminanceCur) / sizeof(CTexture::s_ptexHDRAdaptedLuminanceCur[0]))), 1u));
 
+#if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
+    // only increment the current luminance texture when drawing the main scene 
+    if (!(rd->m_RP.m_TI[rd->m_RP.m_nProcessThreadID].m_PersFlags & RBPF_RENDER_SCENE_TO_TEXTURE))
+    {
+        CTexture::s_nCurLumTextureIndex++;
+    }
+#else
     CTexture::s_nCurLumTextureIndex++;
+#endif // if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
+
     CTexture* pTexPrev = CTexture::s_ptexHDRAdaptedLuminanceCur[(CTexture::s_nCurLumTextureIndex - numTextures) & lumMask];
     CTexture* pTexCur = CTexture::s_ptexHDRAdaptedLuminanceCur[CTexture::s_nCurLumTextureIndex & lumMask];
     CTexture::s_ptexCurLumTexture = pTexCur;
@@ -1177,7 +1183,7 @@ void CHDRPostProcess::ProcessLensOptics()
             gcpRendD3D->FX_SetColorDontCareActions(0, false, false);
             gcpRendD3D->FX_ClearTarget(pLensOpticsComposite, Clr_Transparent);            
 
-            gcpRendD3D->m_RP.m_PersFlags2 |= RBPF2_NOPOSTAA | RBPF2_LENS_OPTICS_COMPOSITE;
+            gcpRendD3D->m_RP.m_PersFlags2 |= RBPF2_NOPOSTAA;
 
             GetUtils().Log(" +++ Begin lens-optics scene +++ \n");
             gcpRendD3D->FX_ProcessRenderList(EFSLIST_LENSOPTICS, FB_GENERAL);
@@ -1243,7 +1249,7 @@ void CHDRPostProcess::ToneMapping()
     bool bColorGrading = false;
 
     SColorGradingMergeParams pMergeParams;
-    if (CRenderer::CV_r_colorgrading && CRenderer::CV_r_colorgrading_charts && CRenderer::CV_r_ToneMapTechnique== static_cast<int>(ToneMapOperators::FilmicCurveUC2)) //color grading is only supported for Uncharted2 filmic curve
+    if (CRenderer::CV_r_colorgrading && CRenderer::CV_r_colorgrading_charts)
     {
         CColorGrading* pColorGrad = 0;
         if (!PostEffectMgr()->GetEffects().empty())
@@ -1290,15 +1296,48 @@ void CHDRPostProcess::ToneMapping()
         rRP.m_FlagsShader_RT |= g_HWSR_MaskBit[HWSR_SAMPLE0];
     }
     
+#if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
+    // Disable gamma application if requested 
+    if (!CRenderer::CV_r_FinalOutputsRGB)
+    {
+        rRP.m_FlagsShader_RT |= g_HWSR_MaskBit[HWSR_SAMPLE2];
+    }
+
+    // Output fully opaque alpha if rendering to texture without AA or depth
+    if ((nAAMode & eAT_NOAA_MASK) && rd->IsRenderToTextureActive())
+    {
+        rRP.m_FlagsShader_RT |= g_HWSR_MaskBit[HWSR_SAMPLE3];
+    }
+#endif // if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
+
     PostProcessUtils().SetSRGBShaderFlags();
     
     rd->FX_SetColorDontCareActions(0, true, false);
     rd->FX_SetStencilDontCareActions(0, true, true);
-    rd->FX_SetDepthDontCareActions(0, true, true);
     rd->FX_SetColorDontCareActions(1, true, false);
     rd->FX_SetStencilDontCareActions(1, true, true);
-    rd->FX_SetDepthDontCareActions(1, true, true);
+    
 
+    bool isAfterPostProcessBucketEmpty = SRendItem::IsListEmpty(EFSLIST_AFTER_POSTPROCESS, rd->m_RP.m_nProcessThreadID, rd->m_RP.m_pRLD);
+    
+    bool isAuxGeomEnabled = false;
+#if defined(ENABLE_RENDER_AUX_GEOM)
+    isAuxGeomEnabled = CRenderer::CV_r_enableauxgeom == 1;
+#endif
+    
+    //We may need to preserve the depth buffer in case there is something to render in the EFSLIST_AFTER_POSTPROCESS bucket.
+    //It could be UI in the 3d world. If the bucket is empty ignore the depth buffer as it is not needed.
+    //Also check if Auxgeom rendering is enabled in which case we preserve depth buffer.
+    if (isAfterPostProcessBucketEmpty && !isAuxGeomEnabled)
+    {
+        rd->FX_SetDepthDontCareActions(0, true, true);
+        rd->FX_SetDepthDontCareActions(1, true, true);
+    }
+    else
+    {
+        rd->FX_SetDepthDontCareActions(0, false, false);
+        rd->FX_SetDepthDontCareActions(1, false, false);
+    }
 
     // Final bloom RT
 
@@ -1767,9 +1806,9 @@ void CHDRPostProcess::DrawDebugViews()
         char str[256];
         SDrawTextInfo ti;
         ti.color[1] = 0;
-        sprintf(str, "Average Luminance (cd/m2): %.2f", fLuminance * RENDERER_LIGHT_UNIT_SCALE);
+        azsprintf(str, "Average Luminance (cd/m2): %.2f", fLuminance * RENDERER_LIGHT_UNIT_SCALE);
         rd->Draw2dText(5, 35, str, ti);
-        sprintf(str, "Estimated Illuminance (lux): %.1f", fIlluminance * RENDERER_LIGHT_UNIT_SCALE);
+        azsprintf(str, "Estimated Illuminance (lux): %.1f", fIlluminance * RENDERER_LIGHT_UNIT_SCALE);
         rd->Draw2dText(5, 55, str, ti);
 
         Vec4 vHDRSetupParams[5];
@@ -1781,7 +1820,7 @@ void CHDRPostProcess::DrawDebugViews()
             float sceneKey = 1.03f - 2.0f / (2.0f + log(fLuminance + 1.0f) / log(2.0f));
             float exposure = clamp_tpl<float>(sceneKey / fLuminance, vHDRSetupParams[4].y, vHDRSetupParams[4].z);
 
-            sprintf(str, "Exposure: %.2f  SceneKey: %.2f", exposure, sceneKey);
+            azsprintf(str, "Exposure: %.2f  SceneKey: %.2f", exposure, sceneKey);
             rd->Draw2dText(5, 75, str, ti);
         }
         else
@@ -1791,7 +1830,7 @@ void CHDRPostProcess::DrawDebugViews()
             float autoCompensation = (clamp_tpl<float>(sceneKey, 0.1f, 5.2f) - 3.0f) / 2.0f * vHDRSetupParams[3].z;
             float finalExposure = clamp_tpl<float>(exposure - autoCompensation, vHDRSetupParams[3].x, vHDRSetupParams[3].y);
 
-            sprintf(str, "Measured EV: %.1f  Auto-EC: %.1f  Final EV: %.1f", exposure, autoCompensation, finalExposure);
+            azsprintf(str, "Measured EV: %.1f  Auto-EC: %.1f  Final EV: %.1f", exposure, autoCompensation, finalExposure);
             rd->Draw2dText(5, 75, str, ti);
         }
 
@@ -1940,7 +1979,7 @@ void CHDRPostProcess::End()
 
     PostProcessUtils().SetFillModeSolid(false);
 
-    // (re-set back-buffer): due to lazy RT updates/setting there's strong possibility we run into problems on x360 when we try to resolve from edram with no RT set // ACCEPTED_USE
+    // (re-set back-buffer): if the platform does lazy RT updates/setting there's strong possibility we run into problems when we try to resolve with no RT set
     gcpRendD3D->FX_SetActiveRenderTargets();
 }
 
@@ -1955,7 +1994,7 @@ void CHDRPostProcess::Render()
     {
         CRY_ASSERT(gcpRendD3D->FX_GetCurrentRenderTarget(0) == CTexture::s_ptexHDRTarget);
 
-        gcpRendD3D->FX_SetActiveRenderTargets(); // Called explicitly to work around RT stack problems on 360
+        gcpRendD3D->FX_SetActiveRenderTargets(); // Called explicitly to work around RT stack problems on deprecated platform
         gcpRendD3D->RT_UnbindTMUs();// Avoid d3d error due to potential rtv still bound as shader input.
         gcpRendD3D->FX_PopRenderTarget(0);
         gcpRendD3D->EF_ClearTargetsLater(0);
@@ -1990,7 +2029,7 @@ void CHDRPostProcess::Render()
         const bool bSolidModeEnabled = gcpRendD3D->GetWireframeMode() == R_SOLID_MODE;
         const bool bDepthOfFieldEnabled = CRenderer::CV_r_dof >= 1 && bSolidModeEnabled;
         const bool takingScreenShot = (gcpRendD3D->m_screenShotType != 0);
-        const bool bMotionBlurEnabled = CRenderer::CV_r_MotionBlur && bSolidModeEnabled && (!takingScreenShot || CRenderer::CV_r_MotionBlurScreenShot);
+        const bool bMotionBlurEnabled = CRenderer::CV_r_MotionBlur && bSolidModeEnabled && (!takingScreenShot || CRenderer::CV_r_MotionBlurScreenShot) && !CRenderer::CV_r_RenderMotionBlurAfterHDR;
 
         DepthOfFieldParameters depthOfFieldParameters;
 
@@ -2041,7 +2080,21 @@ void CHDRPostProcess::Render()
 
         if (bMotionBlurEnabled)
         {
-            graphicsPipeline.RenderMotionBlur();
+            // Added old pipeline render call here. This lets us do motion blur before the end of HDR processing.
+
+            if (CRenderer::CV_r_GraphicsPipeline > 0)
+            {
+                graphicsPipeline.RenderMotionBlur();
+            }
+            else
+            {
+                CMotionBlur* motionBlurEffect = static_cast<CMotionBlur*>(PostEffectMgr()->GetEffect(ePFX_eMotionBlur));
+
+                if (motionBlurEffect)
+                {
+                  motionBlurEffect->Render();
+                }
+            }
         }
 
         {
@@ -2081,8 +2134,19 @@ void CHDRPostProcess::Render()
 
     gcpRendD3D->SetCurDownscaleFactor(gcpRendD3D->m_CurViewportScale);
 
-    gcpRendD3D->FX_PushRenderTarget(0, SPostEffectsUtils::AcquireFinalCompositeTarget(bDolbyHDRMode), &gcpRendD3D->m_DepthBufferOrigMSAA);
-
+    bool postAAWillApplyAA = (CRenderer::CV_r_AntialiasingMode == eAT_SMAA1TX) || (CRenderer::CV_r_AntialiasingMode == eAT_FXAA);
+    bool shouldRenderToBackbufferNow = CRenderer::CV_r_SkipNativeUpscale && CRenderer::CV_r_SkipRenderComposites && !postAAWillApplyAA;
+    if (shouldRenderToBackbufferNow)
+    {
+        gcpRendD3D->RT_SetViewport(0, 0, gcpRendD3D->GetNativeWidth(), gcpRendD3D->GetNativeHeight());
+        gcpRendD3D->FX_SetRenderTarget(0, gcpRendD3D->GetBackBuffer(), nullptr);
+        gcpRendD3D->FX_SetActiveRenderTargets();
+    }
+    else
+    {
+        gcpRendD3D->FX_PushRenderTarget(0, SPostEffectsUtils::AcquireFinalCompositeTarget(bDolbyHDRMode), &gcpRendD3D->m_DepthBufferOrigMSAA);
+    }
+    
     // Render final scene to the back buffer
     if (CRenderer::CV_r_HDRDebug != 1 && CRenderer::CV_r_HDRDebug != 2)
     {
@@ -2130,14 +2194,29 @@ void CD3D9Renderer::FX_FinalComposite()
     if (FX_GetCurrentRenderTarget(0) == upscaleSource && upscaleSource != nullptr)
     {
         FX_PopRenderTarget(0);
+
+#if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
+        const bool isRenderSceneToTexture = (m_RP.m_TI[m_RP.m_nProcessThreadID].m_PersFlags & RBPF_RENDER_SCENE_TO_TEXTURE) != 0;
+        if (!isRenderSceneToTexture)
+        {
+            RT_SetViewport(0, 0, m_nativeWidth, m_nativeHeight);
+            FX_SetRenderTarget(0, m_pBackBuffer, nullptr);
+            FX_SetActiveRenderTargets();
+        }
+#else
         RT_SetViewport(0, 0, m_nativeWidth, m_nativeHeight);
         FX_SetRenderTarget(0, m_pBackBuffer, nullptr);
         FX_SetActiveRenderTargets();
+#endif // if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
 
         static ICVar* DolbyCvar = gEnv->pConsole->GetCVar("r_HDRDolby");
         int DolbyCvarValue = DolbyCvar ? DolbyCvar->GetIVal() : eDVM_Disabled;
 
+#if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
+        if (DolbyCvarValue == eDVM_Vision && !isRenderSceneToTexture)
+#else
         if (DolbyCvarValue == eDVM_Vision)
+#endif // if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
         {
             CHDRPostProcess::GetInstance()->EncodeDolbyVision(upscaleSource);
         }

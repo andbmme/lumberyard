@@ -54,7 +54,7 @@ DEALINGS IN THE SOFTWARE.
 #define EXTSPEC /*extern*/
 #endif
 
-#if defined(_MSC_VER) && _MSC_VER >= 1400
+#if defined(_MSC_VER)
 #define MALLOCATTR __declspec(restrict)
 #endif
 #ifdef __GNUC__
@@ -599,6 +599,13 @@ namespace nedalloc
             tc->freeInCache -= blksize;
             assert((long) tc->freeInCache >= 0);
         }
+#if defined(DEBUG) && 0
+        if (!(tc->mallocs & 0xfff))
+        {
+            printf("*** threadcache=%u, mallocs=%u (%f), free=%u (%f), freeInCache=%u\n", (unsigned int) tc->threadid, tc->mallocs,
+                (float) tc->successes / tc->mallocs, tc->frees, (float) tc->successes / tc->frees, (unsigned int) tc->freeInCache);
+        }
+#endif
 #ifdef FULLSANITYCHECKS
         tcfullsanitycheck(tc);
 #endif

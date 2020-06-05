@@ -55,10 +55,7 @@ namespace NCryOpenGL
     {
         STargetBlendState m_kTargets[DXGL_NUM_SUPPORTED_BLEND_STATES];
         bool m_bAlphaToCoverageEnable;
-
-#if DXGL_SUPPORT_INDEPENDENT_BLEND_STATES
         bool m_bIndependentBlendEnable;
-#endif //DXGL_SUPPORT_INDEPENDENT_BLEND_STATES
     };
 
     struct SDepthStencilState
@@ -126,7 +123,6 @@ namespace NCryOpenGL
 
     inline bool operator==(SColorMask kLeft, SColorMask kRight)
     {
-        //  Confetti BEGIN: Igor Lobanchikov :END
         return 0 == memcmp(kLeft.m_abRGBA, kRight.m_abRGBA, sizeof(kRight.m_abRGBA));
     }
 

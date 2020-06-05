@@ -28,6 +28,8 @@ def build(bld):
         # Add custom build options here
         use         = ['AWSNativeSDKInit'],
         uselib      = ['AWS_CPP_SDK_CORE'],
+        
         file_list   = file_list,
-
+        linux_rpath = ['$ORIGIN'],
+        win_x64_clang_cxxflags = ['-frtti'],
     )

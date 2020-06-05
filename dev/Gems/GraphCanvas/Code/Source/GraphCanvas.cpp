@@ -15,13 +15,17 @@
 #include <AzCore/Serialization/EditContext.h>
 #include <AzCore/Component/EntityUtils.h>
 
+#include <Components/BookmarkManagerComponent.h>
+#include <Components/BookmarkAnchor/BookmarkAnchorComponent.h>
+#include <Components/BookmarkAnchor/BookmarkAnchorLayerControllerComponent.h>
+#include <Components/BookmarkAnchor/BookmarkAnchorVisualComponent.h>
 #include <Components/GeometryComponent.h>
 #include <Components/GridComponent.h>
 #include <Components/GridVisualComponent.h>
+#include <Components/PersistentIdComponent.h>
 #include <Components/SceneComponent.h>
+#include <Components/SceneMemberComponent.h>
 #include <Components/StylingComponent.h>
-
-#include <Components/ColorPaletteManager/ColorPaletteManagerComponent.h>
 
 #include <Components/Connections/ConnectionComponent.h>
 #include <Components/Connections/ConnectionVisualComponent.h>
@@ -29,39 +33,76 @@
 #include <Components/Connections/DataConnections/DataConnectionVisualComponent.h>
 
 #include <Components/Nodes/NodeComponent.h>
-#include <Components/Nodes/Comment/BlockCommentNodeFrameComponent.h>
-#include <Components/Nodes/Comment/BlockCommentNodeLayoutComponent.h>
 #include <Components/Nodes/Comment/CommentNodeLayoutComponent.h>
 #include <Components/Nodes/General/GeneralNodeLayoutComponent.h>
 #include <Components/Nodes/General/GeneralSlotLayoutComponent.h>
+#include <Components/Nodes/Group/CollapsedNodeGroupComponent.h>
+#include <Components/Nodes/Group/NodeGroupFrameComponent.h>
+#include <Components/Nodes/Group/NodeGroupLayoutComponent.h>
 #include <Components/Nodes/Wrapper/WrapperNodeLayoutComponent.h>
 
+#include <Components/NodePropertyDisplays/AssetIdNodePropertyDisplay.h>
 #include <Components/NodePropertyDisplays/BooleanNodePropertyDisplay.h>
+#include <Components/NodePropertyDisplays/ComboBoxNodePropertyDisplay.h>
 #include <Components/NodePropertyDisplays/EntityIdNodePropertyDisplay.h>
-#include <Components/NodePropertyDisplays/DoubleNodePropertyDisplay.h>
+#include <Components/NodePropertyDisplays/NumericNodePropertyDisplay.h>
 #include <Components/NodePropertyDisplays/ReadOnlyNodePropertyDisplay.h>
 #include <Components/NodePropertyDisplays/StringNodePropertyDisplay.h>
-#include <Components/NodePropertyDisplays/VariableReferenceNodePropertyDisplay.h>
 #include <Components/NodePropertyDisplays/VectorNodePropertyDisplay.h>
 
 #include <Components/Slots/Data/DataSlotComponent.h>
 #include <Components/Slots/Execution/ExecutionSlotComponent.h>
+#include <Components/Slots/Extender/ExtenderSlotComponent.h>
 #include <Components/Slots/Property/PropertySlotComponent.h>
 
+#include <GraphCanvas/Styling/Selector.h>
+#include <GraphCanvas/Styling/SelectorImplementations.h>
+#include <GraphCanvas/Styling/PseudoElement.h>
 
-#include <Styling/Selector.h>
-#include <Styling/SelectorImplementations.h>
-#include <Styling/Style.h>
-#include <Styling/PseudoElement.h>
-#include <Styling/Parser.h>
+#include <GraphCanvas/Types/ConstructPresets.h>
+#include <GraphCanvas/Types/EntitySaveData.h>
+#include <GraphCanvas/Types/TranslationTypes.h>
 
-#include <Types/EntitySaveData.h>
-#include <Types/TranslationTypes.h>
-
-#include <Widgets/GraphCanvasTreeModel.h>
+#include <GraphCanvas/Widgets/GraphCanvasMimeEvent.h>
+#include <GraphCanvas/Widgets/GraphCanvasTreeModel.h>
+#include <GraphCanvas/Widgets/MimeEvents/CreateSplicingNodeMimeEvent.h>
 
 namespace GraphCanvas
 {
+    bool EntitySaveDataContainerVersionConverter(AZ::SerializeContext& context, AZ::SerializeContext::DataElementNode& classElement)
+    {
+        if (classElement.GetVersion() == 1)
+        {
+            AZ::Crc32 componentDataId = AZ_CRC("ComponentData", 0xa6acc628);
+            AZStd::unordered_map< AZ::Uuid, GraphCanvas::ComponentSaveData* > componentSaveData;
+
+            AZ::SerializeContext::DataElementNode* dataNode = classElement.FindSubElement(componentDataId);
+
+            if (dataNode)
+            {
+                dataNode->GetDataHierarchy(context, componentSaveData);
+            }
+
+            classElement.RemoveElementByName(componentDataId);
+
+            AZStd::unordered_map< AZ::Uuid, GraphCanvas::ComponentSaveData* > remappedComponentSaveData;
+
+            for (const auto& mapPair : componentSaveData)
+            {
+                auto mapIter = remappedComponentSaveData.find(azrtti_typeid(mapPair.second));
+
+                if (mapIter == remappedComponentSaveData.end())
+                {
+                    remappedComponentSaveData[azrtti_typeid(mapPair.second)] = mapPair.second;
+                }
+            }
+
+            classElement.AddElementWithData(context, "ComponentData", remappedComponentSaveData);
+        }
+
+        return true;
+    }
+
     void GraphCanvasSystemComponent::Reflect(AZ::ReflectContext* context)
     {
         if (AZ::SerializeContext* serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
@@ -76,7 +117,7 @@ namespace GraphCanvas
                 ;
 
             serializeContext->Class<EntitySaveDataContainer>()
-                ->Version(1)
+                ->Version(2, &EntitySaveDataContainerVersionConverter)
                 ->Field("ComponentData", &EntitySaveDataContainer::m_entityData)
                 ;
             ////
@@ -89,26 +130,29 @@ namespace GraphCanvas
                     ->Attribute(AZ::Edit::Attributes::Category, "Editor")
                     ->Attribute(AZ::Edit::Attributes::AppearsInAddComponentMenu, AZ_CRC("System", 0xc94d118b))
                     ;
-            }
-
+            }            
+            
             NodeConfiguration::Reflect(serializeContext);
             Styling::SelectorImplementation::Reflect(serializeContext);
             Styling::Selector::Reflect(serializeContext);
+            Styling::NullSelector::Reflect(serializeContext);
             Styling::BasicSelector::Reflect(serializeContext);
             Styling::DefaultSelector::Reflect(serializeContext);
             Styling::CompoundSelector::Reflect(serializeContext);
             Styling::NestedSelector::Reflect(serializeContext);
             TranslationKeyedString::Reflect(serializeContext);
             Styling::Style::Reflect(serializeContext);
-
         }
 
-        GraphCanvasTreeModel::Reflect(context);
+        EditorConstructPresets::Reflect(context);
+        GraphCanvasMimeEvent::Reflect(context);
+        GraphCanvasTreeModel::Reflect(context);        
+        CreateSplicingNodeMimeEvent::Reflect(context);
     }
 
     void GraphCanvasSystemComponent::GetProvidedServices(AZ::ComponentDescriptor::DependencyArrayType& provided)
     {
-        provided.push_back(AZ_CRC("GraphCanvasService", 0x138a9c46));
+        provided.push_back(GraphCanvasRequestsServiceId);
     }
 
     void GraphCanvasSystemComponent::Activate()
@@ -123,14 +167,27 @@ namespace GraphCanvas
         GraphCanvasRequestBus::Handler::BusDisconnect();
     }
 
+    AZ::Entity* GraphCanvasSystemComponent::CreateBookmarkAnchor() const
+    {
+        AZ::Entity* entity = aznew AZ::Entity("BookmarkAnchor");
+        entity->CreateComponent<BookmarkAnchorComponent>();
+        entity->CreateComponent<BookmarkAnchorVisualComponent>();
+        entity->CreateComponent<SceneMemberComponent>();
+        entity->CreateComponent<GeometryComponent>();
+        entity->CreateComponent<StylingComponent>(Styling::Elements::BookmarkAnchor, AZ::EntityId());
+        entity->CreateComponent<PersistentIdComponent>();
+        entity->CreateComponent<BookmarkAnchorLayerControllerComponent>();
+
+        return entity;
+    }
+
     AZ::Entity* GraphCanvasSystemComponent::CreateScene() const
     {
         // create a new empty canvas, give it a name to avoid serialization generating one based on
         // the ID (which in some cases caused diffs to fail in the editor)
         AZ::Entity* entity = aznew AZ::Entity("GraphCanvasScene");
         entity->CreateComponent<SceneComponent>();
-        entity->CreateComponent<ColorPaletteManagerComponent>();
-        entity->AddComponent(Styling::Parser::DefaultStyleSheet());
+        entity->CreateComponent<BookmarkManagerComponent>();
         return entity;
     }
 
@@ -149,37 +206,41 @@ namespace GraphCanvas
         return CommentNodeLayoutComponent::CreateCommentNodeEntity();
     }
 
-    AZ::Entity* GraphCanvasSystemComponent::CreateBlockCommentNode() const
-    {
-        return BlockCommentNodeLayoutComponent::CreateBlockCommentNodeEntity();
-    }
-
     AZ::Entity* GraphCanvasSystemComponent::CreateWrapperNode(const char* nodeType) const
     {
         return WrapperNodeLayoutComponent::CreateWrapperNodeEntity(nodeType);
     }
 
-    AZ::Entity* GraphCanvasSystemComponent::CreateDataSlot(const AZ::EntityId& nodeId, const AZ::Uuid& typeId, const SlotConfiguration& slotConfiguration) const
+    AZ::Entity* GraphCanvasSystemComponent::CreateNodeGroup() const
     {
-        const bool isReference = false;
-        return DataSlotComponent::CreateDataSlot(nodeId, typeId, isReference, slotConfiguration);
+        return NodeGroupLayoutComponent::CreateNodeGroupEntity();
     }
 
-    AZ::Entity* GraphCanvasSystemComponent::CreateVariableReferenceSlot(const AZ::EntityId& nodeId, const AZ::Uuid& typeId, const SlotConfiguration& slotConfiguration) const
+    AZ::Entity* GraphCanvasSystemComponent::CreateCollapsedNodeGroup(const CollapsedNodeGroupConfiguration& collapsedNodeGroupConfiguration) const
     {
-        const bool isReference = true;
-        return DataSlotComponent::CreateDataSlot(nodeId, typeId, isReference, slotConfiguration);
+        return CollapsedNodeGroupComponent::CreateCollapsedNodeGroupEntity(collapsedNodeGroupConfiguration);
     }
 
-    AZ::Entity* GraphCanvasSystemComponent::CreateVariableSourceSlot(const AZ::EntityId& nodeId, const AZ::Uuid& typeId, const SlotConfiguration& slotConfiguration) const
+    AZ::Entity* GraphCanvasSystemComponent::CreateSlot(const AZ::EntityId& nodeId, const SlotConfiguration& slotConfiguration) const
     {
-        // For now, to help deal with copying/pasting. Going to assume that the node id is the variable id.
-        // This does put a limit on one variable slot per node though.
-        // Otherwise there is no way of distinguishing them.
-        //
-        // Is fixable(entityId's get remapped on copy/paste), but not until there is a use case.
-        // for multiple variables from a single node.
-        return DataSlotComponent::CreateVariableSlot(nodeId, typeId, nodeId, slotConfiguration);
+        if (const DataSlotConfiguration* dataSlotConfiguration = azrtti_cast<const DataSlotConfiguration*>(&slotConfiguration))
+        {
+            return DataSlotComponent::CreateDataSlot(nodeId, (*dataSlotConfiguration));
+        }
+        else if (const ExecutionSlotConfiguration* executionSlotConfiguration = azrtti_cast<const ExecutionSlotConfiguration*>(&slotConfiguration))
+        {
+            return ExecutionSlotComponent::CreateExecutionSlot(nodeId, (*executionSlotConfiguration));
+        }
+        else if (const ExtenderSlotConfiguration* extenderSlotConfiguration = azrtti_cast<const ExtenderSlotConfiguration*>(&slotConfiguration))
+        {
+            return ExtenderSlotComponent::CreateExtenderSlot(nodeId, (*extenderSlotConfiguration));
+        }
+        else
+        {
+            AZ_Error("GraphCanvas", false, "Trying to create using an unknown Slot Configuration");
+        }
+
+        return nullptr;
     }
 
     NodePropertyDisplay* GraphCanvasSystemComponent::CreateBooleanNodePropertyDisplay(BooleanDataInterface* dataInterface) const
@@ -187,14 +248,19 @@ namespace GraphCanvas
         return aznew BooleanNodePropertyDisplay(dataInterface);
     }
 
+    NodePropertyDisplay* GraphCanvasSystemComponent::CreateNumericNodePropertyDisplay(NumericDataInterface* dataInterface) const
+    {
+        return aznew NumericNodePropertyDisplay(dataInterface);
+    }
+
+    NodePropertyDisplay* GraphCanvasSystemComponent::CreateComboBoxNodePropertyDisplay(ComboBoxDataInterface* dataInterface) const
+    {
+        return aznew ComboBoxNodePropertyDisplay(dataInterface);
+    }
+
     NodePropertyDisplay* GraphCanvasSystemComponent::CreateEntityIdNodePropertyDisplay(EntityIdDataInterface* dataInterface) const
     {
         return aznew EntityIdNodePropertyDisplay(dataInterface);
-    }
-
-    NodePropertyDisplay* GraphCanvasSystemComponent::CreateDoubleNodePropertyDisplay(DoubleDataInterface* dataInterface) const
-    {
-        return aznew DoubleNodePropertyDisplay(dataInterface);
     }
 
     NodePropertyDisplay* GraphCanvasSystemComponent::CreateReadOnlyNodePropertyDisplay(ReadOnlyDataInterface* dataInterface) const
@@ -207,39 +273,19 @@ namespace GraphCanvas
         return aznew StringNodePropertyDisplay(dataInterface);
     }
 
-    NodePropertyDisplay* GraphCanvasSystemComponent::CreateVariableReferenceNodePropertyDisplay(VariableReferenceDataInterface* dataInterface) const
-    {
-        return aznew VariableReferenceNodePropertyDisplay(dataInterface);
-    }
-
     NodePropertyDisplay* GraphCanvasSystemComponent::CreateVectorNodePropertyDisplay(VectorDataInterface* dataInterface) const
     {
         return aznew VectorNodePropertyDisplay(dataInterface);
     }
 
-    AZ::Entity* GraphCanvasSystemComponent::CreateExecutionSlot(const AZ::EntityId& nodeId, const SlotConfiguration& configuration) const
+    NodePropertyDisplay* GraphCanvasSystemComponent::CreateAssetIdNodePropertyDisplay(AssetIdDataInterface* dataInterface) const
     {
-        return ExecutionSlotComponent::CreateExecutionSlot(nodeId, configuration);
+        return aznew AssetIdNodePropertyDisplay(dataInterface);
     }
 
     AZ::Entity* GraphCanvasSystemComponent::CreatePropertySlot(const AZ::EntityId& nodeId, const AZ::Crc32& propertyId, const SlotConfiguration& configuration) const
     {
         return PropertySlotComponent::CreatePropertySlot(nodeId, propertyId, configuration);
-    }
-
-    AZ::Entity* GraphCanvasSystemComponent::CreateDefaultConnection(const Endpoint& sourceEndpoint, const Endpoint& targetEndpoint) const
-    {
-        return ConnectionComponent::CreateGeneralConnection(sourceEndpoint, targetEndpoint);
-    }
-
-    SceneRequests* GraphCanvasSystemComponent::GetSceneRequests(AZ::Entity* sceneEntity) const
-    {
-        if (auto* scene = sceneEntity ? AZ::EntityUtils::FindFirstDerivedComponent<SceneComponent>(sceneEntity) : nullptr)
-        {
-            return scene->GetSceneRequests();
-        }
-
-        return nullptr;
     }
 
     AZ::EntityId GraphCanvasSystemComponent::CreateStyleEntity(const AZStd::string& style) const

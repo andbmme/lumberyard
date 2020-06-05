@@ -13,11 +13,18 @@
 
 // Description : unified vector math lib
 
-
-#ifndef __VMATH__
-#define __VMATH__
+#pragma once
 
 #define VEC4_SSE
+#if defined(AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/VMath_hpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/VMath_hpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/VMath_hpp_salem.inl"
+    #endif
+#endif
 
 //#include <math.h>
 #include <Cry_Math.h>
@@ -33,7 +40,3 @@ namespace NVMath
     #include "VMath_C.hpp"
 #endif
 }
-
-
-#endif
-

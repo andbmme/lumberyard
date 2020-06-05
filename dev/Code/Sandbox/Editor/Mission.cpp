@@ -20,7 +20,7 @@
 #include "TerrainLighting.h"
 #include "GameEngine.h"
 #include "MissionScript.h"
-#include "imoviesystem.h"
+#include "IMovieSystem.h"
 #include "VegetationMap.h"
 
 #include "Objects/EntityObject.h"
@@ -29,6 +29,7 @@
 #include <ITimeOfDay.h>
 #include <IEntitySystem.h>
 #include <I3DEngine.h>
+
 #include "IAISystem.h"
 
 namespace
@@ -64,6 +65,8 @@ CMission::CMission(CCryEditDoc* doc)
     m_minimap.vCenter = Vec2(512, 512);
     m_minimap.vExtends = Vec2(512, 512);
     m_minimap.textureWidth = m_minimap.textureHeight = 1024;
+
+    m_reentrancyProtector = false;
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -296,7 +299,7 @@ void CMission::Export(XmlNodeRef& root, XmlNodeRef& objectsNode)
     //////////////////////////////////////////////////////////////////////////
     // Serialize objects.
     //////////////////////////////////////////////////////////////////////////
-    QString path = QDir::toNativeSeparators(QFileInfo(m_doc->GetPathName()).absolutePath());
+    QString path = QDir::toNativeSeparators(QFileInfo(m_doc->GetLevelPathName()).absolutePath());
     if (!path.endsWith(QDir::separator()))
         path += QDir::separator();
 
@@ -319,24 +322,16 @@ void CMission::Export(XmlNodeRef& root, XmlNodeRef& objectsNode)
 }
 
 //////////////////////////////////////////////////////////////////////////
-void CMission::ExportLegacyAnimations(XmlNodeRef& root)
-{
-    XmlNodeRef mission = XmlHelpers::CreateXmlNode("Mission");
-    mission->setAttr("Name", m_name.toUtf8().data());
-
-    XmlNodeRef movieDataNode = XmlHelpers::CreateXmlNode("MovieData");
-    GetIEditor()->GetMovieSystem()->Serialize(movieDataNode, false);
-
-    for (int i = 0; i < movieDataNode->getChildCount(); i++)
-    {
-        mission->addChild(movieDataNode->getChild(i));
-    }
-    root->addChild(mission);
-}
-
-//////////////////////////////////////////////////////////////////////////
 void CMission::SyncContent(bool bRetrieve, bool bIgnoreObjects, bool bSkipLoadingAI /* = false */)
 {
+    // The function may take a longer time when executing objMan->Serialize, which uses CWaitProgress internally
+    // Adding a sync flag to prevent the function from being re-entered after the data is modified by OnEnvironmentChange
+    if (m_reentrancyProtector)
+    {
+        return;
+    }
+    m_reentrancyProtector = true;
+
     // Save data from current Document to Mission.
     IObjectManager* objMan = GetIEditor()->GetObjectManager();
     if (bRetrieve)
@@ -367,20 +362,6 @@ void CMission::SyncContent(bool bRetrieve, bool bIgnoreObjects, bool bSkipLoadin
         gameEngine->SetPlayerEquipPack(m_sPlayerEquipPack.toUtf8().data());
 
         gameEngine->ReloadEnvironment();
-
-        GetIEditor()->GetSystem()->GetI3DEngine()->CompleteObjectsGeometry();
-
-        // refresh positions of vegetation objects since voxel mesh is defined only now
-        if (CVegetationMap* pVegetationMap = GetIEditor()->GetVegetationMap())
-        {
-            pVegetationMap->OnHeightMapChanged();
-        }
-
-        if (m_Animations)
-        {
-            GetIEditor()->GetMovieSystem()->Serialize(m_Animations, true);
-        }
-        GetIEditor()->Notify(eNotify_OnReloadTrackView);
 
         if (!bSkipLoadingAI)
         {
@@ -420,13 +401,22 @@ void CMission::SyncContent(bool bRetrieve, bool bIgnoreObjects, bool bSkipLoadin
             }
         }
     }
+
+    m_reentrancyProtector = false;
 }
 
 //////////////////////////////////////////////////////////////////////////
 void CMission::OnEnvironmentChange()
 {
+    // Only execute the reload function if there is no ongoing SyncContent.
+    if (m_reentrancyProtector)
+    {
+        return;
+    }
+    m_reentrancyProtector = true;
     m_environment = XmlHelpers::CreateXmlNode("Environment");
     CXmlTemplate::SetValues(m_doc->GetEnvironmentTemplate(), m_environment);
+    m_reentrancyProtector = false;
 }
 
 //////////////////////////////////////////////////////////////////////////

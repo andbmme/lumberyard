@@ -2,10 +2,17 @@
 <qresource prefix="/stylesheet">
     <file>img/in_progress.gif</file>
     <file>img/WindowShadow.png</file>
+    <file>img/close.svg</file>
     <file>img/double_triangles.png</file>
     <file>img/dockWidgetSeparatorDots_horiz.png</file>
     <file>img/dockWidgetSeparatorDots_vert.png</file>
+    <file>img/filter.svg</file>
     <file>img/filter.png</file>
+    <file>img/filter_selected.png</file>
+    <file>img/menu.png</file>
+    <file>img/menu_selected.png</file>
+    <file>img/indicator-arrow-down.svg</file>
+    <file>img/indicator-arrow-up.svg</file>
     <file>img/radio-hover.png</file>
     <file>img/radio-selected.png</file>
     <file>img/radio-unselected.png</file>
@@ -13,7 +20,9 @@
     <file>img/combo-checked.png</file>
     <file>img/combo-tristate.png</file>
     <file>img/ly_application_icon.png</file>
+    <file>img/search.svg</file>
     <file>img/search.png</file>
+    <file>img/search-dark.svg</file>
     <file>img/separator.png</file>
     <file>img/separator_horiz.png</file>
     <file>img/slider-handle.png</file>
@@ -22,6 +31,7 @@
     <file>img/table_error.png</file>
     <file>img/table_warning.png</file>
     <file>img/table_success.png</file>
+    <file>img/table_debug.png</file>
     <file>img/titlebar_divider.png</file>
     <file>img/titlebar_maximize.png</file>
     <file>img/titlebar_minimize.png</file>
@@ -44,6 +54,7 @@
     <file>img/vertical_arrows.png</file>
     <file>img/horizontal_arrows.png</file>
     <file>img/16x16/lineedit-clear.png</file>
+    <file>img/16x16/lineedit-clear@2x.png</file>
     <file>img/16x16/Align_object_to_surface.png</file>
     <file>img/16x16/Align_to_grid.png</file>
     <file>img/16x16/Align_to_Object.png</file>
@@ -52,12 +63,14 @@
     <file>img/16x16/Audio.png</file>
     <file>img/16x16/Database_view.png</file>
     <file>img/16x16/Delete_named_selection.png</file>
-    <file>img/16x16/Flowgraph.png</file>
+    <file>img/16x16/deploy.png</file>
     <file>img/16x16/Follow_terrain.png</file>
     <file>img/16x16/Freeze.png</file>
     <file>img/16x16/Grid.png</file>
     <file>img/16x16/Helpers.png</file>
+    <file>img/16x16/Helpers@2x.png</file>
     <file>img/16x16/info.png</file>
+    <file>img/16x16/info@2x.png</file>
     <file>img/16x16/layer_editor.png</file>
     <file>img/16x16/layers.png</file>
     <file>img/16x16/Load.png</file>
@@ -89,7 +102,9 @@
     <file>img/16x16/Reset_physics_state.png</file>
     <file>img/16x16/Save.png</file>
     <file>img/16x16/Search.png</file>
+    <file>img/16x16/Search@2x.png</file>
     <file>img/16x16/Search_more.png</file>
+    <file>img/16x16/Search_more@2x.png</file>
     <file>img/16x16/Simulate_Physics_on_selected_objects.png</file>
     <file>img/16x16/Trackview.png</file>
     <file>img/16x16/Translate.png</file>
@@ -116,7 +131,7 @@
     <file>img/24x24/Audio.png</file>
     <file>img/24x24/Database_view.png</file>
     <file>img/24x24/Delete_named_selection.png</file>
-    <file>img/24x24/Flowgraph.png</file>
+    <file>img/24x24/deploy.png</file>
     <file>img/24x24/Follow_terrain.png</file>
     <file>img/24x24/Freeze.png</file>
     <file>img/24x24/Get_physics_state.png</file>
@@ -173,7 +188,7 @@
     <file>img/32x32/Audio.png</file>
     <file>img/32x32/Database_view.png</file>
     <file>img/32x32/Delete_named_selection.png</file>
-    <file>img/32x32/Flowgraph.png</file>
+    <file>img/32x32/deploy.png</file>
     <file>img/32x32/Follow_terrain.png</file>
     <file>img/32x32/Freeze.png</file>
     <file>img/32x32/Get_physics_state.png</file>
@@ -231,6 +246,7 @@
     <file>img/32x32/XY.png</file>
     <file>img/32x32/XY_copy.png</file>
     <file>img/32x32/XY2_copy.png</file>
+    <file>img/menu-check.png</file>
     <file>img/lineedit-information.png</file>
     <file>img/lineedit-invalid.png</file>
     <file>img/lineedit-question.png</file>
@@ -247,12 +263,15 @@
     <file>img/round_button_small.png</file>
     <file>img/round_button_small_hover.png</file>
     <file>img/round_button_small_press.png</file>
+    <file>img/column-resize.png</file>
+    <file>img/help.svg</file>
     <file>img/dropdowns/big_arrow_down.png</file>
     <file>img/dropdowns/big_arrow_left.png</file>
     <file>img/dropdowns/double_arrows.png</file>
     <file>img/dropdowns/double_arrows_disabled.png</file>
     <file>img/dropdowns/down_arrow.png</file>
     <file>img/dropdowns/down_arrow_disabled.png</file>
+    <file>img/dropdowns/black_down_arrow.png</file>
     <file>img/titlebar/titlebar_close.png</file>
     <file>img/titlebar/titlebar_close_hover.png</file>
     <file>img/titlebar/titlebar_close_press.png</file>
@@ -271,7 +290,6 @@
     <file>img/titlebar/titlebar_minimize_dark.png</file>
     <file>img/titlebar/titlebar_minimize_press_dark.png</file>
     <file>img/titlebar/titlebar_minimize_hover_dark.png</file>
-
     <file>img/titlebarmenu/close.png</file>
     <file>img/titlebarmenu/restore.png</file>
     <file>img/titlebarmenu/minimize.png</file>
@@ -288,6 +306,30 @@
     <file>img/titlebarmenu/restore_disabled@2x.png</file>
     <file>img/titlebarmenu/minimize_disabled@2x.png</file>
     <file>img/titlebarmenu/maximize_disabled@2x.png</file>
+    <file>img/logging/debug.svg</file>
+    <file>img/logging/error.svg</file>
+    <file>img/logging/information.svg</file>
+    <file>img/logging/pending.svg</file>
+    <file>img/logging/processing.svg</file>
+    <file>img/logging/valid.svg</file>
+    <file>img/logging/warning.svg</file>
+    <file>img/logging/copy.svg</file>
+    <file>img/logging/reset.svg</file>
+    <file>img/logging/add-filter.svg</file>
+    <file>img/logging/warning-yellow.svg</file>
+    <file>img/branch_open.png</file>
+    <file>img/branch_closed.png</file>
+    <file>img/UI20/checkbox/off-disabled.svg</file>
+    <file>img/UI20/checkbox/off-focus.svg</file>
+    <file>img/UI20/checkbox/off.svg</file>
+    <file>img/UI20/checkbox/on-disabled.svg</file>
+    <file>img/UI20/checkbox/on-focus.svg</file>
+    <file>img/UI20/checkbox/on.svg</file>
+    <file>img/UI20/checkbox/partial-selected-disabled.svg</file>
+    <file>img/UI20/checkbox/partial-selected-focus.svg</file>
+    <file>img/UI20/checkbox/partial-selected.svg</file>
+    <file>img/UI20/checkmark.svg</file>
+    <file>img/UI20/checkmark-menu.svg</file>
 </qresource>
 <qresource prefix="/docking">
     <file alias="tabs_icon.png">img/docking/tabs_icon.png</file>
@@ -296,10 +338,58 @@
     <file alias="Editor/Style/EditorStylesheetVariables_Dark.json">../../../../Sandbox/Editor/Style/EditorStylesheetVariables_Dark.json</file>
     <file alias="Editor/Style/NewEditorStylesheet.qss">../../../../Sandbox/Editor/Style/NewEditorStylesheet.qss</file>
 </qresource>
+<qresource prefix="/Cards">
+    <file>img/UI20/Cards/point_hand.png</file>
+    <file>img/UI20/Cards/cross-circle-small.png</file>
+    <file>img/UI20/Cards/cross-small.png</file>
+    <file>img/UI20/Cards/list-add-small.png</file>
+    <file>img/UI20/Cards/group_closed.png</file>
+    <file>img/UI20/Cards/group_open.png</file>
+    <file>img/UI20/Cards/caret_down.svg</file>
+    <file>img/UI20/Cards/tool_cancel.png</file>
+    <file>img/UI20/Cards/tool_cancel_highlight.png</file>
+    <file>img/UI20/Cards/tool_cancel_hover.png</file>
+    <file>img/UI20/Cards/tool_filter.png</file>
+    <file>img/UI20/Cards/Browse.png</file>
+    <file>img/UI20/Cards/Browse_on.png</file>
+    <file>img/UI20/Cards/edit-asset.png</file>
+    <file>img/UI20/Cards/slice_item.png</file>
+    <file>img/UI20/Cards/changed_data_item.png</file>
+    <file>img/UI20/Cards/new_data_item.png</file>
+    <file>img/UI20/Cards/removed_data_item.png</file>
+    <file>img/UI20/Cards/menu_ico.svg</file>
+    <file>img/UI20/Cards/menu_ico.png</file>
+    <file>img/UI20/Cards/error_icon.png</file>
+    <file>img/UI20/Cards/warning.png</file>
+    <file>img/UI20/Cards/search.png</file>
+    <file>img/UI20/Cards/close.png</file>
+    <file>img/UI20/Cards/error-conclict-state.svg</file>
+    <file>img/UI20/Cards/help.svg</file>
+    <file>img/UI20/Cards/disabled_header.png</file>
+    <file>img/UI20/Cards/help.png</file>
+    <file>img/UI20/Cards/help_hover.png</file>
+    <file>img/UI20/Cards/checkmark.png</file>
+    <file>img/UI20/Cards/rectangle.png</file>
+    <file>img/UI20/Cards/spacer.png</file>
+    <file>img/UI20/Cards/eye_dropper.png</file>
+    <file>img/UI20/Cards/trash-small.png</file>
+</qresource>
 <qresource prefix="/AzQtComponents">
     <file>Widgets/BaseStyleSheet.qss</file>
+    <file>Widgets/BreadCrumbs.qss</file>
+    <file>Widgets/BreadCrumbsConfig.ini</file>
+    <file>Widgets/Card.qss</file>
+    <file>Widgets/CardConfig.ini</file>
     <file>Widgets/CheckBox.qss</file>
     <file>Widgets/CheckBoxConfig.ini</file>
+    <file>Widgets/ColorPicker.qss</file>
+    <file>Widgets/ColorPickerConfig.ini</file>
+    <file>Widgets/ColorPicker/PaletteViewConfig.ini</file>
+    <file>Widgets/EyedropperConfig.ini</file>
+    <file>Widgets/LineEdit.qss</file>
+    <file>Widgets/LineEditConfig.ini</file>
+    <file>Widgets/ComboBox.qss</file>
+    <file>Widgets/ComboBoxConfig.ini</file>
     <file>Widgets/Menu.qss</file>
     <file>Widgets/ProgressBarConfig.ini</file>
     <file>Widgets/ProgressBar.qss</file>
@@ -307,28 +397,72 @@
     <file>Widgets/PushButtonConfig.ini</file>
     <file>Widgets/RadioButton.qss</file>
     <file>Widgets/RadioButtonConfig.ini</file>
+    <file>Widgets/SegmentControl.qss</file>
     <file>Widgets/Slider.qss</file>
     <file>Widgets/SliderConfig.ini</file>
+    <file>Widgets/StyledDockWidget.qss</file>
+    <file>Widgets/TabWidget.qss</file>
+    <file>Widgets/TabWidgetConfig.ini</file>
     <file>Widgets/Text.qss</file>
+    <file>Widgets/TitleBar.qss</file>
+    <file>Widgets/TitleBarConfig.ini</file>
     <file>Widgets/ToolTip.qss</file>
+    <file>Widgets/WindowDecorationWrapper.qss</file>
 </qresource>
 <qresource prefix="/stylesheet">
-    <file>img/UI20/combo-checked.png</file>
-    <file>img/UI20/combo-checked-disabled.png</file>
-    <file>img/UI20/combo-checked-focus.png</file>
-    <file>img/UI20/combo-tristate.png</file>
-    <file>img/UI20/radio-checked.png</file>
-    <file>img/UI20/radio-checked-disabled.png</file>
-    <file>img/UI20/radio-checked-focus.png</file>
-    <file>img/UI20/radio-unchecked.png</file>
-    <file>img/UI20/radio-unchecked-disabled.png</file>
-    <file>img/UI20/radio-unchecked-focus.png</file>
-    <file>img/UI20/toggle-checked.png</file>
-    <file>img/UI20/toggle-checked-disabled.png</file>
-    <file>img/UI20/toggle-checked-focus.png</file>
-    <file>img/UI20/toggle-unchecked.png</file>
-    <file>img/UI20/toggle-unchecked-disabled.png</file>
-    <file>img/UI20/toggle-unchecked-focus.png</file>
+    <file>img/UI20/combobox-arrow.svg</file>
+    <file>img/UI20/combobox-arrow-disabled.svg</file>
+    <file>img/UI20/dropdown-button-arrow.svg</file>
+    <file>img/UI20/lineedit-error.svg</file>
+    <file>img/UI20/lineedit-close.svg</file>
+    <file>img/UI20/menu-indicator.svg</file>
+    <file>img/UI20/radiobutton/checked.svg</file>
+    <file>img/UI20/radiobutton/checked-disabled.svg</file>
+    <file>img/UI20/radiobutton/checked-focus.svg</file>
+    <file>img/UI20/radiobutton/unchecked.svg</file>
+    <file>img/UI20/radiobutton/unchecked-disabled.svg</file>
+    <file>img/UI20/radiobutton/unchecked-focus.svg</file>
+    <file>img/UI20/shadows/menu-shadow.png</file>
+    <file>img/UI20/shadows/menu-shadow@2x.png</file>
+    <file>img/UI20/tear.svg</file>
+    <file>img/UI20/titlebar-close-hover.svg</file>
+    <file>img/UI20/titlebar-close.svg</file>
+    <file>img/UI20/titlebar-maximize-hover.svg</file>
+    <file>img/UI20/titlebar-maximize.svg</file>
+    <file>img/UI20/titlebar-minimize-hover.svg</file>
+    <file>img/UI20/titlebar-minimize.svg</file>
+    <file>img/UI20/titlebar-popout-hover.svg</file>
+    <file>img/UI20/titlebar-popout.svg</file>
+    <file>img/UI20/titlebar-restore-hover.svg</file>
+    <file>img/UI20/titlebar-restore.svg</file>
+    <file>img/UI20/toggleswitch/checked.svg</file>
+    <file>img/UI20/toggleswitch/checked-disabled.svg</file>
+    <file>img/UI20/toggleswitch/checked-focus.svg</file>
+    <file>img/UI20/toggleswitch/unchecked.svg</file>
+    <file>img/UI20/toggleswitch/unchecked-disabled.svg</file>
+    <file>img/UI20/toggleswitch/unchecked-focus.svg</file>
+    <file>img/UI20/alpha-background.png</file>
+    <file>img/UI20/spinbox-cursor-scroll.png</file>
+    <file>img/UI20/spinbox-down-arrow.png</file>
+    <file>img/UI20/spinbox-up-arrow.png</file>
+</qresource>
+<qresource prefix="/Breadcrumb">
+    <file>img/UI20/Breadcrumb/Next_level_arrow.svg</file>
+    <file>img/UI20/Breadcrumb/arrow_left-default.svg</file>
+    <file>img/UI20/Breadcrumb/arrow_left-default_hover.svg</file>
+    <file>img/UI20/Breadcrumb/arrow_right-default.svg</file>
+    <file>img/UI20/Breadcrumb/arrow_right-default_hover.svg</file>
+    <file>img/UI20/Breadcrumb/dot-dot-dot.svg</file>
+    <file>img/UI20/Breadcrumb/dot-dot-dot_with_arrow.svg</file>
+    <file>img/UI20/Breadcrumb/doward_arrow.svg</file>
+    <file>img/UI20/Breadcrumb/List_View.svg</file>
+  </qresource>
+<qresource prefix="/ColorPickerDialog">
+    <file alias="Palette/add-normal.png">img/UI20/colorpicker/palette-add-normal.png</file>
+    <file alias="ColorGrid/eyedropper-normal.png">img/UI20/colorpicker/colorgrid-eyedropper-normal.png</file>
+    <file alias="ColorGrid/toggle-normal-on.png">img/UI20/colorpicker/colorgrid-toggle-normal-on.png</file>
+    <file alias="PaletteCard/open.png">img/UI20/colorpicker/library-open.png</file>
+    <file alias="PaletteCard/closed.png">img/UI20/colorpicker/library-closed.png</file>
 </qresource>
 <qresource prefix="/AzQtFonts">
     <file>Fonts/Open_Sans/OpenSans-BoldItalic.ttf</file>
@@ -341,5 +475,23 @@
     <file>Fonts/Open_Sans/OpenSans-Semibold.ttf</file>
     <file>Fonts/Open_Sans/OpenSans-SemiboldItalic.ttf</file>
     <file>Fonts/Open_Sans/OpenSans-Bold.ttf</file>
+</qresource>
+<qresource prefix="/SpinBox">
+    <file alias="arrowLeftDefault.svg">img/UI20/SpinBox/arrow_left_default.svg</file>
+    <file alias="arrowLeftIncreasing.svg">img/UI20/SpinBox/arrow_left_increasing.svg</file>
+    <file alias="arrowLeftMaxed.svg">img/UI20/SpinBox/arrow_left_maxed_reached.svg</file>
+    <file alias="arrowRightDefault.svg">img/UI20/SpinBox/arrow_right_default.svg</file>
+    <file alias="arrowRightIncreasing.svg">img/UI20/SpinBox/arrow_right_increasing.svg</file>
+    <file alias="arrowRightMaxed.svg">img/UI20/SpinBox/arrow_right_maxed_reached.svg</file>
+    <file alias="groupedDefault.svg">img/UI20/SpinBox/groupped-default.svg</file>
+    <file alias="groupedLeftArrowActive.svg">img/UI20/SpinBox/groupped-left-arrow-active.svg</file>
+    <file alias="groupedLeftArrowMaxed.svg">img/UI20/SpinBox/groupped-left-arrow-maxed.svg</file>
+    <file alias="groupedRightArrowActive.svg">img/UI20/SpinBox/groupped-right-arrow-active.svg</file>
+    <file alias="groupedRightArrowMaxed.svg">img/UI20/SpinBox/groupped-right-arrow-maxed.svg</file>
+    <file alias="scrollIconDefault.svg">img/UI20/SpinBox/NumberEdit_center.svg</file>
+    <file alias="scrollIconLeft.svg">img/UI20/SpinBox/NumberEdit_scroll_left.svg</file>
+    <file alias="scrollIconLeftMaxed.svg">img/UI20/SpinBox/NumberEdit_scroll_left_stopped.svg</file>
+    <file alias="scrollIconRight.svg">img/UI20/SpinBox/NumberEdit_scroll_right.svg</file>
+    <file alias="scrollIconRightMaxed.svg">img/UI20/SpinBox/NumberEdit_scroll_right_stopped.svg</file>
 </qresource>
 </RCC>

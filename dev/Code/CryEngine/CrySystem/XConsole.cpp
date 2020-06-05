@@ -37,7 +37,9 @@
 #include <AzFramework/Input/Devices/Keyboard/InputDeviceKeyboard.h>
 #include <AzFramework/Input/Devices/Mouse/InputDeviceMouse.h>
 #include <AzCore/std/string/conversions.h>
+#include <AzCore/std/algorithm.h>
 
+#include <LyShine/Bus/UiCursorBus.h>
 //#define DEFENCE_CVAR_HASH_LOGGING
 
 static inline void AssertName(const char* szName)
@@ -314,12 +316,18 @@ int CXConsole::con_showonload = 0;
 int CXConsole::con_debug = 0;
 int CXConsole::con_restricted = 0;
 
+namespace
+{
+    const AzFramework::InputChannelId s_nullRepeatEventId("xconsole_null_repeat_event_id");
+}
+
 //////////////////////////////////////////////////////////////////////
 // Construction/Destruction
 //////////////////////////////////////////////////////////////////////
 CXConsole::CXConsole()
     : AzFramework::InputChannelEventListener(AzFramework::InputChannelEventListener::GetPriorityDebug())
     , AzFramework::InputTextEventListener(AzFramework::InputTextEventListener::GetPriorityDebug())
+    , m_nRepeatEventId(s_nullRepeatEventId)
 {
     m_fRepeatTimer = 0;
     m_pSysDeactivateConsole = 0;
@@ -352,7 +360,6 @@ CXConsole::CXConsole()
     m_nProgress = 0;
     m_nProgressRange = 0;
     m_nLoadingBackTexID = 0;
-    m_nWhiteTexID = 0;
 
     m_deferredExecution = false;
     m_waitFrames = 0;
@@ -362,6 +369,7 @@ CXConsole::CXConsole()
     CNotificationNetworkConsole::Initialize();
 
     AzFramework::ConsoleRequestBus::Handler::BusConnect();
+    AzFramework::CommandRegistrationBus::Handler::BusConnect();
 
     AddCommand("resetcvars", (ConsoleCommandFunc)ResetCVars, 0, "Resets all cvars to their initial values");
 }
@@ -371,6 +379,7 @@ CXConsole::CXConsole()
 CXConsole::~CXConsole()
 {
     AzFramework::ConsoleRequestBus::Handler::BusDisconnect();
+    AzFramework::CommandRegistrationBus::Handler::BusDisconnect();
 
     if (gEnv->pSystem)
     {
@@ -399,11 +408,6 @@ void CXConsole::FreeRenderResources()
         {
             m_pRenderer->RemoveTexture(m_nLoadingBackTexID);
             m_nLoadingBackTexID = -1;
-        }
-        if (m_nWhiteTexID)
-        {
-            m_pRenderer->RemoveTexture(m_nWhiteTexID);
-            m_nWhiteTexID = -1;
         }
         if (m_pImage)
         {
@@ -493,7 +497,7 @@ void CXConsole::Init(ISystem* pSystem)
     AzFramework::InputChannelEventListener::Connect();
     AzFramework::InputTextEventListener::Connect();
 
-#if defined(_RELEASE)
+#if defined(_RELEASE) && !defined(PERFORMANCE_BUILD)
     static const int kDeactivateConsoleDefault = 1;
 #else
     static const int kDeactivateConsoleDefault = 0;
@@ -536,23 +540,11 @@ void CXConsole::Init(ISystem* pSystem)
 
     // ----------------------------------------------------------
 
-    m_nWhiteTexID = -1;
-    if ((m_pRenderer) && (!gEnv->IsInToolMode()))
-    {
-        ITexture* pTex = 0;
-
-        // This texture is already loaded by the renderer. It's ref counted so there is no wasted space.
-        pTex = pSystem->GetIRenderer()->EF_LoadTexture("EngineAssets/Textures/White.dds", FT_DONT_STREAM | FT_DONT_RELEASE);
-        if (pTex)
-        {
-            m_nWhiteTexID = pTex->GetTextureID();
-        }
-    }
-    else
+    if (!m_pRenderer || gEnv->IsInToolMode())
     {
         m_nLoadingBackTexID = -1;
-        m_nWhiteTexID = -1;
     }
+
     if (gEnv->IsDedicated())
     {
         m_bConsoleActive = true;
@@ -715,8 +707,6 @@ bool CXConsole::CVarNameLess(const std::pair<const char*, ICVar*>& lhs, const st
 //////////////////////////////////////////////////////////////////////////
 void CXConsole::LoadConfigVar(const char* sVariable, const char* sValue)
 {
-    ScopedSwitchToGlobalHeap useGlobalHeap;
-
     ICVar* pCVar = GetCVar(sVariable);
     if (pCVar)
     {
@@ -820,31 +810,18 @@ ICVar* CXConsole::RegisterCVarGroup(const char* szName, const char* szFileName)
     }
 
     ICVar* pCVar = stl::find_in_map(m_mapVariables, szName, NULL);
-    AZStd::unordered_map<AZStd::string, CVarInfo>* map = gEnv->pSystem->GetGraphicsSettingsMap();
-    if (pCVar && !map)
+    if (pCVar)
     {
-        assert(0);          // groups should be only registered once
+        AZ_Error("System", false, "CVar groups should only be registered once");
         return pCVar;
     }
 
     CXConsoleVariableCVarGroup* pCVarGroup = new CXConsoleVariableCVarGroup(this, szName, szFileName, VF_COPYNAME);
 
-    // Register cvar if not opening graphics settings dialog box
-    if (!map)
-    {
-        pCVar = pCVarGroup;
+    pCVar = pCVarGroup;
 
-        RegisterVar(pCVar, CXConsoleVariableCVarGroup::OnCVarChangeFunc);
-    }
-    /*
-        // log to file - useful during development - might not be required for final shipping
-        {
-            string sInfo = pCVarGroup->GetDetailedInfo();
+    RegisterVar(pCVar, CXConsoleVariableCVarGroup::OnCVarChangeFunc);
 
-            gEnv->pLog->LogToFile("CVarGroup %s",sInfo.c_str());
-            gEnv->pLog->LogToFile(" ");
-        }
-    */
     return pCVar;
 }
 
@@ -1048,18 +1025,11 @@ void    CXConsole::ShowConsole(bool show, const int iRequestScrollMax)
 
     if (show && !m_bConsoleActive)
     {
-        AzFramework::InputSystemCursorRequestBus::EventResult(m_previousSystemCursorState,
-                                                              AzFramework::InputDeviceMouse::Id,
-                                                              &AzFramework::InputSystemCursorRequests::GetSystemCursorState);
-        AzFramework::InputSystemCursorRequestBus::Event(AzFramework::InputDeviceMouse::Id,
-                                                        &AzFramework::InputSystemCursorRequests::SetSystemCursorState,
-                                                        AzFramework::SystemCursorState::UnconstrainedAndVisible);
+      UiCursorBus::Broadcast(&UiCursorBus::Events::IncrementVisibleCounter);
     }
     else if (!show && m_bConsoleActive)
     {
-        AzFramework::InputSystemCursorRequestBus::Event(AzFramework::InputDeviceMouse::Id,
-                                                        &AzFramework::InputSystemCursorRequests::SetSystemCursorState,
-                                                        m_previousSystemCursorState);
+        UiCursorBus::Broadcast(&UiCursorBus::Events::DecrementVisibleCounter);
     }
 
     SetStatus(show);
@@ -1154,7 +1124,7 @@ ICVar* CXConsole::GetCVar(const char* sName)
             // Much slower but allows names with wrong case (use only where performance doesn't matter).
             for(it=m_mapVariables.begin(); it!=m_mapVariables.end(); ++it)
             {
-                if(_stricmp(it->first,sName)==0)
+                if(azstricmp(it->first,sName)==0)
                     return it->second;
             }
         }
@@ -1162,7 +1132,7 @@ ICVar* CXConsole::GetCVar(const char* sName)
         {
             for(it=m_mapVariables.begin(); it!=m_mapVariables.end(); ++it)
             {
-                if(_stricmp(it->first,sName)==0)
+                if(azstricmp(it->first,sName)==0)
                 {
                     CryFatalError("Error: Wrong case for '%s','%s'",it->first,sName);
                 }
@@ -1223,11 +1193,11 @@ void CXConsole::Update()
 
     if (!m_bConsoleActive)
     {
-        m_nRepeatEventId = AzFramework::InputChannelId();
+        m_nRepeatEventId = s_nullRepeatEventId;
     }
 
     // Process Key press repeat (backspace and cursor on PC)
-    if (m_nRepeatEventId != AzFramework::InputChannelId())
+    if (m_nRepeatEventId != s_nullRepeatEventId)
     {
         const float fRepeatDelay = 1.0f / 40.0f;          // in sec (similar to Windows default but might differ from actual setting)
         const float fHitchDelay = 1.0f / 10.0f;               // in sec. Very low, but still reasonable frame-rate (debug builds)
@@ -1240,7 +1210,7 @@ void CXConsole::Update()
             if (m_fRepeatTimer < -fHitchDelay)
             {
                 // bad framerate or hitch
-                m_nRepeatEventId = AzFramework::InputChannelId();
+                m_nRepeatEventId = s_nullRepeatEventId;
             }
             else
             {
@@ -1274,7 +1244,7 @@ bool CXConsole::OnInputChannelEventFiltered(const AzFramework::InputChannel& inp
 
     if (inputChannel.IsStateEnded() && m_bConsoleActive)
     {
-        m_nRepeatEventId = AzFramework::InputChannelId();
+        m_nRepeatEventId = s_nullRepeatEventId;
     }
 
     if (!inputChannel.IsStateBegan())
@@ -1314,27 +1284,27 @@ bool CXConsole::OnInputChannelEventFiltered(const AzFramework::InputChannel& inp
 
             if (modifierKeyStates.IsActive(AzFramework::ModifierKeyMask::CtrlAny))
             {
-                strcpy(szCombinedName,                "ctrl_");
+                azstrcpy(szCombinedName, AZ_ARRAY_SIZE(szCombinedName), "ctrl_");
                 iLen += 5;
             }
             if (modifierKeyStates.IsActive(AzFramework::ModifierKeyMask::ShiftAny))
             {
-                strcpy(&szCombinedName[iLen], "shift_");
+                azstrcpy(&szCombinedName[iLen], AZ_ARRAY_SIZE(szCombinedName) - iLen, "shift_");
                 iLen += 6;
             }
             if (modifierKeyStates.IsActive(AzFramework::ModifierKeyMask::AltAny))
             {
-                strcpy(&szCombinedName[iLen], "alt_");
+                azstrcpy(&szCombinedName[iLen], AZ_ARRAY_SIZE(szCombinedName) - iLen, "alt_");
                 iLen += 4;
             }
             if (modifierKeyStates.IsActive(AzFramework::ModifierKeyMask::SuperAny))
             {
-                strcpy(&szCombinedName[iLen], "win_");
+                azstrcpy(&szCombinedName[iLen], AZ_ARRAY_SIZE(szCombinedName) - iLen, "win_");
                 iLen += 4;
             }
 
             assert(sizeof(szCombinedName) > (iLen + strlen(channelId.GetName()) + 1));
-            strcpy(&szCombinedName[iLen], channelId.GetName());
+            azstrcpy(&szCombinedName[iLen], AZ_ARRAY_SIZE(szCombinedName) - iLen, channelId.GetName());
 
             cmd = FindKeyBind(szCombinedName);
         }
@@ -1360,6 +1330,12 @@ bool CXConsole::OnInputChannelEventFiltered(const AzFramework::InputChannel& inp
             // Consume keyboard events if the console is active, which it will be if we get here
             return true;
         }
+        else if (channelId == AzFramework::InputDeviceKeyboard::Key::AlphanumericV &&
+            modifierKeyStates.IsActive(AzFramework::ModifierKeyMask::CtrlAny))
+        {
+            Paste();
+            return true;
+        }
     }
 
     if (channelId == AzFramework::InputDeviceKeyboard::Key::PunctuationTilde)
@@ -1367,30 +1343,36 @@ bool CXConsole::OnInputChannelEventFiltered(const AzFramework::InputChannel& inp
         if (m_bActivationKeyEnable)
         {
             ShowConsole(!GetStatus());
-            m_nRepeatEventId = AzFramework::InputChannelId();
+            m_nRepeatEventId = s_nullRepeatEventId;
             m_bIsConsoleKeyPressed = true;
             return true;
         }
     }
     if (channelId == AzFramework::InputDeviceKeyboard::Key::Escape)
     {
+        // hide console if it's active
+        if (GetStatus())
+        {
+            ShowConsole(false);
+            m_bIsConsoleKeyPressed = true;
+            return true;
+        }
+
         //switch process or page or other things
         if (m_pSystem)
         {
-            ShowConsole(false);
-
             ISystemUserCallback* pCallback = ((CSystem*)m_pSystem)->GetUserCallback();
             if (pCallback)
             {
                 pCallback->OnProcessSwitch();
+                m_bIsConsoleKeyPressed = true;
+                // Mark this input as handled. Pressing escape here is used in the editor to exit game mode, and return to edit mode.
+                // If AI/Physics mode was enabled before entering game mode, when returning to edit mode it will be enabled again.
+                // When it is enabled, it will reset input. If this returns false, then other handlers on the ebus would continue to process
+                // input events after the input had been reset. By returning true, the input is marked as handled.
+                return true;
             }
         }
-        m_bIsConsoleKeyPressed = true;
-        // Mark this input as handled. Pressing escape here is used in the editor to exit game mode, and return to edit mode.
-        // If AI/Physics mode was enabled before entering game mode, when returning to edit mode it will be enabled again.
-        // When it is enabled, it will reset input. If this returns false, then other handlers on the ebus would continue to process
-        // input events after the input had been reset. By returning true, the input is marked as handled.
-        return true;
     }
 
     return ProcessInput(inputChannel);
@@ -1406,8 +1388,8 @@ bool CXConsole::OnInputChannelEventFiltered(const AzFramework::InputChannel& inp
 bool CXConsole::OnInputTextEventFiltered(const AZStd::string& textUTF8)
 {
 #ifdef PROCESS_XCONSOLE_INPUT
-    // Ignore tilde/accent character since it is reserved for toggling the console
-    const bool isTilde = (textUTF8 == "~" || textUTF8 == "`");
+    // Ignore tilde/accent/power of two character since it is reserved for toggling the console
+    const bool isTilde = (textUTF8 == "~" || textUTF8 == "`" || textUTF8 == "\xC2\xB2");
     if (m_bConsoleActive && !isTilde)
     {
         AddInputUTF8(textUTF8);
@@ -1603,8 +1585,6 @@ const char* CXConsole::GetHistoryElement(const bool bUpOrDown)
 //////////////////////////////////////////////////////////////////////////
 void CXConsole::Draw()
 {
-    ScopedSwitchToGlobalHeap useGlobalHeap;
-
     //ShowConsole(true);
     if (!m_pSystem || !m_nTempScrollMax)
     {
@@ -1673,10 +1653,12 @@ void CXConsole::Draw()
 
         if (!m_nProgressRange)
         {
+            int whiteTexId = gEnv->pRenderer ? gEnv->pRenderer->GetWhiteTextureId() : -1;
+
             if (m_bStaticBackground)
             {
                 m_pRenderer->SetState(GS_NODEPTHTEST);
-                m_pRenderer->Draw2dImage(0, 0, 800, 600, m_pImage ? m_pImage->GetTextureID() : m_nWhiteTexID, 0.0f, 1.0f, 1.0f, 0.0f);
+                m_pRenderer->Draw2dImage(0, 0, 800, 600, m_pImage ? m_pImage->GetTextureID() : whiteTexId, 0.0f, 1.0f, 1.0f, 0.0f);
             }
             else
             {
@@ -1689,8 +1671,8 @@ void CXConsole::Draw()
                 float fSizeY = m_nTempScrollMax * m_pRenderer->GetHeight() / fReferenceSize;
 
                 m_pRenderer->SetState(GS_NODEPTHTEST | GS_BLSRC_SRCALPHA | GS_BLDST_ONEMINUSSRCALPHA);
-                m_pRenderer->DrawImage(0, 0, fSizeX, fSizeY, m_nWhiteTexID, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.7f);
-                m_pRenderer->DrawImage(0, fSizeY, fSizeX, 2.0f * m_pRenderer->GetHeight() / fReferenceSize, m_nWhiteTexID, 0, 0, 0, 0, 0.0f, 0.0f, 0.0f, 1.0f);
+                m_pRenderer->DrawImage(0, 0, fSizeX, fSizeY, whiteTexId, 0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.7f);
+                m_pRenderer->DrawImage(0, fSizeY, fSizeX, 2.0f * m_pRenderer->GetHeight() / fReferenceSize, whiteTexId, 0, 0, 0, 0, 0.0f, 0.0f, 0.0f, 1.0f);
 
                 m_pRenderer->Unset2DMode(backupSceneMatrices);
             }
@@ -1713,19 +1695,44 @@ void CXConsole::DrawBuffer(int nScrollPos, const char* szEffect)
 {
     if (m_pFont && m_pRenderer)
     {
+        // The scroll position is in pixels for a 800x600 screen so we scale it to the current resolution.
+        Vec2 referenceSize(800.0f, 600.0f);
+        const float fontSizeIn800x600 = 14;
+        const float maxYPos = nScrollPos * (m_pRenderer->GetHeight() / referenceSize.y);
+        // We also scale the font from the original 800x600 size
+        float fontSize = fontSizeIn800x600 * (m_pRenderer->GetWidth() / referenceSize.x);
+        const float fontAspectRatio = 0.75f;
+        float minFontSize = 10.f;
+        float maxFontSize = 50.f;
+        ICVar* minFontCVar = GetCVar("r_minConsoleFontSize");
+        if (minFontCVar)
+        {
+            minFontSize = minFontCVar->GetFVal();
+        }
+
+        ICVar* maxFontCVar = GetCVar("r_maxConsoleFontSize");
+        if (maxFontCVar)
+        {
+            maxFontSize = maxFontCVar->GetFVal();
+        }
+
+        // Limit max font size in case minFontSize > maxFontSize
+        maxFontSize = AZStd::max(minFontSize, maxFontSize);
+        fontSize = AZStd::min(AZStd::max(fontSize, minFontSize), maxFontSize);
+
         STextDrawContext ctx;
         //ctx.Reset();
         ctx.SetEffect(m_pFont->GetEffectId(szEffect));
         ctx.SetProportional(false);
         ctx.SetCharWidthScale(0.5f);
-        ctx.SetSize(Vec2(14, 14));
+        ctx.SetSize(Vec2(fontSize, fontAspectRatio * fontSize));
         ctx.SetColor(ColorF(1, 1, 1, 1));
         ctx.SetFlags(eDrawText_CenterV | eDrawText_2D);
 
         float csize = 0.8f * ctx.GetCharHeight();
-        ctx.SetSizeIn800x600(true);
+        ctx.SetSizeIn800x600(false);
 
-        float yPos = nScrollPos - csize - 3.0f;
+        float yPos = maxYPos - csize - 3.0f;
         float xPos = LINE_BORDER;
 
         float fCharWidth = (ctx.GetCharWidth() * ctx.GetCharWidthScale());
@@ -2006,33 +2013,33 @@ void CXConsole::AuditCVars(IConsoleCmdArgs* pArg)
         {
             const char* arg = pArg->GetArg(numArgs - 1);
 
-            if (_stricmp(arg, "cheat") == 0)
+            if (azstricmp(arg, "cheat") == 0)
             {
                 excludeMask &= ~cheatMask;
             }
 
-            if (_stricmp(arg, "const") == 0)
+            if (azstricmp(arg, "const") == 0)
             {
                 excludeMask &= ~constMask;
             }
 
-            if (_stricmp(arg, "readonly") == 0)
+            if (azstricmp(arg, "readonly") == 0)
             {
                 excludeMask &= ~readOnlyMask;
             }
 
-            if (_stricmp(arg, "dev") == 0)
+            if (azstricmp(arg, "dev") == 0)
             {
                 excludeMask &= ~devOnlyMask;
             }
 
-            if (_stricmp(arg, "dedi") == 0)
+            if (azstricmp(arg, "dedi") == 0)
             {
                 excludeMask &= ~dediOnlyMask;
             }
 
 #if defined(CVARS_WHITELIST)
-            if (_stricmp(arg, "whitelist") == 0)
+            if (azstricmp(arg, "whitelist") == 0)
             {
                 excludeWhitelist = false;
             }
@@ -2120,7 +2127,8 @@ void CXConsole::AuditCVars(IConsoleCmdArgs* pArg)
 #ifndef _RELEASE
 void CXConsole::DumpCommandsVarsTxt(const char* prefix)
 {
-    FILE* f0 = fopen("consolecommandsandvars.txt", "w");
+    FILE* f0 = nullptr;
+    azfopen(&f0, "consolecommandsandvars.txt", "w");
 
     if (!f0)
     {
@@ -2171,8 +2179,8 @@ void CXConsole::DumpCommandsVarsTxt(const char* prefix)
 
 void CXConsole::DumpVarsTxt(const bool includeCheat)
 {
-    FILE* f0 = fopen("consolevars.txt", "w");
-
+    FILE* f0 = nullptr;
+    azfopen(&f0, "consolevars.txt", "w");
     if (!f0)
     {
         return;
@@ -2259,7 +2267,6 @@ void CXConsole::ExecuteString(const char* command, const bool bSilentMode, const
     }
     else
     {
-        ScopedSwitchToGlobalHeap globalHeap;
         m_deferredCommands.push_back(SDeferredCommand(str.c_str(), bSilentMode));
     }
 }
@@ -2285,8 +2292,6 @@ void CXConsole::ResetCVarsToDefaults()
 
 void CXConsole::SplitCommands(const char* line, std::list<string>& split)
 {
-    ScopedSwitchToGlobalHeap globalHeap;
-
     const char* start = line;
     string working;
 
@@ -2329,6 +2334,8 @@ void CXConsole::SplitCommands(const char* line, std::list<string>& split)
 //////////////////////////////////////////////////////////////////////////
 void CXConsole::ExecuteStringInternal(const char* command, const bool bFromConsole, const bool bSilentMode)
 {
+    AzFramework::ConsoleNotificationBus::Broadcast(&AzFramework::ConsoleNotificationBus::Events::OnConsoleCommandExecuted, command);
+
     assert(command);
     assert(command[0] != '\\');           // caller should remove leading "\\"
 
@@ -2371,8 +2378,6 @@ void CXConsole::ExecuteStringInternal(const char* command, const bool bFromConso
         string::size_type nPos;
 
         {
-            ScopedSwitchToGlobalHeap globalHeap;
-
             sTemp = lineCommands.front();
             sCommand = lineCommands.front();
             sLineCommand = sCommand;
@@ -2426,7 +2431,6 @@ void CXConsole::ExecuteStringInternal(const char* command, const bool bFromConso
                 }
 
                 {
-                    ScopedSwitchToGlobalHeap globalHeap;
                     sTemp = sLineCommand;
                 }
                 ExecuteCommand((itrCmd->second), sTemp);
@@ -2576,8 +2580,6 @@ void CXConsole::ExecuteCommand(CConsoleCommand& cmd, string& str, bool bIgnoreDe
     size_t t;
 
     {
-        ScopedSwitchToGlobalHeap globalHeap;
-
         t = 1;
 
         const char* start = str.c_str();
@@ -2643,8 +2645,6 @@ void CXConsole::ExecuteCommand(CConsoleCommand& cmd, string& str, bool bIgnoreDe
 
     string buf;
     {
-        ScopedSwitchToGlobalHeap globalHeap;
-
         // only do this for commands with script implementation
         for (;; )
         {
@@ -2701,7 +2701,7 @@ void CXConsole::ExecuteCommand(CConsoleCommand& cmd, string& str, bool bIgnoreDe
             for (unsigned int i = 1; i <= args.size(); i++)
             {
                 char pat[10];
-                sprintf(pat, "%%%d", i);
+                azsprintf(pat, "%%%d", i);
                 size_t pos = buf.find(pat);
                 if (pos == string::npos)
                 {
@@ -2747,7 +2747,7 @@ void CXConsole::Exit(const char* szExitComments, ...)
     }
     else
     {
-        strcpy(sResultMessageText, "No comments from application");
+        azstrcpy(sResultMessageText, AZ_ARRAY_SIZE(sResultMessageText), "No comments from application");
     }
 
     CryFatalError("%s", sResultMessageText);
@@ -2780,8 +2780,6 @@ void CXConsole::ResetAutoCompletion()
 //////////////////////////////////////////////////////////////////////////
 const char* CXConsole::ProcessCompletion(const char* szInputBuffer)
 {
-    ScopedSwitchToGlobalHeap useGlobalHeap;
-
     m_sInputBuffer = szInputBuffer;
 
     int offset = (szInputBuffer[0] == '\\' ? 1 : 0);        // legacy support
@@ -2998,7 +2996,7 @@ void CXConsole::DisplayVarValue(ICVar* pVar)
         {
             if (iRealState == -1)
             {
-                strcpy(szRealState, " RealState=Custom");
+                azstrcpy(szRealState, AZ_ARRAY_SIZE(szRealState), " RealState=Custom");
             }
             else
             {
@@ -3022,7 +3020,7 @@ void CXConsole::DisplayVarValue(ICVar* pVar)
             if (nonAlphaBits != 0)
             {
                 char nonAlphaChars[3];  // 1..63 + '\0'
-                sValue += itoa(nonAlphaBits, nonAlphaChars, 10);
+                sValue += azitoa(nonAlphaBits, nonAlphaChars, AZ_ARRAY_SIZE(nonAlphaChars), 10);
                 sValue += ", ";
             }
             sValue += alphaChars;
@@ -3126,10 +3124,7 @@ void CXConsole::PostLine(const char* lineOfText, size_t len)
     string line;
 
     {
-        ScopedSwitchToGlobalHeap useGlobalHeap;
-
         line = string(lineOfText, len);
-
         m_dqConsoleBuffer.push_back(line);
     }
 
@@ -3223,9 +3218,6 @@ void CXConsole::SetLoadingImage(const char* szFilename)
 void CXConsole::AddOutputPrintSink(IOutputPrintSink* inpSink)
 {
     assert(inpSink);
-
-    ScopedSwitchToGlobalHeap globalHeap;
-
     m_OutputSinks.push_back(inpSink);
 }
 
@@ -3263,8 +3255,6 @@ void CXConsole::AddLinePlus(const char* inputStr)
     string str, tmpStr;
 
     {
-        ScopedSwitchToGlobalHeap useGlobalHeap;
-
         if (!m_dqConsoleBuffer.size())
         {
             return;
@@ -3317,8 +3307,6 @@ void CXConsole::AddLinePlus(const char* inputStr)
 //////////////////////////////////////////////////////////////////////////
 void CXConsole::AddInputUTF8(const AZStd::string& textUTF8)
 {
-    ScopedSwitchToGlobalHeap useGlobalHeap;
-
     // Ignore control characters like backspace and tab
     AZStd::string textUTF8ToInsert;
     for (int i = 0; i < textUTF8.length(); ++i)
@@ -3411,8 +3399,6 @@ void CXConsole::RemoveInputChar(bool bBackSpace)
 //////////////////////////////////////////////////////////////////////////
 void CXConsole::AddCommandToHistory(const char* szCommand)
 {
-    ScopedSwitchToGlobalHeap useGlobalHeap;
-
     assert(szCommand);
 
     m_nHistoryPos = -1;
@@ -3440,7 +3426,7 @@ void CXConsole::AddCommandToHistory(const char* szCommand)
 //////////////////////////////////////////////////////////////////////////
 void CXConsole::Copy()
 {
-#ifdef WIN32
+#ifdef AZ_PLATFORM_WINDOWS
     if (m_sInputBuffer.empty())
     {
         return;
@@ -3451,24 +3437,58 @@ void CXConsole::Copy()
         return;
     }
 
-    size_t cbLength = m_sInputBuffer.length();
+    size_t stringLength = m_sInputBuffer.length();
+    size_t requiredBufferSize = stringLength + 1; // for the null
 
-    HGLOBAL hGlobal;
-    LPVOID  pGlobal;
-
-    hGlobal = GlobalAlloc(GHND, cbLength + 1);
-    pGlobal = GlobalLock (hGlobal);
-
-    strcpy((char*)pGlobal, m_sInputBuffer.c_str());
-
-    GlobalUnlock(hGlobal);
-
-    EmptyClipboard();
-    SetClipboardData(CF_TEXT, hGlobal);
-    CloseClipboard();
+    if (HGLOBAL hGlobal = GlobalAlloc(GHND, requiredBufferSize))
+    {
+        if (LPVOID  pGlobal = GlobalLock(hGlobal))
+        {
+            azstrcpy((char*)pGlobal, requiredBufferSize, m_sInputBuffer.c_str());
+            GlobalUnlock(hGlobal);
+            EmptyClipboard();
+            SetClipboardData(CF_TEXT, hGlobal);
+            CloseClipboard();
+        }
+    }
 
     return;
-#endif //WIN32
+#endif //AZ_PLATFORM_WINDOWS
+}
+
+//////////////////////////////////////////////////////////////////////////
+void CXConsole::Paste()
+{
+#if defined(AZ_PLATFORM_WINDOWS)
+    if (OpenClipboard(NULL) != 0)
+    {
+        wstring data;
+        const HANDLE wideData = GetClipboardData(CF_UNICODETEXT);
+        if (wideData)
+        {
+            const LPCWSTR pWideData = (LPCWSTR)GlobalLock(wideData);
+            if (pWideData)
+            {
+                // Note: This conversion is just to make sure we discard malicious or malformed data
+                Unicode::ConvertSafe<Unicode::eErrorRecovery_Discard>(data, pWideData);
+                GlobalUnlock(wideData);
+            }
+        }
+        CloseClipboard();
+
+        for (Unicode::CIterator<wstring::const_iterator> it(data.begin(), data.end()); it != data.end(); ++it)
+        {
+            const uint32 cp = *it;
+            if (cp != '\r')
+            {
+                // Convert UCS code-point into UTF-8 string
+                char utf8_buf[5];
+                Unicode::Convert(utf8_buf, cp);
+                AddInputUTF8(utf8_buf);
+            }
+        }
+    }
+#endif //AZ_PLATFORM_WINDOWS
 }
 
 
@@ -3874,7 +3894,7 @@ const char* CXConsole::AutoComplete(const char* substr)
         const char* szCmd = cmds[i];
 
         size_t cmdlen = strlen(szCmd);
-        if (cmdlen >= substrLen && memicmp(szCmd, substr, substrLen) == 0)
+        if (cmdlen >= substrLen && azmemicmp(szCmd, substr, substrLen) == 0)
         {
             if (substrLen == cmdlen)
             {
@@ -3918,7 +3938,7 @@ const char* CXConsole::AutoCompletePrev(const char* substr)
 
     for (unsigned int i = 0; i < cmdCount; i++)
     {
-        if (_stricmp(substr, cmds[i]) == 0)
+        if (azstricmp(substr, cmds[i]) == 0)
         {
             if (i > 0)
             {
@@ -4049,6 +4069,108 @@ void CXConsole::OnAfterVarChange(ICVar* pVar)
 }
 
 //////////////////////////////////////////////////////////////////////////
+void CXConsole_ExecuteCommandTrampoline(IConsoleCmdArgs* args)
+{
+    if (gEnv && gEnv->pSystem && gEnv->pSystem->GetIConsole())
+    {
+        CXConsole* pConsole = static_cast<CXConsole*>(gEnv->pSystem->GetIConsole());
+        pConsole->ExecuteRegisteredCommand(args);
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////
+void CXConsole::ExecuteRegisteredCommand(IConsoleCmdArgs* args)
+{
+    if (args->GetArgCount() == 0)
+    {
+        AZ_Error("console", false, "Invalid number of args sent");
+        return;
+    }
+
+    const char* commandIdentifier = args->GetArg(0);
+    auto itCommandEntry = m_commandRegistrationMap.find(commandIdentifier);
+    if (itCommandEntry == m_commandRegistrationMap.end())
+    {
+        AZ_Error("console", false, "Command %s not found in the command registry", commandIdentifier);
+        return;
+    }
+
+    AZStd::vector<AZStd::string_view> input;
+    input.reserve(args->GetArgCount());
+    for (int i = 0; i < args->GetArgCount(); ++i)
+    {
+        input.push_back(args->GetArg(i));
+    }
+
+    CommandRegistrationEntry& entry = itCommandEntry->second;
+    const AzFramework::CommandResult output = entry.m_callback(input);
+    if (output != AzFramework::CommandResult::Success)
+    {
+        if (output == AzFramework::CommandResult::ErrorWrongNumberOfArguments)
+        {
+            AZ_Warning("console", false, "Command does not have the right number of arguments (send = %d)", input.size());
+        }
+        else
+        {
+            AZ_Warning("console", false, "Command returned a generic error");
+        }
+    }
+}
+
+//////////////////////////////////////////////////////////////////////////
+bool CXConsole::RegisterCommand(AZStd::string_view identifier, AZStd::string_view helpText, AZ::u32 commandFlags, AzFramework::CommandFunction callback)
+{
+    if (identifier.empty())
+    {
+        AZ_Error("console", false, "RegisterCommand() requires a valid identifier");
+        return false;
+    }
+
+    if (!callback)
+    {
+        AZ_Error("console", false, "RegisterCommand() requires a valid callback");
+        return false;
+    }
+
+    if (m_commandRegistrationMap.find(identifier) != m_commandRegistrationMap.end())
+    {
+        AZ_Warning("console", false, "Command '%.*s' already found in the command registry.", static_cast<int>(identifier.size()), identifier.data());
+        return false;
+    }
+
+    // command flags should match "enum EVarFlags" values
+    const int flags = static_cast<int>(commandFlags);
+
+    CommandRegistrationEntry entry;
+    entry.m_callback = callback;
+    entry.m_id = identifier;
+    if (!helpText.empty())
+    {
+        entry.m_helpText = helpText;
+    }
+
+    if (!AddCommand(entry.m_id.c_str(), CXConsole_ExecuteCommandTrampoline, flags, entry.m_helpText.empty() ? nullptr : entry.m_helpText.c_str()))
+    {
+        AZ_Warning("console", false, "Command %s already found in the command registry.", entry.m_id.c_str());
+        return false;
+    }
+
+    m_commandRegistrationMap.insert(AZStd::make_pair(entry.m_id, entry));
+    return true;
+}
+
+//////////////////////////////////////////////////////////////////////////
+bool CXConsole::UnregisterCommand(AZStd::string_view identifier)
+{
+    if (m_commandRegistrationMap.erase(identifier) == 1)
+    {
+        RemoveCommand(identifier.data());
+        return true;
+    }
+    return false;
+}
+
+//////////////////////////////////////////////////////////////////////////
 void CXConsole::AddConsoleVarSink(IConsoleVarSink* pSink)
 {
     m_consoleVarSinks.push_back(pSink);
@@ -4059,6 +4181,3 @@ void CXConsole::RemoveConsoleVarSink(IConsoleVarSink* pSink)
 {
     m_consoleVarSinks.remove(pSink);
 }
-
-
-

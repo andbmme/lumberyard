@@ -14,13 +14,12 @@
 // Description : CViewportTitleDlg implementation file
 
 
-#include "stdafx.h"
+#include "StdAfx.h"
 #include "ViewportTitleDlg.h"
 #include "ViewPane.h"
 #include "DisplaySettings.h"
 #include "CustomResolutionDlg.h"
 #include "CustomAspectRatioDlg.h"
-#include "Util/BoostPythonHelpers.h"
 #include "AI/AIManager.h"
 #include <INavigationSystem.h>
 #include "Objects/ObjectLayerManager.h"
@@ -39,7 +38,29 @@
 
 #include "ui_ViewportTitleDlg.h"
 
+#include <AzCore/RTTI/BehaviorContext.h>
+
+
 // CViewportTitleDlg dialog
+
+inline namespace Helpers
+{
+    void ToggleHelpers()
+    {
+        GetIEditor()->GetDisplaySettings()->DisplayHelpers(!GetIEditor()->GetDisplaySettings()->IsDisplayHelpers());
+        GetIEditor()->Notify(eNotify_OnDisplayRenderUpdate);
+
+        if (GetIEditor()->GetDisplaySettings()->IsDisplayHelpers() == false)
+        {
+            GetIEditor()->GetObjectManager()->SendEvent(EVENT_HIDE_HELPER);
+        }
+    }
+
+    bool IsHelpersShown()
+    {
+        return GetIEditor()->GetDisplaySettings()->IsDisplayHelpers();
+    }
+}
 
 const int SEARCH_BY_NAME = 1;
 const int SEARCH_BY_TYPE = 2;
@@ -78,37 +99,50 @@ CViewportTitleDlg::CViewportTitleDlg(QWidget* pParent)
 
     m_pViewPane = NULL;
     GetIEditor()->RegisterNotifyListener(this);
+    GetISystem()->GetISystemEventDispatcher()->RegisterListener(this);
+
 
     LoadCustomPresets("FOVPresets", "FOVPreset", m_customFOVPresets);
     LoadCustomPresets("AspectRatioPresets", "AspectRatioPreset", m_customAspectRatioPresets);
     LoadCustomPresets("ResPresets", "ResPreset", m_customResPresets);
 
+    const bool newViewportInteractionModelEnabled =
+        GetIEditor()->IsNewViewportInteractionModelEnabled();
+
+    m_ui->m_viewportSearch->setEnabled(!newViewportInteractionModelEnabled);
+    m_ui->m_viewportSearch->setVisible(!newViewportInteractionModelEnabled);
+
     OnInitDialog();
-    m_ui->m_viewportSearch->setMenu(InitializeViewportSearchMenu());
-    connect(m_ui->m_viewportSearch, &AzQtComponents::SearchLineEdit::menuEntryClicked, this, &CViewportTitleDlg::OnViewportSearchButtonClicked);
-    connect(m_ui->m_viewportSearch, &AzQtComponents::SearchLineEdit::returnPressed, this, &CViewportTitleDlg::OnSearchTermChange);
+
+    if (!newViewportInteractionModelEnabled)
+    {
+        m_ui->m_viewportSearch->setMenu(InitializeViewportSearchMenu());
+        connect(m_ui->m_viewportSearch, &AzQtComponents::SearchLineEdit::menuEntryClicked, this, &CViewportTitleDlg::OnViewportSearchButtonClicked);
+        connect(m_ui->m_viewportSearch, &AzQtComponents::SearchLineEdit::returnPressed, this, &CViewportTitleDlg::OnSearchTermChange);
+
+        auto clearAction = new QAction(this);
+        clearAction->setIcon(QIcon(":/stylesheet/img/16x16/lineedit-clear.png"));
+        clearAction->setVisible(!m_ui->m_viewportSearch->text().isEmpty());
+        m_ui->m_viewportSearch->addAction(clearAction, QLineEdit::TrailingPosition);
+
+        connect(clearAction, &QAction::triggered, this, &CViewportTitleDlg::OnViewportSearchClear);
+        connect(m_ui->m_viewportSearch, &QLineEdit::textChanged, this, [clearAction, this] {
+            clearAction->setVisible(!m_ui->m_viewportSearch->text().isEmpty());
+        });
+
+        m_ui->m_viewportSearch->setFixedWidth(190);
+    }
 
     connect(m_ui->m_fovLabel, &QWidget::customContextMenuRequested, this, &CViewportTitleDlg::PopUpFOVMenu);
     connect(m_ui->m_fovStaticCtrl, &QWidget::customContextMenuRequested, this, &CViewportTitleDlg::PopUpFOVMenu);
     connect(m_ui->m_ratioStaticCtrl, &QWidget::customContextMenuRequested, this, &CViewportTitleDlg::PopUpAspectMenu);
     connect(m_ui->m_ratioLabel, &QWidget::customContextMenuRequested, this, &CViewportTitleDlg::PopUpAspectMenu);
     connect(m_ui->m_sizeStaticCtrl, &QWidget::customContextMenuRequested, this, &CViewportTitleDlg::PopUpResolutionMenu);
-
-    auto clearAction = new QAction(this);
-    clearAction->setIcon(QIcon(":/stylesheet/img/16x16/lineedit-clear.png"));
-    clearAction->setVisible(!m_ui->m_viewportSearch->text().isEmpty());
-    m_ui->m_viewportSearch->addAction(clearAction, QLineEdit::TrailingPosition);
-
-    connect(clearAction, &QAction::triggered, this, &CViewportTitleDlg::OnViewportSearchClear);
-    connect(m_ui->m_viewportSearch, &QLineEdit::textChanged, [clearAction, this] {
-            clearAction->setVisible(!m_ui->m_viewportSearch->text().isEmpty());
-        });
-
-    m_ui->m_viewportSearch->setFixedWidth(190);
 }
 
 CViewportTitleDlg::~CViewportTitleDlg()
 {
+    GetISystem()->GetISystemEventDispatcher()->RemoveListener(this);
     GetIEditor()->UnregisterNotifyListener(this);
     ICVar*  pDisplayInfo(gEnv->pConsole->GetCVar("r_displayInfo"));
     pDisplayInfo->RemoveOnChangeFunctor(m_displayInfoCallbackIndex);
@@ -226,7 +260,11 @@ void CViewportTitleDlg::SetTitle(const QString& title)
 {
     m_title = title;
     m_ui->m_titleBtn->setText(m_title);
-    m_ui->m_viewportSearch->setVisible(title == QLatin1String("Perspective"));
+
+    const bool searchVisible =
+        title == QLatin1String("Perspective") && !GetIEditor()->IsNewViewportInteractionModelEnabled();
+
+    m_ui->m_viewportSearch->setVisible(searchVisible);
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -241,7 +279,7 @@ void CViewportTitleDlg::OnMaximize()
 //////////////////////////////////////////////////////////////////////////
 void CViewportTitleDlg::OnToggleHelpers()
 {
-    GetIEditor()->ExecuteCommand("general.toggle_helpers");
+    Helpers::ToggleHelpers();
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -271,7 +309,7 @@ void CViewportTitleDlg::AddFOVMenus(QMenu* menu, std::function<void(float)> call
     {
         const float fov = fovs[i];
         QAction* action = menu->addAction(QString::number(fov));
-        connect(action, &QAction::triggered, [fov, callback](){ callback(fov); });
+        connect(action, &QAction::triggered, action, [fov, callback](){ callback(fov); });
     }
 
     menu->addSeparator();
@@ -293,7 +331,7 @@ void CViewportTitleDlg::AddFOVMenus(QMenu* menu, std::function<void(float)> call
                 fov = std::max(1.0f, f);
                 fov = std::min(120.0f, f);
                 QAction* action = menu->addAction(customPresets[i]);
-                connect(action, &QAction::triggered, [fov, callback](){ callback(fov); });
+                connect(action, &QAction::triggered, action, [fov, callback](){ callback(fov); });
             }
         }
     }
@@ -355,7 +393,7 @@ void CViewportTitleDlg::AddAspectRatioMenus(QMenu* menu, std::function<void(int,
         int width = ratios[i].first;
         int height = ratios[i].second;
         QAction* action = menu->addAction(QString("%1:%2").arg(width).arg(height));
-        connect(action, &QAction::triggered, [width, height, callback]() {callback(width, height); });
+        connect(action, &QAction::triggered, action, [width, height, callback]() {callback(width, height); });
     }
 
     menu->addSeparator();
@@ -377,7 +415,7 @@ void CViewportTitleDlg::AddAspectRatioMenus(QMenu* menu, std::function<void(int,
             unsigned int height = matches.captured(2).toInt(&ok);
             Q_ASSERT(ok);
             QAction* action = menu->addAction(customPresets[i]);
-            connect(action, &QAction::triggered, [width, height, callback]() {callback(width, height); });
+            connect(action, &QAction::triggered, action, [width, height, callback]() {callback(width, height); });
         }
     }
 }
@@ -446,7 +484,7 @@ void CViewportTitleDlg::AddResolutionMenus(QMenu* menu, std::function<void(int, 
         const int height = resolutions[i].height;
         const QString text = QString::fromLatin1("%1 x %2").arg(width).arg(height);
         QAction* action = menu->addAction(text);
-        connect(action, &QAction::triggered, [width, height, callback](){ callback(width, height); });
+        connect(action, &QAction::triggered, action, [width, height, callback](){ callback(width, height); });
     }
 
     menu->addSeparator();
@@ -468,7 +506,7 @@ void CViewportTitleDlg::AddResolutionMenus(QMenu* menu, std::function<void(int, 
             int height = matches.captured(2).toInt(&ok);
             Q_ASSERT(ok);
             QAction* action = menu->addAction(customPresets[i]);
-            connect(action, &QAction::triggered, [width, height, callback](){ callback(width, height); });
+            connect(action, &QAction::triggered, action, [width, height, callback](){ callback(width, height); });
         }
     }
 }
@@ -528,8 +566,10 @@ void CViewportTitleDlg::OnViewportSizeChanged(int width, int height)
 void CViewportTitleDlg::OnViewportFOVChanged(float fov)
 {
     const float degFOV = RAD2DEG(fov);
-
-    m_ui->m_fovStaticCtrl->setText(QString::fromLatin1("%1%2").arg(qRound(degFOV)).arg(QString(QByteArray::fromPercentEncoding("%C2%B0"))));
+    if (m_ui &&  m_ui->m_fovStaticCtrl)
+    {
+        m_ui->m_fovStaticCtrl->setText(QString::fromLatin1("%1%2").arg(qRound(degFOV)).arg(QString(QByteArray::fromPercentEncoding("%C2%B0"))));
+    }
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -540,6 +580,27 @@ void CViewportTitleDlg::OnEditorNotifyEvent(EEditorNotifyEvent event)
     case eNotify_OnDisplayRenderUpdate:
         m_ui->m_toggleHelpersBtn->setChecked(GetIEditor()->GetDisplaySettings()->IsDisplayHelpers());
         break;
+    }
+}
+
+void CViewportTitleDlg::OnSystemEvent(ESystemEvent event, UINT_PTR wparam, UINT_PTR lparam)
+{
+    if (event == ESYSTEM_EVENT_RESIZE)
+    {
+        if (m_pViewPane)
+        {
+            const int eventWidth = static_cast<int>(wparam);
+            const int eventHeight = static_cast<int>(lparam);
+            const QWidget* viewport = m_pViewPane->GetViewport();
+
+            // This should eventually be converted to an EBus to make it easy to connect to the correct viewport 
+            // sending the event.  But for now, just detect that we've gotten width/height values that match our 
+            // associated viewport
+            if (viewport && (eventWidth == viewport->width()) && (eventHeight == viewport->height()))
+            {
+                OnViewportSizeChanged(eventWidth, eventHeight);
+            }
+        }
     }
 }
 
@@ -665,7 +726,7 @@ void CViewportTitleDlg::OnSearchTermChange()
     }
 
     // Make sure to lower case all terms because later we lower case all inputs to compare against
-    for (auto term : terms)
+    for (QString& term : terms)
     {
         term = term.toLower();
     }
@@ -988,11 +1049,23 @@ namespace
     }
 }
 
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyToggleHelpers, general, toggle_helpers,
-    "Toggles the display of helpers.",
-    "general.toggle_helpers()");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyIsHelpersShown, general, is_helpers_shown,
-    "Gets the display state of helpers.",
-    "general.is_helpers_shown()");
+namespace AzToolsFramework
+{
+    void ViewportTitleDlgPythonFuncsHandler::Reflect(AZ::ReflectContext* context)
+    {
+        if (auto behaviorContext = azrtti_cast<AZ::BehaviorContext*>(context))
+        {
+            // this will put these methods into the 'azlmbr.legacy.general' module
+            auto addLegacyGeneral = [](AZ::BehaviorContext::GlobalMethodBuilder methodBuilder)
+            {
+                methodBuilder->Attribute(AZ::Script::Attributes::Scope, AZ::Script::Attributes::ScopeFlags::Automation)
+                    ->Attribute(AZ::Script::Attributes::Category, "Legacy/Editor")
+                    ->Attribute(AZ::Script::Attributes::Module, "legacy.general");
+            };
+            addLegacyGeneral(behaviorContext->Method("toggle_helpers", PyToggleHelpers, nullptr, "Toggles the display of helpers."));
+            addLegacyGeneral(behaviorContext->Method("is_helpers_shown", PyIsHelpersShown, nullptr, "Gets the display state of helpers."));
+        }
+    }
+}
 
 #include <ViewportTitleDlg.moc>

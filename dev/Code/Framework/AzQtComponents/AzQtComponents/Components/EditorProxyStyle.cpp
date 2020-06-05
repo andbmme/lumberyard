@@ -21,9 +21,15 @@
 #include <AzQtComponents/Components/SearchLineEdit.h>
 #include <AzQtComponents/Components/StyledLineEdit.h>
 #include <AzQtComponents/Components/StyledDetailsTableView.h>
-#include <AzQtComponents/Components/WindowDecorationWrapper.h>
+#include <AzQtComponents/Components/Titlebar.h>
 #include <AzQtComponents/Components/TitleBarOverdrawHandler.h>
+#include <AzQtComponents/Components/DockBar.h>
+#include <AzQtComponents/Components/DockTabBar.h>
+#include <AzQtComponents/Components/StyledDockWidget.h>
+#include <AzQtComponents/Components/WindowDecorationWrapper.h>
+#include <AzQtComponents/Utilities/TextUtilities.h>
 
+#include <QTimer>
 #include <QAbstractItemView>
 #include <QToolBar>
 #include <QTreeView>
@@ -42,11 +48,8 @@
 #include <QIcon>
 #include <QStyleOptionToolButton>
 #include <QGuiApplication>
-#include <QMessageBox>
-#include <QInputDialog>
 #include <QDockWidget>
 #include <QMainWindow>
-#include <QFileDialog>
 #include <QVector>
 #include <QTimeEdit>
 #include <QHeaderView>
@@ -55,7 +58,10 @@
 #include <QApplication>
 #include <QMenu>
 #include <QPushButton>
-#include <QColorDialog>
+#include <QTimer>
+#include <QFile>
+
+#include <AzQtComponents/Components/Widgets/SpinBox.h>
 
 #include <assert.h>
 
@@ -281,7 +287,7 @@ namespace AzQtComponents
         // Doing it in C so the selection frame can have a size depending on the icon size
         // which can be variable
         QPen pen(g_activeButtonBorderColor);
-        const int penWidth = 1.0;
+        const int penWidth = 1;
         painter->save();
         pen.setWidth(penWidth);
         pen.setCosmetic(true);
@@ -311,7 +317,7 @@ namespace AzQtComponents
     {
         static struct Filter : public QObject
         {
-            bool eventFilter(QObject* obj, QEvent* ev)
+            bool eventFilter(QObject* obj, QEvent* ev) override
             {
                 if (obj->isWidgetType() &&
                     (ev->type() == QEvent::Enter ||
@@ -349,7 +355,11 @@ namespace AzQtComponents
         {
             if (tb->orientation() == Qt::Horizontal)
             {
-                tb->setFixedSize(QSize(QWIDGETSIZE_MAX, heightForHorizontalToolbar(tb)));
+                // setting a fixed height w/o properly unsetting the set fixed size before
+                // will lead to a huge amount of memory allocated on macOS, failing and maybe
+                // even crashing then
+                tb->setFixedSize(QSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX)); // unset
+                tb->setFixedHeight(heightForHorizontalToolbar(tb));
             }
             else
             {
@@ -361,87 +371,18 @@ namespace AzQtComponents
         }
     }
 
-    static bool widgetHasCustomWindowDecorations(const QWidget* w)
-    {
-        if (!w)
-        {
-            return false;
-        }
-
-        auto wrapper = qobject_cast<WindowDecorationWrapper*>(w->parentWidget());
-        if (!wrapper)
-        {
-            return false;
-        }
-
-        // Simply having a decoration wrapper parent doesn't mean the widget has decorations.
-        return wrapper->guest() == w;
-    }
-
-    static bool isQWinWidget(const QWidget* w)
-    {
-        // We can't include the QWinWidget header from AzQtComponents, so use metaobject.
-        const QMetaObject* mo = w->metaObject()->superClass();
-        return mo && (strcmp(mo->className(), "QWinWidget") == 0);
-    }
-
-    static bool widgetShouldHaveCustomDecorations(const QWidget* w, EditorProxyStyle::AutoWindowDecorationMode mode)
-    {
-        if (!w || qobject_cast<const WindowDecorationWrapper*>(w) ||
-            qobject_cast<const QDockWidget*>(w) ||
-            qobject_cast<const QFileDialog*>(w) || // QFileDialog is native
-#if defined(AZ_PLATFORM_APPLE)
-            qobject_cast<const QColorDialog*>(w) || // QColorDialog is native on macOS
-#endif
-            w->property("HasNoWindowDecorations").toBool() || // Allows decorations to be disabled
-            isQWinWidget(w))
-        {
-            // If wrapper itself, don't recurse.
-            // If QDockWidget then also return false, they are styled with QDockWidget::setTitleBarWidget() instead.
-            return false;
-        }
-
-        if (!(w->windowFlags() & Qt::Window))
-        {
-            return false;
-        }
-
-        if ((w->windowFlags() & Qt::Popup) == Qt::Popup || (w->windowFlags() & Qt::FramelessWindowHint))
-        {
-            return false;
-        }
-
-        if (mode == EditorProxyStyle::AutoWindowDecorationMode_None)
-        {
-            return false;
-        }
-        else if (mode == EditorProxyStyle::AutoWindowDecorationMode_AnyWindow)
-        {
-            return true;
-        }
-        else if (mode == EditorProxyStyle::AutoWindowDecorationMode_Whitelisted)
-        {
-            // Don't put QDockWidget here, it uses QDockWidget::setTitleBarWidget() instead.
-            return qobject_cast<const QMessageBox*>(w) || qobject_cast<const QInputDialog*>(w);
-        }
-
-        return false;
-    }
-
     EditorProxyStyle::EditorProxyStyle(QStyle* style)
         : QProxyStyle(style)
     {
         setObjectName("EditorProxyStyle");
         qApp->installEventFilter(this);
+
+        SpinBox::initializeWatcher();
     }
 
     EditorProxyStyle::~EditorProxyStyle()
     {
-    }
-
-    void EditorProxyStyle::setAutoWindowDecorationMode(EditorProxyStyle::AutoWindowDecorationMode mode)
-    {
-        m_autoWindowDecorationMode = mode;
+        SpinBox::uninitializeWatcher();
     }
 
     void EditorProxyStyle::polishToolbars(QMainWindow* w)
@@ -512,7 +453,7 @@ namespace AzQtComponents
     {
         if (QToolButton* expansion = expansionButton(tb))
         {
-            connect(expansion, &QAbstractButton::toggled, [tb, this](bool)
+            connect(expansion, &QAbstractButton::toggled, this, [tb, this](bool)
                 {
                     fixToolBarSizeConstraints(tb);
                 });
@@ -531,7 +472,21 @@ namespace AzQtComponents
     {
         TitleBarOverdrawHandler::getInstance()->polish(widget);
 
-        if (qobject_cast<QToolButton*>(widget))
+        if (qobject_cast<const SpinBox*>(widget) || qobject_cast<const DoubleSpinBox*>(widget))
+        {
+            auto config = SpinBox::defaultConfig();
+            SpinBox::polish(this, widget, config);
+        }
+
+        if (auto lineEdit = qobject_cast<QLineEdit*>(widget))
+        {
+            QPalette pal = lineEdit->palette();
+            const auto hasFocus = false;
+            pal.setColor(QPalette::PlaceholderText, "#80ffffff");
+
+            lineEdit->setPalette(pal);
+        }
+        else if (qobject_cast<QToolButton*>(widget))
         {
             // So we can have a different effect on hover
             widget->setAttribute(Qt::WA_Hover);
@@ -542,11 +497,19 @@ namespace AzQtComponents
         }
         else if (auto view = qobject_cast<QAbstractItemView*>(widget))
         {
-            if (findParent<QComboBox>(view) && !qobject_cast<QStyledItemDelegate*>(view->itemDelegate()))
+            if (findParent<QComboBox>(view))
             {
-                // By default QCombobox uses QItemDelegate for it's list view, but that doesn't honour css
+                // By default QCombobox uses QItemDelegate for its list view, but that doesn't honour css
                 // So set a QStyledItemDelegate to get stylesheets working
-                view->setItemDelegate(new QStyledItemDelegate(view));
+                QTimer::singleShot(0, view, [view] {
+                    // But do it in a delayed fashion! At this point we're inside QComboBoxPrivateContainer constructor
+                    // and the next thing it will do is set the old delegate which we don't want
+                    // Use a singleshot to guarantee we have the last word regarding the item delegate.
+                    if (!qobject_cast<QStyledItemDelegate*>(view->itemDelegate()))
+                    {
+                        view->setItemDelegate(new QStyledItemDelegate(view));
+                    }
+                });
             }
             else if (auto tableView = qobject_cast<QTableView*>(widget))
             {
@@ -572,6 +535,15 @@ namespace AzQtComponents
 #endif
         }
         return QProxyStyle::polish(widget);
+    }
+
+    void EditorProxyStyle::unpolish(QWidget* widget)
+    {
+        if (qobject_cast<const SpinBox*>(widget) || qobject_cast<const DoubleSpinBox*>(widget))
+        {
+            auto config = SpinBox::defaultConfig();
+            SpinBox::unpolish(this, widget, config);
+        }
     }
 
     QSize EditorProxyStyle::sizeFromContents(QStyle::ContentsType type, const QStyleOption* option,
@@ -607,6 +579,14 @@ namespace AzQtComponents
             sz.setHeight(25);
             return sz;
         }
+        else if (type == QStyle::CT_TabBarTab && qobject_cast<const DockTabBar*>(widget))
+        {
+            const auto sz = DockTabBar::tabSizeHint(this, option, widget);
+            if (sz.isValid())
+            {
+                return sz;
+            }
+        }
 
         return QProxyStyle::sizeFromContents(type, option, size, widget);
     }
@@ -631,7 +611,13 @@ namespace AzQtComponents
             const int defaultSubMenuPopupDelay = 0;
             return defaultSubMenuPopupDelay;
         }
-
+#if QT_VERSION >= QT_VERSION_CHECK(5,11,1)
+        else if (hint == QStyle::SH_SpinBox_StepModifier)
+        {
+            // This was introduced in 5.12 but we backported it to 5.11
+            return Qt::ShiftModifier;
+        }
+#endif
         return QProxyStyle::styleHint(hint, option, widget, returnData);
     }
 
@@ -689,6 +675,21 @@ namespace AzQtComponents
     QRect EditorProxyStyle::subElementRect(QStyle::SubElement element, const QStyleOption* option,
         const QWidget* widget) const
     {
+        switch (element)
+        {
+            case SE_TabBarTabRightButton:
+            {
+                const auto rect = DockTabBar::rightButtonRect(this, option, widget);
+                if (rect.isValid())
+                {
+                    return rect;
+                }
+                break;
+            }
+
+            default:
+                break;
+        }
         return QProxyStyle::subElementRect(element, option, widget);
     }
 
@@ -888,6 +889,40 @@ namespace AzQtComponents
             }
             return;
         }
+        else if (element == CE_ShapedFrame)
+        {
+            if (const auto titleBar = qobject_cast<const TitleBar*>(widget))
+            {
+                if (!titleBar->drawSimple())
+                {
+                    const bool drawActive = !titleBar->forceInactive() && titleBar->window()->isActiveWindow();
+                    const auto colors = DockBar::getColors(drawActive);
+                    DockBar::drawFrame(p, titleBar->rect(), titleBar->drawSideBorders(), colors);
+                    return;
+                }
+            }
+            else if (qobject_cast<const WindowDecorationWrapper*>(widget))
+            {
+                WindowDecorationWrapper::drawFrame(opt, p, widget);
+                return;
+            }
+        }
+        else if (element == CE_TabBarTabShape && qobject_cast<const DockTabBar*>(widget))
+        {
+            const auto tOpt = qstyleoption_cast<const QStyleOptionTab*>(opt);
+            const auto colors = DockBar::getColors(tOpt->state & QStyle::State_Selected);
+            DockBar::drawFrame(p, tOpt->rect, true, colors);
+            return;
+        }
+        else if (element == CE_TabBarTabLabel && qobject_cast<const DockTabBar*>(widget))
+        {
+            const auto tOpt = qstyleoption_cast<const QStyleOptionTab*>(opt);
+            const auto colors = DockBar::getColors(tOpt->state & QStyle::State_Selected);
+            auto rect(tOpt->rect);
+            rect.adjust(0, 0, DockTabBar::closeButtonOffsetForIndex(tOpt), 0);
+            DockBar::drawTabContents(p, rect, colors, tOpt->text);
+            return;
+        }
 
         QProxyStyle::drawControl(element, opt, p, widget);
     }
@@ -1053,6 +1088,43 @@ namespace AzQtComponents
             painter->drawPixmap(handleRect, handlePix);
             return;
         }
+        else if (PE_FrameTabBarBase == element && qobject_cast<const DockTabBar*>(widget))
+        {
+            // Don't draw anything.
+            return;
+        }
+        else if (PE_FrameDockWidget == element)
+        {
+            if (const auto dockWidget = qobject_cast<const StyledDockWidget*>(widget))
+            {
+                if (dockWidget->isFloating() && dockWidget->customTitleBar())
+                {
+                    StyledDockWidget::drawFrame(*painter, option->rect, /*drawTop=*/ false);
+                }
+                return;
+            }
+        }
+        else if (QStyle::PE_IndicatorItemViewItemDrop == element)
+        {
+            // This code comes from the old OutlinerTreeViewProxyStyle whose functionality was reimplemented in UI 2.0.
+            // It's here just so UI 1.0 preserves the same old visual behavior
+            painter->save();
+            if (option->rect.height() == 0)
+            {
+                //draw circle followed by line for drops between items
+                painter->setPen(QColor("#FFFFFF"));
+                painter->drawEllipse(option->rect.topLeft(), 3, 3);
+                painter->drawLine(QPoint(option->rect.topLeft().x() + 3, option->rect.topLeft().y()), option->rect.topRight());
+            }
+            else
+            {
+                //draw a rounded box for drops on items
+                painter->setPen(QColor("#B48BFF"));
+                painter->drawRoundedRect(option->rect, 3, 3);
+            }
+            painter->restore();
+            return;
+        }
 
         QProxyStyle::drawPrimitive(element, option, painter, widget);
     }
@@ -1095,6 +1167,14 @@ namespace AzQtComponents
             return 4;
         case QStyle::PM_ToolBarIconSize:
             return 16;
+        case QStyle::PM_TitleBarHeight:
+        {
+            if (auto titleBar = qobject_cast<const TitleBar*>(widget))
+            {
+                return DockBar::Height;
+            }
+            break;
+        }
         default:
             break;
         }
@@ -1175,29 +1255,19 @@ namespace AzQtComponents
 
     bool EditorProxyStyle::eventFilter(QObject* watched, QEvent* ev)
     {
-        if (ev->type() == QEvent::Show)
+        switch (ev->type())
         {
-            if (QWidget* w = qobject_cast<QWidget*>(watched))
+            case QEvent::ToolTipChange:
             {
-                if (strcmp(w->metaObject()->className(), "QDockWidgetGroupWindow") != 0)
+                if (QWidget* w = qobject_cast<QWidget*>(watched))
                 {
-                    ensureCustomWindowDecorations(w);
+                    forceToolTipLineWrap(w);
                 }
             }
+            break;
         }
 
         return QProxyStyle::eventFilter(watched, ev);
-    }
-
-    void EditorProxyStyle::ensureCustomWindowDecorations(QWidget* w)
-    {
-        if (widgetShouldHaveCustomDecorations(w, m_autoWindowDecorationMode) && !widgetHasCustomWindowDecorations(w))
-        {
-            auto wrapper = new WindowDecorationWrapper(WindowDecorationWrapper::OptionAutoAttach |
-                    WindowDecorationWrapper::OptionAutoTitleBarButtons, w->parentWidget());
-
-            w->setParent(wrapper, w->windowFlags());
-        }
     }
 
     QPainterPath EditorProxyStyle::borderLineEditRect(const QRect& rect, bool rounded) const

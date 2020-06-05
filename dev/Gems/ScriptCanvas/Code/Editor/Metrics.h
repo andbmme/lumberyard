@@ -18,6 +18,8 @@
 #include <Core/GraphBus.h>
 #include <AzCore/Asset/AssetCommon.h>
 
+#include <Editor/Include/ScriptCanvas/Components/EditorUtils.h>
+
 namespace ScriptCanvasEditor
 {
     namespace Metrics
@@ -33,6 +35,11 @@ namespace ScriptCanvasEditor
         {
             static const char* NodeType = "NodeType";
             static const char* AssetId= "AssetId";
+        }
+
+        namespace MetricKeys
+        {
+            static const char* TotalNodeCount = "TotalNodeCount";
         }
 
         namespace Events
@@ -65,6 +72,8 @@ namespace ScriptCanvasEditor
                 static const char* DropSender = "DropSender";
                 static const char* DropHandler = "DropHandler";
                 static const char* DropObject = "DropObject";
+
+                static const char* GraphStatistics = "GraphStatistics";
             }
             
             // Command Line
@@ -90,8 +99,9 @@ namespace ScriptCanvasEditor
 
             virtual void SendMetric(const char* operation) = 0;
             virtual void SendEditorMetric(const char* operation, const AZ::Data::AssetId& assetId) = 0;
-            virtual void SendNodeMetric(const char* operation, const AZ::Uuid& nodeId, AZ::EntityId graphId) = 0;
+            virtual void SendNodeMetric(const char* operation, const AZ::Uuid& nodeId, ScriptCanvas::ScriptCanvasId scriptCanvasId) = 0;
             virtual void SendGraphMetric(const char* operation, const AZ::Data::AssetId& assetId) = 0;
+            virtual void SendGraphStatistics(const AZ::Data::AssetId& assetId, const GraphStatisticsHelper& graphStatistics) = 0;
 
         };
 
@@ -120,8 +130,9 @@ namespace ScriptCanvasEditor
             // MetricsEventsBus::Handler
             void SendMetric(const char* operation) override;
             void SendEditorMetric(const char* operation, const AZ::Data::AssetId& assetId) override;
-            void SendNodeMetric(const char* operation, const AZ::Uuid& nodeTypeId, AZ::EntityId graphId) override;
+            void SendNodeMetric(const char* operation, const AZ::Uuid& nodeTypeId, ScriptCanvas::ScriptCanvasId scriptCanvasId) override;
             void SendGraphMetric(const char* operation, const AZ::Data::AssetId& assetId) override;
+            void SendGraphStatistics(const AZ::Data::AssetId& assetId, const GraphStatisticsHelper& graphStatistics) override;
 
             // ScriptCanvas::GraphNotificationBus
             void OnNodeAdded(const AZ::EntityId&) override;

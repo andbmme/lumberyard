@@ -25,6 +25,7 @@
 #include <QApplication>
 #include <AzToolsFramework/Entity/EditorEntityContextBus.h>
 #include <AzToolsFramework/Thumbnails/ThumbnailerBus.h>
+#include <AzCore/std/string/string.h>
 
 class QMenu;
 
@@ -47,6 +48,7 @@ class CEditorFileMonitor;
 class AzAssetWindow;
 class AzAssetBrowserRequestHandler;
 class AssetEditorRequestsHandler;
+class CAlembicCompiler;
 
 namespace Editor
 {
@@ -82,6 +84,8 @@ class CEditorImpl
     : public IEditor
     , protected AzToolsFramework::EditorEntityContextNotificationBus::Handler
 {
+    Q_DECLARE_TR_FUNCTIONS(CEditorImpl)
+
 public:
     CEditorImpl();
     ~CEditorImpl();
@@ -114,6 +118,7 @@ public:
     IGame*      GetGame();
     I3DEngine*  Get3DEngine();
     IRenderer*  GetRenderer();
+    void WriteToConsole(const char* string) { CLogFile::WriteLine(string); };
     void WriteToConsole(const QString& string) { CLogFile::WriteLine(string); };
     // Change the message in the status bar
     void SetStatusText(const QString& pszString);
@@ -138,6 +143,7 @@ public:
     QString GetLevelDataFolder();
     QString GetSearchPath(EEditorPathName path);
     QString GetResolvedUserFolder();
+    QString GetProjectName() override;
     bool ExecuteConsoleApp(const QString& CommandLine, QString& OutputText, bool bNoTimeOut = false, bool bShowWindow = false);
     virtual bool IsInGameMode() override;
     virtual void SetInGameMode(bool inGame) override;
@@ -185,7 +191,6 @@ public:
     IEditorParticleManager* GetParticleManager() override { return m_particleManager; }
     CMusicManager* GetMusicManager() { return m_pMusicManager; };
     CPrefabManager* GetPrefabManager() { return m_pPrefabManager; };
-    CGameTokenManager* GetGameTokenManager() { return m_pGameTokenManager; };
     CLensFlareManager* GetLensFlareManager()    { return m_pLensFlareManager; };
 
     IBackgroundTaskManager* GetBackgroundTaskManager() override;
@@ -197,19 +202,13 @@ public:
     IIconManager* GetIconManager();
     float GetTerrainElevation(float x, float y);
     CHeightmap* GetHeightmap();
+    IHeightmap* GetIHeightmap();
     CVegetationMap* GetVegetationMap();
     Editor::EditorQtApplication* GetEditorQtApplication() { return m_QtApplication; }
     const QColor& GetColorByName(const QString& name) override;
-    //////////////////////////////////////////////////////////////////////////
-    // Special FG
-    //////////////////////////////////////////////////////////////////////////
-    CEditorFlowGraphModuleManager* GetFlowGraphModuleManager(){return m_pFlowGraphModuleManager; }
-    CFlowGraphDebuggerEditor* GetFlowGraphDebuggerEditor(){return m_pFlowGraphDebuggerEditor; }
-    CMaterialFXGraphMan*    GetMatFxGraphManager() { return m_pMatFxGraphManager; }
     CAIManager* GetAI();
 
     //////////////////////////////////////////////////////////////////////////
-    CCustomActionsEditorManager* GetCustomActionManager();
     IMovieSystem* GetMovieSystem()
     {
         if (m_pSystem)
@@ -322,6 +321,7 @@ public:
     void RecordUndo(IUndoObject* obj);
     bool FlushUndo(bool isShowMessage = false);
     bool ClearLastUndoSteps(int steps);
+    bool ClearRedoStack();
     //! Retrieve current animation context.
     CAnimationContext* GetAnimation();
     CTrackViewSequenceManager* GetSequenceManager() override;
@@ -330,6 +330,7 @@ public:
     CToolBoxManager* GetToolBoxManager() { return m_pToolBoxManager; };
     IErrorReport* GetErrorReport() { return m_pErrorReport; }
     IErrorReport* GetLastLoadedLevelErrorReport() { return m_pLasLoadedLevelErrorReport; }
+    void StartLevelErrorReportRecording() override;
     void CommitLevelErrorReport() {SAFE_DELETE(m_pLasLoadedLevelErrorReport); m_pLasLoadedLevelErrorReport = new CErrorReport(*m_pErrorReport); }
     virtual IFileUtil* GetFileUtil() override { return m_pFileUtil;  }
     void Notify(EEditorNotifyEvent event);
@@ -346,11 +347,8 @@ public:
     bool IsSourceControlAvailable() override;
     //! Only returns true if source control is both available AND currently connected and functioning
     bool IsSourceControlConnected() override;
-    //! Retrieve interface to the source control.
-    IAssetTagging* GetAssetTagging();
     //! Setup Material Editor mode
     void SetMatEditMode(bool bIsMatEditMode);
-    CFlowGraphManager* GetFlowGraphManager() { return m_pFlowGraphManager; };
     CUIEnumsDatabase* GetUIEnumsDatabase() { return m_pUIEnumsDatabase; };
     void AddUIEnums();
     void GetMemoryUsage(ICrySizer* pSizer);
@@ -388,7 +386,10 @@ public:
 
     virtual bool ToProjectConfigurator(const QString& msg, const QString& caption, const QString& location) override;
 
+#ifdef DEPRECATED_QML_SUPPORT
     virtual QQmlEngine* GetQMLEngine() const;
+#endif // #ifdef DEPRECATED_QML_SUPPORT
+
     void UnloadPlugins(bool shuttingDown = false) override;
     void LoadPlugins() override;
 
@@ -399,13 +400,15 @@ public:
     bool IsLegacyUIEnabled() override;
     void SetLegacyUIEnabled(bool enabled) override;
 
+    bool IsNewViewportInteractionModelEnabled() const override;
+
 protected:
 
     //////////////////////////////////////////////////////////////////////////
     // EditorEntityContextNotificationBus implementation
     void OnStartPlayInEditor() override;
     //////////////////////////////////////////////////////////////////////////
-
+    AZStd::string LoadProjectIdFromProjectData();
     void InitMetrics();
 
     void DetectVersion();
@@ -462,10 +465,6 @@ protected:
     _smart_ptr<CEditTool> m_pPickTool;
     class CAxisGizmo* m_pAxisGizmo;
     CAIManager* m_pAIManager;
-    CCustomActionsEditorManager* m_pCustomActionsManager;
-    CEditorFlowGraphModuleManager* m_pFlowGraphModuleManager;
-    CMaterialFXGraphMan* m_pMatFxGraphManager;
-    CFlowGraphDebuggerEditor* m_pFlowGraphDebuggerEditor;
     CEquipPackLib* m_pEquipPackLib;
     CGameEngine* m_pGameEngine;
     CAnimationContext* m_pAnimationContext;
@@ -473,11 +472,11 @@ protected:
     CToolBoxManager* m_pToolBoxManager;
     CEntityPrototypeManager* m_pEntityManager;
     CMaterialManager* m_pMaterialManager;
+    CAlembicCompiler* m_pAlembicCompiler;
     IEditorParticleManager* m_particleManager;
     IEditorParticleUtils* m_particleEditorUtils;
     CMusicManager* m_pMusicManager;
     CPrefabManager* m_pPrefabManager;
-    CGameTokenManager* m_pGameTokenManager;
     CLensFlareManager* m_pLensFlareManager;
     CErrorReport* m_pErrorReport;
     IMissingAssetResolver* m_pFileNameResolver;
@@ -487,9 +486,6 @@ protected:
     CErrorsDlg* m_pErrorsDlg;
     //! Source control interface.
     ISourceControl* m_pSourceControl;
-    //! AssetTagging provider interface
-    IAssetTagging* m_pAssetTagging;
-    CFlowGraphManager* m_pFlowGraphManager;
 
     CSelectionTreeManager* m_pSelectionTreeManager;
 
@@ -543,5 +539,6 @@ protected:
     static const char* m_crashLogFileName;
 
     bool m_isLegacyUIEnabled;
+    bool m_isNewViewportInteractionModelEnabled = false;
 };
 

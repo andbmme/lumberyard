@@ -10,6 +10,7 @@
 #
 # $Revision$
 
+import hashlib
 
 MAX_LAMBDA_NAME_LENGTH = 64
 
@@ -18,7 +19,19 @@ def sanitize_lambda_name(lambda_name):
     result = lambda_name
 
     if len(lambda_name) > MAX_LAMBDA_NAME_LENGTH:
-        digest = "-%x" % (hash(lambda_name) & 0xffffffff)
+        # PYTHONHASHSEED is set to "random" by default in Python 3.3 and up. Cannot use 
+        # the built-in hash function here since it will give a different return value in each session
+        digest = "-%x" % (int(hashlib.md5(lambda_name.encode('ascii', 'ignore')).hexdigest(), 16) & 0xffffffff)
         result = lambda_name[:MAX_LAMBDA_NAME_LENGTH - len(digest)] + digest
 
     return result
+
+
+def get_function_runtime(name, description, resources):
+    function_runtime = description["Properties"]["Runtime"]
+    # we are probably looking for a configuration
+    if type(function_runtime) is type({}) and "Fn::GetAtt" in function_runtime:
+        lambda_config = function_runtime["Fn::GetAtt"][0]
+        function_runtime = resources[lambda_config]['Properties']["Runtime"]
+
+    return function_runtime

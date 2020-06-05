@@ -29,6 +29,11 @@ void SetIEditor(IEditor* pEditor)
         assert(pEditor);
         s_pEditor = pEditor;
     }
+    else if (pEditor == nullptr)
+    {
+        //clearing the static editor pointer
+        s_pEditor = nullptr;
+    }
     else
     {
         assert(pEditor == s_pEditor); //trigger a warning that multiple instances of the editor are attempting to register
@@ -37,7 +42,9 @@ void SetIEditor(IEditor* pEditor)
 
 IEditor* GetIEditor()
 {
+#ifndef AZ_TESTS_ENABLED
     assert(s_pEditor);
+#endif
     return s_pEditor;
 }
 

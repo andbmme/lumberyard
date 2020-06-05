@@ -14,11 +14,13 @@
 #include <AzCore/Serialization/SerializeContext.h>
 
 #include <QCoreApplication>
+#include <qmenu.h>
 
 #include <GraphCanvas/Components/GridBus.h>
 #include <GraphCanvas/Components/SceneBus.h>
-#include <GraphCanvas/Components/Nodes/Variable/VariableNodeBus.h>
+#include <GraphCanvas/Components/StyleBus.h>
 #include <GraphCanvas/Components/VisualBus.h>
+#include <GraphCanvas/Widgets/GraphCanvasGraphicsView/GraphCanvasGraphicsView.h>
 
 #include "VariableNodePaletteTreeItemTypes.h"
 
@@ -28,6 +30,8 @@
 #include "Editor/Translation/TranslationHelper.h"
 
 #include "ScriptCanvas/Bus/RequestBus.h"
+#include <ScriptCanvas/GraphCanvas/NodeDescriptorBus.h>
+
 #include "Editor/Include/ScriptCanvas/GraphCanvas/NodeDescriptorBus.h"
 
 #include <Core/Attributes.h>
@@ -36,123 +40,10 @@
 #include <Libraries/Core/BehaviorContextObjectNode.h>
 #include <Libraries/Core/Method.h>
 
+#include <Editor/GraphCanvas/GraphCanvasEditorNotificationBusId.h>
+
 namespace ScriptCanvasEditor
 {
-    /////////////////////////////////////////
-    // CreateVariablePrimitiveNodeMimeEvent
-    /////////////////////////////////////////
-
-    void CreateVariablePrimitiveNodeMimeEvent::Reflect(AZ::ReflectContext* reflectContext)
-    {
-        AZ::SerializeContext* serializeContext = azrtti_cast<AZ::SerializeContext*>(reflectContext);
-
-        if (serializeContext)
-        {
-            serializeContext->Class<CreateVariablePrimitiveNodeMimeEvent, GraphCanvas::GraphCanvasMimeEvent>()
-                ->Version(0)
-                ->Field("PrimitiveId", &CreateVariablePrimitiveNodeMimeEvent::m_primitiveId)
-            ;
-        }
-    }
-
-    CreateVariablePrimitiveNodeMimeEvent::CreateVariablePrimitiveNodeMimeEvent(const AZ::Uuid& primitiveId)
-        : m_primitiveId(primitiveId)
-    {
-    }
-
-    ScriptCanvasEditor::NodeIdPair CreateVariablePrimitiveNodeMimeEvent::CreateNode(const AZ::EntityId& graphId) const
-    {
-        Metrics::MetricsEventsBus::Broadcast(&Metrics::MetricsEventRequests::SendNodeMetric, ScriptCanvasEditor::Metrics::Events::Canvas::DropObject, m_primitiveId, graphId);
-        return Nodes::CreateVariablePrimitiveNode(m_primitiveId, graphId);
-    }
-
-    /////////////////////////////////////////
-    // VariablePrimitiveNodePaletteTreeItem
-    /////////////////////////////////////////
-
-    VariablePrimitiveNodePaletteTreeItem::VariablePrimitiveNodePaletteTreeItem(const AZ::Uuid& primitiveId, const QString& nodeName, const QString& iconPath)
-        : DraggableNodePaletteTreeItem(nodeName, iconPath)
-        , m_primitiveId(primitiveId)
-    {
-    }
-
-    GraphCanvas::GraphCanvasMimeEvent* VariablePrimitiveNodePaletteTreeItem::CreateMimeEvent() const
-    {
-        return aznew CreateVariablePrimitiveNodeMimeEvent(m_primitiveId);
-    } 
-
-    //////////////////////////////////////
-    // CreateVariableObjectNodeMimeEvent
-    //////////////////////////////////////
-
-    void CreateVariableObjectNodeMimeEvent::Reflect(AZ::ReflectContext* reflectContext)
-    {
-        AZ::SerializeContext* serializeContext = azrtti_cast<AZ::SerializeContext*>(reflectContext);
-
-        if (serializeContext)
-        {
-            serializeContext->Class<CreateVariableObjectNodeMimeEvent, GraphCanvas::GraphCanvasMimeEvent>()
-                ->Version(0)
-                ->Field("ClassName", &CreateVariableObjectNodeMimeEvent::m_className)
-                ;
-        }
-    }
-
-    CreateVariableObjectNodeMimeEvent::CreateVariableObjectNodeMimeEvent(const QString& className)
-        : m_className(className.toUtf8().data())
-    {
-    }
-
-    ScriptCanvasEditor::NodeIdPair CreateVariableObjectNodeMimeEvent::CreateNode(const AZ::EntityId& graphId) const
-    {
-        Metrics::MetricsEventsBus::Broadcast(&Metrics::MetricsEventRequests::SendNodeMetric, ScriptCanvasEditor::Metrics::Events::Canvas::DropObject, AZ::AzTypeInfo<ScriptCanvas::Nodes::Core::BehaviorContextObjectNode>::Uuid(), graphId);
-        return Nodes::CreateVariableObjectNode(m_className, graphId);
-    }
-
-    //////////////////////////////////////
-    // VariableObjectNodePaletteTreeItem
-    //////////////////////////////////////
-
-    const QString& VariableObjectNodePaletteTreeItem::GetDefaultIcon()
-    {
-        static QString defaultIcon;
-
-        if (defaultIcon.isEmpty())
-        {
-            defaultIcon = IconComponent::LookupClassIcon(ScriptCanvas::Nodes::Core::BehaviorContextObjectNode::RTTI_Type()).c_str();
-        }
-
-        return defaultIcon;
-    }
-
-    VariableObjectNodePaletteTreeItem::VariableObjectNodePaletteTreeItem(const QString& className)
-        : DraggableNodePaletteTreeItem(className, GetDefaultIcon())
-        , m_className(className)
-    {
-        AZStd::string displayClassName = TranslationHelper::GetClassKeyTranslation(TranslationContextGroup::ClassMethod, m_className.toUtf8().data(), TranslationKeyId::Name);
-
-        if (displayClassName.empty())
-        {
-            SetName(m_className);
-        }
-        else
-        {
-            SetName(displayClassName.c_str());
-        }
-
-        AZStd::string displayEventTooltip = TranslationHelper::GetClassKeyTranslation(TranslationContextGroup::ClassMethod, m_className.toUtf8().data(), TranslationKeyId::Tooltip);
-
-        if (!displayEventTooltip.empty())
-        {
-            SetToolTip(displayEventTooltip.c_str());
-        }
-    }
-
-    GraphCanvas::GraphCanvasMimeEvent* VariableObjectNodePaletteTreeItem::CreateMimeEvent() const
-    {
-        return aznew CreateVariableObjectNodeMimeEvent(m_className);
-    }
-
     ///////////////////////////////////
     // CreateGetVariableNodeMimeEvent
     ///////////////////////////////////
@@ -163,56 +54,22 @@ namespace ScriptCanvasEditor
 
         if (serializeContext)
         {
-            serializeContext->Class<CreateGetVariableNodeMimeEvent, SpecializedCreateNodeMimeEvent>()
+            serializeContext->Class<CreateGetVariableNodeMimeEvent, CreateNodeMimeEvent>()
                 ->Version(0)
                 ->Field("VariableId", &CreateGetVariableNodeMimeEvent::m_variableId)
                 ;
         }
     }
 
-    CreateGetVariableNodeMimeEvent::CreateGetVariableNodeMimeEvent(const AZ::EntityId& variableId)
+    CreateGetVariableNodeMimeEvent::CreateGetVariableNodeMimeEvent(const ScriptCanvas::VariableId& variableId)
         : m_variableId(variableId)
     {
     }
 
-    NodeIdPair CreateGetVariableNodeMimeEvent::ConstructNode(const AZ::EntityId& sceneId, const AZ::Vector2& scenePosition)
+    ScriptCanvasEditor::NodeIdPair CreateGetVariableNodeMimeEvent::CreateNode(const ScriptCanvas::ScriptCanvasId& scriptCanvasId) const
     {
-        // Random UUID so we can track the Get Variable usages from the editor.
-        AZ::EntityId graphId;
-        GeneralRequestBus::BroadcastResult(graphId, &GeneralRequests::GetGraphId, sceneId);
-        Metrics::MetricsEventsBus::Broadcast(&Metrics::MetricsEventRequests::SendNodeMetric, ScriptCanvasEditor::Metrics::Events::Canvas::DropHandler, AZ::Uuid("{73D471F6-899A-4C82-8D15-FB7BD1D4BCB8}"), graphId);
-
-        NodeIdPair retVal;
-
-        retVal = Nodes::CreateGetVariableNode(m_variableId);
-
-        if (retVal.m_graphCanvasId.IsValid())
-        {
-            GraphCanvas::SceneRequestBus::Event(sceneId, &GraphCanvas::SceneRequests::AddNode, retVal.m_graphCanvasId, scenePosition);
-            GraphCanvas::SceneMemberUIRequestBus::Event(retVal.m_graphCanvasId, &GraphCanvas::SceneMemberUIRequests::SetSelected, true);
-        }
-
-        return retVal;
-    }
-
-    bool CreateGetVariableNodeMimeEvent::ExecuteEvent(const AZ::Vector2& mousePosition, AZ::Vector2& sceneDropPosition, const AZ::EntityId& sceneId)
-    {
-        NodeIdPair nodeIdPair = ConstructNode(sceneId, sceneDropPosition);
-
-        if (nodeIdPair.m_graphCanvasId.IsValid())
-        {
-            ScriptCanvasEditor::NodeCreationNotificationBus::Event(sceneId, &ScriptCanvasEditor::NodeCreationNotifications::OnGraphCanvasNodeCreated, nodeIdPair.m_graphCanvasId);
-
-            AZ::EntityId gridId;
-            GraphCanvas::SceneRequestBus::EventResult(gridId, sceneId, &GraphCanvas::SceneRequests::GetGrid);
-
-            AZ::Vector2 offset;
-            GraphCanvas::GridRequestBus::EventResult(offset, gridId, &GraphCanvas::GridRequests::GetMinorPitch);
-
-            sceneDropPosition += offset;
-        }
-
-        return nodeIdPair.m_graphCanvasId.IsValid();
+        Metrics::MetricsEventsBus::Broadcast(&Metrics::MetricsEventRequests::SendNodeMetric, ScriptCanvasEditor::Metrics::Events::Canvas::DropObject, "{A9784FF3-E749-4EB4-B5DB-DF510F7CD151}", scriptCanvasId);
+        return Nodes::CreateGetVariableNode(m_variableId, scriptCanvasId);
     }
 
     ///////////////////////////////////
@@ -231,35 +88,53 @@ namespace ScriptCanvasEditor
         return defaultIcon;
     }
 
-    GetVariableNodePaletteTreeItem::GetVariableNodePaletteTreeItem(const QString& nodeName)
-        : DraggableNodePaletteTreeItem(nodeName, GetDefaultIcon())
+    GetVariableNodePaletteTreeItem::GetVariableNodePaletteTreeItem()
+        : DraggableNodePaletteTreeItem("Get Variable", ScriptCanvasEditor::AssetEditorId)
     {
         SetToolTip("After specifying a variable name, this node will expose output slots that return the specified variable's values.\nVariable names must begin with # (for example, #MyVar).");
     }
 
-    GetVariableNodePaletteTreeItem::GetVariableNodePaletteTreeItem(const AZ::EntityId& variableId)
-        : DraggableNodePaletteTreeItem("", GetDefaultIcon())
+    GetVariableNodePaletteTreeItem::GetVariableNodePaletteTreeItem(const ScriptCanvas::VariableId& variableId, const ScriptCanvas::ScriptCanvasId& scriptCanvasId)
+        : DraggableNodePaletteTreeItem("", ScriptCanvasEditor::AssetEditorId)
         , m_variableId(variableId)
     {
-        OnNameChanged();
-        GraphCanvas::VariableNotificationBus::Handler::BusConnect(m_variableId);
+        AZStd::string_view variableName;
+        ScriptCanvas::GraphVariableManagerRequestBus::EventResult(variableName, scriptCanvasId, &ScriptCanvas::GraphVariableManagerRequests::GetVariableName, variableId);
+        OnVariableRenamed(variableName);
+
+        ScriptCanvas::VariableNotificationBus::Handler::BusConnect(ScriptCanvas::GraphScopedVariableId(scriptCanvasId, m_variableId));
+
+        ScriptCanvas::Data::Type scriptCanvasType = ScriptCanvas::Data::Type::Invalid();        
+        ScriptCanvas::VariableRequestBus::EventResult(scriptCanvasType, ScriptCanvas::GraphScopedVariableId(scriptCanvasId, m_variableId), &ScriptCanvas::VariableRequests::GetType);
+
+        if (scriptCanvasType.IsValid())
+        {
+            AZ::Uuid azType = ScriptCanvas::Data::ToAZType(scriptCanvasType);
+
+            AZStd::string colorPalette;
+            GraphCanvas::StyleManagerRequestBus::EventResult(colorPalette, ScriptCanvasEditor::AssetEditorId, &GraphCanvas::StyleManagerRequests::GetDataPaletteStyle, azType);
+
+            SetTitlePalette(colorPalette);
+        }
     }
 
     GetVariableNodePaletteTreeItem::~GetVariableNodePaletteTreeItem()
     {
-        GraphCanvas::VariableNotificationBus::Handler::BusDisconnect();
+        ScriptCanvas::VariableNotificationBus::Handler::BusDisconnect();
     }
 
-    void GetVariableNodePaletteTreeItem::OnNameChanged()
+    void GetVariableNodePaletteTreeItem::OnVariableRenamed(AZStd::string_view variableName)
     {
-        AZStd::string displayName;
-        GraphCanvas::VariableRequestBus::EventResult(displayName, m_variableId, &GraphCanvas::VariableRequests::GetVariableName);
-
-        AZStd::string fullName = AZStd::string::format("Get %s", displayName.c_str());
+        AZStd::string fullName = AZStd::string::format("Get %s", variableName.data());
         SetName(fullName.c_str());
 
-        AZStd::string tooltip = AZStd::string::format("This node returns %s's values", displayName.c_str());
+        AZStd::string tooltip = AZStd::string::format("This node returns %s's values", variableName.data());
         SetToolTip(tooltip.c_str());
+    }
+
+    const ScriptCanvas::VariableId& GetVariableNodePaletteTreeItem::GetVariableId() const
+    {
+        return m_variableId;
     }
 
     GraphCanvas::GraphCanvasMimeEvent* GetVariableNodePaletteTreeItem::CreateMimeEvent() const
@@ -277,22 +152,22 @@ namespace ScriptCanvasEditor
 
         if (serializeContext)
         {
-            serializeContext->Class<CreateSetVariableNodeMimeEvent, GraphCanvas::GraphCanvasMimeEvent>()
+            serializeContext->Class<CreateSetVariableNodeMimeEvent, CreateNodeMimeEvent>()
                 ->Version(0)
                 ->Field("VariableId", &CreateSetVariableNodeMimeEvent::m_variableId)
                 ;
         }
     }
 
-    CreateSetVariableNodeMimeEvent::CreateSetVariableNodeMimeEvent(const AZ::EntityId& variableId)
+    CreateSetVariableNodeMimeEvent::CreateSetVariableNodeMimeEvent(const ScriptCanvas::VariableId& variableId)
         : m_variableId(variableId)
     {
     }
 
-    ScriptCanvasEditor::NodeIdPair CreateSetVariableNodeMimeEvent::CreateNode(const AZ::EntityId& graphId) const
+    ScriptCanvasEditor::NodeIdPair CreateSetVariableNodeMimeEvent::CreateNode(const ScriptCanvas::ScriptCanvasId& scriptCanvasId) const
     {
-        Metrics::MetricsEventsBus::Broadcast(&Metrics::MetricsEventRequests::SendNodeMetric, ScriptCanvasEditor::Metrics::Events::Canvas::DropObject, AZ::AzTypeInfo<ScriptCanvas::Nodes::Core::Assign>::Uuid(), graphId);
-        return Nodes::CreateSetVariableNode(m_variableId, graphId);
+        Metrics::MetricsEventsBus::Broadcast(&Metrics::MetricsEventRequests::SendNodeMetric, ScriptCanvasEditor::Metrics::Events::Canvas::DropObject, "{D855EE9C-74E0-4760-AA0F-239ADF7507B6}", scriptCanvasId);
+        return Nodes::CreateSetVariableNode(m_variableId, scriptCanvasId);
     }
 
     ///////////////////////////////////
@@ -311,35 +186,53 @@ namespace ScriptCanvasEditor
         return defaultIcon;
     }
 
-    SetVariableNodePaletteTreeItem::SetVariableNodePaletteTreeItem(const QString& nodeName)
-        : DraggableNodePaletteTreeItem(nodeName, GetDefaultIcon())
+    SetVariableNodePaletteTreeItem::SetVariableNodePaletteTreeItem()
+        : GraphCanvas::DraggableNodePaletteTreeItem("Set Variable", ScriptCanvasEditor::AssetEditorId)
     {
         SetToolTip("This node changes a variable's values according to the data connected to the input slots");
     }
 
-    SetVariableNodePaletteTreeItem::SetVariableNodePaletteTreeItem(const AZ::EntityId& variableId)
-        : DraggableNodePaletteTreeItem("", GetDefaultIcon())
+    SetVariableNodePaletteTreeItem::SetVariableNodePaletteTreeItem(const ScriptCanvas::VariableId& variableId, const ScriptCanvas::ScriptCanvasId& scriptCanvasId)
+        : GraphCanvas::DraggableNodePaletteTreeItem("", ScriptCanvasEditor::AssetEditorId)
         , m_variableId(variableId)
     {
-        OnNameChanged();
-        GraphCanvas::VariableNotificationBus::Handler::BusConnect(m_variableId);
+        AZStd::string_view variableName;
+        ScriptCanvas::GraphVariableManagerRequestBus::EventResult(variableName, scriptCanvasId, &ScriptCanvas::GraphVariableManagerRequests::GetVariableName, variableId);
+        OnVariableRenamed(variableName);
+
+        ScriptCanvas::VariableNotificationBus::Handler::BusConnect(ScriptCanvas::GraphScopedVariableId(scriptCanvasId, m_variableId));
+
+        ScriptCanvas::Data::Type scriptCanvasType = ScriptCanvas::Data::Type::Invalid();
+        ScriptCanvas::VariableRequestBus::EventResult(scriptCanvasType, ScriptCanvas::GraphScopedVariableId(scriptCanvasId, m_variableId), &ScriptCanvas::VariableRequests::GetType);
+
+        if (scriptCanvasType.IsValid())
+        {
+            AZ::Uuid azType = ScriptCanvas::Data::ToAZType(scriptCanvasType);
+
+            AZStd::string colorPalette;
+            GraphCanvas::StyleManagerRequestBus::EventResult(colorPalette, ScriptCanvasEditor::AssetEditorId, &GraphCanvas::StyleManagerRequests::GetDataPaletteStyle, azType);
+
+            SetTitlePalette(colorPalette);
+        }
     }
 
     SetVariableNodePaletteTreeItem::~SetVariableNodePaletteTreeItem()
     {
-        GraphCanvas::VariableNotificationBus::Handler::BusDisconnect();
+        ScriptCanvas::VariableNotificationBus::Handler::BusDisconnect();
     }
 
-    void SetVariableNodePaletteTreeItem::OnNameChanged()
+    void SetVariableNodePaletteTreeItem::OnVariableRenamed(AZStd::string_view variableName)
     {
-        AZStd::string displayName;
-        GraphCanvas::VariableRequestBus::EventResult(displayName, m_variableId, &GraphCanvas::VariableRequests::GetVariableName);        
-
-        AZStd::string fullName = AZStd::string::format("Set %s", displayName.c_str());
+        AZStd::string fullName = AZStd::string::format("Set %s", variableName.data());
         SetName(fullName.c_str());
 
-        AZStd::string tooltip = AZStd::string::format("This node changes %s's values according to the data connected to the input slots", displayName.c_str());
+        AZStd::string tooltip = AZStd::string::format("This node changes %s's values according to the data connected to the input slots", variableName.data());
         SetToolTip(tooltip.c_str());
+    }
+
+    const ScriptCanvas::VariableId& SetVariableNodePaletteTreeItem::GetVariableId() const
+    {
+        return m_variableId;
     }
 
     GraphCanvas::GraphCanvasMimeEvent* SetVariableNodePaletteTreeItem::CreateMimeEvent() const
@@ -347,43 +240,321 @@ namespace ScriptCanvasEditor
         return aznew CreateSetVariableNodeMimeEvent(m_variableId);
     }
 
+    ///////////////////////////////////////
+    // CreateVariableChangedNodeMimeEvent
+    ///////////////////////////////////////
+
+    void CreateVariableChangedNodeMimeEvent::Reflect(AZ::ReflectContext* reflectContext)
+    {
+        AZ::SerializeContext* serializeContext = azrtti_cast<AZ::SerializeContext*>(reflectContext);
+
+        if (serializeContext)
+        {
+            serializeContext->Class<CreateVariableChangedNodeMimeEvent, CreateEBusHandlerEventMimeEvent>()
+                ->Version(0)
+                ->Field("VariableId", &CreateVariableChangedNodeMimeEvent::m_variableId)
+                ;
+        }
+    }
+
+    CreateVariableChangedNodeMimeEvent::CreateVariableChangedNodeMimeEvent(const ScriptCanvas::VariableId& variableId)
+        : m_variableId(variableId)
+    {        
+    }
+
+    bool CreateVariableChangedNodeMimeEvent::ExecuteEvent(const AZ::Vector2& mousePosition, AZ::Vector2& sceneDropPosition, const AZ::EntityId& graphCanvasGraphId)
+    {
+        ConfigureEBusEvent();
+
+        NodeIdPair nodeIdPair = CreateEBusHandlerEventMimeEvent::ExecuteEventImpl(mousePosition, sceneDropPosition, graphCanvasGraphId);
+
+        ScriptCanvas::GraphScopedVariableId scopedVariableId(ScriptCanvas::ScriptCanvasId(), m_variableId);
+
+        ScriptCanvas::Datum idDatum(ScriptCanvas::Data::FromAZType(azrtti_typeid<ScriptCanvas::GraphScopedVariableId>()), ScriptCanvas::Datum::eOriginality::Original);
+        idDatum.Set(AZStd::move(scopedVariableId));
+
+        EBusHandlerEventNodeDescriptorRequestBus::Event(nodeIdPair.m_graphCanvasId, &EBusHandlerEventNodeDescriptorRequests::SetHandlerAddress, idDatum);
+
+        return nodeIdPair.m_graphCanvasId.IsValid();
+    }
+
+    NodeIdPair CreateVariableChangedNodeMimeEvent::ConstructNode(const AZ::EntityId& graphCanvasGraphId, const AZ::Vector2& scenePosition)
+    {
+        ConfigureEBusEvent();
+
+        NodeIdPair nodeIdPair = CreateEBusHandlerEventMimeEvent::ConstructNode(graphCanvasGraphId, scenePosition);
+
+        ScriptCanvas::GraphScopedVariableId scopedVariableId(ScriptCanvas::ScriptCanvasId(), m_variableId);        
+
+        ScriptCanvas::Datum idDatum(ScriptCanvas::Data::FromAZType(azrtti_typeid<ScriptCanvas::GraphScopedVariableId>()), ScriptCanvas::Datum::eOriginality::Original);
+        idDatum.Set(AZStd::move(scopedVariableId));
+
+        EBusHandlerEventNodeDescriptorRequestBus::Event(nodeIdPair.m_graphCanvasId, &EBusHandlerEventNodeDescriptorRequests::SetHandlerAddress, idDatum);
+
+        return nodeIdPair;
+    }
+
+    void CreateVariableChangedNodeMimeEvent::ConfigureEBusEvent()
+    {
+        if (GetBusName().empty())
+        {
+            AZ::BehaviorContext* behaviorContext = nullptr;
+            AZ::ComponentApplicationBus::BroadcastResult(behaviorContext, &AZ::ComponentApplicationRequests::GetBehaviorContext);
+
+            if (behaviorContext)
+            {
+                auto busIter = behaviorContext->m_ebuses.find(ScriptCanvas::GraphVariable::GetVariableNotificationBusName());
+
+                if (busIter != behaviorContext->m_ebuses.end())
+                {
+                    if (busIter->second->m_createHandler)
+                    {
+                        AZ::BehaviorEBusHandler* handler(nullptr);
+                        if (busIter->second->m_createHandler->InvokeResult(handler) && handler)
+                        {
+                            const AZStd::vector<AZ::BehaviorEBusHandler::BusForwarderEvent>& events = handler->GetEvents();
+
+                            for (auto forwarderEvent : events)
+                            {
+                                if (strcmp(forwarderEvent.m_name, "OnVariableValueChanged") == 0)
+                                {
+                                    ConfigureEvent(busIter->second->m_name, forwarderEvent.m_name, forwarderEvent.m_eventId);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    ///////////////////////////////////////
+    // VariableChangedNodePaletteTreeItem
+    ///////////////////////////////////////
+
+    const QString& VariableChangedNodePaletteTreeItem::GetDefaultIcon()
+    {
+        static QString defaultIcon;
+
+        if (defaultIcon.isEmpty())
+        {
+            defaultIcon = IconComponent::LookupClassIcon(AZ::Uuid()).c_str();
+        }
+
+        return defaultIcon;
+    }
+
+    VariableChangedNodePaletteTreeItem::VariableChangedNodePaletteTreeItem()
+        : GraphCanvas::DraggableNodePaletteTreeItem("On Variable Changed", ScriptCanvasEditor::AssetEditorId)
+    {
+        SetToolTip("This node changes a variable's values according to the data connected to the input slots");
+    }
+
+    VariableChangedNodePaletteTreeItem::VariableChangedNodePaletteTreeItem(const ScriptCanvas::VariableId& variableId, const ScriptCanvas::ScriptCanvasId& scriptCanvasId)
+        : GraphCanvas::DraggableNodePaletteTreeItem("", ScriptCanvasEditor::AssetEditorId)
+        , m_variableId(variableId)
+    {
+        AZStd::string_view variableName;
+        ScriptCanvas::GraphVariableManagerRequestBus::EventResult(variableName, scriptCanvasId, &ScriptCanvas::GraphVariableManagerRequests::GetVariableName, variableId);
+        OnVariableRenamed(variableName);
+
+        ScriptCanvas::VariableNotificationBus::Handler::BusConnect(ScriptCanvas::GraphScopedVariableId(scriptCanvasId, m_variableId));
+
+        ScriptCanvas::Data::Type scriptCanvasType = ScriptCanvas::Data::Type::Invalid();
+        ScriptCanvas::VariableRequestBus::EventResult(scriptCanvasType, ScriptCanvas::GraphScopedVariableId(scriptCanvasId, m_variableId), &ScriptCanvas::VariableRequests::GetType);
+
+        if (scriptCanvasType.IsValid())
+        {
+            AZ::Uuid azType = ScriptCanvas::Data::ToAZType(scriptCanvasType);
+
+            AZStd::string colorPalette;
+            GraphCanvas::StyleManagerRequestBus::EventResult(colorPalette, ScriptCanvasEditor::AssetEditorId, &GraphCanvas::StyleManagerRequests::GetDataPaletteStyle, azType);
+
+            SetTitlePalette(colorPalette);
+        }
+    }
+
+    VariableChangedNodePaletteTreeItem::~VariableChangedNodePaletteTreeItem()
+    {
+        ScriptCanvas::VariableNotificationBus::Handler::BusDisconnect();
+    }
+
+    void VariableChangedNodePaletteTreeItem::OnVariableRenamed(AZStd::string_view variableName)
+    {
+        AZStd::string fullName = AZStd::string::format("On %s Changed", variableName.data());
+        SetName(fullName.c_str());
+
+        AZStd::string tooltip = AZStd::string::format("Signals when %s's values changes.", variableName.data());
+        SetToolTip(tooltip.c_str());
+    }
+
+    const ScriptCanvas::VariableId& VariableChangedNodePaletteTreeItem::GetVariableId() const
+    {
+        return m_variableId;
+    }
+
+    GraphCanvas::GraphCanvasMimeEvent* VariableChangedNodePaletteTreeItem::CreateMimeEvent() const
+    {
+        return aznew CreateVariableChangedNodeMimeEvent(m_variableId);
+    }
+
+    ////////////////////////////////////////
+    // CreateVariableSpecificNodeMimeEvent
+    ////////////////////////////////////////
+
+    void CreateVariableSpecificNodeMimeEvent::Reflect(AZ::ReflectContext* reflectContext)
+    {
+        AZ::SerializeContext* serializeContext = azrtti_cast<AZ::SerializeContext*>(reflectContext);
+
+        if (serializeContext)
+        {
+            serializeContext->Class<CreateVariableSpecificNodeMimeEvent, SpecializedCreateNodeMimeEvent>()
+                ->Version(0)
+                ->Field("VariableId", &CreateVariableSpecificNodeMimeEvent::m_variableId)
+                ;
+        }
+    }
+
+    CreateVariableSpecificNodeMimeEvent::CreateVariableSpecificNodeMimeEvent(const ScriptCanvas::VariableId& variableId)
+        : m_variableId(variableId)
+    {
+    }
+
+    bool CreateVariableSpecificNodeMimeEvent::ExecuteEvent(const AZ::Vector2& mousePosition, AZ::Vector2& sceneDropPosition, const AZ::EntityId& graphCanvasGraphId)
+    {
+        ScriptCanvas::ScriptCanvasId scriptCanvasId;
+        GeneralRequestBus::BroadcastResult(scriptCanvasId, &GeneralRequests::GetScriptCanvasId, graphCanvasGraphId);
+
+        Metrics::MetricsEventsBus::Broadcast(&Metrics::MetricsEventRequests::SendNodeMetric, ScriptCanvasEditor::Metrics::Events::Canvas::DropHandler, AZ::Uuid("{CE31F6F6-1536-4C97-BB59-863408ABA736}"), scriptCanvasId);
+
+        NodeIdPair nodeId = ConstructNode(graphCanvasGraphId, sceneDropPosition);
+
+        if (nodeId.m_graphCanvasId.IsValid())
+        {
+            AZ::EntityId gridId;
+            GraphCanvas::SceneRequestBus::EventResult(gridId, graphCanvasGraphId, &GraphCanvas::SceneRequests::GetGrid);
+
+            AZ::Vector2 offset;
+            GraphCanvas::GridRequestBus::EventResult(offset, gridId, &GraphCanvas::GridRequests::GetMinorPitch);
+
+            sceneDropPosition += offset;
+        }
+
+        return nodeId.m_graphCanvasId.IsValid();
+    }
+
+    ScriptCanvasEditor::NodeIdPair CreateVariableSpecificNodeMimeEvent::ConstructNode(const AZ::EntityId& graphCanvasGraphId, const AZ::Vector2& scenePosition)
+    {
+        ScriptCanvas::ScriptCanvasId scriptCanvasId;
+        GeneralRequestBus::BroadcastResult(scriptCanvasId, &GeneralRequests::GetScriptCanvasId, graphCanvasGraphId);
+
+        Metrics::MetricsEventsBus::Broadcast(&Metrics::MetricsEventRequests::SendNodeMetric, ScriptCanvasEditor::Metrics::Events::Canvas::DropObject, "{924C1192-C32A-4A35-B146-2739AB4383DB}", scriptCanvasId);
+
+        ScriptCanvasEditor::NodeIdPair nodeIdPair;
+
+        AZ::EntityId viewId;
+        GraphCanvas::SceneRequestBus::EventResult(viewId, graphCanvasGraphId, &GraphCanvas::SceneRequests::GetViewId);
+
+        GraphCanvas::GraphCanvasGraphicsView* graphicsView = nullptr;
+        GraphCanvas::ViewRequestBus::EventResult(graphicsView, viewId, &GraphCanvas::ViewRequests::AsGraphicsView);
+
+        if (graphicsView)
+        {
+            AZStd::string variableName;
+            ScriptCanvas::VariableRequestBus::EventResult(variableName, ScriptCanvas::GraphScopedVariableId(scriptCanvasId, m_variableId), &ScriptCanvas::VariableRequests::GetName);
+
+            QMenu menu(graphicsView);
+
+            QAction* createGet = new QAction(QString("Get %1").arg(variableName.c_str()), &menu);
+            menu.addAction(createGet);
+
+            QAction* createChanged = new QAction(QString("On %1 Changed").arg(variableName.c_str()), &menu);
+            menu.addAction(createChanged);
+
+            QAction* createSet = new QAction(QString("Set %1").arg(variableName.c_str()), &menu);
+            menu.addAction(createSet);            
+
+            QAction* result = menu.exec(QCursor::pos());
+
+            if (result == createGet)
+            {
+                CreateGetVariableNodeMimeEvent createGetVariableNode(m_variableId);
+                nodeIdPair = createGetVariableNode.CreateNode(scriptCanvasId);
+            }
+            else if (result == createSet)
+            {
+                CreateSetVariableNodeMimeEvent createSetVariableNode(m_variableId);
+                nodeIdPair = createSetVariableNode.CreateNode(scriptCanvasId);
+            }
+            else if (result == createChanged)
+            {
+                CreateVariableChangedNodeMimeEvent createChangedVariableNode(m_variableId);
+                nodeIdPair = createChangedVariableNode.ConstructNode(graphCanvasGraphId, scenePosition);
+            }
+
+            if (nodeIdPair.m_graphCanvasId.IsValid() && nodeIdPair.m_scriptCanvasId.IsValid())
+            {
+                GraphCanvas::SceneRequestBus::Event(graphCanvasGraphId, &GraphCanvas::SceneRequests::AddNode, nodeIdPair.m_graphCanvasId, scenePosition);
+                GraphCanvas::SceneMemberUIRequestBus::Event(nodeIdPair.m_graphCanvasId, &GraphCanvas::SceneMemberUIRequests::SetSelected, true);
+            }
+        }
+
+        return nodeIdPair;
+    }
+
+    AZStd::vector< GraphCanvas::GraphCanvasMimeEvent* > CreateVariableSpecificNodeMimeEvent::CreateMimeEvents() const
+    {
+        AZStd::vector< GraphCanvas::GraphCanvasMimeEvent* > mimeEvents;
+
+        mimeEvents.push_back(aznew CreateGetVariableNodeMimeEvent(m_variableId));
+        mimeEvents.push_back(aznew CreateSetVariableNodeMimeEvent(m_variableId));
+        mimeEvents.push_back(aznew CreateVariableChangedNodeMimeEvent(m_variableId));
+
+        return mimeEvents;
+    }
+
     ////////////////////////////////////////
     // VariableCategoryNodePaletteTreeItem
     ////////////////////////////////////////
 
-    VariableCategoryNodePaletteTreeItem::VariableCategoryNodePaletteTreeItem(const QString& displayName)
-        : NodePaletteTreeItem(displayName)
+    VariableCategoryNodePaletteTreeItem::VariableCategoryNodePaletteTreeItem(AZStd::string_view displayName)
+        : NodePaletteTreeItem(displayName, ScriptCanvasEditor::AssetEditorId)
     {
     }
 
     void VariableCategoryNodePaletteTreeItem::PreOnChildAdded(GraphCanvasTreeItem* item)
     {
         // Force elements to display in the order they were added rather then alphabetical.
-        static_cast<NodePaletteTreeItem*>(item)->SetItemOrdering(GetNumChildren());
+        static_cast<NodePaletteTreeItem*>(item)->SetItemOrdering(GetChildCount());
     }
 
     //////////////////////////////////////////
     // LocalVariablesListNodePaletteTreeItem
     //////////////////////////////////////////
 
-    LocalVariablesListNodePaletteTreeItem::LocalVariablesListNodePaletteTreeItem(const QString& displayName)
-        : NodePaletteTreeItem(displayName)
+    LocalVariablesListNodePaletteTreeItem::LocalVariablesListNodePaletteTreeItem(AZStd::string_view displayName)
+        : NodePaletteTreeItem(displayName, ScriptCanvasEditor::AssetEditorId)
     {
-        MainWindowNotificationBus::Handler::BusConnect();
+        GraphCanvas::AssetEditorNotificationBus::Handler::BusConnect(ScriptCanvasEditor::AssetEditorId);
+
+        SetAllowPruneOnEmpty(false);
     }
 
-    void LocalVariablesListNodePaletteTreeItem::OnActiveSceneChanged(const AZ::EntityId& sceneId)
+    void LocalVariablesListNodePaletteTreeItem::OnActiveGraphChanged(const AZ::EntityId& graphCanvasGraphId)
     {
-        if (m_sceneId != sceneId)
-        {
-            GraphItemCommandNotificationBus::Handler::BusDisconnect(m_sceneId);
-            GraphCanvas::SceneVariableNotificationBus::Handler::BusDisconnect(m_sceneId);
-            m_sceneId = sceneId;
+        ScriptCanvas::ScriptCanvasId scriptCanvasId;
+        GeneralRequestBus::BroadcastResult(scriptCanvasId, &GeneralRequests::GetScriptCanvasId, graphCanvasGraphId);
 
-            if (m_sceneId.IsValid())
+        if (m_scriptCanvasId != scriptCanvasId)
+        {
+            GraphItemCommandNotificationBus::Handler::BusDisconnect(m_scriptCanvasId);
+            ScriptCanvas::GraphVariableManagerNotificationBus::Handler::BusDisconnect(m_scriptCanvasId);
+            m_scriptCanvasId = scriptCanvasId;
+
+            if (m_scriptCanvasId.IsValid())
             {
-                GraphCanvas::SceneVariableNotificationBus::Handler::BusConnect(m_sceneId);
-                GraphItemCommandNotificationBus::Handler::BusConnect(m_sceneId);
+                ScriptCanvas::GraphVariableManagerNotificationBus::Handler::BusConnect(m_scriptCanvasId);
+                GraphItemCommandNotificationBus::Handler::BusConnect(m_scriptCanvasId);
             }
 
             RefreshVariableList();
@@ -395,90 +566,109 @@ namespace ScriptCanvasEditor
         RefreshVariableList();
     }
 
-    void LocalVariablesListNodePaletteTreeItem::OnVariableCreated(const AZ::EntityId& variableId)
+    void LocalVariablesListNodePaletteTreeItem::OnVariableAddedToGraph(const ScriptCanvas::VariableId& variableId, AZStd::string_view /*variableName*/)
     {
-        LocalVariableNodePaletteTreeItem* localVariableTreeItem = CreateChildNode<LocalVariableNodePaletteTreeItem>(variableId);        
+        QScopedValueRollback<bool> valueRollback(m_ignoreTreeSignals, true);
+
+        LocalVariableNodePaletteTreeItem* localVariableTreeItem = CreateChildNode<LocalVariableNodePaletteTreeItem>(variableId, m_scriptCanvasId);
         localVariableTreeItem->PopulateChildren();
     }
 
-    void LocalVariablesListNodePaletteTreeItem::OnVariableDestroyed(const AZ::EntityId& variableId)
+    void LocalVariablesListNodePaletteTreeItem::OnVariableRemovedFromGraph(const ScriptCanvas::VariableId& variableId, AZStd::string_view /*variableName*/)
     {
-        int rows = GetNumChildren();
+        int rows = GetChildCount();
 
         for (int i = 0; i < rows; ++i)
         {
-            LocalVariableNodePaletteTreeItem* treeItem = static_cast<LocalVariableNodePaletteTreeItem*>(ChildForRow(i));
+            LocalVariableNodePaletteTreeItem* treeItem = static_cast<LocalVariableNodePaletteTreeItem*>(FindChildByRow(i));
 
             if (treeItem->GetVariableId() == variableId)
             {
+                QScopedValueRollback<bool> valueRollback(m_ignoreTreeSignals, true);
                 RemoveChild(treeItem);
+                
                 break;
             }
         }
     }
 
+    void LocalVariablesListNodePaletteTreeItem::OnChildAdded(GraphCanvas::GraphCanvasTreeItem* treeItem)
+    {
+        if (!m_ignoreTreeSignals)
+        {
+            m_nonVariableTreeItems.insert(treeItem);
+        }
+    }
+
     void LocalVariablesListNodePaletteTreeItem::RefreshVariableList()
     {
-        // Need to let the child clear signal out 
+        QScopedValueRollback<bool> valueRollback(m_ignoreTreeSignals, true);
+
+        for (GraphCanvas::GraphCanvasTreeItem* item : m_nonVariableTreeItems)
+        {
+            item->DetachItem();
+        }
+
+        // Need to let the child clear signal out
         ClearChildren();
 
-        SignalLayoutAboutToBeChanged();
-        BlockSignals();
+        const ScriptCanvas::GraphVariableMapping* variableMapping = nullptr;
+        ScriptCanvas::GraphVariableManagerRequestBus::EventResult(variableMapping, m_scriptCanvasId, &ScriptCanvas::GraphVariableManagerRequests::GetVariables);
 
-        GraphCanvas::SceneVariableRequestBus::EnumerateHandlersId(m_sceneId, [this](GraphCanvas::SceneVariableRequests* variableRequests)
+        if (variableMapping != nullptr)
         {
-            AZ::EntityId variableId = variableRequests->GetVariableId();
+            for (const auto& mapPair : (*variableMapping))
+            {
+                LocalVariableNodePaletteTreeItem* rootItem = this->CreateChildNode<LocalVariableNodePaletteTreeItem>(mapPair.first, m_scriptCanvasId);
+                rootItem->PopulateChildren();
+            }
+        }
 
-            LocalVariableNodePaletteTreeItem* rootItem = this->CreateChildNode<LocalVariableNodePaletteTreeItem>(variableId);
-            rootItem->PopulateChildren();
-
-            return true;
-        });
-
-        UnblockSignals();
-        SignalLayoutChanged();
+        for (GraphCanvas::GraphCanvasTreeItem* item : m_nonVariableTreeItems)
+        {
+            AddChild(item);
+        }
     }
 
     /////////////////////////////////////
     // LocalVariableNodePaletteTreeItem
     /////////////////////////////////////
 
-    LocalVariableNodePaletteTreeItem::LocalVariableNodePaletteTreeItem(AZ::EntityId variableId)
-        : NodePaletteTreeItem("")
+    LocalVariableNodePaletteTreeItem::LocalVariableNodePaletteTreeItem(ScriptCanvas::VariableId variableId, const ScriptCanvas::ScriptCanvasId& scriptCanvasId)
+        : NodePaletteTreeItem("", ScriptCanvasEditor::AssetEditorId)
+        , m_scriptCanvasId(scriptCanvasId)
         , m_variableId(variableId)
     {
-        OnNameChanged();
-        GraphCanvas::VariableNotificationBus::Handler::BusConnect(variableId);
+        AZStd::string_view variableName;
+        ScriptCanvas::GraphVariableManagerRequestBus::EventResult(variableName, m_scriptCanvasId, &ScriptCanvas::GraphVariableManagerRequests::GetVariableName, variableId);
+        OnVariableRenamed(variableName);
+
+        ScriptCanvas::VariableNotificationBus::Handler::BusConnect(ScriptCanvas::GraphScopedVariableId(scriptCanvasId, variableId));
     }
 
     LocalVariableNodePaletteTreeItem::~LocalVariableNodePaletteTreeItem()
     {
-        GraphCanvas::VariableNotificationBus::Handler::BusDisconnect();
+        ScriptCanvas::VariableNotificationBus::Handler::BusDisconnect();
     }
 
     void LocalVariableNodePaletteTreeItem::PopulateChildren()
     {
-        if (GetNumChildren() == 0)
+        if (GetChildCount() == 0)
         {
-            SignalLayoutAboutToBeChanged();
-            BlockSignals();
-            CreateChildNode<GetVariableNodePaletteTreeItem>(GetVariableId());
-            CreateChildNode<SetVariableNodePaletteTreeItem>(GetVariableId());
-            UnblockSignals();
-            SignalLayoutChanged();
+            CreateChildNode<GetVariableNodePaletteTreeItem>(GetVariableId(), m_scriptCanvasId);
+            CreateChildNode<SetVariableNodePaletteTreeItem>(GetVariableId(), m_scriptCanvasId);
+            CreateChildNode<VariableChangedNodePaletteTreeItem>(GetVariableId(), m_scriptCanvasId);
         }
     }
 
-    const AZ::EntityId& LocalVariableNodePaletteTreeItem::GetVariableId() const
+    const ScriptCanvas::VariableId& LocalVariableNodePaletteTreeItem::GetVariableId() const
     {
         return m_variableId;
     }
 
-    void LocalVariableNodePaletteTreeItem::OnNameChanged()
+    void LocalVariableNodePaletteTreeItem::OnVariableRenamed(AZStd::string_view variableName)
     {
-        AZStd::string displayName;
-        GraphCanvas::VariableRequestBus::EventResult(displayName, GetVariableId(), &GraphCanvas::VariableRequests::GetVariableName);
-
-        SetName(displayName.c_str());
+        AZStd::string localName(variableName);        
+        SetName(localName.c_str());
     }
 }

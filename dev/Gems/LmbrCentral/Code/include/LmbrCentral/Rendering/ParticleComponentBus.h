@@ -11,6 +11,8 @@
 */
 #pragma once
 
+#include "ParticleAsset.h"
+
 #include <AzCore/Component/ComponentBus.h>
 #include <AzCore/std/string/string.h>
 
@@ -40,6 +42,7 @@ namespace LmbrCentral
             , m_pulsePeriod(0.f)
             , m_particleSizeScaleX(1.0f)
             , m_particleSizeScaleY(1.0f)
+            , m_particleSizeScaleZ(1.0f)
             , m_particleSizeScaleRandom(0.0f)
             , m_strength(-1.f)
             , m_ignoreRotation(false)
@@ -51,6 +54,7 @@ namespace LmbrCentral
             , m_useVisAreas(true)
         {}
 
+        AZ::Data::Asset<ParticleAsset> m_asset;                 //!< Used at asset compile time to track the dependency. Not used at edit or runtime.
         bool                        m_visible;                  //!< Controls the emitter's visibility.
         bool                        m_enable;                   //!< Controls whether emitter is active.
         AZStd::string               m_selectedEmitter;          //!< Name of the particle emitter to use.
@@ -63,6 +67,7 @@ namespace LmbrCentral
         float                       m_pulsePeriod;              //!< How often to restart emitter.
         float                       m_particleSizeScaleX;       //!< Scaling on particle size X
         float                       m_particleSizeScaleY;       //!< Scaling on particle size Y
+        float                       m_particleSizeScaleZ;       //!< Scaling on particle size Z; only for geometry particle
         float                       m_particleSizeScaleRandom;  //!< Random Scaling on partle size scale
         float                       m_strength;                 //!< Controls the affect of Strength Over Emitter lifetime curve, negative value applies strength over emitter lifetime curve.\
                                                                 //zero removes the affect of the curve. positive value applies the affect uniformly over emitter lifetime
@@ -158,10 +163,12 @@ namespace LmbrCentral
         // Set particle size scale
         virtual void SetParticleSizeScaleX(float scale) = 0;
         virtual void SetParticleSizeScaleY(float scale) = 0;
+        virtual void SetParticleSizeScaleZ(float scale) = 0;
 
         // Get particle size scale
         virtual float GetParticleSizeScaleX() = 0;
         virtual float GetParticleSizeScaleY() = 0;
+        virtual float GetParticleSizeScaleZ() = 0;
         
         // Set pulse period
         virtual void SetPulsePeriod(float pulse) = 0;
@@ -264,10 +271,12 @@ namespace LmbrCentral
         // Set particle size scale
         virtual void SetParticleSizeScaleX(float scale) = 0;
         virtual void SetParticleSizeScaleY(float scale) = 0;
+        virtual void SetParticleSizeScaleZ(float scale) = 0;
 
         // Get particle size scale
         virtual float GetParticleSizeScaleX() = 0;
         virtual float GetParticleSizeScaleY() = 0;
+        virtual float GetParticleSizeScaleZ() = 0;
 
         // Sets up an effect emitter by name
         virtual void SetEmitter(const AZStd::string& emitterName, const AZStd::string& libPath) = 0;

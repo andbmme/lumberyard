@@ -52,9 +52,12 @@
 #include "AzCore/Math/MathUtils.h"
 #include <Controls/ReflectedPropertyControl/ReflectedPropertiesPanel.h>
 
+#include <AzToolsFramework/API/ComponentEntityObjectBus.h>
+
 #include <QMenu>
 #include <QAction>
 
+#include <AzFramework/Terrain/TerrainDataRequestBus.h>
 
 namespace {
     QColor kLinkColorParent = QColor(0, 255, 255);
@@ -290,6 +293,9 @@ void CUndoBaseObject::Undo(bool bUndo)
     }
 
     GetIEditor()->ResumeUndo();
+
+    using namespace AzToolsFramework;
+    ComponentEntityObjectRequestBus::Event(pObject, &ComponentEntityObjectRequestBus::Events::UpdatePreemptiveUndoCache);
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -318,6 +324,9 @@ void CUndoBaseObject::Redo()
     pObject->UpdatePrefab();
 
     GetIEditor()->ResumeUndo();
+
+    using namespace AzToolsFramework;
+    ComponentEntityObjectRequestBus::Event(pObject, &ComponentEntityObjectRequestBus::Events::UpdatePreemptiveUndoCache);
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -387,6 +396,9 @@ void CUndoBaseObjectMinimal::Undo(bool bUndo)
     {
         pObject->UpdateGroup();
     }
+
+    using namespace AzToolsFramework;
+    ComponentEntityObjectRequestBus::Event(pObject, &ComponentEntityObjectRequestBus::Events::UpdatePreemptiveUndoCache);
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -411,6 +423,9 @@ void CUndoBaseObjectMinimal::Redo()
         CObjectPanel::SParams uip(pObject);
         s_objectPanel->SetParams(pObject, uip);
     }
+
+    using namespace AzToolsFramework;
+    ComponentEntityObjectRequestBus::Event(pObject, &ComponentEntityObjectRequestBus::Events::UpdatePreemptiveUndoCache);
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -801,7 +816,11 @@ bool CBaseObject::SetPos(const Vec3& pos, int flags)
         StoreUndo("Position", true, flags);
     }
 
-    m_height = pos.z - GetIEditor()->GetTerrainElevation(pos.x, pos.y);
+    float terrainElevation = AzFramework::Terrain::TerrainDataRequests::GetDefaultTerrainHeight();
+    AzFramework::Terrain::TerrainDataRequestBus::BroadcastResult(terrainElevation
+        , &AzFramework::Terrain::TerrainDataRequests::GetHeightFromFloats
+        , pos.x, pos.y, AzFramework::Terrain::TerrainDataRequests::Sampler::BILINEAR, nullptr);
+    m_height = pos.z - terrainElevation;
 
     if (!bPositionDelegated)
     {
@@ -2038,6 +2057,8 @@ float CBaseObject::GetCameraVisRatio(const CCamera& camera)
 //////////////////////////////////////////////////////////////////////////
 int CBaseObject::MouseCreateCallback(CViewport* view, EMouseEvent event, QPoint& point, int flags)
 {
+    AZ_PROFILE_FUNCTION(AZ::Debug::ProfileCategory::Editor);
+
     if (event == eMouseMove || event == eMouseLDown)
     {
         Vec3 pos;
@@ -2144,11 +2165,6 @@ void CBaseObject::SetFrozen(bool bFrozen)
             ClearFlags(OBJFLAG_FROZEN);
         }
     }
-    if (bFrozen && IsSelected())
-    {
-        // If frozen must be unselected.
-        GetObjectManager()->UnselectObject(this);
-    }
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -2200,9 +2216,14 @@ bool CBaseObject::IsHidden() const
     {
         return false;
     }
+
+#ifndef AZ_TESTS_ENABLED
     return (CheckFlags(OBJFLAG_HIDDEN)) ||
            ((m_layer && !m_layer->IsVisible())) ||
            (gSettings.objectHideMask & GetType());
+#else
+    return CheckFlags(OBJFLAG_HIDDEN);
+#endif
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -2848,6 +2869,8 @@ bool CBaseObject::HitTestRectBounds(HitContext& hc, const AABB& box)
 //////////////////////////////////////////////////////////////////////////
 bool CBaseObject::HitTestRect(HitContext& hc)
 {
+    AZ_PROFILE_FUNCTION(AZ::Debug::ProfileCategory::Entity);
+
     AABB box;
 
     if (hc.bUseSelectionHelpers)
@@ -2883,6 +2906,8 @@ bool CBaseObject::HitHelperTest(HitContext& hc)
 //////////////////////////////////////////////////////////////////////////
 bool CBaseObject::HitHelperAtTest(HitContext& hc, const Vec3& pos)
 {
+    AZ_PROFILE_FUNCTION(AZ::Debug::ProfileCategory::Entity);
+
     bool bResult = false;
 
     if (m_nTextureIcon && (gSettings.viewports.bShowIcons || gSettings.viewports.bShowSizeBasedIcons) && !hc.bUseSelectionHelpers)
@@ -3462,7 +3487,11 @@ void CBaseObject::UpdateVisibility(bool bVisible)
     bool bVisibleWithSpec = bVisible && !IsHiddenBySpec();
     if (bVisible == CheckFlags(OBJFLAG_INVISIBLE))
     {
-        GetObjectManager()->InvalidateVisibleList();
+        if (IObjectManager* objectManager = GetObjectManager())
+        {
+            objectManager->InvalidateVisibleList();
+        }
+
         if (!bVisible)
         {
             m_flags |= OBJFLAG_INVISIBLE;
@@ -3872,25 +3901,6 @@ void CBaseObject::OnMenuProperties()
 }
 
 //////////////////////////////////////////////////////////////////////////
-void CBaseObject::OnMenuEditTags()
-{
-    IAssetTagging* pAssetTagging = GetIEditor()->GetAssetTagging();
-    if (!pAssetTagging)
-    {
-        return;
-    }
-
-    if (!IsSelected())
-    {
-        CUndo undo("Select Object");
-        GetIEditor()->GetObjectManager()->ClearSelection();
-        GetIEditor()->SelectObject(this);
-    }
-
-    EditTags(true);
-}
-
-//////////////////////////////////////////////////////////////////////////
 void CBaseObject::OnMenuShowInAssetBrowser()
 {
     if (!IsSelected())
@@ -3914,15 +3924,7 @@ void CBaseObject::OnContextMenu(QMenu* menu)
     GatherUsedResources(resources);
 
     QAction* action = menu->addAction(QObject::tr("Properties"));
-    QObject::connect(action, &QAction::triggered, [this] { OnMenuProperties();
-        });                                                                        // Remove lambda when/if CBaseObject becomes a QObject
-
-    if (GetIEditor()->GetAssetTagging() != NULL && SupportsEditTags())
-    {
-        action = menu->addAction(QObject::tr("Edit Tags"));
-        QObject::connect(action, &QAction::triggered, [this] { OnMenuEditTags();
-            });
-    }
+    QObject::connect(action, &QAction::triggered, this, &CBaseObject::OnMenuProperties);
 
     static_cast<CEditorImpl*>(GetIEditor())->OnObjectContextMenuOpened(menu, this);
 

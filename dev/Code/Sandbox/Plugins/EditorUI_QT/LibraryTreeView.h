@@ -16,6 +16,9 @@
 
 #include "api.h"
 #include "Utils.h"
+
+#include <AzQtComponents/Components/Style.h>
+
 #include <QTreeWidget>
 #include <functional>
 #include <QPen>
@@ -152,7 +155,11 @@ private:
     //But the order of children in IParticleEffect won't match the new order. We are using this patch function to sync the order in IParticleEffect with particle library.
     void FixParticleEffectOrder(IDataBaseLibrary* lib);
 
+public: 
+    // The supported MIME type name of a drag & drop object. Used for filtering.
+    const QString MIMEType = "LibraryTreeViewItem";
 private:
+    AZ_PUSH_DISABLE_DLL_EXPORT_MEMBER_WARNING
     QMap<QString, QTreeWidgetItem*> m_nameToNode;
     IDataBaseLibrary* m_baseLibrary;
     QIcon* m_iconFolderClosed;
@@ -164,6 +171,7 @@ private:
     //item selection doesn't always survive changes
     //added this list to track what is selected when a change happens
     QVector<CLibraryTreeViewItem*> m_activeItems;
+    AZ_POP_DISABLE_DLL_EXPORT_MEMBER_WARNING
     //used during rename and reloading to prevent problematic code
     bool m_allowSelection;
     bool m_isInDrop;
@@ -180,11 +188,18 @@ class dropIndicatorStyle
     : public QProxyStyle
 {
 public:
-    dropIndicatorStyle(QStyle* baseStyle = 0)
-        : QProxyStyle(baseStyle) {}
+    explicit dropIndicatorStyle(QStyle* baseStyle = nullptr)
+        : QProxyStyle()
+    {
+        if (baseStyle)
+        {
+            AzQtComponents::Style::fixProxyStyle(this, baseStyle);
+        }
+    }
 
     void drawPrimitive(PrimitiveElement element, const QStyleOption* option, QPainter* painter, const QWidget* widget) const
     {
+        // FIXME: Move to AzQtComponents Style.cpp
         if (element == QStyle::PE_IndicatorItemViewItemDrop)
         {
             painter->setPen(QPen(QColor(CTreeViewDropIndicatorColor), 2));

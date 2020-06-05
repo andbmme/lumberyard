@@ -20,13 +20,27 @@
 #include <AzToolsFramework/SourceControl/PerforceComponent.h>
 #include <AzToolsFramework/Asset/AssetSystemComponent.h>
 #include <AzFramework/Asset/AssetSystemComponent.h>
+#include <AzToolsFramework/AssetBrowser/AssetBrowserComponent.h>
 
+#include <Woodpecker/AssetDatabaseLocationListener.h>
+#include <Woodpecker/ThumbnailerNullComponent.h>
 #include <Woodpecker/LUA/LUAEditorContext.h>
 #include <Woodpecker/LUA/LUADebuggerComponent.h>
 #include <AzToolsFramework/UI/PropertyEditor/PropertyManagerComponent.h>
 
 namespace LUAEditor
 {
+
+    Application::Application(int &argc, char **argv) : BaseApplication(argc, argv)
+    {
+        AzToolsFramework::SourceControlNotificationBus::Handler::BusConnect();
+    }
+
+    Application::~Application()
+    {
+        AzToolsFramework::SourceControlNotificationBus::Handler::BusDisconnect();
+    }
+
     void Application::RegisterCoreComponents()
     {
         Woodpecker::BaseApplication::RegisterCoreComponents();
@@ -39,6 +53,8 @@ namespace LUAEditor
         RegisterComponentDescriptor(AzToolsFramework::Components::PropertyManagerComponent::CreateDescriptor());
         RegisterComponentDescriptor(AzFramework::AssetSystem::AssetSystemComponent::CreateDescriptor());
         RegisterComponentDescriptor(AzToolsFramework::AssetSystem::AssetSystemComponent::CreateDescriptor());
+        RegisterComponentDescriptor(LUAEditor::Thumbnailer::ThumbnailerNullComponent::CreateDescriptor());
+        RegisterComponentDescriptor(AzToolsFramework::AssetBrowser::AssetBrowserComponent::CreateDescriptor());
 
         RegisterComponentDescriptor(AzFramework::CreateScriptDebugAgentFactory());
     }
@@ -56,5 +72,20 @@ namespace LUAEditor
         EnsureComponentCreated(AzToolsFramework::Components::PropertyManagerComponent::RTTI_Type());
         EnsureComponentCreated(AzFramework::AssetSystem::AssetSystemComponent::RTTI_Type());
         EnsureComponentCreated(AzToolsFramework::AssetSystem::AssetSystemComponent::RTTI_Type());
+        EnsureComponentCreated(LUAEditor::Thumbnailer::ThumbnailerNullComponent::RTTI_Type());
+        EnsureComponentCreated(AzToolsFramework::AssetBrowser::AssetBrowserComponent::RTTI_Type());
     }
+
+    void Application::ConnectivityStateChanged(const AzToolsFramework::SourceControlState state)
+    {
+        using SCConnectionBus = AzToolsFramework::SourceControlConnectionRequestBus;
+        using AzToolsFramework::SourceControlState;
+
+        // If status invalid, just disconnect from source control
+        if (state == SourceControlState::ConfigurationInvalid)
+        {
+            SCConnectionBus::Broadcast(&SCConnectionBus::Events::EnableSourceControl, false);
+        }
+    }
+
 }

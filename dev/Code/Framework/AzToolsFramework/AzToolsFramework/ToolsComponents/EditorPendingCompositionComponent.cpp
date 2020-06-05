@@ -13,6 +13,7 @@
 #include "EditorPendingCompositionComponent.h"
 
 #include <AzCore/Serialization/EditContext.h>
+#include <AzToolsFramework/API/ToolsApplicationAPI.h>
 
 namespace AzToolsFramework
 {
@@ -60,6 +61,12 @@ namespace AzToolsFramework
             if (componentToAdd && AZStd::find(m_pendingComponents.begin(), m_pendingComponents.end(), componentToAdd) == m_pendingComponents.end())
             {
                 m_pendingComponents.push_back(componentToAdd);
+                bool isDuringUndo = false;
+                AzToolsFramework::ToolsApplicationRequestBus::BroadcastResult(isDuringUndo, &AzToolsFramework::ToolsApplicationRequestBus::Events::IsDuringUndoRedo);
+                if (isDuringUndo)
+                {
+                    SetDirty();
+                }
             }
         }
 
@@ -69,6 +76,12 @@ namespace AzToolsFramework
             if (componentToRemove)
             {
                 m_pendingComponents.erase(AZStd::remove(m_pendingComponents.begin(), m_pendingComponents.end(), componentToRemove), m_pendingComponents.end());
+                bool isDuringUndo = false;
+                AzToolsFramework::ToolsApplicationRequestBus::BroadcastResult(isDuringUndo, &AzToolsFramework::ToolsApplicationRequestBus::Events::IsDuringUndoRedo);
+                if (isDuringUndo)
+                {
+                    SetDirty();
+                }
             }
         };
 
@@ -88,13 +101,6 @@ namespace AzToolsFramework
         void EditorPendingCompositionComponent::Init()
         {
             EditorComponentBase::Init();
-
-            if (EditorPendingCompositionRequestBus::FindFirstHandler(GetEntityId()))
-            {
-                // There's already a pending component on this bus. Ignore for now (warning below should turn into assert when invalid component setup issue causing this gets fixed)
-                AZ_Warning("EditorPendingCompositionComponent", false, "Entity with id %llu has multiple pending components on it. Ignoring duplicate component.", GetEntityId());
-                return;
-            }
 
             // We connect to the bus here because we need to be able to respond even if the entity and component are not active
             // This is a special case for certain EditorComponents only!

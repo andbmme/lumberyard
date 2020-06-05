@@ -9,8 +9,7 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
-#ifndef AZSTD_SEMAPHORE_H
-#define AZSTD_SEMAPHORE_H 1
+#pragma once
 
 #include <AzCore/std/parallel/config.h>
 #include <AzCore/std/chrono/types.h>
@@ -26,12 +25,12 @@ namespace AZStd
     public:
         enum
         {
-#ifdef AZ_PLATFORM_APPLE_OSX
+#ifdef AZ_PLATFORM_MAC
             // OSX does't like it when you initialize a semaphore with INT_MAX. It hangs when doing a signal and then a wait.
             MAXIMUM_COUNT = INT_MAX - 1
 #else
             MAXIMUM_COUNT = 0x7fff
-#endif // AZ_PLATFORM_APPLE_OSX
+#endif // AZ_PLATFORM_MAC
         };
 
         typedef native_semaphore_handle_type native_handle_type;
@@ -53,7 +52,7 @@ namespace AZStd
 
         native_semaphore_data_type m_semaphore;
 
-#if defined(AZ_PLATFORM_LINUX) || defined(AZ_PLATFORM_ANDROID) || defined (AZ_PLATFORM_APPLE)
+#if !AZ_TRAIT_SEMAPHORE_HAS_NATIVE_MAX_COUNT
         //Unlike Windows, these platforms do not natively support a semaphore max count. So we use a second mutex to implement
         //the producer-consumer pattern which gives us the same behaviour.
         native_semaphore_data_type m_maxCountSemaphore;
@@ -61,15 +60,4 @@ namespace AZStd
     };
 }
 
-#if defined(AZ_PLATFORM_WINDOWS)
-    #include <AzCore/std/parallel/internal/semaphore_win.h>
-#elif defined(AZ_PLATFORM_LINUX) || defined(AZ_PLATFORM_ANDROID)
-    #include <AzCore/std/parallel/internal/semaphore_linux.h>
-#elif defined(AZ_PLATFORM_APPLE)
-    #include <AzCore/std/parallel/internal/semaphore_apple.h>
-#else
-    #error Platform not supported
-#endif
-
-#endif // AZSTD_SEMAPHORE_H
-#pragma once
+#include <AzCore/std/parallel/internal/semaphore_Platform.h>

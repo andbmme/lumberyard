@@ -11,6 +11,7 @@
 */
 
 #include <AzCore/std/smart_ptr/make_shared.h>
+
 #include <AzCore/Serialization/SerializeContext.h>
 #include <AzToolsFramework/Thumbnails/ThumbnailerComponent.h>
 #include <AzToolsFramework/Thumbnails/ThumbnailContext.h>
@@ -38,6 +39,7 @@ namespace AzToolsFramework
         void ThumbnailerComponent::Deactivate()
         {
             BusDisconnect();
+            m_thumbnails.clear();
         }
 
         void ThumbnailerComponent::Reflect(AZ::ReflectContext* context)
@@ -49,10 +51,31 @@ namespace AzToolsFramework
             }
         }
 
+        void ThumbnailerComponent::GetIncompatibleServices(AZ::ComponentDescriptor::DependencyArrayType& incompatible)
+        {
+            incompatible.push_back(AZ_CRC("ThumbnailerService", 0x65422b97));
+        }
+
+        void ThumbnailerComponent::GetProvidedServices(AZ::ComponentDescriptor::DependencyArrayType& provided)
+        {
+            provided.push_back(AZ_CRC("ThumbnailerService", 0x65422b97));
+        }
+
         void ThumbnailerComponent::RegisterContext(const char* contextName, int thumbnailSize)
         {
             AZ_Assert(m_thumbnails.find(contextName) == m_thumbnails.end(), "Context %s already registered", contextName);
             m_thumbnails[contextName] = AZStd::make_shared<ThumbnailContext>(thumbnailSize);
+        }
+
+        void ThumbnailerComponent::UnregisterContext(const char* contextName)
+        {
+            AZ_Assert(m_thumbnails.find(contextName) != m_thumbnails.end(), "Context %s not registered", contextName);
+            m_thumbnails.erase(contextName);
+        }
+
+        bool ThumbnailerComponent::HasContext(const char* contextName) const
+        {
+            return m_thumbnails.find(contextName) != m_thumbnails.end();
         }
 
         void ThumbnailerComponent::RegisterThumbnailProvider(SharedThumbnailProvider provider, const char* contextName)
@@ -68,6 +91,8 @@ namespace AzToolsFramework
             AZ_Assert(it != m_thumbnails.end(), "Context %s not registered", contextName);
             return it->second->GetThumbnail(key);
         }
+
     } // namespace Thumbnailer
 } // namespace AzToolsFramework
+
 #include <Thumbnails/ThumbnailerComponent.moc>

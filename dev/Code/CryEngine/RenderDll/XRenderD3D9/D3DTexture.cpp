@@ -26,7 +26,12 @@
 #include "../Common/Textures/TextureHelpers.h"
 #include "../Common/Textures/TextureManager.h"
 #include "../Common/RenderCapabilities.h"
+#include <AzCore/Debug/AssetTracking.h>
 #include <Common/Memory/VRAMDrillerBus.h>
+
+#if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
+#include <RTTBus.h>
+#endif // AZ_RENDER_TO_TEXTURE_GEM_ENABLED
 
 #undef min
 #undef max
@@ -320,6 +325,23 @@ RenderTargetData::~RenderTargetData()
 }
 //===============================================================================
 
+
+#if defined(AZ_RESTRICTED_PLATFORM)
+#undef AZ_RESTRICTED_SECTION
+#define D3DTEXTURE_CPP_SECTION_1 1
+#define D3DTEXTURE_CPP_SECTION_2 2
+#define D3DTEXTURE_CPP_SECTION_3 3
+#define D3DTEXTURE_CPP_SECTION_4 4
+#define D3DTEXTURE_CPP_SECTION_5 5
+#define D3DTEXTURE_CPP_SECTION_6 6
+#define D3DTEXTURE_CPP_SECTION_7 7
+#define D3DTEXTURE_CPP_SECTION_8 8
+#define D3DTEXTURE_CPP_SECTION_9 9
+#define D3DTEXTURE_CPP_SECTION_10 10
+#define D3DTEXTURE_CPP_SECTION_11 11
+#define D3DTEXTURE_CPP_SECTION_12 12
+#endif
+
 #if defined(TEXTURE_GET_SYSTEM_COPY_SUPPORT)
 byte* CTexture::Convert(const byte* sourceData, int nWidth, int nHeight, int sourceMipCount, ETEX_Format eTFSrc, ETEX_Format eTFDst, int& nOutSize, bool bLinear)
 {
@@ -424,7 +446,6 @@ D3DSurface* CTexture::GetSurface(int nCMSide, int nLevel)
 
     if (!pTargSurf)
     {
-        MEMSTAT_CONTEXT_FMT(EMemStatContextTypes::MSC_Texture, 0, "Create Render Target: %s", GetSourceName());
         int nMipLevel = 0;
         int nSlice = 0;
         int nSliceCount = -1;
@@ -514,14 +535,27 @@ bool CTexture::IsDeviceFormatTypeless(D3DFormat nFormat)
     case DXGI_FORMAT_EAC_RG11_TYPELESS:
 #endif
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DTEXTURE_CPP_SECTION_1
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DTexture_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DTexture_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DTexture_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#else
     case DXGI_FORMAT_BC6H_TYPELESS:
+#endif
     case DXGI_FORMAT_BC7_TYPELESS:
 
 #ifdef CRY_USE_METAL
     case DXGI_FORMAT_PVRTC2_TYPELESS:
     case DXGI_FORMAT_PVRTC4_TYPELESS:
 #endif
-        //  Confetti BEGIN: Igor Lobanchikov
 #if defined(ANDROID) || defined(CRY_USE_METAL)
     case DXGI_FORMAT_ASTC_4x4_TYPELESS:
     case DXGI_FORMAT_ASTC_5x4_TYPELESS:
@@ -538,7 +572,6 @@ bool CTexture::IsDeviceFormatTypeless(D3DFormat nFormat)
     case DXGI_FORMAT_ASTC_12x10_TYPELESS:
     case DXGI_FORMAT_ASTC_12x12_TYPELESS:
 #endif
-        //  Confetti End: Igor Lobanchikov
         return true;
 
     default:
@@ -581,7 +614,6 @@ bool CTexture::IsDeviceFormatSRGBReadable(D3DFormat nFormat)
     case DXGI_FORMAT_PVRTC4_UNORM:
         return true;
 #endif
-        //  Confetti BEGIN: Igor Lobanchikov
 #if defined(ANDROID) || defined(CRY_USE_METAL)
     case DXGI_FORMAT_ASTC_4x4_UNORM:
         return true;
@@ -612,7 +644,6 @@ bool CTexture::IsDeviceFormatSRGBReadable(D3DFormat nFormat)
     case DXGI_FORMAT_ASTC_12x12_UNORM:
         return true;
 #endif
-    //  Confetti End: Igor Lobanchikov
 
     default:
         break;
@@ -639,14 +670,12 @@ D3DFormat CTexture::DeviceFormatFromTexFormat(ETEX_Format eTF)
         return DXGI_FORMAT_R8_SNORM;
     case eTF_R16:
         return DXGI_FORMAT_R16_UNORM;
-    //  Confetti BEGIN: Igor Lobanchikov
     case eTF_R16U:
         return DXGI_FORMAT_R16_UINT;
     case eTF_R16G16U:
         return DXGI_FORMAT_R16G16_UINT;
     case eTF_R10G10B10A2UI:
         return DXGI_FORMAT_R10G10B10A2_UINT;
-    //  Confetti End: Igor Lobanchikov
     case eTF_R16F:
         return DXGI_FORMAT_R16_FLOAT;
     case eTF_R32F:
@@ -727,7 +756,6 @@ D3DFormat CTexture::DeviceFormatFromTexFormat(ETEX_Format eTF)
     case eTF_ETC2A:
         return DXGI_FORMAT_ETC2A_UNORM;
 #endif //defined(OPENGL)
-       //  Confetti BEGIN: Igor Lobanchikov
 #ifdef CRY_USE_METAL
     case eTF_PVRTC2:
         return DXGI_FORMAT_PVRTC2_UNORM;
@@ -764,7 +792,6 @@ D3DFormat CTexture::DeviceFormatFromTexFormat(ETEX_Format eTF)
     case eTF_ASTC_12x12:
         return DXGI_FORMAT_ASTC_12x12_UNORM;
 #endif
-    //  Confetti End: Igor Lobanchikov
 
     // only available as hardware format under DX9
     case eTF_A8L8:
@@ -816,9 +843,10 @@ D3DFormat CTexture::ConvertToSRGBFmt(D3DFormat fmt)
         return DXGI_FORMAT_ETC2_UNORM_SRGB;
     case DXGI_FORMAT_ETC2A_UNORM:
         return DXGI_FORMAT_ETC2A_UNORM_SRGB;
+    case DXGI_FORMAT_EAC_RG11_UNORM:
+        return DXGI_FORMAT_EAC_RG11_UNORM;
 #endif //defined(OPENGL)
 
-        //  Confetti BEGIN: Igor Lobanchikov
 #ifdef CRY_USE_METAL
     case DXGI_FORMAT_PVRTC2_UNORM:
         return DXGI_FORMAT_PVRTC2_UNORM_SRGB;
@@ -854,8 +882,11 @@ D3DFormat CTexture::ConvertToSRGBFmt(D3DFormat fmt)
         return DXGI_FORMAT_ASTC_12x10_UNORM_SRGB;
     case DXGI_FORMAT_ASTC_12x12_UNORM:
         return DXGI_FORMAT_ASTC_12x12_UNORM_SRGB;
+    case DXGI_FORMAT_R8_UNORM:
+        return DXGI_FORMAT_R8_UNORM;
+    case DXGI_FORMAT_R9G9B9E5_SHAREDEXP:
+        return DXGI_FORMAT_R9G9B9E5_SHAREDEXP;
 #endif
-    //  Confetti End: Igor Lobanchikov
     case DXGI_FORMAT_R10G10B10A2_UNORM:
         return DXGI_FORMAT_R10G10B10A2_UNORM;
     // AntonK: we don't need sRGB space for fp formats, because there is enough precision
@@ -863,7 +894,11 @@ D3DFormat CTexture::ConvertToSRGBFmt(D3DFormat fmt)
         return DXGI_FORMAT_R16G16B16A16_FLOAT;
     case DXGI_FORMAT_R11G11B10_FLOAT:
         return DXGI_FORMAT_R11G11B10_FLOAT;
-
+    // There is no SRGB format for BC4
+    case DXGI_FORMAT_BC4_SNORM:
+        return DXGI_FORMAT_BC4_SNORM;
+    case DXGI_FORMAT_BC4_UNORM:
+        return DXGI_FORMAT_BC4_UNORM;
     default:
         assert(0);
     }
@@ -937,20 +972,19 @@ ETEX_Format CTexture::TexFormatFromDeviceFormat(D3DFormat nFormat)
 
     case DXGI_FORMAT_A8_UNORM:
         return eTF_A8;
+    case DXGI_FORMAT_R8_TYPELESS:
     case DXGI_FORMAT_R8_UNORM:
         return eTF_R8;
     case DXGI_FORMAT_R8_SNORM:
         return eTF_R8S;
     case DXGI_FORMAT_R16_UNORM:
         return eTF_R16;
-    //  Confetti BEGIN: Igor Lobanchikov
     case DXGI_FORMAT_R16_UINT:
         return eTF_R16U;
     case DXGI_FORMAT_R16G16_UINT:
         return eTF_R16G16U;
     case DXGI_FORMAT_R10G10B10A2_UINT:
         return eTF_R10G10B10A2UI;
-    //  Confetti End: Igor Lobanchikov
     case DXGI_FORMAT_R16_FLOAT:
         return eTF_R16F;
     case DXGI_FORMAT_R16_TYPELESS:
@@ -1075,7 +1109,6 @@ ETEX_Format CTexture::TexFormatFromDeviceFormat(D3DFormat nFormat)
         return eTF_ETC2A;
 #endif //defined(OPENGL)
 
-        //  Confetti BEGIN: Igor Lobanchikov
 #ifdef CRY_USE_METAL
     case DXGI_FORMAT_PVRTC2_TYPELESS:
     case DXGI_FORMAT_PVRTC2_UNORM:
@@ -1144,7 +1177,6 @@ ETEX_Format CTexture::TexFormatFromDeviceFormat(D3DFormat nFormat)
     case DXGI_FORMAT_ASTC_12x12_UNORM_SRGB:
         return eTF_ASTC_12x12;
 #endif
-    //  Confetti End: Igor Lobanchikov
 
     // only available as hardware format under DX9
     case DXGI_FORMAT_B8G8R8A8_TYPELESS:
@@ -1366,10 +1398,24 @@ D3DFormat CTexture::ConvertToTypelessFmt(D3DFormat fmt)
     case DXGI_FORMAT_BC5_SNORM:
         return DXGI_FORMAT_BC5_TYPELESS;
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DTEXTURE_CPP_SECTION_2
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DTexture_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DTexture_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DTexture_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#else
     case DXGI_FORMAT_BC6H_UF16:
         return DXGI_FORMAT_BC6H_TYPELESS;
     case DXGI_FORMAT_BC6H_SF16:
         return DXGI_FORMAT_BC6H_TYPELESS;
+#endif
     case DXGI_FORMAT_BC7_UNORM:
         return DXGI_FORMAT_BC7_TYPELESS;
     case DXGI_FORMAT_BC7_UNORM_SRGB:
@@ -1405,7 +1451,6 @@ D3DFormat CTexture::ConvertToTypelessFmt(D3DFormat fmt)
 
         // todo: add missing formats if they found required
 
-        //  Confetti BEGIN: Igor Lobanchikov
 #ifdef CRY_USE_METAL
     case DXGI_FORMAT_PVRTC2_UNORM:
     case DXGI_FORMAT_PVRTC2_UNORM_SRGB:
@@ -1473,7 +1518,6 @@ D3DFormat CTexture::ConvertToTypelessFmt(D3DFormat fmt)
         return DXGI_FORMAT_ASTC_12x12_TYPELESS;
 
 #endif
-    //  Confetti End: Igor Lobanchikov
 
     // No conversion on floating point format.
     case DXGI_FORMAT_R11G11B10_FLOAT:
@@ -1604,7 +1648,6 @@ ETEX_Format CTexture::ClosestFormatSupported(ETEX_Format eTFDst, const SPixForma
         }
         return eTF_Unknown;
 
-    //  Confetti BEGIN: Igor Lobanchikov
     case eTF_R16U:
         if (rd->m_FormatR16U.IsValid())
         {
@@ -1628,7 +1671,6 @@ ETEX_Format CTexture::ClosestFormatSupported(ETEX_Format eTFDst, const SPixForma
             return eTF_R10G10B10A2UI;
         }
         return eTF_Unknown;
-    //  Confetti End: Igor Lobanchikov
 
     case eTF_R16F:
         if (rd->m_FormatR16F.IsValid())
@@ -1945,7 +1987,6 @@ ETEX_Format CTexture::ClosestFormatSupported(ETEX_Format eTFDst, const SPixForma
         }
         return eTF_Unknown;
 
-        //  Confetti BEGIN: Igor Lobanchikov
 #ifdef CRY_USE_METAL
     case eTF_PVRTC2:
         if (rd->m_FormatPVRTC2.IsValid())
@@ -2076,7 +2117,6 @@ ETEX_Format CTexture::ClosestFormatSupported(ETEX_Format eTFDst, const SPixForma
         }
         return eTF_Unknown;
 #endif
-    //  Confetti End: Igor Lobanchikov
 
     default:
         assert(0);
@@ -2110,8 +2150,23 @@ bool CTexture::CreateRenderTarget(ETEX_Format eTF, const ColorF& cClear)
     PostCreate();
 
     // Assign name to RT for enhanced debugging
-#if !defined(_RELEASE) && (defined(WIN32) || AZ_ENABLE_GNM_PA_DEBUG)
-	if (bRes)
+#if !defined(_RELEASE)
+#if defined(WIN32)
+#define D3DTEXTURE_CPP_USE_PRIVATEDATA
+#elif defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DTEXTURE_CPP_SECTION_3
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DTexture_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DTexture_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DTexture_cpp_salem.inl"
+    #endif
+#endif
+#endif
+
+#if defined(D3DTEXTURE_CPP_USE_PRIVATEDATA)
+    if (bRes)
     {
         m_pDevTexture->GetBaseTexture()->SetPrivateData(WKPDID_D3DDebugObjectName, strlen(m_SrcName.c_str()), m_SrcName.c_str());
     }
@@ -2163,8 +2218,19 @@ bool CTexture::CreateDeviceTexture(const byte* pData[6])
     if (gRenDev->m_pRT->RC_CreateDeviceTexture(this, pData))
     {
         // Assign name to Texture for enhanced debugging
-#if !defined(RELEASE) && (defined (WIN64))
+#if !defined(RELEASE)
+#if defined (WIN64)
         m_pDevTexture->GetBaseTexture()->SetPrivateData(WKPDID_D3DDebugObjectName, strlen(m_SrcName.c_str()), m_SrcName.c_str());
+#elif defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DTEXTURE_CPP_SECTION_4
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DTexture_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DTexture_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DTexture_cpp_salem.inl"
+    #endif
+#endif
 #endif
 
         return true;
@@ -2175,6 +2241,11 @@ bool CTexture::CreateDeviceTexture(const byte* pData[6])
 
 void CTexture::Unbind()
 {
+    if (m_pDeviceShaderResource)
+    {
+        gcpRendD3D->m_DevMan.UnbindSRV(m_pDeviceShaderResource);
+    }
+
     CDeviceTexture* pDevTex = m_pDevTexture;
 
     if (pDevTex)
@@ -2185,19 +2256,21 @@ void CTexture::Unbind()
 
 bool CTexture::RT_CreateDeviceTexture(const byte* pData[6])
 {
-    MEMSTAT_CONTEXT(EMemStatContextTypes::MSC_Texture, 0, "Creating Texture");
-    MEMSTAT_CONTEXT_FMT(EMemStatContextTypes::MSC_Texture, 0, "%s %ix%ix%i %08x", m_SrcName.c_str(), m_nWidth, m_nHeight, m_nMips, m_nFlags);
     SCOPED_RENDERER_ALLOCATION_NAME_HINT(GetSourceName());
+    AZ_ASSET_ATTACH_TO_SCOPE(this);
 
     HRESULT hr;
 
     int32 nESRAMOffset = -1;
-
-#if defined(MAC)
-    if (!(m_nFlags & FT_FROMIMAGE) && (GetBlockDim(m_eTFDst) != Vec2i(1)))
-    {
-        m_bIsSRGB = true;
-    }
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DTEXTURE_CPP_SECTION_5
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DTexture_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DTexture_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DTexture_cpp_salem.inl"
+    #endif
 #endif
 
     //if we have any device owned resources allocated, we must sync with render thread
@@ -2217,6 +2290,14 @@ bool CTexture::RT_CreateDeviceTexture(const byte* pData[6])
     int nMips = m_nMips;
     AZ_Assert(nWdt > 0 && nHgt > 0 && nMips > 0, "Attempting to create a device texture '%s' with height:%d, width:%d, and mip levels:%d. All three must be > 0", GetSourceName(), nHgt, nWdt, nMips);
 
+    #ifdef CRY_USE_METAL
+        bool isMetalCompressedTextureFormat = GetBlockDim(m_eTFSrc) != Vec2i(1);
+    #else
+        bool isMetalCompressedTextureFormat = false;
+    #endif
+
+        bool allowReinterpretingColorSpace = !isMetalCompressedTextureFormat && RenderCapabilities::SupportsTextureViews();
+    
     byte* pTemp = NULL;
 
     CDeviceManager* pDevMan = &r->m_DevMan;
@@ -2226,6 +2307,17 @@ bool CTexture::RT_CreateDeviceTexture(const byte* pData[6])
     if (m_nFlags & (FT_USAGE_RENDERTARGET | FT_USAGE_UNORDERED_ACCESS))
     {
         m_pRenderTargetData = new RenderTargetData();
+        #if defined(AZ_RESTRICTED_PLATFORM)
+            #define AZ_RESTRICTED_SECTION D3DTEXTURE_CPP_SECTION_6
+            
+            #if defined(AZ_PLATFORM_XENIA)
+                #include "Xenia/D3DTexture_cpp_xenia.inl"
+            #elif defined(AZ_PLATFORM_PROVO)
+                #include "Provo/D3DTexture_cpp_provo.inl"
+            #elif defined(AZ_PLATFORM_SALEM)
+                #include "Salem/D3DTexture_cpp_salem.inl"
+            #endif
+        #endif
     }
 
     uint32 nArraySize = m_nArraySize;
@@ -2237,47 +2329,20 @@ bool CTexture::RT_CreateDeviceTexture(const byte* pData[6])
 
         //nMips = 1;
         DXGI_FORMAT nFormatOrig = D3DFmt;
-        DXGI_FORMAT nFormatSRGB = D3DFmt;
-
+        
         resetSRGB = false;
+        
+        m_bIsSRGB &= m_pPixelFormat->bCanReadSRGB && (m_nFlags & (FT_USAGE_MSAA | FT_USAGE_RENDERTARGET)) == 0;
+
+        if (m_bIsSRGB)
         {
-            m_bIsSRGB &= m_pPixelFormat->bCanReadSRGB && (m_nFlags & (FT_USAGE_MSAA | FT_USAGE_RENDERTARGET)) == 0;
-            if ((m_bIsSRGB || m_nFlags & FT_USAGE_ALLOWREADSRGB))
-            {
-                nFormatSRGB = ConvertToSRGBFmt(D3DFmt);
-            }
+            D3DFmt = ConvertToSRGBFmt(D3DFmt);
+        }
 
-            if (m_bIsSRGB)
-            {
-                D3DFmt = nFormatSRGB;
-            }
-
-            // must use typeless format to allow runtime casting
-            if (m_nFlags & FT_USAGE_ALLOWREADSRGB)
-            {
-                //If we don't support texture views, and the user will primarily want an srgb view, then create the texture directly that way.
-                //So when the srgb view is created it succeeds.
-                //  Confetti BEGIN: Igor Lobanchikov
-
-                if (!RenderCapabilities::SupportsTextureViews()
-#ifdef CRY_USE_METAL
-                    //  Igor: for some reason Metal doesn't allow to reinterprete compressed format.
-                    //  This might be perfectly ok if they didn't block sRGB/RGB view conversion which doesn't make much sence
-                    || GetBlockDim(m_eTFSrc) != Vec2i(1)
-#endif
-                    )
-
-                //  Confetti End: Igor Lobanchikov
-                {
-#if !defined(AZ_PLATFORM_APPLE_OSX) || defined(CRY_USE_METAL) // really only for OpenGL 4.1, metal should do this just fine
-                    D3DFmt = nFormatSRGB;
-#endif
-                }
-                else
-                {
-                    D3DFmt = ConvertToTypelessFmt(D3DFmt);
-                }
-            }
+        // must use typeless format to allow runtime casting
+        if (m_nFlags & FT_USAGE_ALLOWREADSRGB && allowReinterpretingColorSpace)
+        {
+            D3DFmt = ConvertToTypelessFmt(D3DFmt);
         }
 
         uint32 nUsage = 0;
@@ -2289,6 +2354,14 @@ bool CTexture::RT_CreateDeviceTexture(const byte* pData[6])
         {
             nUsage |= CDeviceManager::USAGE_RENDER_TARGET;
         }
+        
+        #if defined(AZ_PLATFORM_IOS)
+            if (m_nFlags & FT_USAGE_MEMORYLESS)
+            {
+                nUsage |= CDeviceManager::USAGE_MEMORYLESS;
+            }
+        #endif
+        
         if (m_nFlags & FT_USAGE_DYNAMIC)
         {
             nUsage |= CDeviceManager::USAGE_DYNAMIC;
@@ -2370,7 +2443,6 @@ bool CTexture::RT_CreateDeviceTexture(const byte* pData[6])
                     InitData[i].pSysMem = &src[nOffset];
                     if (m_eSrcTileMode == eTM_None)
                     {
-                        //  Confetti BEGIN: Igor Lobanchikov
                         const Vec2i BlockDim = GetBlockDim(m_eTFSrc);
                         if (BlockDim == Vec2i(1))
                         {
@@ -2381,7 +2453,6 @@ bool CTexture::RT_CreateDeviceTexture(const byte* pData[6])
                             int blockSize = CImageExtensionHelper::BytesPerBlock(m_eTFSrc);
                             InitData[i].SysMemPitch = (w + BlockDim.x - 1) / BlockDim.x * blockSize;
                         }
-                        //  Confetti End: Igor Lobanchikov
 
                         //ignored
                         InitData[i].SysMemSlicePitch = nSize;
@@ -2409,8 +2480,19 @@ bool CTexture::RT_CreateDeviceTexture(const byte* pData[6])
                 }
             }
         }
-        else
+        else // no texture data so just make an empty texture
         {
+            #if defined(AZ_RESTRICTED_PLATFORM)
+                #define AZ_RESTRICTED_SECTION D3DTEXTURE_CPP_SECTION_7
+                
+                #if defined(AZ_PLATFORM_XENIA)
+                    #include "Xenia/D3DTexture_cpp_xenia.inl"
+                #elif defined(AZ_PLATFORM_PROVO)
+                    #include "Provo/D3DTexture_cpp_provo.inl"
+                #elif defined(AZ_PLATFORM_SALEM)
+                    #include "Salem/D3DTexture_cpp_salem.inl"
+                #endif
+            #endif
 
             SAFE_RELEASE(m_pDevTexture);
             hr = pDevMan->Create2DTexture(m_SrcName, nWdt, nHgt, nMips, nArraySize, nUsage, m_cClearColor, D3DFmt, (D3DPOOL)0, &m_pDevTexture, &TI, false, nESRAMOffset);
@@ -2426,40 +2508,20 @@ bool CTexture::RT_CreateDeviceTexture(const byte* pData[6])
             return false;
         }
 
-
         // Restore format
         if (m_nFlags & FT_USAGE_ALLOWREADSRGB)
         {
             D3DFmt = nFormatOrig;
         }
 
-        //  Confetti BEGIN: Igor Lobanchikov
-        // Igor: force SRGB resource creation.
-
-        //  Igor: for some reason Metal doesn't allow to reinterprete compressed format.
-        //  This might be perfectly ok if they didn't block sRGB/RGB view conversion which doesn't make much sence
-        const Vec2i BlockDim = GetBlockDim(m_eTFSrc);
-        if ((m_nFlags & FT_USAGE_ALLOWREADSRGB) && (!RenderCapabilities::SupportsTextureViews()
-#ifdef CRY_USE_METAL
-             || (BlockDim != Vec2i(1))
-#endif
-            ))
-        {
-#if !defined(AZ_PLATFORM_APPLE_OSX) || defined(CRY_USE_METAL)// really only for OpenGL 4.1, metal should do this just fine
-            m_bIsSRGB = true;
-#endif
-        }
-        //  Confetti End: Igor Lobanchikov
-
         //////////////////////////////////////////////////////////////////////////
         m_pDeviceShaderResource = static_cast<D3DShaderResourceView*> (CreateDeviceResourceView(SResourceView::ShaderResourceView(m_eTFDst, 0, -1, 0, nMips, m_bIsSRGB, false)));
+        
         m_nMinMipVidActive = 0;
 
-        if (m_nFlags & FT_USAGE_ALLOWREADSRGB)
+        if (m_nFlags & FT_USAGE_ALLOWREADSRGB && allowReinterpretingColorSpace)
         {
-#if !defined(AZ_PLATFORM_APPLE_OSX) || defined(CRY_USE_METAL)// really only for OpenGL 4.1, metal should do this just fine
             m_pDeviceShaderResourceSRGB = static_cast<D3DShaderResourceView*> (CreateDeviceResourceView(SResourceView::ShaderResourceView(m_eTFDst, 0, -1, 0, nMips, true, false)));
-#endif
         }
     }
     else if (m_eTT == eTT_Cube)
@@ -2475,6 +2537,14 @@ bool CTexture::RT_CreateDeviceTexture(const byte* pData[6])
         {
             nUsage |= CDeviceManager::USAGE_RENDER_TARGET;
         }
+        
+#if defined(AZ_PLATFORM_IOS)
+        if (m_nFlags & FT_USAGE_MEMORYLESS)
+        {
+            nUsage |= CDeviceManager::USAGE_MEMORYLESS;
+        }
+#endif
+        
         if (m_nFlags & FT_USAGE_DYNAMIC)
         {
             nUsage |= CDeviceManager::USAGE_DYNAMIC;
@@ -2693,6 +2763,14 @@ bool CTexture::RT_CreateDeviceTexture(const byte* pData[6])
         {
             nUsage |= CDeviceManager::USAGE_RENDER_TARGET;
         }
+        
+#if defined(AZ_PLATFORM_IOS)
+        if (m_nFlags & FT_USAGE_MEMORYLESS)
+        {
+            nUsage |= CDeviceManager::USAGE_MEMORYLESS;
+        }
+#endif
+        
         if (m_nFlags & FT_USAGE_DYNAMIC)
         {
             nUsage |= CDeviceManager::USAGE_DYNAMIC;
@@ -2839,7 +2917,7 @@ bool CTexture::RT_CreateDeviceTexture(const byte* pData[6])
     // Notify that resource is dirty
     InvalidateDeviceResource(eDeviceResourceDirty | eDeviceResourceViewDirty);
 
-#if !defined(_RELEASE) && (defined(WIN32) || AZ_ENABLE_GNM_PA_DEBUG)
+#if defined(D3DTEXTURE_CPP_USE_PRIVATEDATA)
     if (m_pDevTexture)
     {
         m_pDevTexture->GetBaseTexture()->SetPrivateData(WKPDID_D3DDebugObjectName, m_SrcName.length(), m_SrcName.c_str());
@@ -2892,6 +2970,8 @@ void CTexture::ReleaseDeviceTexture(bool bKeepLastMips, bool bFromUnload)
     {
         s_pTextureStreamer->OnTextureDestroy(this);
     }
+
+    SAFE_DELETE(m_pRenderTargetData);
 
     if (!m_bNoTexture)
     {
@@ -2979,8 +3059,6 @@ void CTexture::ReleaseDeviceTexture(bool bKeepLastMips, bool bFromUnload)
         m_pDeviceShaderResourceSRGB = NULL;
     }
     m_bNoTexture = false;
-
-    SAFE_DELETE(m_pRenderTargetData);
 }
 
 void* CTexture::CreateDeviceResourceView(const SResourceView& rv)
@@ -2994,9 +3072,27 @@ void* CTexture::CreateDeviceResourceView(const SResourceView& rv)
     HRESULT hr = E_FAIL;
     void* pResult = NULL;
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DTEXTURE_CPP_SECTION_8
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DTexture_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DTexture_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DTexture_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#else
     // DX expects -1 for selecting all mip maps/slices. max count throws an exception
     const uint nSliceCount = rv.m_Desc.nSliceCount == SResourceView().m_Desc.nSliceCount ? (uint) - 1 : (uint)rv.m_Desc.nSliceCount;
+#endif
 
+    if (!m_pDevTexture)
+    {
+        return nullptr;
+    }
 
     D3DTexture* pTex = m_pDevTexture->Get2DTexture();
 
@@ -3014,7 +3110,7 @@ void* CTexture::CreateDeviceResourceView(const SResourceView& rv)
         hr = gcpRendD3D->GetDevice().CreateShaderResourceView(pTex, &srvDesc, &pSRV);
         pResult = pSRV;
 
-#if !defined(_RELEASE) && (defined(WIN32) || AZ_ENABLE_GNM_PA_DEBUG)
+#if defined(D3DTEXTURE_CPP_USE_PRIVATEDATA)
         if (pSRV)
         {
             AZStd::string srvName = AZStd::string::format("[SRV] %s", m_SrcName.c_str());
@@ -3036,7 +3132,7 @@ void* CTexture::CreateDeviceResourceView(const SResourceView& rv)
         hr = gcpRendD3D->GetDevice().CreateRenderTargetView(pTex, &rtvDesc, &pRTV);
         pResult = pRTV;
 
-#if !defined(_RELEASE) && (defined(WIN32) || AZ_ENABLE_GNM_PA_DEBUG)
+#if defined(D3DTEXTURE_CPP_USE_PRIVATEDATA)
             if (pRTV)
             {
                 AZStd::string rtvName = AZStd::string::format("[RTV] %s", m_SrcName.c_str());
@@ -3051,12 +3147,22 @@ void* CTexture::CreateDeviceResourceView(const SResourceView& rv)
         SetDepthStencilViewDesc(rv, m_eTT, pPixFormat->DeviceFormat, m_nArraySize, nSliceCount, dsvDesc);
 
         dsvDesc.Flags = rv.m_Desc.nFlags;
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DTEXTURE_CPP_SECTION_9
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DTexture_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DTexture_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DTexture_cpp_salem.inl"
+    #endif
+#endif
 
         D3DDepthSurface* pDSV = NULL;
         hr = gcpRendD3D->GetDevice().CreateDepthStencilView(pTex, &dsvDesc, &pDSV);
         pResult = pDSV;
 
-#if !defined(_RELEASE) && (defined(WIN32) || AZ_ENABLE_GNM_PA_DEBUG)
+#if defined(D3DTEXTURE_CPP_USE_PRIVATEDATA)
             if (pDSV)
             {
                 AZStd::string dsvName = AZStd::string::format("[DSV] %s", m_SrcName.c_str());
@@ -3080,7 +3186,7 @@ void* CTexture::CreateDeviceResourceView(const SResourceView& rv)
         hr = gcpRendD3D->GetDevice().CreateUnorderedAccessView(pTex, &uavDesc, &pUAV);
 
         pResult = pUAV;
-#if !defined(_RELEASE) && (defined(WIN32) || AZ_ENABLE_GNM_PA_DEBUG)
+#if defined(D3DTEXTURE_CPP_USE_PRIVATEDATA)
             if (pUAV)
             {
                 AZStd::string uavName = AZStd::string::format("[UAV] %s", m_SrcName.c_str());
@@ -3392,50 +3498,43 @@ void CTexture::UpdateTexStates()
 void CTexture::SetSamplerState(int nTS, int nSUnit, EHWShaderClass eHWSC)
 {
     FUNCTION_PROFILER_RENDER_FLAT
-        assert(gcpRendD3D->m_pRT->IsRenderThread());
+    assert(gcpRendD3D->m_pRT->IsRenderThread());
     STexStageInfo* const __restrict TexStages = s_TexStages;
 
-    if (s_TexStateIDs[eHWSC][nSUnit] != nTS)
+    STexState* pTS = &s_TexStates[nTS];
+    D3DSamplerState* pSamp = (D3DSamplerState*)pTS->m_pDeviceState;
+
+    assert(pSamp);
+
+    if (pSamp)
     {
-        STexState* pTS = &s_TexStates[nTS];
-        D3DSamplerState* pSamp = (D3DSamplerState*)pTS->m_pDeviceState;
-        D3D11_SAMPLER_DESC Desc;
-
-        assert(pSamp);
-
-        if (pSamp)
+        if (eHWSC == eHWSC_Pixel)
         {
-            pSamp->GetDesc(&Desc);
-            s_TexStateIDs[eHWSC][nSUnit] = nTS;
-
-            if (eHWSC == eHWSC_Pixel)
-            {
-                gcpRendD3D->m_DevMan.BindSampler(eHWSC_Pixel, &pSamp, nSUnit, 1);
-            }
-            else
-            if (eHWSC == eHWSC_Domain)
-            {
-                gcpRendD3D->m_DevMan.BindSampler(eHWSC_Domain, &pSamp, nSUnit, 1);
-            }
-            else
-            if (eHWSC == eHWSC_Vertex)
-            {
-                gcpRendD3D->m_DevMan.BindSampler(eHWSC_Vertex, &pSamp, nSUnit, 1);
-            }
-            else
-            if (eHWSC == eHWSC_Compute)
-            {
-                gcpRendD3D->m_DevMan.BindSampler(eHWSC_Compute, &pSamp, nSUnit, 1);
-            }
-            else
-            if (eHWSC == eHWSC_Geometry)
-            {
-                gcpRendD3D->m_DevMan.BindSampler(eHWSC_Geometry, &pSamp, nSUnit, 1);
-            }
-            else
-            {
-                assert(0);
-            }
+            gcpRendD3D->m_DevMan.BindSampler(eHWSC_Pixel, &pSamp, nSUnit, 1);
+        }
+        else
+        if (eHWSC == eHWSC_Domain)
+        {
+            gcpRendD3D->m_DevMan.BindSampler(eHWSC_Domain, &pSamp, nSUnit, 1);
+        }
+        else
+        if (eHWSC == eHWSC_Vertex)
+        {
+            gcpRendD3D->m_DevMan.BindSampler(eHWSC_Vertex, &pSamp, nSUnit, 1);
+        }
+        else
+        if (eHWSC == eHWSC_Compute)
+        {
+            gcpRendD3D->m_DevMan.BindSampler(eHWSC_Compute, &pSamp, nSUnit, 1);
+        }
+        else
+        if (eHWSC == eHWSC_Geometry)
+        {
+            gcpRendD3D->m_DevMan.BindSampler(eHWSC_Geometry, &pSamp, nSUnit, 1);
+        }
+        else
+        {
+            assert(0);
         }
     }
 }
@@ -3585,8 +3684,8 @@ void CTexture::ApplyTexture(int nTUnit, EHWShaderClass eHWSC, SResourceView::Key
     TexStages[nTUnit].m_pCurResView = pResView;
     TexStages[nTUnit].m_eHWSC = eHWSC;
 
-    //	<DEPRECATED> This must get re-factored post C3.  
-    //	-	This check is ultra-buggy, render targets setup is deferred until last moment might not be matching this check at all. Also very wrong for MRTs
+    //  <DEPRECATED> This must get re-factored post C3.  
+    //  This check is ultra-buggy, render targets setup is deferred until last moment might not be matching this check at all. Also very wrong for MRTs
 
     if (rd->m_pCurTarget[0] == this)
     {
@@ -3668,6 +3767,20 @@ void CTexture::Apply(int nTUnit, int nState, int nTexMatSlot, int nSUnit, SResou
 
     uint32 nTSSel = Isel32(nState, (int32)m_nDefState);
     assert(nTSSel >= 0 && nTSSel < s_TexStates.size());
+
+#if defined(OPENGL)
+    // Due to driver issues on MALI gpus only point filtering is allowed for 32 bit float textures.
+    // If another filtering is used the sampler returns black.
+    if ((gcpRendD3D->m_Features | RFT_HW_ARM_MALI) && 
+        (m_eTFDst == eTF_R32F || m_eTFDst == eTF_R32G32B32A32F) &&
+        (s_TexStates[nTSSel].m_nMagFilter != FILTER_POINT || s_TexStates[nTSSel].m_nMinFilter != FILTER_POINT))
+    {
+        STexState newState = s_TexStates[nTSSel];
+        newState.SetFilterMode(FILTER_POINT);
+        nTSSel = CTexture::GetTexState(newState);
+        AZ_WarningOnce("Texture", false, "The current device only supports point filtering for full float textures. Forcing filtering for texture in slot %d", nTUnit);
+    }
+#endif // defined(OPENGL)
 
     STexStageInfo* TexStages = s_TexStages;
 
@@ -3769,7 +3882,16 @@ void CTexture::Apply(int nTUnit, int nState, int nTexMatSlot, int nSUnit, SResou
             {
                 // one mip per half a second
                 m_fCurrentMipBias -= 0.26667f * fCurrentMipBias;
-                gcpRendD3D->GetDeviceContext().SetResourceMinLOD(pDevTex->Get2DTexture(), m_fCurrentMipBias + (float)m_nMinMipVidUploaded);
+#if defined(CRY_USE_METAL)
+                //For metal, the lodminclamp is set once at initialization for the mtlsamplerstate. The mtlSamplerDescriptor's properties
+                //are only used during mtlSamplerState object creation; once created the behaviour of a sampler state object is
+                //fixed and cannot be changed. Hence we modify the descriptor with minlod and recreate the sampler state.
+                STexState* pTS = &s_TexStates[nTSSel];
+                D3DSamplerState* pSamp = (D3DSamplerState*)pTS->m_pDeviceState;
+                pSamp->SetLodMinClamp(m_fCurrentMipBias + static_cast<float>(m_nMinMipVidUploaded));
+#else
+                gcpRendD3D->GetDeviceContext().SetResourceMinLOD(pDevTex->Get2DTexture(), m_fCurrentMipBias + static_cast<float>(m_nMinMipVidUploaded));
+#endif
             }
             else if (fCurrentMipBias != 0.f)
             {
@@ -3884,7 +4006,7 @@ void CTexture::Apply(int nTUnit, int nState, int nTexMatSlot, int nSUnit, SResou
     }
 }
 
-void CTexture::UpdateTextureRegion(const byte* data, int nX, int nY, int nZ, int USize, int VSize, int ZSize, ETEX_Format eTFSrc)
+void CTexture::UpdateTextureRegion(const uint8_t* data, int nX, int nY, int nZ, int USize, int VSize, int ZSize, ETEX_Format eTFSrc)
 {
     gRenDev->m_pRT->RC_UpdateTextureRegion(this, data, nX, nY, nZ, USize, VSize, ZSize, eTFSrc);
 }
@@ -3912,12 +4034,10 @@ void CTexture::RT_UpdateTextureRegion(const byte* data, int nX, int nY, int nZ, 
     D3D11_BOX rc = {aznumeric_caster(nX), aznumeric_caster(nY), 0, aznumeric_caster(nX + USize), aznumeric_caster(nY + VSize), 1};
     if (m_eTT == eTT_2D)
     {
-        //  Confetti BEGIN: Igor Lobanchikov
         if (GetBlockDim(m_eTFDst) == Vec2i(1))
         {
             int nBPPSrc = CTexture::BytesPerBlock(eTFSrc);
             int nBPPDst = CTexture::BytesPerBlock(m_eTFDst);
-            //  Confetti End: Igor Lobanchikov
             if (nBPPSrc == nBPPDst)
             {
                 int nRowPitch = CTexture::TextureDataSize(USize, 1, 1, 1, 1, eTFSrc);
@@ -3938,10 +4058,8 @@ void CTexture::RT_UpdateTextureRegion(const byte* data, int nX, int nY, int nZ, 
         rc.front = nZ;
         rc.back = nZ + ZSize;
 
-        //  Confetti BEGIN: Igor Lobanchikov
         int nBPPSrc = CTexture::BytesPerBlock(eTFSrc);
         int nBPPDst = CTexture::BytesPerBlock(m_eTFDst);
-        //  Confetti End: Igor Lobanchikov
         if (nBPPSrc == nBPPDst)
         {
             if (m_nFlags & FT_USAGE_DYNAMIC)
@@ -4080,6 +4198,184 @@ void SEnvTexture::ReleaseDeviceObjects()
     //if (m_pTex)
     //  m_pTex->ReleaseDynamicRT(true);
 }
+
+#if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
+bool CTexture::RenderToTexture(int handle, const CCamera& camera, AzRTT::RenderContextId contextId)
+{
+    if (!CRenderer::CV_r_RTT)
+    {
+        return false;
+    }
+
+    CTexture* pTex = CTexture::GetByID(handle);
+    if (!pTex || !pTex->GetDevTexture())
+    {
+        iLog->Log("Failed to render texture.  Invalid texture handle ID.");
+        return false;
+    }
+
+    // a context may be invalid because it requires hardware resources that are not available
+    bool contextIsValid = false;
+    AzRTT::RTTRequestBus::BroadcastResult(contextIsValid, &AzRTT::RTTRequestBus::Events::ContextIsValid, contextId);
+    if (!contextIsValid)
+    {
+        return false;
+    }
+
+    const int width = pTex->GetWidth();
+    const int height = pTex->GetHeight();
+
+    // NOTE: the renderer's camera comes from the thread info double buffer, so it is possible
+    // GetCamera() will just return the camera using in the last render to texture pass.  
+    // System::GetViewCamera() will have the camera used for the main rendering view
+    CCamera prevSysCamera = gEnv->pSystem->GetViewCamera();
+
+    // get the current viewport and renderer settings to restore after rendering to texture
+    int vX, vY, vWidth, vHeight;
+    gRenDev->GetViewport(&vX, &vY, &vWidth, &vHeight);
+
+    // this flag is used by the engine to denote we are rendering the whole scene to texture
+    gcpRendD3D->m_RP.m_TI[gcpRendD3D->m_RP.m_nFillThreadID].m_PersFlags |= RBPF_RENDER_SCENE_TO_TEXTURE;
+
+    // this resets the view and frame view/proj matrices in the thread info
+    gcpRendD3D->BeginFrame();
+
+    // this frees up previous frame render cameras and waits for jobs.  It will trigger MainThreadRenderRequestBus::ExecuteQueuedEvents();
+    // The main pass also calls this after BeginFrame and before RenderWorld
+    gEnv->p3DEngine->Tick();
+
+    // set the active camera 
+    gRenDev->SetCamera(camera);
+
+    // set the system view camera 
+    CCamera newSystemCamera = camera;
+    gEnv->pSystem->SetViewCamera(newSystemCamera);
+
+    // we do not call PreWorldStreamUpdate here because it will compare the distance of the rtt 
+    // camera to the main camera and negatively affect stream settings
+
+    gRenDev->m_pRT->EnqueueRenderCommand([=]()
+    {
+        // disable back buffer swap so the renderer doesn't call present
+        gRenDev->EnableSwapBuffers(false);
+
+        CTexture* pTex = CTexture::GetByID(handle);
+
+        // when you set the render target SetViewport is also called with the size of the target
+        gRenDev->RT_PushRenderTarget(0, pTex, nullptr, -1);
+
+        // TODO manually set the viewport with our own viewport ID if we enabled TAA.  Currently
+        // doesn't work in multi-threaded mode. Causes flickering vegetation/transparent shadows
+
+        // disabling temporal effects turns off auto exposure and reduces flicker.
+        gRenDev->m_nDisableTemporalEffects = 1;
+    });
+
+    bool contextIsActive = false;
+    AzRTT::RTTRequestBus::BroadcastResult(contextIsActive, &AzRTT::RTTRequestBus::Events::SetActiveContext, contextId);
+    AZ_Warning("RenderToTexture", contextIsActive, "Failed to activate render to texture context, the render target will not be updated");
+
+    if (contextIsActive)
+    {
+        // don't draw UI or console to this RTT 
+        gEnv->pSystem->SetConsoleDrawEnabled(false);
+        gEnv->pSystem->SetUIDrawEnabled(false);
+
+        AzRTT::RenderContextConfig config;
+        AzRTT::RTTRequestBus::BroadcastResult(config, &AzRTT::RTTRequestBus::Events::GetContextConfig, contextId);
+
+        uint32_t renderPassFlags = SRenderingPassInfo::DEFAULT_FLAGS | SRenderingPassInfo::RENDER_SCENE_TO_TEXTURE;
+
+        // render to texture does not support merged meshes yet
+        renderPassFlags &= ~SRenderingPassInfo::MERGED_MESHES;
+
+        // do not allow SVO (SHDF_ALLOW_AO) for now   
+        int renderFlags = SHDF_ZPASS | SHDF_ALLOWHDR | SHDF_ALLOWPOSTPROCESS | SHDF_ALLOW_WATER;
+
+        if (!config.m_shadowsEnabled)
+        {
+            renderFlags |= SHDF_NO_SHADOWGEN;
+            renderPassFlags &= ~SRenderingPassInfo::SHADOWS;
+        }
+
+        if (!config.m_oceanEnabled)
+        {
+            renderPassFlags &= ~SRenderingPassInfo::WATEROCEAN;
+        }
+
+        if (!config.m_terrainEnabled)
+        {
+            renderPassFlags &= ~SRenderingPassInfo::TERRAIN;
+        }
+
+        if (!config.m_vegetationEnabled)
+        {
+            renderPassFlags &= ~SRenderingPassInfo::VEGETATION;
+        }
+
+        SRenderingPassInfo renderPassInfo = SRenderingPassInfo::CreateGeneralPassRenderingInfo(camera, renderPassFlags);
+        gEnv->p3DEngine->RenderWorld(renderFlags, renderPassInfo, __FUNCTION__);
+
+        gEnv->pSystem->SetConsoleDrawEnabled(true);
+        gEnv->pSystem->SetUIDrawEnabled(true);
+
+        gEnv->p3DEngine->EndOcclusion();
+
+        gEnv->p3DEngine->WorldStreamUpdate();
+
+        // NOTE: This is how you could copy from the hdr target to the render target if you wanted no post processing (should probably remove SHDF_ALLOWPOSTPROCESS above)
+        //gRenDev->m_pRT->EnqueueRenderCommand([=]()
+        //{
+            //PostProcessUtils().StretchRect(CTexture::s_ptexHDRTarget, pTex, false, false, false, false, SPostEffectsUtils::eDepthDownsample_None, false, &gcpRendD3D->m_FullResRect);
+        //});
+
+        // this ends up calling FX_FinalComposite which will use our render target for post effects  
+        gcpRendD3D->SwitchToNativeResolutionBackbuffer();
+    }
+
+    // Pop our render target
+    gcpRendD3D->SetRenderTarget(0);
+
+    gRenDev->m_pRT->EnqueueRenderCommand([=]()
+    {
+        gcpRendD3D->m_RP.m_TI[gcpRendD3D->m_RP.m_nProcessThreadID].m_PersFlags &= ~RBPF_RENDER_SCENE_TO_TEXTURE;
+
+        gcpRendD3D->SetViewport(vX, vY, vWidth, vHeight);
+
+        // Reset the camera on the render thread or the main thread can get our
+        // camera info after syncing with main.
+        gcpRendD3D->SetCamera(prevSysCamera);
+    });
+
+    AzRTT::RTTRequestBus::Broadcast(&AzRTT::RTTRequestBus::Events::SetActiveContext, AzRTT::RenderContextId::CreateNull());
+
+    // Free all unused render meshes.  Without this you can get lots of fun memory leaks.
+    gRenDev->ForceGC();  
+
+    // call endframe on the renderer instead of via d3d to bypass drawing messages
+    // set wait to true otherwise EndFrame won't be sent if there is no pending flush condition
+    bool wait = true;
+    gRenDev->m_pRT->RC_EndFrame(wait);
+
+    // re-enable swap buffers after calling end frame so the main pass will call present()
+    gRenDev->m_pRT->EnqueueRenderCommand([=]()
+    {
+        gRenDev->EnableSwapBuffers(true);
+    });
+
+    // normally we would need to remove the cull job producer using RemoveCullJobProducer
+    // we don't need to because we use e_statobjbufferrendertask = 0
+
+    // restore previous settings
+    gEnv->pSystem->SetViewCamera(prevSysCamera);
+    gRenDev->SetCamera(prevSysCamera);
+
+    // this fixes streaming update sync errors when rendering pre frame
+    gEnv->p3DEngine->SyncProcessStreamingUpdate();
+
+    return true;
+}
+#endif // if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
 
 bool CTexture::RenderEnvironmentCMHDR(int size, Vec3& Pos, TArray<unsigned short>& vecData)
 {
@@ -4306,7 +4602,6 @@ void CTexture::DrawSceneToCubeSide(Vec3& Pos, int tex_size, int side)
 
     CRenderer* r = gRenDev;
     CCamera prevCamera = r->GetCamera();
-    CCamera tmpCamera = prevCamera;
 
     I3DEngine* eng = gEnv->p3DEngine;
 
@@ -4315,8 +4610,16 @@ void CTexture::DrawSceneToCubeSide(Vec3& Pos, int tex_size, int side)
 
     Matrix33 matRot = Matrix33::CreateOrientation(vForward, vUp, DEG2RAD(sCubeVector[side][6]));
     Matrix34 mFinal = Matrix34(matRot, Pos);
-    tmpCamera.SetMatrix(mFinal);
-    tmpCamera.SetFrustum(tex_size, tex_size, 90.0f * gf_PI / 180.0f, prevCamera.GetNearPlane(), prevCamera.GetFarPlane()); //90.0f*gf_PI/180.0f
+
+    // Use current viewport camera's near/far to capture what is shown in the editor
+    const CCamera& viewCamera = gEnv->pSystem->GetViewCamera();
+    const float captureNear = viewCamera.GetNearPlane();
+    const float captureFar = viewCamera.GetFarPlane();
+    const float captureFOV = DEG2RAD(90.0f);
+
+    CCamera captureCamera;
+    captureCamera.SetMatrix(mFinal);
+    captureCamera.SetFrustum(tex_size, tex_size, captureFOV, captureNear, captureFar);
 
 #ifdef DO_RENDERLOG
     if (CRenderer::CV_r_log)
@@ -4325,7 +4628,7 @@ void CTexture::DrawSceneToCubeSide(Vec3& Pos, int tex_size, int side)
     }
 #endif
 
-    eng->RenderWorld(SHDF_CUBEMAPGEN | SHDF_ALLOWPOSTPROCESS | SHDF_ALLOWHDR | SHDF_ZPASS | SHDF_NOASYNC | SHDF_STREAM_SYNC, SRenderingPassInfo::CreateGeneralPassRenderingInfo(tmpCamera, (SRenderingPassInfo::DEFAULT_FLAGS | SRenderingPassInfo::CUBEMAP_GEN)), __FUNCTION__);
+    eng->RenderWorld(SHDF_CUBEMAPGEN | SHDF_ALLOWPOSTPROCESS | SHDF_ALLOWHDR | SHDF_ZPASS | SHDF_NOASYNC | SHDF_STREAM_SYNC, SRenderingPassInfo::CreateGeneralPassRenderingInfo(captureCamera, (SRenderingPassInfo::DEFAULT_FLAGS | SRenderingPassInfo::CUBEMAP_GEN)), __FUNCTION__);
 
 #ifdef DO_RENDERLOG
     if (CRenderer::CV_r_log)
@@ -4543,12 +4846,6 @@ void CTexture::GenerateSceneMap(ETEX_Format eTF)
             s_ptexModelHudBuffer->CreateRenderTarget(eTF_R8G8B8A8, Clr_Transparent);
         }
     }
-
-    // Editor fix: it is possible at this point that resolution has changed outside of ChangeResolution and stereoR, stereoL have not been resized
-    if (gEnv->IsEditor())
-    {
-        gcpRendD3D->GetS3DRend().OnResolutionChanged();
-    }
 }
 
 void CTexture::GenerateCachedShadowMaps()
@@ -4613,9 +4910,7 @@ void CTexture::GenerateCachedShadowMaps()
         // allocate texture directly for all cached cascades
         if (!CTexture::IsTextureExist(pTx) && nResolutions[i] > 0 && i < cachedCascadesCount)
         {
-            //  Confetti BEGIN: Igor Lobanchikov
             CryLog("Allocating shadow map cache %d x %d: %.2f MB", nResolutions[i], nResolutions[i], sqr(nResolutions[i]) * CTexture::BytesPerBlock(texFormat) / (1024.f * 1024.f));
-            //  Confetti End: Igor Lobanchikov
             pTx->CreateRenderTarget(texFormat, Clr_FarPlane);
         }
     }
@@ -4905,7 +5200,7 @@ void CD3D9Renderer::DrawAllDynTextures(const char* szFilter, const bool bLogName
     SDynTexture2::TextureSet2Itor itor;
     char name[256]; //, nm[256];
     cry_strcpy(name, szFilter);
-    strlwr(name);
+    azstrlwr(name, AZ_ARRAY_SIZE(name));
     TArray<CTexture*> UsedRT;
     int nMaxCount = CV_r_ShowDynTexturesMaxCount;
 
@@ -4954,7 +5249,7 @@ void CD3D9Renderer::DrawAllDynTextures(const char* szFilter, const bool bLogName
             {
                 char nameBuffer[128];
                 cry_strcpy(nameBuffer, tp->GetName());
-                strlwr(nameBuffer);
+                azstrlwr(nameBuffer, AZ_ARRAY_SIZE(nameBuffer));
                 if (CryStringUtils::MatchWildcard(nameBuffer, name))
                 {
                     UsedRT.AddElem(tp);
@@ -5060,6 +5355,16 @@ void CTexture::ReleaseSystemTargets()
     SAFE_RELEASE_FORCE(s_ptexAOColorBleed);
     SAFE_RELEASE_FORCE(s_ptexSceneDiffuse);
     SAFE_RELEASE_FORCE(s_ptexSceneSpecular);
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DTEXTURE_CPP_SECTION_10
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DTexture_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DTexture_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DTexture_cpp_salem.inl"
+    #endif
+#endif
     SAFE_RELEASE_FORCE(s_ptexSceneDiffuseAccMap);
     SAFE_RELEASE_FORCE(s_ptexSceneSpecularAccMap);
     SAFE_RELEASE_FORCE(s_ptexBackBuffer);
@@ -5084,7 +5389,7 @@ void CTexture::CreateSystemTargets()
 {
     if (!gcpRendD3D->m_bSystemTargetsInit)
     {
-        ScopedSwitchToGlobalHeap useGlobalHeap;
+        
 
         gcpRendD3D->m_bSystemTargetsInit = 1;
 
@@ -5127,6 +5432,16 @@ void CTexture::CopySliceChain(CDeviceTexture* const pDevTexture, int ownerMips, 
 {
     assert(pSrcDevTex && pDevTexture);
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DTEXTURE_CPP_SECTION_11
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DTexture_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DTexture_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DTexture_cpp_salem.inl"
+    #endif
+#endif
 
     D3DBaseTexture* pDstResource = pDevTexture->GetBaseTexture();
     D3DBaseTexture* pSrcResource = pSrcDevTex->GetBaseTexture();
@@ -5142,6 +5457,16 @@ void CTexture::CopySliceChain(CDeviceTexture* const pDevTexture, int ownerMips, 
     }
 #endif
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DTEXTURE_CPP_SECTION_12
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DTexture_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DTexture_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DTexture_cpp_salem.inl"
+    #endif
+#endif
     assert(nSrcMip >= 0 && nDstMip >= 0);
     for (int i = 0; i < nNumMips; ++i)
     {

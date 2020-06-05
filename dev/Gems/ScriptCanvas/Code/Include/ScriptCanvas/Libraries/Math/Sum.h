@@ -15,10 +15,10 @@
 #include <Libraries/Core/BinaryOperator.h>
 #include <Libraries/Math/ArithmeticFunctions.h>
 
+#include <AzCore/Script/ScriptContextAttributes.h>
+
 namespace ScriptCanvas
 {
-    class NodeVisitor;
-
     namespace Nodes
     {
         namespace Math
@@ -35,48 +35,29 @@ namespace ScriptCanvas
                     {
                         serializeContext->Class<Sum, ArithmeticExpression>()
                             ->Version(0)
+                            ->Attribute(AZ::Script::Attributes::Deprecated, true)
                             ;
 
                         if (AZ::EditContext* editContext = serializeContext->GetEditContext())
                         {
                             editContext->Class<Sum>("Add", "Add")
-                                ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
+                                ->ClassElement(AZ::Edit::ClassElements::EditorData, "This node is deprecated use the Add (+) node instead, it provides contextual type and slot configurations.")
+                                    ->Attribute(ScriptCanvas::Attributes::Node::TitlePaletteOverride, "DeprecatedNodeTitlePalette")
+                                    ->Attribute(AZ::Script::Attributes::Deprecated, true)
+                                    ->Attribute(AZ::Edit::Attributes::Category, "Math/Number/Deprecated")
                                     ->Attribute(AZ::Edit::Attributes::Icon, "Editor/Icons/ScriptCanvas/Add.png")
                                     ->Attribute(AZ::Edit::Attributes::Visibility, AZ::Edit::PropertyVisibility::ShowChildrenOnly)
                                 ;
                         }
                     }
                 }
-
-                void Visit(NodeVisitor& visitor) const override
-                {
-                    visitor.Visit(*this);
-                }
-
+                
             protected:
                 Datum Evaluate(const Datum& lhs, const Datum& rhs) override
                 {
-                    return Datum::CreateInitializedCopy(*lhs.GetAs<Data::NumberType>() + *rhs.GetAs<Data::NumberType>());
+                    return Datum(*lhs.GetAs<Data::NumberType>() + *rhs.GetAs<Data::NumberType>());
                 }
             };
-
-#if defined(EXPRESSION_TEMPLATES_ENABLED)
-            class SumGeneric
-                : public BinaryOperatorGeneric<SumGeneric, ArithmeticOperator<OperatorType::Add>>
-            {
-            public:
-                using BaseType = BinaryOperatorGeneric<SumGeneric, ArithmeticOperator<OperatorType::Add>>;
-                AZ_COMPONENT(SumGeneric, "{04798FF9-50EE-487E-9433-B2C4F0FE4D37}", BaseType);
-
-                static const char* GetOperatorName() { return "Sum"; }
-                static const char* GetOperatorDesc() { return "Performs the sum between two numbers"; }
-                static const char* GetIconPath() { return "Editor/Icons/ScriptCanvas/Sum.png"; }
-
-                void Visit(NodeVisitor& visitor) const override { visitor.Visit(*this); }
-
-            };
-#endif // #if defined(EXPRESSION_TEMPLATES_ENABLED)
-
         }
     }
 }

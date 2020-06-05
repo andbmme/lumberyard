@@ -70,6 +70,9 @@ namespace AzToolsFramework
         QToolButton* m_pDefaultButton;
         QColorDialog* m_pColorDialog;
 
+        QColor m_originalColor;
+        QColor m_lastSetColor;
+
         QLineEdit* m_colorEdit;
         QColor m_color;
     };

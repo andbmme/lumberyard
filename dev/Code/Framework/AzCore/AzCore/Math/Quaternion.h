@@ -56,11 +56,22 @@ namespace AZ
         static const Quaternion CreateRotationZ(float angle);
         /*@}*/
 
-        /**
-         * Creates a quaternion using the rotation part of a Transform matrix
-         * \note If the transform has a scale other than (1,1,1) be sure to extract the scale first with AZ::Transform::ExtractScale or ::ExtractScaleExact.
-         */
+        /// Creates a quaternion using the rotation part of a Transform matrix.
+        /// \note If the transform has a scale other than (1,1,1) be sure to extract the scale first
+        /// with AZ::Transform::ExtractScale or ::ExtractScaleExact. If you simply want a rotation/orientation
+        /// from a Transform, prefer the CreateRotationFrom**** versions.
         static const Quaternion CreateFromTransform(const class Transform& t);
+
+        /// Creates a rotation in quaternion form using the rotation part of a Transform matrix.
+        /// \note Transform is passed by value intentionally as ExtractScale is called internally to remove any
+        /// scale from the transform. CreateRotationFromScaledTransform is useful to call if you cannot guarantee
+        /// the incoming transform will have unit scale (e.g. Entity transforms often may contains scale).
+        static const Quaternion CreateRotationFromScaledTransform(Transform t);
+
+        /// Creates a rotation in quaternion form using the rotation part of a Transform matrix.
+        /// \note The incoming Transform must have unit scale when calling this function. If the caller knows
+        /// for certain the transform has no scale applied, this is safe to call, otherwise prefer CreateRotationFromScaledTransform.
+        static const Quaternion CreateRotationFromUnscaledTransform(const Transform& t);
 
         ///Creates a quaternion from a Matrix3x3
         static const Quaternion CreateFromMatrix3x3(const class Matrix3x3& m);
@@ -69,6 +80,8 @@ namespace AZ
         static const Quaternion CreateFromMatrix4x4(const class Matrix4x4& m);
 
         static const Quaternion CreateFromAxisAngle(const Vector3& axis, const VectorFloat& angle);
+
+        static const Quaternion CreateFromAxisAngleExact(const Vector3& axis, const VectorFloat& angle);
 
         static const Quaternion CreateShortestArc(const Vector3& v1, const Vector3& v2);
 
@@ -189,8 +202,19 @@ namespace AZ
 
         /**
          * Linearly interpolate towards a destination quaternion.
+         * @param[in] dest The quaternion to interpolate towards.
+         * @param[in] t Normalized interpolation value where 0.0 represents the current and 1.0 the destination value.
+         * @result The interpolated quaternion at the given interpolation point.
          */
         const Quaternion Lerp(const Quaternion& dest, const VectorFloat& t) const;
+
+        /**
+         * Linearly interpolate towards a destination quaternion, and normalize afterwards.
+         * @param[in] dest The quaternion to interpolate towards.
+         * @param[in] t Normalized interpolation value where 0.0 represents the current and 1.0 the destination value.
+         * @result The interpolated and normalized quaternion at the given interpolation point.
+         */
+        const Quaternion NLerp(const Quaternion& dest, const VectorFloat& t) const;
 
         /**
          * Spherical linear interpolation. Result is NOT normalized.
@@ -245,6 +269,57 @@ namespace AZ
          */
         const Vector3 operator*(const Vector3& v) const;
 
+        //-------------------------------------------------------
+        // Euler transforms
+        //-------------------------------------------------------
+
+        //! Create, from the quaternion, a set of Euler angles of rotations around first z-axis,
+        //!        then y-axis and then x-axis.
+        //! @return Vector3 A vector containing component-wise rotation angles in degrees.
+        AZ::Vector3 GetEulerDegrees() const;
+
+        //! Create, from the quaternion, a set of Euler angles of rotations around first z-axis,
+        //!        then y-axis and then x-axis.
+        //! @return Vector3 A vector containing component-wise rotation angles in radians.
+        AZ::Vector3 GetEulerRadians() const;
+
+        //! An alias for SetFromEulerRadiansAprox
+        //! @param eulerRadians A vector containing component-wise rotation angles in radians.
+        void SetFromEulerRadians(const AZ::Vector3& eulerRadians);
+
+        //! Set the quaternion from composite rotations of Euler angles in the order of
+        //!        rotation around first z-axis, then y-axis and then x-axis.
+        //!        Faster but less accurate than SetFromEulerRadiansExact
+        //! @param eulerRadians A vector containing component-wise rotation angles in radians.
+        void SetFromEulerRadiansApprox(const AZ::Vector3& eulerRadians);
+
+        //! Set the quaternion from composite rotations of Euler angles in the order of
+        //!        rotation around first z-axis, then y-axis and then x-axis.
+        //!        Slower but more accurate than SetFromEulerRadiansApprox
+        //! @param eulerRadians A vector containing component-wise rotation angles in radians.
+        void SetFromEulerRadiansExact(const AZ::Vector3& eulerRadians);
+
+        //! An alias for SetFrom EulerDegreesApprox
+        //! @param eulerDegrees A vector containing component-wise rotation angles in degrees.
+        void SetFromEulerDegrees(const AZ::Vector3& eulerDegrees);
+
+        //! Set the quaternion from composite rotations of Euler angles in the order of
+        //!        rotation around first z-axis, then y-axis and then x-axis.
+        //!        Faster but less accurate than SetFromEulerDegreesExact
+        //! @param eulerDegrees A vector containing component-wise rotation angles in degrees.
+        void SetFromEulerDegreesApprox(const AZ::Vector3& eulerDegrees);
+
+        //! Set the quaternion from composite rotations of Euler angles in the order of
+        //!        rotation around first z-axis, then y-axis and then x-axis.
+        //!        Slower but more accurate than SetFromEulerDegreesApprox
+        //! @param eulerDegrees A vector containing component-wise rotation angles in degrees.
+        void SetFromEulerDegreesExact(const AZ::Vector3& eulerDegrees);
+
+        //! Populate axis and angle of rotation from Quaternion
+        //! @param[out] outAxis A Vector3 defining the rotation axis.
+        //! @param[out] outAngle A float rotation angle around the axis in radians.
+        void ConvertToAxisAngle(AZ::Vector3& outAxis, float& outAngle) const;
+
         //===============================================================
         // Miscellaneous
         //===============================================================
@@ -273,12 +348,65 @@ namespace AZ
         float m_y, m_z, m_w;
         #endif
     };
-}
 
-#ifndef AZ_PLATFORM_WINDOWS // Remove this once all compilers support POD (MSVC already does)
-#   include <AzCore/std/typetraits/is_pod.h>
-AZSTD_DECLARE_POD_TYPE(AZ::Quaternion);
-#endif
+    //! Non-member functionality belonging to the AZ namespace
+    //!
+    //! Create, from a quaternion, a set of Euler angles of rotations around first z-axis,
+    //!        then y-axis and then x-axis.
+    //! @param q a quaternion representing the rotation
+    //! @return A vector containing component-wise rotation angles in degrees.
+    AZ::Vector3 ConvertQuaternionToEulerDegrees(const AZ::Quaternion& q);
+
+    //! Create, from a quaternion, a set of Euler angles of rotations around first z-axis,
+    //!        then y-axis and then x-axis.
+    //! @param q a quaternion representing the rotation
+    //! @return A vector containing component-wise rotation angles in radians.
+    AZ::Vector3 ConvertQuaternionToEulerRadians(const AZ::Quaternion& q);
+
+    //! An alias for ConvertEulerRadiansToQuaternionApprox
+    //! @param eulerRadians A vector containing component-wise rotation angles in radians.
+    //! @return a quaternion made from composition of rotations around principle axes.
+    AZ::Quaternion ConvertEulerRadiansToQuaternion(const AZ::Vector3& eulerRadians);
+
+    //! Create a quaternion from composite rotations of Euler angles in the order of
+    //!        rotation around first z-axis, then y-axis and then x-axis.
+    //!        Faster but less accurate than ConvertEulerRadiansToQuaternionExact
+    //! @param eulerRadians A vector containing component-wise rotation angles in radians.
+    //! @return a quaternion made from composition of rotations around principle axes.
+    AZ::Quaternion ConvertEulerRadiansToQuaternionApprox(const AZ::Vector3& eulerRadians);
+
+    //! Create a quaternion from composite rotations of Euler angles in the order of
+    //!        rotation around first z-axis, then y-axis and then x-axis.
+    //!        Slower but more accurate than ConvertEulerRadiansToQuaternionExact
+    //! @param eulerRadians A vector containing component-wise rotation angles in radians.
+    //! @return a quaternion made from composition of rotations around principle axes.
+    AZ::Quaternion ConvertEulerRadiansToQuaternionExact(const AZ::Vector3& eulerRadians);
+
+    //! An alias for ConvertEulerDegreesToQuaternionApprox
+    //! @param eulerDegrees A vector containing component-wise rotation angles in degrees.
+    //! @return a quaternion made from composition of rotations around principle axes.
+    AZ::Quaternion ConvertEulerDegreesToQuaternion(const AZ::Vector3& eulerDegrees);
+
+    //! Create a quaternion from composite rotations of Euler angles in the order of
+    //!        rotation around first z-axis, then y-axis and then x-axis.
+    //!        Faster but less accurate than ConvertEulerDegreesToQuaternionExact
+    //! @param eulerDegrees A vector containing component-wise rotation angles in degrees.
+    //! @return a quaternion made from composition of rotations around principle axes.
+    AZ::Quaternion ConvertEulerDegreesToQuaternionApprox(const AZ::Vector3& eulerDegrees);
+
+    //! Create a quaternion from composite rotations of Euler angles in the order of
+    //!        rotation around first z-axis, then y-axis and then x-axis.
+    //!        Slower but more accurate than ConvertEulerDegreesToQuaternionExact
+    //! @param eulerDegrees A vector containing component-wise rotation angles in degrees.
+    //! @return a quaternion made from composition of rotations around principle axes.
+    AZ::Quaternion ConvertEulerDegreesToQuaternionExact(const AZ::Vector3& eulerDegrees);
+
+    //! Populate axis and angle of rotation from Quaternion
+    //! @param[in] quat A source quaternion
+    //! @param[out] outAxis A Vector3 defining the rotation axis.
+    //! @param[out] outAngle A float rotation angle around the axis in radians.
+    void ConvertQuaternionToAxisAngle(const AZ::Quaternion& quat, AZ::Vector3& outAxis, float& outAngle);
+}
 
 #if AZ_TRAIT_USE_PLATFORM_SIMD
     #include <AzCore/Math/Internal/QuaternionWin32.inl>

@@ -20,6 +20,7 @@
 
 #include "I3DEngine.h"
 #include "physinterface.h"
+#include <LmbrCentral/Physics/WaterNotificationBus.h>
 
 namespace Water
 {
@@ -157,6 +158,17 @@ namespace Water
         }
     }
 
+    WaterVolumeCommon::~WaterVolumeCommon()
+    {
+        // Ensure that we're disconnected from the bus on destruction.  We can end up still connected here
+        // if a WaterVolumeComponent has been created with a copy of connected WaterOceanComponentData.
+        // The new copy doesn't get an Activate or a Deactivate call, but will be connected.
+        LmbrCentral::ShapeComponentNotificationsBus::Handler::BusDisconnect();
+        LmbrCentral::MaterialOwnerRequestBus::Handler::BusDisconnect();
+        AZ::TransformNotificationBus::Handler::BusDisconnect();
+        WaterVolumeComponentRequestBus::Handler::BusDisconnect();
+    }
+
     void WaterVolumeCommon::Init(const AZ::EntityId& entityId)
     {
         m_entityId = entityId;
@@ -166,6 +178,7 @@ namespace Water
     {
         m_volumeId = static_cast<AZ::u64>(m_entityId);
         m_waterRenderNode = static_cast<IWaterVolumeRenderNode*>(gEnv->p3DEngine->CreateRenderNode(eERType_WaterVolume));
+        m_waterRenderNode->m_hasToBeSerialised = false;
 
         //Load material
         _smart_ptr<IMaterial> material = nullptr;
@@ -193,6 +206,7 @@ namespace Water
 
     void WaterVolumeCommon::Deactivate()
     {
+        LmbrCentral::WaterNotificationBus::Broadcast(&LmbrCentral::WaterNotificationBus::Events::WaterVolumeShapeChanged, m_entityId);
         m_volumeId = 0;
 
         if (m_waterRenderNode)
@@ -214,6 +228,8 @@ namespace Water
         UpdateVertices();
         UpdatePhysicsAreaParams();
         UpdateWaterArea();
+
+        LmbrCentral::WaterNotificationBus::Broadcast(&LmbrCentral::WaterNotificationBus::Events::WaterVolumeTransformChanged, m_entityId, world);
     }
 
     void WaterVolumeCommon::OnShapeChanged(LmbrCentral::ShapeComponentNotifications::ShapeChangeReasons reasons)
@@ -246,6 +262,7 @@ namespace Water
         UpdatePhysicsAreaParams();
 
         m_waterRenderNode->SetVolumeDepth(m_waterDepthScaled);
+        LmbrCentral::WaterNotificationBus::Broadcast(&LmbrCentral::WaterNotificationBus::Events::WaterVolumeShapeChanged, m_entityId);
     }
 
     void WaterVolumeCommon::SetMaterial(_smart_ptr<IMaterial> material)
@@ -467,6 +484,7 @@ namespace Water
                     rendFlags &= ~ERF_HIDDEN;
                 }
 
+                rendFlags |= ERF_COMPONENT_ENTITY;
                 m_waterRenderNode->SetRndFlags(rendFlags);
             }
         }
@@ -570,52 +588,62 @@ namespace Water
 
     void WaterVolumeCommon::UpdateAllWaterParams()
     {
-        Vec3 fogColor = AZVec3ToLYVec3(m_fogColor) * m_fogColorMultiplier;
+        if (m_waterRenderNode)
+        {
+            Vec3 fogColor = AZVec3ToLYVec3(m_fogColor) * m_fogColorMultiplier;
 
-        m_waterRenderNode->SetMinSpec(static_cast<AZ::u32>(m_minSpec));
-        m_waterRenderNode->SetVolumeDepth(m_waterDepthScaled);
-        m_waterRenderNode->SetViewDistanceMultiplier(m_viewDistanceMultiplier);
-        m_waterRenderNode->SetFogDensity(m_fogDensity);
-        m_waterRenderNode->SetFogColor(fogColor);
-        m_waterRenderNode->SetFogColorAffectedBySun(m_fogColorAffectedBySun);
-        m_waterRenderNode->SetFogShadowing(m_fogShadowing);
-        m_waterRenderNode->SetCapFogAtVolumeDepth(m_capFogAtVolumeDepth);
-        m_waterRenderNode->SetCaustics(m_causticsEnabled);
-        m_waterRenderNode->SetCausticIntensity(m_causticIntensity);
-        m_waterRenderNode->SetCausticTiling(m_causticTiling);
-        m_waterRenderNode->SetCausticHeight(m_causticHeight);
+            m_waterRenderNode->SetMinSpec(static_cast<AZ::u32>(m_minSpec));
+            m_waterRenderNode->SetVolumeDepth(m_waterDepthScaled);
+            m_waterRenderNode->SetViewDistanceMultiplier(m_viewDistanceMultiplier);
+            m_waterRenderNode->SetFogDensity(m_fogDensity);
+            m_waterRenderNode->SetFogColor(fogColor);
+            m_waterRenderNode->SetFogColorAffectedBySun(m_fogColorAffectedBySun);
+            m_waterRenderNode->SetFogShadowing(m_fogShadowing);
+            m_waterRenderNode->SetCapFogAtVolumeDepth(m_capFogAtVolumeDepth);
+            m_waterRenderNode->SetCaustics(m_causticsEnabled);
+            m_waterRenderNode->SetCausticIntensity(m_causticIntensity);
+            m_waterRenderNode->SetCausticTiling(m_causticTiling);
+            m_waterRenderNode->SetCausticHeight(m_causticHeight);
+        }
     }
 
     void WaterVolumeCommon::UpdateAuxPhysicsParams()
     {
-        pe_params_area physicalAreaParams;
-        physicalAreaParams.volume = m_spillableVolume;
-        physicalAreaParams.volumeAccuracy = m_volumeAccuracy;
-        physicalAreaParams.borderPad = m_extrudeBorder;
-        physicalAreaParams.bConvexBorder = m_convexBorder;
-        physicalAreaParams.objectVolumeThreshold = m_objectSizeLimit;
-        physicalAreaParams.cellSize = m_waveSurfaceCellSize;
-        physicalAreaParams.waveSim.waveSpeed = m_waveSpeed;
-        physicalAreaParams.waveSim.dampingCenter = m_waveDampening;
-        physicalAreaParams.waveSim.timeStep = m_waveTimestep;
-        physicalAreaParams.waveSim.heightLimit = m_waveHeightLimit;
-        physicalAreaParams.waveSim.minVel = m_waveSleepThreshold;
-        physicalAreaParams.waveSim.resistance = m_waveForce;
-        physicalAreaParams.growthReserve = m_waveSimulationAreaGrowth;
-        m_waterRenderNode->SetAuxPhysParams(&physicalAreaParams);
+        if (m_waterRenderNode)
+        {
+            pe_params_area physicalAreaParams;
+            physicalAreaParams.volume = m_spillableVolume;
+            physicalAreaParams.volumeAccuracy = m_volumeAccuracy;
+            physicalAreaParams.borderPad = m_extrudeBorder;
+            physicalAreaParams.bConvexBorder = m_convexBorder;
+            physicalAreaParams.objectVolumeThreshold = m_objectSizeLimit;
+            physicalAreaParams.cellSize = m_waveSurfaceCellSize;
+            physicalAreaParams.waveSim.waveSpeed = m_waveSpeed;
+            physicalAreaParams.waveSim.dampingCenter = m_waveDampening;
+            physicalAreaParams.waveSim.timeStep = m_waveTimestep;
+            physicalAreaParams.waveSim.simDepth = m_waveDepthCellSize;
+            physicalAreaParams.waveSim.heightLimit = m_waveHeightLimit;
+            physicalAreaParams.waveSim.minVel = m_waveSleepThreshold;
+            physicalAreaParams.waveSim.resistance = m_waveForce;
+            physicalAreaParams.growthReserve = m_waveSimulationAreaGrowth;
+            m_waterRenderNode->SetAuxPhysParams(&physicalAreaParams);
+        }
     }
 
     void WaterVolumeCommon::UpdatePhysicsAreaParams()
     {
-        //This is possible if you are currently in the process of adding verts to a PolygonPrism
-        if (m_legacyVerts.size() < 3)
+        if (m_waterRenderNode)
         {
-            return;
-        }
+            //This is possible if you are currently in the process of adding verts to a PolygonPrism
+            if (m_legacyVerts.size() < 3)
+            {
+                return;
+            }
 
-        m_waterRenderNode->Dephysicalize();
-        m_waterRenderNode->SetAreaPhysicsArea(&m_legacyVerts[0], m_legacyVerts.size(), true);
-        m_waterRenderNode->Physicalize();
+            m_waterRenderNode->Dephysicalize();
+            m_waterRenderNode->SetAreaPhysicsArea(&m_legacyVerts[0], m_legacyVerts.size(), true);
+            m_waterRenderNode->Physicalize();
+        }
     }
 
     void WaterVolumeCommon::UpdateVertices()
@@ -640,12 +668,15 @@ namespace Water
             return;
         }
 
-        Vec3 planeNormal = AZVec3ToLYVec3(m_currentWorldTransform.GetColumn(2));
-        Plane fogPlane;
-        fogPlane.SetPlane(planeNormal.GetNormalized(), m_legacyVerts[0]);
+        if (m_waterRenderNode)
+        {
+            Vec3 planeNormal = AZVec3ToLYVec3(m_currentWorldTransform.GetColumn(2));
+            Plane fogPlane;
+            fogPlane.SetPlane(planeNormal.GetNormalized(), m_legacyVerts[0]);
 
-        Vec2 surfaceScale(m_surfaceUScale, m_surfaceVScale);
-        m_waterRenderNode->CreateArea(m_volumeId, &m_legacyVerts[0], m_legacyVerts.size(), surfaceScale, fogPlane, true);
+            Vec2 surfaceScale(m_surfaceUScale, m_surfaceVScale);
+            m_waterRenderNode->CreateArea(m_volumeId, &m_legacyVerts[0], m_legacyVerts.size(), surfaceScale, fogPlane, true);
+        }
     }
 
     void WaterVolumeCommon::HandleBoxVerts()
@@ -664,27 +695,27 @@ namespace Water
 
         m_waterDepth = dimensions.GetZ();
     }
+
     void WaterVolumeCommon::HandleCylinderVerts()
     {
         LmbrCentral::CylinderShapeConfig cylinderConfig;
         LmbrCentral::CylinderShapeComponentRequestsBus::EventResult(cylinderConfig, m_entityId, &LmbrCentral::CylinderShapeComponentRequestsBus::Events::GetCylinderConfiguration);
 
-        m_waterDepth = cylinderConfig.GetHeight();
-        float halfHeight = m_waterDepth * 0.5f;
+        m_waterDepth = cylinderConfig.m_height;
+        const float halfHeight = m_waterDepth * 0.5f;
 
-        float radius = cylinderConfig.GetRadius();
-        AZ::u32 radiusInt = static_cast<AZ::u32>(ceilf(cylinderConfig.GetRadius()));
-        AZ::u32 segments = (radiusInt * 4) + 16;
+        const float radius = cylinderConfig.m_radius;
+        const AZ::u32 radiusInt = static_cast<AZ::u32>(ceilf(cylinderConfig.m_radius));
+        const AZ::u32 segments = (radiusInt * 4) + 16;
 
         m_azVerts.resize(segments);
-
         for (AZ::u32 i = 0; i < segments; ++i)
         {
-            float radians = i * (AZ::Constants::TwoPi / static_cast<float>(segments));
+            const float radians = i * (AZ::Constants::TwoPi / static_cast<float>(segments));
 
-            float x = radius * cosf(radians);
-            float y = radius * sinf(radians);
-            float z = halfHeight;
+            const float x = radius * cosf(radians);
+            const float y = radius * sinf(radians);
+            const float z = halfHeight;
 
             m_azVerts[i] = AZ::Vector3(x, y, z);
         }

@@ -18,6 +18,7 @@
 #endif
 
 #include <QEvent>
+#include <AzCore/Casting/numeric_cast.h>
 
 QColorWidget::QColorWidget(QWidget* parent)
     : QWidget(parent)
@@ -35,11 +36,11 @@ QColorWidget::QColorWidget(QWidget* parent)
     ui->multiplierBox1->setStyleSheet("QDoubleSpinBox::disabled{color: gray;}");
     connect(ui->multiplierBox, SIGNAL(valueChanged(double)), this, SLOT(onMultiplierEntered()));
     connect(ui->multiplierBox1, SIGNAL(valueChanged(double)), this, SLOT(onMultiplier1Entered()));
-    connect(ui->colorButton, &QPushButton::clicked, [this]()
+    connect(ui->colorButton, &QPushButton::clicked, this, [this]()
         {
             onSelectColor(0);
         });
-    connect(ui->colorButton1, &QPushButton::clicked, [this]()
+    connect(ui->colorButton1, &QPushButton::clicked, this, [this]()
         {
             onSelectColor(1);
         });
@@ -90,13 +91,13 @@ void QColorWidget::setAlpha(float alpha, int index)
 {
     if (index == 0)
     {
-        int iAlpha = 255 * alpha;
+        int iAlpha = aznumeric_cast<int>(255 * alpha);
         iAlpha = (((iAlpha > 0) ? iAlpha : 0) < 255) ? iAlpha : 255; //locks alpha between 0 and 255
         m_color[index].setAlpha(iAlpha);
     }
     else if (index == 1)
     {
-        int iAlpha = 255 * alpha;
+        int iAlpha = aznumeric_cast<int>(255 * alpha);
         iAlpha = (((iAlpha > 0) ? iAlpha : 0) < 255) ? iAlpha : 255; //locks alpha between 0 and 255
         m_color[index].setAlpha(iAlpha);
     }

@@ -15,6 +15,8 @@
 #include <AzCore/Android/APKFileHandler.h>
 #include <AzCore/Android/JNI/Object.h>
 
+#include <android/configuration.h>
+
 
 namespace AZ
 {
@@ -71,7 +73,7 @@ namespace AZ
                     (*s_instance)->Cleanup();
                     delete (*s_instance);
                 }
-                (*s_instance) = nullptr;
+                s_instance.Reset();
             }
             else
             {
@@ -110,6 +112,15 @@ namespace AZ
         }
 
         ////////////////////////////////////////////////////////////////
+        void AndroidEnv::UpdateConfiguration()
+        {
+            if (m_ownsConfiguration)
+            {
+                AConfiguration_fromAssetManager(m_configuration, m_assetManager);
+            }
+        }
+
+        ////////////////////////////////////////////////////////////////
         jclass AndroidEnv::LoadClass(const char *classPath)
         {
             JNIEnv* jniEnv = GetJniEnv();
@@ -131,21 +142,6 @@ namespace AZ
 
             return returnClass;
         }
-
-        ////////////////////////////////////////////////////////////////
-        // [deprecated] Use AZ::Android::JNI::GetClassName instead
-        AZStd::string AndroidEnv::GetClassName(jclass classRef) const
-        {
-            return JNI::GetClassName(classRef);
-        }
-
-        ////////////////////////////////////////////////////////////////
-        // [deprecated] Use AZ::Android::JNI::GetSimpleClassName instead
-        AZStd::string AndroidEnv::GetSimpleClassName(jclass classRef) const
-        {
-            return JNI::GetSimpleClassName(classRef);
-        }
-
 
 
         // ----
@@ -182,6 +178,7 @@ namespace AZ
             , m_getSimpleClassNameMethod(nullptr)
 
             , m_assetManager(nullptr)
+            , m_configuration(nullptr)
             , m_window(nullptr)
 
             , m_appPrivateStoragePath()
@@ -195,6 +192,7 @@ namespace AZ
             , m_appVersionCode(0)
 
             , m_ownsActivityRef(false)
+            , m_ownsConfiguration(false)
             , m_isReady(false)
 
             , m_isRunning(false)
@@ -215,9 +213,17 @@ namespace AZ
         {
             m_jvm = descriptor.m_jvm;
             m_assetManager = descriptor.m_assetManager;
+            m_configuration = descriptor.m_configuration;
             m_appPrivateStoragePath = descriptor.m_appPrivateStoragePath;
             m_appPublicStoragePath = descriptor.m_appPublicStoragePath;
             m_obbStoragePath = descriptor.m_obbStoragePath;
+
+            if (!m_configuration)
+            {
+                m_configuration = AConfiguration_new();
+                AConfiguration_fromAssetManager(m_configuration, m_assetManager);
+                m_ownsConfiguration = true;
+            }
 
             int result = pthread_key_create(&s_jniEnvKey, DestroyJniEnv);
             if (result)
@@ -316,6 +322,11 @@ namespace AZ
                 JNI::DeleteRef(m_activityRef);
             }
             JNI::DeleteRef(m_activityClass);
+
+            if (m_ownsConfiguration)
+            {
+                AConfiguration_delete(m_configuration);
+            }
 
             APKFileHandler::Destroy();
         }

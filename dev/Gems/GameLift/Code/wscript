@@ -15,11 +15,16 @@ def build(bld):
     bld.DefineGem(
         # Add custom build options here
         use             = ['GridMate', 'AWSNativeSDKInit'],
-        includes        = [bld.Path('Code/CryEngine/CryAction'),
+        includes        = ['.',
+                           bld.Path('Code/CryEngine/CryCommon'),
                            bld.Path('Code/CryEngine/CryNetwork'),
-                           bld.Path('Gems/Multiplayer/Code/Include')],
+                           bld.Path('Gems/Multiplayer/Code/Include')
+                          ],
         pch             = '',
         file_list       = ['GameLift.waf_files'],
+
+        # Platform Roots
+        platform_roots = [bld.PlatformRoot('Source/Platform', export_includes=True)],
 
         # Platform Specific
         win_use         = ['AWS_CPP_SDK_GAMELIFT_SHARED',
@@ -37,9 +42,18 @@ def build(bld):
         linux_release_dedicated_uselib = ['AWS_GAMELIFT_SERVER_STATIC'],
         linux_file_list   = ['gridmate_gamelift.waf_files'],
 
-       
-       
+        android_use = ['AWS_CPP_SDK_GAMELIFT_SHARED',
+                        'AWS_CPP_SDK_CORE'],
+        android_file_list = ['gridmate_gamelift.waf_files'],
+
+        ios_use = ['AWS_CPP_SDK_GAMELIFT_SHARED',
+                    'AWS_CPP_SDK_CORE'],
+        ios_file_list = ['gridmate_gamelift.waf_files'],
+
         # Testing
         test_all_file_list = ['gamelift_test.waf_files'],
 
+        # Enabling GameLift gem server and client code on Windows for testing targets to make it easier to work with them.
+        win_test_use = ['AWS_CPP_SDK_GAMELIFT_SHARED', 'AWS_GAMELIFT_SERVER_SHARED'],
+        linux_test_use = ['AWS_GAMELIFT_SERVER_STATIC']
     )

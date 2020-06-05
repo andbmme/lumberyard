@@ -9,12 +9,25 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
-#include "stdafx.h"
+
+#include "StdAfx.h"
 #include <AzTest/AzTest.h>
+#include <AzCore/Memory/SystemAllocator.h>
+#include <AzQtComponents/Utilities/QtPluginPaths.h>
 
-AZ_UNIT_TEST_HOOK();
+#include <QApplication>
 
-TEST(EditorLibSanityTest, Sanity)
+AZTEST_EXPORT int AZ_UNIT_TEST_HOOK_NAME(int argc, char** argv)
 {
-    EXPECT_EQ(1, 1);
+    ::testing::InitGoogleMock(&argc, argv);
+    // NOTE - these lines are what make this code different from AZ_UNIT_TEST_HOOK()
+    AzQtComponents::PrepareQtPaths();
+    QApplication app(argc, argv);
+    // end
+    AZ::Test::excludeIntegTests();
+    AZ::Test::ApplyGlobalParameters(&argc, argv);
+    AZ::Test::printUnusedParametersWarning(argc, argv);
+    AZ::Test::addTestEnvironments({});
+    int result = RUN_ALL_TESTS();
+    return result;
 }

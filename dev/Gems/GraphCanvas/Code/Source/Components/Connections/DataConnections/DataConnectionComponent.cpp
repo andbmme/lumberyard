@@ -15,9 +15,9 @@
 
 #include <Components/Connections/DataConnections/DataConnectionVisualComponent.h>
 #include <Components/StylingComponent.h>
+#include <Source/Components/Connections/ConnectionLayerControllerComponent.h>
 #include <GraphCanvas/Components/Slots/SlotBus.h>
 #include <GraphCanvas/Components/Slots/Data/DataSlotBus.h>
-#include <GraphCanvas/Components/Nodes/Variable/VariableNodeBus.h>
 
 namespace GraphCanvas
 {
@@ -36,43 +36,44 @@ namespace GraphCanvas
         }
     }
 
-    AZ::Entity* DataConnectionComponent::CreateDataConnection(const Endpoint& sourceEndpoint, const Endpoint& targetEndpoint, const AZStd::string& substyle)
+    AZ::Entity* DataConnectionComponent::CreateDataConnection(const Endpoint& sourceEndpoint, const Endpoint& targetEndpoint, bool createModelConnection, const AZStd::string& substyle)
     {
         // Create this Connection's entity.
         AZ::Entity* entity = aznew AZ::Entity("Connection");
 
-        entity->CreateComponent<DataConnectionComponent>(sourceEndpoint, targetEndpoint);
+        entity->CreateComponent<DataConnectionComponent>(sourceEndpoint, targetEndpoint, createModelConnection);
         entity->CreateComponent<StylingComponent>(Styling::Elements::Connection, AZ::EntityId(), substyle);
         entity->CreateComponent<DataConnectionVisualComponent>();
-
-        entity->Init();
-        entity->Activate();
+        entity->CreateComponent<ConnectionLayerControllerComponent>();
 
         return entity;
     }
     
-    DataConnectionComponent::DataConnectionComponent(const Endpoint& sourceEndpoint, const Endpoint& targetEndpoint)
-        : ConnectionComponent(sourceEndpoint, targetEndpoint)
+    DataConnectionComponent::DataConnectionComponent(const Endpoint& sourceEndpoint, const Endpoint& targetEndpoint, bool createModelConnection)
+        : ConnectionComponent(sourceEndpoint, targetEndpoint, createModelConnection)
     {
     }
 
-    void DataConnectionComponent::Activate()
+    bool DataConnectionComponent::AllowNodeCreation() const
     {
-        ConnectionComponent::Activate();
-        
-        SceneMemberNotificationBus::Handler::BusConnect(GetEntityId());
-    }
+        DataSlotType slotType = DataSlotType::Value;
 
-    void DataConnectionComponent::Deactivate()
-    {
-        SceneMemberNotificationBus::Handler::BusDisconnect();
+        if (m_sourceEndpoint.IsValid())
+        {            
+            DataSlotRequestBus::EventResult(slotType, m_sourceEndpoint.GetSlotId(), &DataSlotRequests::GetDataSlotType);
+        }
+        else if (m_targetEndpoint.IsValid())
+        {
+            DataSlotRequestBus::EventResult(slotType, m_targetEndpoint.GetSlotId(), &DataSlotRequests::GetDataSlotType);
+        }
 
-        ConnectionComponent::Deactivate();
+        return slotType == DataSlotType::Value;
     }
     
-    bool DataConnectionComponent::OnConnectionMoveComplete(const QPointF& scenePos, const QPoint& screenPos)
+    ConnectionComponent::ConnectionMoveResult DataConnectionComponent::OnConnectionMoveComplete(const QPointF& scenePos, const QPoint& screenPos)
     {
-        bool retVal = false;
+        ConnectionMoveResult retVal = ConnectionMoveResult::DeleteConnection;
+
         // If we are missing an endpoint, default to the normal behavior
         if (!m_sourceEndpoint.IsValid() || !m_targetEndpoint.IsValid())
         {
@@ -83,26 +84,36 @@ namespace GraphCanvas
             DataSlotType sourceSlotType = DataSlotType::Unknown;
             DataSlotRequestBus::EventResult(sourceSlotType, GetSourceSlotId(), &DataSlotRequests::GetDataSlotType);
 
+            DataSlotType targetSlotType = DataSlotType::Unknown;
+            DataSlotRequestBus::EventResult(targetSlotType, GetTargetSlotId(), &DataSlotRequests::GetDataSlotType);
+
             bool converted = false;
 
-            if (sourceSlotType == DataSlotType::Variable)
+            if (m_dragContext == DragContext::MoveTarget)
             {
-                // Temporary dirtiness.
-                // When dragging from a input to an output, we put the connection into the output
-                // to make the display look right.
-                //
-                // But converting a DataSlot to a Reference, clears off all connections(including us).
-                // To fix this, just remove ourselves from the target before converting to a reference.
-                if (m_dragContext == DragContext::MoveSource)
+                if (sourceSlotType == DataSlotType::Value)
                 {
-                    SlotNotificationBus::Event(GetTargetSlotId(), &SlotNotifications::OnDisconnectedFrom, GetEntityId(), GetSourceEndpoint());
+                    DataSlotRequestBus::EventResult(converted, GetTargetSlotId(), &DataSlotRequests::ConvertToValue);
                 }
-                
-                DataSlotRequestBus::EventResult(converted, GetTargetSlotId(), &DataSlotRequests::ConvertToReference);
+                else if (sourceSlotType == DataSlotType::Reference)
+                {
+                    DataSlotRequestBus::EventResult(converted, GetTargetSlotId(), &DataSlotRequests::ConvertToReference);
+                }
             }
-            else if (sourceSlotType == DataSlotType::Value)
+            else if (m_dragContext == DragContext::MoveSource)
             {
-                DataSlotRequestBus::EventResult(converted, GetTargetSlotId(), &DataSlotRequests::ConvertToValue);
+                if (targetSlotType == DataSlotType::Value)
+                {
+                    DataSlotRequestBus::EventResult(converted, GetSourceSlotId(), &DataSlotRequests::ConvertToValue);
+                }
+                else if (targetSlotType == DataSlotType::Reference)
+                {
+                    DataSlotRequestBus::EventResult(converted, GetSourceSlotId(), &DataSlotRequests::ConvertToReference);
+                }
+            }
+            else if (m_dragContext == DragContext::TryConnection)
+            {
+                converted = true;
             }
 
             if (converted)
@@ -110,16 +121,26 @@ namespace GraphCanvas
                 DataSlotType targetSlotType = DataSlotType::Unknown;
                 DataSlotRequestBus::EventResult(targetSlotType, GetTargetSlotId(), &DataSlotRequests::GetDataSlotType);
 
-                if (targetSlotType == DataSlotType::Reference)
-                {
-                    AZ::EntityId variableId;
-                    DataSlotRequestBus::EventResult(variableId, GetSourceSlotId(), &DataSlotRequests::GetVariableId);
-
-                    DataSlotRequestBus::Event(GetTargetSlotId(), &DataSlotRequests::AssignVariable, variableId);
-                }
-                else if (targetSlotType == DataSlotType::Value)
+                if (targetSlotType == DataSlotType::Value)
                 {
                     retVal = ConnectionComponent::OnConnectionMoveComplete(scenePos, screenPos);
+                }
+                else if (targetSlotType == DataSlotType::Reference)
+                {
+                    GraphId graphId;
+                    SceneMemberRequestBus::EventResult(graphId, GetEntityId(), &SceneMemberRequests::GetScene);
+
+                    if (m_dragContext == DragContext::MoveSource)
+                    {
+                        GraphModelRequestBus::Event(graphId, &GraphModelRequests::SynchronizeReferences, GetTargetEndpoint(), GetSourceEndpoint());
+                    }
+                    else if (m_dragContext == DragContext::MoveTarget)
+                    {
+                        GraphModelRequestBus::Event(graphId, &GraphModelRequests::SynchronizeReferences, GetSourceEndpoint(), GetTargetEndpoint());
+                    }
+                    
+                    // We don't want the connection to persist.
+                    retVal = ConnectionMoveResult::DeleteConnection;
                 }
             }
         }

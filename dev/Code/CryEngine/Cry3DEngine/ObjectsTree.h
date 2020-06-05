@@ -32,21 +32,28 @@ class PodArray;
 struct CLightEntity;
 struct ILightSource;
 struct IParticleEmitter;
-
 ///////////////////////////////////////////////////////////////////////////////
 // data to be pushed to occlusion culler
 _MS_ALIGN(16) struct SCheckOcclusionJobData
 {
     enum JobTypeT
     {
-        QUIT, OCTREE_NODE, TERRAIN_NODE
+        QUIT, 
+        OCTREE_NODE, 
+        TERRAIN_NODE, 
+#ifdef LY_TERRAIN_RUNTIME
+        TERRAIN_SYSTEM_NODE
+#endif
     };
 
     SCheckOcclusionJobData() {}
 
     static SCheckOcclusionJobData CreateQuitJobData();
     static SCheckOcclusionJobData CreateOctreeJobData(COctreeNode* pOctTreeNode, int nRenderMask, const SRendItemSorter& rendItemSorter, const CCamera* pCam);
-    static SCheckOcclusionJobData CreateTerrainJobData(CTerrainNode* pTerrainNode, const AABB& rAABB, float fDistance);
+    static SCheckOcclusionJobData CreateTerrainJobData(ITerrainNode* pTerrainNode, const AABB& rAABB, float fDistance);
+#ifdef LY_TERRAIN_RUNTIME
+    static SCheckOcclusionJobData CreateTerrainSystemJobData(IRenderNode* pTerrainNode, const AABB& rAABB, float fDistance);
+#endif
 
     JobTypeT type; // type to indicate with which data the union is filled
     union
@@ -61,11 +68,22 @@ _MS_ALIGN(16) struct SCheckOcclusionJobData
         // data for terrain nodes
         struct
         {
-            CTerrainNode*   pTerrainNode;
+            ITerrainNode*   pTerrainNode;
             float                   vAABBMin[3];
             float                   vAABBMax[3];
             float                   fDistance;
         } terrainData;
+
+#ifdef LY_TERRAIN_RUNTIME
+        // data for terrain nodes
+        struct
+        {
+            IRenderNode*  pTerrainNode;
+            float                   vAABBMin[3];
+            float                   vAABBMax[3];
+            float                   fDistance;
+        } terrainSystemData;
+#endif
     };
     // common data
     SRendItemSorter rendItemSorter; // ensure order octree traversal oder even with parallel execution
@@ -93,7 +111,7 @@ inline SCheckOcclusionJobData SCheckOcclusionJobData::CreateOctreeJobData(COctre
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-inline SCheckOcclusionJobData SCheckOcclusionJobData::CreateTerrainJobData(CTerrainNode* pTerrainNode, const AABB& rAABB, float fDistance)
+inline SCheckOcclusionJobData SCheckOcclusionJobData::CreateTerrainJobData(ITerrainNode* pTerrainNode, const AABB& rAABB, float fDistance)
 {
     SCheckOcclusionJobData jobData;
     jobData.type                    = TERRAIN_NODE;
@@ -110,20 +128,49 @@ inline SCheckOcclusionJobData SCheckOcclusionJobData::CreateTerrainJobData(CTerr
 }
 
 ///////////////////////////////////////////////////////////////////////////////
+#ifdef LY_TERRAIN_RUNTIME
+inline SCheckOcclusionJobData SCheckOcclusionJobData::CreateTerrainSystemJobData(IRenderNode* pTerrainNode, const AABB& rAABB, float fDistance)
+{
+    SCheckOcclusionJobData jobData;
+    jobData.type = TERRAIN_SYSTEM_NODE;
+    jobData.terrainSystemData.pTerrainNode = pTerrainNode;
+    jobData.terrainSystemData.vAABBMin[0] = rAABB.min.x;
+    jobData.terrainSystemData.vAABBMin[1] = rAABB.min.y;
+    jobData.terrainSystemData.vAABBMin[2] = rAABB.min.z;
+    jobData.terrainSystemData.vAABBMax[0] = rAABB.max.x;
+    jobData.terrainSystemData.vAABBMax[1] = rAABB.max.y;
+    jobData.terrainSystemData.vAABBMax[2] = rAABB.max.z;
+    jobData.terrainSystemData.fDistance = fDistance;
+    jobData.rendItemSorter = SRendItemSorter::CreateDefaultRendItemSorter();
+    return jobData;
+}
+#endif
+///////////////////////////////////////////////////////////////////////////////
 // data written by occlusion culler jobs, to control main thread 3dengine side rendering
 _MS_ALIGN(16) struct SCheckOcclusionOutput
 {
     enum JobTypeT
     {
-        VEGETATION, ROAD_DECALS, COMMON, TERRAIN, DEFORMABLE_BRUSH, BRUSH
+        VEGETATION, 
+        ROAD_DECALS, 
+        COMMON, 
+        TERRAIN, 
+        DEFORMABLE_BRUSH, 
+        BRUSH, 
+#ifdef LY_TERRAIN_RUNTIME
+        TERRAIN_SYSTEM
+#endif
     };
 
     static SCheckOcclusionOutput CreateVegetationOutput(IRenderNode* pObj, const AABB& rObjBox, float fEntDistance, SSectorTextureSet* pTerrainTexInfo, bool bCheckPerObjectOcclusion, const SRendItemSorter& rendItemSorter);
     static SCheckOcclusionOutput CreateDecalsAndRoadsOutput(IRenderNode* pObj, const AABB& rObjBox, float fEntDistance, bool bCheckPerObjectOcclusion, const SRendItemSorter& rendItemSorter);
     static SCheckOcclusionOutput CreateCommonObjectOutput(IRenderNode* pObj, const AABB& rObjBox, float fEntDistance, SSectorTextureSet* pTerrainTexInfo, const SRendItemSorter& rendItemSorter);
-    static SCheckOcclusionOutput CreateTerrainOutput(CTerrainNode* pTerrainNode, const SRendItemSorter& rendItemSorter);
+    static SCheckOcclusionOutput CreateTerrainOutput(ITerrainNode* pTerrainNode, const SRendItemSorter& rendItemSorter);
     static SCheckOcclusionOutput CreateDeformableBrushOutput(CBrush* pBrush, CRenderObject* pObj, int nLod, const SRendItemSorter& rendItemSorter);
     static SCheckOcclusionOutput CreateBrushOutput(CBrush* pBrush, CRenderObject* pObj, const CLodValue& lodValue, const SRendItemSorter& rendItemSorter);
+#ifdef LY_TERRAIN_RUNTIME
+    static SCheckOcclusionOutput CreateTerrainSystemOutput(IRenderNode* pTerrainNode, CRenderObject* pObj, const SRendItemSorter& rendItemSorter);
+#endif
 
     JobTypeT            type;
     union
@@ -140,8 +187,17 @@ _MS_ALIGN(16) struct SCheckOcclusionOutput
         //TERRAIN Data
         struct
         {
-            CTerrainNode*       pTerrainNode;
+            ITerrainNode*       pTerrainNode;
         } terrain;
+
+#ifdef LY_TERRAIN_RUNTIME
+        //TERRAIN_SYSTEM Data
+        struct
+        {
+            IRenderNode*    pTerrainNode;
+            CRenderObject*  pRenderObject;
+        } terrain_system;
+#endif
 
         //DEFORMABLE_BRUSH Data
         struct
@@ -214,7 +270,7 @@ inline SCheckOcclusionOutput SCheckOcclusionOutput::CreateCommonObjectOutput(IRe
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-inline SCheckOcclusionOutput SCheckOcclusionOutput::CreateTerrainOutput(CTerrainNode* pTerrainNode, const SRendItemSorter& rendItemSorter)
+inline SCheckOcclusionOutput SCheckOcclusionOutput::CreateTerrainOutput(ITerrainNode* pTerrainNode, const SRendItemSorter& rendItemSorter)
 {
     SCheckOcclusionOutput outputData;
     outputData.type                                         = TERRAIN;
@@ -224,6 +280,20 @@ inline SCheckOcclusionOutput SCheckOcclusionOutput::CreateTerrainOutput(CTerrain
 
     return outputData;
 }
+
+///////////////////////////////////////////////////////////////////////////////
+#ifdef LY_TERRAIN_RUNTIME
+inline SCheckOcclusionOutput SCheckOcclusionOutput::CreateTerrainSystemOutput(IRenderNode* pTerrainNode, CRenderObject* pObj, const SRendItemSorter& rendItemSorter)
+{
+    SCheckOcclusionOutput outputData;
+    outputData.type = TERRAIN_SYSTEM;
+    outputData.rendItemSorter = rendItemSorter;
+
+    outputData.terrain_system.pTerrainNode = pTerrainNode;
+
+    return outputData;
+}
+#endif
 
 ///////////////////////////////////////////////////////////////////////////////
 inline SCheckOcclusionOutput SCheckOcclusionOutput::CreateDeformableBrushOutput(CBrush* pBrush, CRenderObject* pRenderObject, int nLod, const SRendItemSorter& rendItemSorter)
@@ -390,8 +460,8 @@ struct SOctreeLoadObjectsData
 };
 
 class COctreeNode
-    : public IOctreeNode
-    , Cry3DEngineBase
+    : Cry3DEngineBase
+    , public IOctreeNode
 {
 public:
 
@@ -418,6 +488,7 @@ public:
     void Render_Object_Nodes(bool bNodeCompletelyInFrustum, int nRenderMask, const SRenderingPassInfo& passInfo, SRendItemSorter& rendItemSorter);
 
     static void Shutdown();
+    static void WaitForContentJobCompletion();
     void RenderContent(int nRenderMask, const SRenderingPassInfo& passInfo, const SRendItemSorter& rendItemSorter, const CCamera* pCam);
     void RenderContentJobEntry(int nRenderMask, const SRenderingPassInfo& passInfo, SRendItemSorter rendItemSorter, const CCamera* pCam);
     void RenderVegetations(TDoublyLinkedList<IRenderNode>* lstObjects, const CCamera& rCam, int nRenderMask, bool bNodeCompletelyInFrustum, SSectorTextureSet* pTerrainTexInfo, const SRenderingPassInfo& passInfo, SRendItemSorter& rendItemSorter);
@@ -431,7 +502,7 @@ public:
     void ActivateObjectsLayer(uint16 nLayerId, bool bActivate, bool bPhys, IGeneralMemoryHeap* pHeap);
     void GetLayerMemoryUsage(uint16 nLayerId, ICrySizer* pSizer, int* pNumBrushes, int* pNumDecals);
 
-    void MarkAsUncompiled(const IRenderNode* pRenderNode = NULL);
+    void MarkAsUncompiled(const IRenderNode* pRenderNode = NULL) override;
     COctreeNode* FindNodeContainingBox(const AABB& objBox);
     void MoveObjectsIntoList(PodArray<SRNInfo>* plstResultEntities, const AABB* pAreaBox, bool bRemoveObjects = false, bool bSkipDecals = false, bool bSkip_ERF_NO_DECALNODE_DECALS = false, bool bSkipDynamicObjects = false, EERType eRNType = eERType_TypesNum);
 
@@ -444,7 +515,7 @@ public:
     void DeleteObjectsByFlag(int nRndFlag);
     void UnregisterEngineObjectsInArea(const SHotUpdateInfo* pExportInfo, PodArray<IRenderNode*>& arrUnregisteredObjects, bool bOnlyEngineObjects);
     uint32 GetLastVisFrameId() { return m_nLastVisFrameId; }
-    void GetObjectsByType(PodArray<IRenderNode*>& lstObjects, EERType objType, const AABB* pBBox);
+    void GetObjectsByType(PodArray<IRenderNode*>& lstObjects, EERType objType, const AABB* pBBox, ObjectTreeQueryFilterCallback filterCallback = nullptr) override;
     void GetObjectsByFlags(uint dwFlags, PodArray<IRenderNode*>& lstObjects);
 
     void GetNearestCubeProbe(float& fMinDistance, int& nMaxPriority, CLightEntity*& pNearestLight, const AABB* pBBox);
@@ -460,7 +531,16 @@ public:
     static void LoadSingleObject(byte*& pPtr, std::vector<IStatObj*>* pStatObjTable, std::vector<_smart_ptr<IMaterial>>* pMatTable, EEndian eEndian, int nChunkVersion, const SLayerVisibility* pLayerVisibility, int nSID);
     bool IsRightNode(const AABB& objBox, const float fObjRadius, float fObjMaxViewDist);
     void GetMemoryUsage(ICrySizer* pSizer) const;
-    void UpdateTerrainNodes(CTerrainNode* pParentNode = 0);
+    void UpdateTerrainNodes(ITerrainNode* pParentNode = 0) override;
+
+    //! The engine will call this method when all of the static vegetation objects should be removed at once.
+    //! The Octree will use this signal as an optimization to avoid removing one by one each vegetation caster from the PodArray. 
+    void PrepareForRemovalOfAllVegetationCasters();
+
+    //! In connection with PrepareForRemovalOfAllVegetationCasters(), The engine will subsequently call this one
+    //! so the Octree can clear the PodArray of vegetation casters in an efficient manner.
+    void RemoveAllVegetationCasters();
+
 #ifdef SUPPORT_TERRAIN_AO_PRE_COMPUTATIONS
     bool RayObjectsIntersection2D(Vec3 vStart, Vec3 vEnd, Vec3& vClosestHitPoint, float& fClosestHitDistance, EERType eERType);
 #endif
@@ -528,7 +608,6 @@ private:
     COctreeNode* m_arrChilds[8];
     TDoublyLinkedList<IRenderNode> m_arrObjects[eRNListType_ListsNum];
     PodArray<SCasterInfo> m_lstCasters;
-    PodArray<IRenderNode*> m_lstVegetationsForRendering;
     Vec3 m_vNodeCenter;
     Vec3 m_vNodeAxisRadius;
     COctreeNode* m_pParent;
@@ -555,6 +634,8 @@ private:
     std::map<std::pair<IStatObj*, _smart_ptr<IMaterial>>, PodArray<SNodeInstancingInfo>*> * m_pStaticInstancingInfo;
 
     static void* m_pRenderContentJobQueue;
+    static bool m_removeVegetationCastersOneByOne;
+
 public:
     static PodArray<COctreeNode*> m_arrEmptyNodes;
 };

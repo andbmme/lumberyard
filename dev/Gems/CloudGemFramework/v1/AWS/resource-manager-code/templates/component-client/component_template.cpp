@@ -18,7 +18,7 @@
 
 {% if json_object.HasStdAfx %}
 #include "StdAfx.h"
-{% else %}
+{% elif json_object.DisabledPCH == False %}
 #include "{{ json_object.namespace }}_precompiled.h"
 {% endif %}
 
@@ -28,7 +28,7 @@
 namespace {{ json_object.namespace }} {
 namespace ServiceAPI {
 
-    {% for key, value in json_object.UUIDs.iteritems() %}
+    {% for key, value in json_object.UUIDs.items() %}
     const char* LmbrAWS_CodeGen_{{ key }}_UUID= "{{ value }}";
     {% endfor %}
 

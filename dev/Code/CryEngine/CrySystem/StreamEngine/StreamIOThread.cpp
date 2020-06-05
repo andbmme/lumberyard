@@ -114,6 +114,23 @@ void CStreamingIOThread::Run()
         if (m_nStreamingCPU != g_cvars.sys_streaming_cpu)
         {
             m_nStreamingCPU = g_cvars.sys_streaming_cpu;
+
+#if defined(AZ_RESTRICTED_PLATFORM)
+#undef AZ_RESTRICTED_SECTION
+#define STREAMIOTHREAD_CPP_SECTION_1 1
+#define STREAMIOTHREAD_CPP_SECTION_2 2
+#endif
+
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION STREAMIOTHREAD_CPP_SECTION_1
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/StreamIOThread_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/StreamIOThread_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/StreamIOThread_cpp_salem.inl"
+    #endif
+#endif
         }
 
         if (m_bNewRequests || !m_newFileRequests.empty())
@@ -123,11 +140,6 @@ void CStreamingIOThread::Run()
         }
         else
         {
-            if (m_eMediaType == eStreamSourceTypeDisc && gEnv->pSystem->GetPlatformOS())
-            {
-                gEnv->pSystem->GetPlatformOS()->SetOpticalDriveIdle(true);
-            }
-
 #if defined(_RELEASE)
             m_awakeEvent.Wait();
 #elif defined(STREAMENGINE_ENABLE_STATS)
@@ -156,11 +168,6 @@ void CStreamingIOThread::Run()
                 }
             }
 #endif
-
-            if (m_eMediaType == eStreamSourceTypeDisc && gEnv->pSystem->GetPlatformOS())
-            {
-                gEnv->pSystem->GetPlatformOS()->SetOpticalDriveIdle(false);
-            }
         }
 
         if (m_bNeedReset)
@@ -736,6 +743,16 @@ void CStreamingWorkerThread::Run()
 {
     SetName(m_name);
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION STREAMIOTHREAD_CPP_SECTION_2
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/StreamIOThread_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/StreamIOThread_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/StreamIOThread_cpp_salem.inl"
+    #endif
+#endif
 
     // Main thread loop
     while (!m_bCancelThreadRequest)

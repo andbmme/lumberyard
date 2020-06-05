@@ -12,11 +12,11 @@
 
 #pragma once
 
-// include MCore related files
+#include <AzCore/Outcome/Outcome.h>
 #include "EMotionFXConfig.h"
 #include "BaseObject.h"
 #include <MCore/Source/Array.h>
-#include <MCore/Source/UnicodeString.h>
+#include <AzCore/std/string/string.h>
 
 namespace EMotionFX
 {
@@ -42,13 +42,23 @@ namespace EMotionFX
     class EMFX_API Node
         : public BaseObject
     {
-        MCORE_MEMORYOBJECTCATEGORY(Node, EMFX_DEFAULT_ALIGNMENT, EMFX_MEMCATEGORY_NODES);
+        AZ_CLASS_ALLOCATOR_DECL
         friend class Actor;
 
     public:
         enum
         {
             TYPE_ID = 0x00000001
+        };
+
+        /**
+         * The node flags (options).
+         */
+        enum ENodeFlags
+        {
+            FLAG_INCLUDEINBOUNDSCALC = 1 << 0,           /**< Specifies whether we have to include this node in the bounds calculation or not (true on default). */
+            FLAG_ATTACHMENT = 1 << 1,           /**< Indicates if this node is an attachment node or not (false on default). */
+            FLAG_CRITICAL = 1 << 2            /**< Indicates if this node is a critical node. A critical node is always included the skeleton and cannot be optimized out (false on default). */
         };
 
         /**
@@ -60,7 +70,7 @@ namespace EMotionFX
 
         /**
          * Create method using a name ID.
-         * @param nameID The name ID, generated using the MCore::GetStringIDGenerator().
+         * @param nameID The name ID, generated using the MCore::GetStringIdPool().
          * @param skeleton The skeleton where this node will belong to, you still need to manually add it to the skeleton though.
          */
         static Node* Create(uint32 nameID, Skeleton* skeleton);
@@ -91,7 +101,7 @@ namespace EMotionFX
          * Get the parent node as node pointer.
          * @result Returns the pointer to the parent node, or nullptr in case there is no parent.
          */
-        Node* GetParentNode();
+        Node* GetParentNode() const;
 
         /**
          * Recursively go through the parents until a root node is reached and store all parents inside an array.
@@ -116,7 +126,7 @@ namespace EMotionFX
          * Gets the name of the node in form of String object.
          * @result The string containing the node name.
          */
-        const MCore::String& GetNameString() const;
+        const AZStd::string& GetNameString() const;
 
         /**
          * Set the semantic name.
@@ -134,7 +144,7 @@ namespace EMotionFX
          * Gets the semantic name as string.
          * @result The string containing the semantic name.
          */
-        const MCore::String& GetSemanticNameString() const;
+        const AZStd::string& GetSemanticNameString() const;
 
         /**
          * Get the unique ID of this node, which has been generated based on the name.
@@ -383,6 +393,19 @@ namespace EMotionFX
         void SetIncludeInBoundsCalc(bool includeThisNode);
 
         /**
+         * Check whether this node is critcal and should not be optimized out in any situations.
+         * Sometimes we perform optimization process on the node. This flag make sure that critical node will always be included in the actor heirarchy.
+         * @result Returns true when this node is critical, or false when it won't.
+         */
+        MCORE_INLINE bool GetIsCritical() const { return mNodeFlags & FLAG_CRITICAL; }
+
+        /**
+         * Specify whether this node is critcal and should not be optimized out in any situations.
+         * @param isCritical Set to true when you want this node to be critical.
+         */
+        void SetIsCritical(bool isCritical);
+
+        /**
          * Check if the node is an attachment node.
          * @return True if the node is an attachment node, false if not.
          */
@@ -395,15 +418,6 @@ namespace EMotionFX
         void SetIsAttachmentNode(bool isAttachmentNode);
 
     private:
-        /**
-         * The node flags (options).
-         */
-        enum ENodeFlags
-        {
-            FLAG_INCLUDEINBOUNDSCALC        = 1 << 0,           /**< Specifies whether we have to include this node in the bounds calculation or not (true on default). */
-            FLAG_ATTACHMENT                 = 1 << 1            /**< Indicates if this node is an attachment node or not (false on default). */
-        };
-
         uint32      mNodeIndex;         /**< The node index, which is the index into the array of nodes inside the Skeleton class. */
         uint32      mParentIndex;       /**< The parent node index, or MCORE_INVALIDINDEX32 when there is no parent. */
         uint32      mSkeletalLODs;      /**< The skeletal LOD status values. Each bit represents if this node is enabled or disabled in the given LOD. */
@@ -423,7 +437,7 @@ namespace EMotionFX
 
         /**
          * Constructor.
-         * @param nameID The name ID, generated using the MCore::GetStringIDGenerator().
+         * @param nameID The name ID, generated using the MCore::GetStringIdPool().
          * @param skeleton The skeleton where this node will belong to.
          */
         Node(uint32 nameID, Skeleton* skeleton);

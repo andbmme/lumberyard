@@ -25,14 +25,14 @@ SlicerEdit::SlicerEdit( SpriteBorder border,
 {
     bool isVertical = IsBorderVertical( border );
 
-    float totalUnscaledSizeInPixels = ( isVertical ? unscaledPixmapSize.width() : unscaledPixmapSize.height() );
+    float totalUnscaledSizeInPixels = aznumeric_cast<float>( isVertical ? unscaledPixmapSize.width() : unscaledPixmapSize.height() );
 
     setPixelPosition( GetBorderValueInPixels( sprite, border, totalUnscaledSizeInPixels ) );
 
     setValidator( new QDoubleValidator( 0.0f, totalUnscaledSizeInPixels, 1 ) );
 
     QObject::connect( this,
-                        &SlicerEdit::editingFinished,
+                        &SlicerEdit::editingFinished, this,
                         [ this, border, sprite, totalUnscaledSizeInPixels ]()
                         {
                             float p = text().toFloat();

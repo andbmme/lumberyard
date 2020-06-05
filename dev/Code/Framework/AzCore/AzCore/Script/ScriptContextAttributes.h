@@ -37,11 +37,30 @@ namespace AZ
             const static AZ::Crc32 ExcludeFrom = AZ_CRC("ExcludeFrom", 0xa98972fe);
             enum ExcludeFlags : AZ::u64
             {
-                List = 1 << 0,
+                List          = 1 << 0,
                 Documentation = 1 << 1,
-                Preview = 1 << 2,
-                All = static_cast<AZ::u64>(-1)
+                Preview       = 1 << 2,
+                ListOnly      = 1 << 3,
+                All           = (List | Documentation | Preview)
             };
+
+            //! Used to specify the usage of a Behavior Context element (e.g. Class or EBus) designed for automation scripts
+            const static AZ::Crc32 Scope = AZ_CRC("Scope", 0x00af55d3); 
+            enum class ScopeFlags : AZ::u64
+            {
+                Launcher = 1 << 0,               //< a type meant for game run-time Launcher client (default value)
+                Automation = 1 << 1,             //< a type meant for Editor automation
+                Common = (Launcher | Automation) //< a common type used with the Launcher, content creation in the Editor, and the Editor's game mode
+            };
+
+            //! Provide a partition hierarchy in a string dotted notation to namespace a script element
+            const static AZ::Crc32 Module = AZ_CRC("Module", 0x0c242628);
+
+            //! Provide an alternate name for script elements such as helpful PEP8 Python methods and property aliases
+            const static AZ::Crc32 Alias = AZ_CRC("Alias", 0xe16c6b94);
+
+            const static AZ::Crc32 EnableAsScriptEventParamType = AZ_CRC("ScriptEventParam", 0xa41e4cb0);
+            const static AZ::Crc32 EnableAsScriptEventReturnType = AZ_CRC("ScriptEventReturn", 0xf89b5337);
 
             const static AZ::Crc32 Storage = AZ_CRC("ScriptStorage", 0xcd95b44d);
             enum class StorageType

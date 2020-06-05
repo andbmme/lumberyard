@@ -19,6 +19,12 @@
 #include "ParticleEmitter.h"
 #include "VisAreas.h"
 
+#ifdef LY_TERRAIN_RUNTIME
+#include <Terrain/Bus/TerrainProviderBus.h>
+#endif
+#include <Terrain/Bus/LegacyTerrainBus.h>
+#include <AzFramework/Terrain/TerrainDataRequestBus.h>
+
 //////////////////////////////////////////////////////////////////////////
 // SPhysEnviron implementation.
 //////////////////////////////////////////////////////////////////////////
@@ -56,7 +62,9 @@ void SPhysEnviron::GetWorldPhysAreas(uint32 nFlags, bool bNonUniformAreas)
     // Mark areas as queried.
     m_nNonUniformFlags |= EFF_LOADED;
 
-    Vec3 vWorldSize(GetTerrain() ? float(GetTerrain()->GetTerrainSize()) : 0.f);
+    AZ::Aabb terrainAabb = AZ::Aabb::CreateFromPoint(AZ::Vector3::CreateZero());
+    AzFramework::Terrain::TerrainDataRequestBus::BroadcastResult(terrainAabb, &AzFramework::Terrain::TerrainDataRequests::GetTerrainAabb);
+    Vec3 vWorldSize(terrainAabb.GetWidth(), terrainAabb.GetHeight(), terrainAabb.GetDepth());
 
     // Atomic iteration.
     for (IPhysicalEntity* pArea = 0; pArea = GetPhysicalWorld()->GetNextArea(pArea); )
@@ -356,27 +364,33 @@ bool SPhysEnviron::PhysicsCollision(ray_hit& hit, Vec3 const& vStart, Vec3 const
     hit.dist = 1.f;
 
     // Collide terrain first (if set as separately colliding).
-    if ((nEnvFlags & ~ENV_COLLIDE_PHYSICS & ENV_TERRAIN) && !pTestEntity && GetTerrain())
+    // NEW-TERRAIN LY-103227:  Need to make particle collisions work with new terrain system
+    // NEW-TERRAIN LY-101543:  Need to replace specific terrain calls with abstracted API
+    if ((nEnvFlags & ~ENV_COLLIDE_PHYSICS & ENV_TERRAIN) && !pTestEntity)
     {
-        nEnvFlags &= ~ENV_TERRAIN;
-        CTerrain::SRayTrace rt;
-        if (GetTerrain()->RayTrace(vStart, vStart + vMove, &rt))
+        auto legacyTerrain = LegacyTerrain::LegacyTerrainDataRequestBus::FindFirstHandler();
+        if (legacyTerrain)
         {
-            if ((fMoveNorm = rt.hitNormal * vMove) < 0.f)
+            nEnvFlags &= ~ENV_TERRAIN;
+            LegacyTerrain::SRayTrace rt;
+            if (legacyTerrain->RayTrace(vStart, vStart + vMove, &rt))
             {
-                bHit = true;
-                hit.dist = rt.t;
-                hit.pt = rt.hitPoint;
-                hit.n = rt.hitNormal;
-                if (rt.material)
+                if ((fMoveNorm = rt.hitNormal * vMove) < 0.f)
                 {
-                    hit.surface_idx = rt.material->GetSurfaceTypeId();
+                    bHit = true;
+                    hit.dist = rt.t;
+                    hit.pt = rt.hitPoint;
+                    hit.n = rt.hitNormal;
+                    if (rt.material)
+                    {
+                        hit.surface_idx = rt.material->GetSurfaceTypeId();
+                    }
+                    else
+                    {
+                        hit.surface_idx = 0;
+                    }
+                    hit.bTerrain = true;
                 }
-                else
-                {
-                    hit.surface_idx = 0;
-                }
-                hit.bTerrain = true;
             }
         }
     }
@@ -484,8 +498,15 @@ void SPhysEnviron::SArea::GetForces(SPhysForces& forces, Vec3 const& vPos, uint3
             }
 
             Vec3 vDist = m_matToLocal * vPosRel;
-            float fDist = m_nGeomShape == GEOM_BOX ? max(max(abs(vDist.x), abs(vDist.y)), abs(vDist.z))
-                : vDist.GetLengthFast();
+            
+            // We want to avoid any Nan in the case vDist is zero.
+            float fDist = 0;
+            if ((vDist*vDist) != 0)
+            {
+                fDist = m_nGeomShape == GEOM_BOX ? max(max(abs(vDist.x), abs(vDist.y)), abs(vDist.z))
+                    : vDist.GetLengthFast();
+            }
+           
             if (fDist <= 1.f)
             {
                 float fStrength = min((1.f - fDist) * m_fFalloffScale, 1.f);

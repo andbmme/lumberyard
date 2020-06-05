@@ -33,12 +33,11 @@ public:
         MCORE_DEFINECOMMAND_START(CommandAdjustActorInstance, "Adjust actor instance", true)
 public:
     AZ::Vector3         mOldPosition;
-    MCore::Quaternion   mOldRotation;
+    AZ::Quaternion      mOldRotation;
     AZ::Vector3         mOldScale;
     uint32              mOldLODLevel;
     bool                mOldIsVisible;
     bool                mOldDoRender;
-    bool                mOldAttachmentFastUpdate;
     bool                mOldWorkspaceDirtyFlag;
     MCORE_DEFINECOMMAND_END
 
@@ -47,12 +46,11 @@ public:
         MCORE_DEFINECOMMAND_START(CommandRemoveActorInstance, "Remove actor instance", true)
     uint32              mOldActorID;
     AZ::Vector3         mOldPosition;
-    MCore::Quaternion   mOldRotation;
+    AZ::Quaternion      mOldRotation;
     AZ::Vector3         mOldScale;
     uint32              mOldLODLevel;
     bool                mOldIsVisible;
     bool                mOldDoRender;
-    bool                mOldAttachmentFastUpdate;
     bool                mOldWorkspaceDirtyFlag;
     MCORE_DEFINECOMMAND_END
 

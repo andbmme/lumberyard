@@ -15,6 +15,8 @@
 #include <RC/ResourceCompilerScene/Common/ExportContextGlobal.h>
 #include <SceneAPI/SceneCore/Events/CallProcessorBus.h>
 #include <SceneAPI/SceneCore/Events/ExportEventContext.h>
+#include <RCExt/CoordinateSystemConverter.h>
+
 #include <AzCore/RTTI/RTTI.h>
 
 namespace AZ
@@ -114,7 +116,7 @@ namespace EMotionFX
             AZ_RTTI(ActorBuilderContext, "{92048988-F567-4E6C-B6BD-3EFD2A5B6AA1}", AZ::SceneAPI::Events::ICallContext);
 
             ActorBuilderContext(const AZ::SceneAPI::Containers::Scene& scene, const AZStd::string& outputDirectory,
-                const Group::IActorGroup& actorGroup, EMotionFX::Actor* actor, AZ::RC::Phase phase);
+                const Group::IActorGroup& actorGroup, EMotionFX::Actor* actor, AZStd::vector<AZStd::string>& materialReferences, AZ::RC::Phase phase);
             ActorBuilderContext(const ActorBuilderContext& copyContext, AZ::RC::Phase phase);
             ActorBuilderContext(const ActorBuilderContext& copyContext) = delete;
             ~ActorBuilderContext() override = default;
@@ -125,7 +127,30 @@ namespace EMotionFX
             const AZStd::string&                            m_outputDirectory;
             EMotionFX::Actor*                               m_actor;
             const Group::IActorGroup&                       m_group;
+            AZStd::vector<AZStd::string>&                   m_materialReferences;
             const AZ::RC::Phase                             m_phase;
+        };
+        
+        // Context structure for building the actors morph data structure for the purpose of exporting.
+        struct ActorMorphBuilderContext
+            : public AZ::SceneAPI::Events::ICallContext
+        {
+            AZ_RTTI(ActorMorphBuilderContext, "{A9D4B0B1-016B-4714-BD95-85A9DEFC254B}", AZ::SceneAPI::Events::ICallContext);
+        
+            ActorMorphBuilderContext(const AZ::SceneAPI::Containers::Scene& scene, AZStd::vector<AZ::u32>* meshNodeIndices,
+                const Group::IActorGroup& actorGroup, EMotionFX::Actor* actor, CoordinateSystemConverter& coordinateSystemConverter, AZ::RC::Phase phase);
+            ActorMorphBuilderContext(const ActorMorphBuilderContext& copyContext, AZ::RC::Phase phase);
+            ActorMorphBuilderContext(const ActorMorphBuilderContext& copyContext) = delete;
+            ~ActorMorphBuilderContext() override = default;
+
+            ActorMorphBuilderContext& operator=(const ActorMorphBuilderContext& other) = delete;
+
+            const AZ::SceneAPI::Containers::Scene&  m_scene;
+            AZStd::vector<AZ::u32>*                 m_meshNodeIndices;
+            EMotionFX::Actor*                       m_actor;
+            const Group::IActorGroup&               m_group;
+            CoordinateSystemConverter               m_coordinateSystemConverter;
+            const AZ::RC::Phase                     m_phase;
         };
     }
 }

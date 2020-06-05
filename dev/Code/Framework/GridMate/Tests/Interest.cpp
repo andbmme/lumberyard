@@ -10,6 +10,7 @@
 *
 */
 #include "Tests.h"
+#include <GridMate_Traits_Platform.h>
 
 #include <GridMate/Session/LANSession.h>
 
@@ -705,7 +706,10 @@ class Integ_InterestTest
             , m_im(nullptr)
             , m_bitmaskHandler(nullptr)
             , m_num(0)
-        { }
+        {
+            GridMate::ReplicaChunkDescriptorTable::Get().RegisterChunkType<GridMate::BitmaskInterestChunk>();
+            GridMate::ReplicaChunkDescriptorTable::Get().RegisterChunkType<GridMate::ProximityInterestChunk>();
+        }
 
         void CreateTestReplica()
         {
@@ -1112,14 +1116,6 @@ class LargeWorldTest
 
     struct LargeWorldParams
     {
-#if defined(AZ_COMPILER_MSVC) && AZ_COMPILER_MSVC <= 1800
-        // VS 2013 fails to generate an assignment operator :(
-        void operator=(const LargeWorldParams& copy)
-        {
-            index = copy.index;
-        }
-#endif
-
         AZ::u32 index = 0;
 
         const float commonSize = 50;
@@ -1167,7 +1163,15 @@ class LargeWorldTest
             , m_im(nullptr)
             , m_proximityHandler(nullptr)
             , m_num(0)
-        { }
+        {
+            GridMate::ReplicaChunkDescriptorTable::Get().RegisterChunkType<GridMate::BitmaskInterestChunk>();
+            GridMate::ReplicaChunkDescriptorTable::Get().RegisterChunkType<GridMate::ProximityInterestChunk>();
+        }
+
+        ~LargeWorldTestPeerInfo()
+        {
+            SessionEventBus::Handler::BusDisconnect();
+        }
 
         void CreateHostRuleHandler()
         {
@@ -1812,6 +1816,8 @@ public:
 
 GM_TEST_SUITE(InterestSuite)
     GM_TEST(Integ_InterestTest);
-    GM_TEST(LargeWorldTest);
+#if AZ_TRAIT_GRIDMATE_TEST_EXCLUDE_LARGEWORLDTEST != 0
+        GM_TEST(LargeWorldTest);
+#endif
     GM_TEST(ProximityHandlerTests);
 GM_TEST_SUITE_END()

@@ -11,11 +11,12 @@
 */
 #include "native/AssetManager/assetScannerWorker.h"
 #include "native/AssetManager/assetScanner.h"
-#include "native/utilities/AssetUtils.h"
+#include "native/utilities/assetUtils.h"
 #include "native/utilities/PlatformConfiguration.h"
 #include <QDir>
 #include <QFileInfo>
 #include <QFileInfoList>
+#include <QDateTime>
 
 using namespace AssetProcessor;
 
@@ -31,16 +32,20 @@ void AssetScannerWorker::StartScan()
     Q_ASSERT(QThread::currentThread() == this->thread());
 
     m_fileList.clear();
+    m_folderList.clear();
     m_doScan = true;
+
+    AZ_TracePrintf(AssetProcessor::ConsoleChannel, "Scanning file system for changes...\n");
 
     Q_EMIT ScanningStateChanged(AssetProcessor::AssetScanningStatus::Started);
     Q_EMIT ScanningStateChanged(AssetProcessor::AssetScanningStatus::InProgress);
 
     for (int idx = 0; idx < m_platformConfiguration->GetScanFolderCount(); idx++)
     {
-        ScanFolderInfo scanFolderInfo = m_platformConfiguration->GetScanFolderAt(idx);
-        ScanForSourceFiles(scanFolderInfo);
+        const ScanFolderInfo& scanFolderInfo = m_platformConfiguration->GetScanFolderAt(idx);
+        ScanForSourceFiles(scanFolderInfo, scanFolderInfo);
     }
+
     // we want not to emit any signals until we're finished scanning
     // so that we don't interleave directory tree walking (IO access to the file table)
     // with file access (IO access to file data) caused by sending signals to other classes.
@@ -48,6 +53,7 @@ void AssetScannerWorker::StartScan()
     if (!m_doScan)
     {
         m_fileList.clear();
+        m_folderList.clear();
         Q_EMIT ScanningStateChanged(AssetProcessor::AssetScanningStatus::Stopped);
         return;
     }
@@ -55,6 +61,8 @@ void AssetScannerWorker::StartScan()
     {
         EmitFiles();
     }
+
+    AZ_TracePrintf(AssetProcessor::ConsoleChannel, "File system scan done.\n");
 
     Q_EMIT ScanningStateChanged(AssetProcessor::AssetScanningStatus::Completed);
 }
@@ -67,7 +75,7 @@ void AssetScannerWorker::StopScan()
     m_doScan = false;
 }
 
-void AssetScannerWorker::ScanForSourceFiles(ScanFolderInfo scanFolderInfo)
+void AssetScannerWorker::ScanForSourceFiles(const ScanFolderInfo& scanFolderInfo, const ScanFolderInfo& rootScanFolder)
 {
     if (!m_doScan)
     {
@@ -96,42 +104,29 @@ void AssetScannerWorker::ScanForSourceFiles(ScanFolderInfo scanFolderInfo)
         }
 
         QString absPath = entry.absoluteFilePath();
+        const bool isDirectory = entry.isDir();
+        QDateTime modTime = entry.lastModified();
+        AZ::u64 fileSize = isDirectory ? 0 : entry.size();
+        AssetFileInfo assetFileInfo(absPath, modTime, fileSize, &rootScanFolder, isDirectory);
 
         // Filtering out excluded files
         if (m_platformConfiguration->IsFileExcluded(absPath))
         {
+            m_excludedList.insert(AZStd::move(assetFileInfo));
             continue;
         }
 
-        if (entry.isDir())
+        if (isDirectory)
         {
             //Entry is a directory
+            m_folderList.insert(AZStd::move(assetFileInfo));
             ScanFolderInfo tempScanFolderInfo(absPath, "", "", "", false, true);
-            ScanForSourceFiles(tempScanFolderInfo);
+            ScanForSourceFiles(tempScanFolderInfo, rootScanFolder);
         }
         else
         {
-            // Filtering out metadata files as well, there is no need to send both the source file and the metadafiles 
-            // to the apm for analysis, just sending the source file should be enough
-            bool isMetaFile = false;
-            for (int idx = 0; idx < m_platformConfiguration->MetaDataFileTypesCount(); idx++)
-            {
-                QPair<QString, QString> metaInfo = m_platformConfiguration->GetMetaDataFileTypeAt(idx);
-                if (absPath.endsWith("." + metaInfo.first, Qt::CaseInsensitive))
-                {
-                    // its a meta file
-                    isMetaFile = true;
-                    break;
-                }
-            }
-
-            if (isMetaFile)
-            {
-                continue;
-            }
-
             //Entry is a file
-            m_fileList.insert(absPath);
+            m_fileList.insert(AZStd::move(assetFileInfo));
         }
     }
 }
@@ -139,15 +134,13 @@ void AssetScannerWorker::ScanForSourceFiles(ScanFolderInfo scanFolderInfo)
 void AssetScannerWorker::EmitFiles()
 {
     //Loop over all source asset files and send them up the chain:
-    for (const QString& fileEntries : m_fileList)
-    {
-        if (!m_doScan)
-        {
-            break;
-        }
-        Q_EMIT FileOfInterestFound(fileEntries);
-    }
+    Q_EMIT FilesFound(m_fileList);
     m_fileList.clear();
+    Q_EMIT FoldersFound(m_folderList);
+    m_folderList.clear();
+    Q_EMIT ExcludedFound(m_excludedList);
+    m_excludedList.clear();
+    
 }
 
 

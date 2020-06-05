@@ -42,17 +42,17 @@ namespace AZ
         {
         public:
             ByteContainerStream(ContainerType* buffer, size_t maxGrowSize = 5 * 1024 * 1024);
-            virtual ~ByteContainerStream() {}
+            ~ByteContainerStream() override {}
 
-            virtual bool        IsOpen() const                              { return true; }
-            virtual bool        CanSeek() const                             { return true; }
-            virtual bool        CanRead() const override                    { return true; }
-            virtual bool        CanWrite() const override                   { return true; }
-            virtual SizeType    GetCurPos() const                           { return m_pos; }
-            virtual SizeType    GetLength() const                           { return m_buffer->size(); }
-            virtual void        Seek(OffsetType bytes, SeekMode mode);
-            virtual SizeType    Read(SizeType bytes, void* oBuffer);
-            virtual SizeType    Write(SizeType bytes, const void* iBuffer);
+            bool        IsOpen() const override                              { return true; }
+            bool        CanSeek() const override                             { return true; }
+            bool        CanRead() const override                    { return true; }
+            bool        CanWrite() const override                   { return true; }
+            SizeType    GetCurPos() const override                           { return m_pos; }
+            SizeType    GetLength() const override                           { return m_buffer->size(); }
+            void        Seek(OffsetType bytes, SeekMode mode) override;
+            SizeType    Read(SizeType bytes, void* oBuffer) override;
+            SizeType    Write(SizeType bytes, const void* iBuffer) override;
             template<typename T>
             inline SizeType Write(const T* iBuffer)
             {
@@ -122,7 +122,7 @@ namespace AZ
             , m_pos(0)
             , m_maxGrowSize(maxGrowSize)
         {
-            AZ_STATIC_ASSERT(sizeof(typename ContainerType::value_type) == 1, "The buffer is not a container of bytes!");
+            static_assert(sizeof(typename ContainerType::value_type) == 1, "The buffer is not a container of bytes!");
             AZ_Assert(m_buffer, "You cannot make a ByteContainerStream with buffer = null!");
         }
 
@@ -135,10 +135,6 @@ namespace AZ
         template<typename ContainerType>
         SizeType ByteContainerStream<ContainerType>::Read(SizeType bytes, void* oBuffer)
         {
-#       ifdef AZ_OS32
-            AZ_Assert(bytes < 1 * 1024 * 1024 * 1024, "You can't read more than 1GB on 32 bit platform!");
-#       endif
-
             size_t len = m_buffer->size();
             size_t bytesToRead = 0;
             if (m_pos + static_cast<size_t>(bytes) < len)

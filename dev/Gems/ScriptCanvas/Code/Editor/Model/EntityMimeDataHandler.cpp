@@ -29,9 +29,13 @@
 #include <AzCore/Component/Entity.h>
 
 #include <GraphCanvas/Components/SceneBus.h>
+#include <GraphCanvas/Components/GridBus.h>
 #include <GraphCanvas/Components/ViewBus.h>
 #include <GraphCanvas/Components/VisualBus.h>
 #include <Core/GraphBus.h>
+
+#include <ScriptCanvas/Variable/VariableBus.h>
+#include <GraphCanvas/Utils/GraphUtils.h>
 
 namespace ScriptCanvasEditor
 {
@@ -51,7 +55,7 @@ namespace ScriptCanvasEditor
             return;
         }
 
-        serializeContext->Class<EntityMimeDataHandler>()
+        serializeContext->Class<EntityMimeDataHandler, AZ::Component>()
             ->Version(1)
             ;
     }
@@ -69,14 +73,18 @@ namespace ScriptCanvasEditor
         GraphCanvas::SceneMimeDelegateHandlerRequestBus::Handler::BusDisconnect();
     }
     
-    bool EntityMimeDataHandler::IsInterestedInMimeData(const AZ::EntityId& sceneId, const QMimeData* mimeData) const
+    bool EntityMimeDataHandler::IsInterestedInMimeData(const AZ::EntityId& sceneId, const QMimeData* mimeData)
     {        
         (void)sceneId;
 
         return mimeData->hasFormat(EntityMimeData::GetMimeType());
     }    
 
-    void EntityMimeDataHandler::HandleDrop(const AZ::EntityId& sceneId, const QPointF& dropPoint, const QMimeData* mimeData)
+    void EntityMimeDataHandler::HandleMove(const AZ::EntityId&, const QPointF&, const QMimeData*)
+    {
+    }
+
+    void EntityMimeDataHandler::HandleDrop(const AZ::EntityId& graphCanvasGraphId, const QPointF& dropPoint, const QMimeData* mimeData)
     {
         if (!mimeData->hasFormat(EntityMimeData::GetMimeType()))
         {
@@ -97,19 +105,81 @@ namespace ScriptCanvasEditor
         {
             return;
         }
-        
-        AZ::Vector2 pos(dropPoint.x(), dropPoint.y());
 
-        AZ::EntityId graphId;
-        ScriptCanvasEditor::GeneralRequestBus::BroadcastResult(graphId, &ScriptCanvasEditor::GeneralRequests::GetGraphId, sceneId);
+        ScriptCanvas::ScriptCanvasId scriptCanvasId;
+        GeneralRequestBus::BroadcastResult(scriptCanvasId, &GeneralRequests::GetScriptCanvasId, graphCanvasGraphId);
 
-        for (const AZ::EntityId& id : entityIdListContainer.m_entityIds)
+        AZStd::vector< ScriptCanvas::VariableId > variableIds;
+        variableIds.reserve(entityIdListContainer.m_entityIds.size());
+
         {
-            NodeIdPair nodePair = Nodes::CreateEntityNode(id, graphId);
-            GraphCanvas::SceneRequestBus::Event(sceneId, &GraphCanvas::SceneRequests::AddNode, nodePair.m_graphCanvasId, pos);
-            pos += AZ::Vector2(20, 20);
+            GraphCanvas::ScopedGraphUndoBlocker undoBlocker(graphCanvasGraphId);
+
+            AZ::Vector2 pos(aznumeric_cast<float>(dropPoint.x()), aznumeric_cast<float>(dropPoint.y()));
+
+            for (const AZ::EntityId& entityId : entityIdListContainer.m_entityIds)
+            {
+                AZStd::string variableName;
+
+                AZ::Entity* entity = nullptr;
+                AZ::ComponentApplicationBus::BroadcastResult(entity, &AZ::ComponentApplicationRequests::FindEntity, entityId);
+
+                if (entity)
+                {
+                    // Because we add in the entity id to this.
+                    // we make the name mostly unique.
+                    // If we just use the name, we'll run into some potential rename issues when looking things up.
+                    variableName = AZStd::string::format("%s %s", entity->GetName().c_str(), entityId.ToString().c_str());
+
+                    ScriptCanvas::GraphVariable* graphVariable = nullptr;
+                    ScriptCanvas::GraphVariableManagerRequestBus::EventResult(graphVariable, scriptCanvasId, &ScriptCanvas::GraphVariableManagerRequests::FindVariable, variableName);
+
+                    // If the variable datum already exists. That means we already have a reference to that. So we don't need to create it.
+                    if (graphVariable)
+                    {
+                        variableIds.emplace_back(graphVariable->GetVariableId());
+                    }
+                    else
+                    {
+                        ScriptCanvas::Datum datum = ScriptCanvas::Datum(entityId);
+
+                        AZ::Outcome<ScriptCanvas::VariableId, AZStd::string > addVariableOutcome;
+                        ScriptCanvas::GraphVariableManagerRequestBus::EventResult(addVariableOutcome, scriptCanvasId, &ScriptCanvas::GraphVariableManagerRequests::AddVariable, variableName, datum);
+
+                        if (addVariableOutcome.IsSuccess())
+                        {
+                            variableIds.emplace_back(addVariableOutcome.GetValue());
+                        }
+                    }
+                }
+            }
+
+            if (!variableIds.empty())
+            {
+                AZ::EntityId gridId;
+                GraphCanvas::SceneRequestBus::EventResult(gridId, graphCanvasGraphId, &GraphCanvas::SceneRequests::GetGrid);
+
+                AZ::Vector2 gridStep;
+                GraphCanvas::GridRequestBus::EventResult(gridStep, gridId, &GraphCanvas::GridRequests::GetMinorPitch);
+
+                for (const ScriptCanvas::VariableId& variableId : variableIds)
+                {
+                    NodeIdPair nodePair = Nodes::CreateGetVariableNode(variableId, scriptCanvasId);
+                    GraphCanvas::SceneRequestBus::Event(graphCanvasGraphId, &GraphCanvas::SceneRequests::AddNode, nodePair.m_graphCanvasId, pos);
+                    pos += gridStep;
+                }
+                
+            }
         }
 
-        GeneralRequestBus::Broadcast(&GeneralRequests::PostUndoPoint, sceneId);        
+        if (!variableIds.empty())
+        {
+            GeneralRequestBus::Broadcast(&GeneralRequests::PostUndoPoint, scriptCanvasId);
+        }
     }
-} // namespace GraphCanvas
+
+    void EntityMimeDataHandler::HandleLeave(const AZ::EntityId&, const QMimeData*)
+    {
+
+    }
+} // namespace ScriptCanvasEditor

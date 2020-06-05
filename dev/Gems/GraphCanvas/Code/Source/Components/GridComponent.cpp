@@ -33,7 +33,7 @@ namespace GraphCanvas
             return;
         }
 
-        serializeContext->Class<GridComponent>()
+        serializeContext->Class<GridComponent, AZ::Component>()
             ->Version(1)
             ->Field("MajorPitch", &GridComponent::m_majorPitch)
             ->Field("MinorPitch", &GridComponent::m_minorPitch)
@@ -69,6 +69,7 @@ namespace GraphCanvas
         entity->CreateComponent<StylingComponent>(Styling::Elements::Graph);
 
         entity->Init();
+        entity->Activate();
 
         return entity;
     }
@@ -135,7 +136,7 @@ namespace GraphCanvas
         SceneMemberNotificationBus::Event(GetEntityId(), &SceneMemberNotifications::OnSceneSet, m_scene);
     }
 
-    void GridComponent::ClearScene(const AZ::EntityId& oldScene)
+    void GridComponent::ClearScene(const AZ::EntityId& /*oldScene*/)
     {
         AZ_Assert(m_scene.IsValid(), "This grid (ID: %s) is not in a scene!", GetEntityId().ToString().data());
         AZ_Assert(GetEntityId().IsValid(), "This grid (ID: %s) doesn't have an Entity!", GetEntityId().ToString().data());
@@ -145,7 +146,7 @@ namespace GraphCanvas
             return;
         }
 
-        SceneMemberNotificationBus::Event(GetEntityId(), &SceneMemberNotifications::OnSceneCleared, m_scene);
+        SceneMemberNotificationBus::Event(GetEntityId(), &SceneMemberNotifications::OnRemovedFromScene, m_scene);
         m_scene.SetInvalid();
     }
 

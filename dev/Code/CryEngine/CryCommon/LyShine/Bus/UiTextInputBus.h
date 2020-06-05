@@ -21,7 +21,7 @@ class UiTextInputInterface
 {
 public: // types
 
-    typedef std::function<void(AZ::EntityId, const AZStd::string&)> TextInputCallback;
+    typedef AZStd::function<void(AZ::EntityId, const AZStd::string&)> TextInputCallback;
 
 public: // member functions
 
@@ -128,6 +128,12 @@ public: // member functions
     //! Note that setting a replacement character doesn't determine whether this
     //! text input will be used as a password field (see GetIsPasswordField).
     virtual void SetReplacementCharacter(uint32_t replacementChar) = 0;
+
+    //! True if copy/cut/paste should be supported, false otherwise
+    virtual bool GetIsClipboardEnabled() = 0;
+
+    //! Allows copy/cut/paste support for this text input
+    virtual void SetIsClipboardEnabled(bool enableClipboard) = 0;
 
 public: // static member data
 

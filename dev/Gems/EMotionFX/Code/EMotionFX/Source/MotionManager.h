@@ -12,12 +12,13 @@
 
 #pragma once
 
-// include the required headers
-#include "EMotionFXConfig.h"
-#include "BaseObject.h"
+#include <AzCore/Debug/Trace.h>
+#include <AzCore/Memory/Memory.h>
 #include <MCore/Source/Array.h>
-#include <MCore/Source/UnicodeString.h>
+#include <MCore/Source/Config.h>
 #include <MCore/Source/MultiThreadManager.h>
+#include <EMotionFX/Source/BaseObject.h>
+#include <EMotionFX/Source/EMotionFXConfig.h>
 
 
 namespace EMotionFX
@@ -30,7 +31,7 @@ namespace EMotionFX
     class EMFX_API MotionManager
         : public BaseObject
     {
-        MCORE_MEMORYOBJECTCATEGORY(MotionManager, EMFX_DEFAULT_ALIGNMENT, EMFX_MEMCATEGORY_MOTIONS_MOTIONMANAGER);
+        AZ_CLASS_ALLOCATOR_DECL
         friend class Initializer;
         friend class EMotionFXManager;
 
@@ -191,10 +192,10 @@ namespace EMotionFX
         /**
          * Find motion set by name.
          * @param[in] name The name of the motion set.
-         * @param[in] isTool Set when calling this function from the tools environment (default).
+         * @param[in] isOwnedByRuntime Set when calling this function from Ly environment (default false to mean called from EMotionStudio).
          * @return A pointer to the motion set with the given name. nullptr in case the motion set has not been found.
          */
-        MotionSet* FindMotionSetByName(const char* name, bool isTool = true) const;
+        MotionSet* FindMotionSetByName(const char* name, bool isOwnedByRuntime = false) const;
 
         /**
          * Find motion set by id.
@@ -255,10 +256,5 @@ namespace EMotionFX
          * Default constructor.
          */
         MotionManager();
-
-        /**
-         * Destructor.
-         */
-        ~MotionManager();
     };
 } // namespace EMotionFX

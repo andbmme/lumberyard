@@ -13,13 +13,16 @@
 #include "QtViewPaneManager.h"
 #include "Controls/ConsoleSCB.h"
 #include "Controls/RollupBar.h"
-#include "fancydocking.h"
+#include <AzQtComponents/Components/FancyDocking.h>
+#include <AzQtComponents/Components/Titlebar.h>
+#include <AzQtComponents/Components/Widgets/Card.h>
 
 #include <QDockWidget>
 #include <QMainWindow>
 #include <QDataStream>
 #include <QDebug>
 #include <QCloseEvent>
+#include <QLayout>
 #include <QApplication>
 #include <QRect>
 #include <QDesktopWidget>
@@ -28,6 +31,7 @@
 #include <QCursor>
 #include <QTimer>
 #include <QStackedWidget>
+#include <QGraphicsOpacityEffect>
 #include "MainWindow.h"
 
 #include <algorithm>
@@ -38,17 +42,25 @@
 #include <AzAssetBrowser/AzAssetBrowserWindow.h>
 #include <AzToolsFramework/UI/UICore/WidgetHelpers.h>
 #include <AzQtComponents/Utilities/AutoSettingsGroup.h>
+#include <AzToolsFramework/UI/PropertyEditor/ComponentEditor.hxx>
+#include <AzToolsFramework/UI/PropertyEditor/EntityPropertyEditor.hxx>
+#include <AzToolsFramework/Viewport/ViewportMessages.h>
+#include <AzQtComponents/Utilities/QtViewPaneEffects.h>
+
+#include "ShortcutDispatcher.h"
 
 struct ViewLayoutState
 {
     QVector<QString> viewPanes;
     QByteArray mainWindowState;
+    QMap<QString, QRect> fakeDockWidgetGeometries;
 };
 Q_DECLARE_METATYPE(ViewLayoutState)
 
 static QDataStream &operator<<(QDataStream & out, const ViewLayoutState&myObj)
 {
-    out << myObj.viewPanes << myObj.mainWindowState;
+    int placeHolderVersion = 1;
+    out << myObj.viewPanes << myObj.mainWindowState << placeHolderVersion << myObj.fakeDockWidgetGeometries;
     return out;
 }
 
@@ -56,10 +68,16 @@ static QDataStream& operator>>(QDataStream& in, ViewLayoutState& myObj)
 {
     in >> myObj.viewPanes;
     in >> myObj.mainWindowState;
+
+    int version = 0;
+    if (!in.atEnd())
+    {
+        in >> version;
+        in >> myObj.fakeDockWidgetGeometries;
+    }
+
     return in;
 }
-
-
 
 // All settings keys for stored layouts are in the form "layouts/<name>"
 // When starting up, "layouts/last" is loaded
@@ -69,6 +87,35 @@ static QString GetFancyViewPaneStateGroupName()
 {
     return QString("%1/%2").arg("Editor").arg("fancyWindowLayouts");
 }
+
+#if AZ_TRAIT_OS_PLATFORM_APPLE
+// this event filter class eats mouse events
+// it is used in the non dockable fake dock widget
+// to make sure its inner title bar cannot be dragged
+class MouseEatingEventFilter : public QObject
+{
+public:
+    MouseEatingEventFilter(QObject* parent)
+        : QObject(parent)
+    {
+    }
+
+protected:
+    bool eventFilter(QObject*, QEvent* event) override
+    {
+        switch (event->type())
+        {
+            case QEvent::MouseButtonPress:
+            case QEvent::MouseButtonRelease:
+            case QEvent::MouseButtonDblClick:
+            case QEvent::MouseMove:
+                return true;
+            default:
+                return false;
+        }
+    }
+};
+#endif
 
 Q_GLOBAL_STATIC(QtViewPaneManager, s_instance)
 
@@ -112,7 +159,7 @@ bool QtViewPane::Close(QtViewPane::CloseModes closeModes)
     return CloseInstance(m_dockWidget, closeModes);
 }
 
-bool QtViewPane::CloseInstance(QDockWidget* dockWidget, CloseModes closeModes) 
+bool QtViewPane::CloseInstance(QDockWidget* dockWidget, CloseModes closeModes)
 {
     if (!dockWidget)
     {
@@ -195,19 +242,28 @@ static bool SkipTitleBarOverdraw(QtViewPane* pane)
     return !pane->m_options.isDockable;
 }
 
-DockWidget::DockWidget(QWidget* widget, QtViewPane* pane, QSettings* settings, QMainWindow* parent, FancyDocking* advancedDockManager)
-    : AzQtComponents::StyledDockWidget(pane->m_name, SkipTitleBarOverdraw(pane), parent)
+DockWidget::DockWidget(QWidget* widget, QtViewPane* pane, QSettings* settings, QMainWindow* parent, AzQtComponents::FancyDocking* advancedDockManager)
+    : AzQtComponents::StyledDockWidget(pane->m_name, SkipTitleBarOverdraw(pane),
+#if AZ_TRAIT_OS_PLATFORM_APPLE
+          pane->m_options.detachedWindow ? nullptr : parent)
+#else
+          parent)
+#endif
     , m_settings(settings)
     , m_mainWindow(parent)
     , m_pane(pane)
     , m_advancedDockManager(advancedDockManager)
 {
+    // keyboard shortcuts from any other context shouldn't trigger actions under this dock widget
+    ShortcutDispatcher::MarkAsShortcutSearchBreak(this);
+
     if (pane->m_options.isDeletable)
     {
         setAttribute(Qt::WA_DeleteOnClose);
     }
 
-    setObjectName(pane->m_name);
+    QString objectNameForSave = pane->m_options.saveKeyName.length() > 0 ? pane->m_options.saveKeyName : pane->m_name;
+    setObjectName(objectNameForSave);
 
     setWidget(widget);
     setFocusPolicy(Qt::StrongFocus);
@@ -222,12 +278,16 @@ bool DockWidget::event(QEvent* qtEvent)
     // they don't overlap in odd ways - for example, if you tear off a floating window from another floating window, under Qt's system its technically still a child of that window
     // so that window can't ever be placed on top of it.  This is not what we want.  We want you to be able to then take that window and drag it into this new one.
     // (Qt's original behavior is like that so if you double click on a floating widget it docks back into the parent which it came from - we don't use this functionality)
-    if (qtEvent->type() == QEvent::WindowActivate)
+    if (qtEvent->type() == QEvent::WindowActivate
+#if AZ_TRAIT_OS_PLATFORM_APPLE
+        && !m_pane->m_options.detachedWindow
+#endif
+    )
     {
         reparentToMainWindowFix();
     }
 
-    return QDockWidget::event(qtEvent);
+    return AzQtComponents::StyledDockWidget::event(qtEvent);
 }
 
 void DockWidget::reparentToMainWindowFix()
@@ -267,6 +327,26 @@ QString DockWidget::PaneName() const
 
 void DockWidget::RestoreState(bool forceDefault)
 {
+#if AZ_TRAIT_OS_PLATFORM_APPLE
+    if (m_pane->m_options.detachedWindow)
+    {
+        if (forceDefault)
+        {
+            window()->setGeometry(m_pane->m_options.paneRect);
+        }
+        else
+        {
+            QRect geometry = QtViewPaneManager::instance()->GetLayout().fakeDockWidgetGeometries[objectName()];
+            if (!geometry.isValid())
+            {
+                geometry = m_pane->m_options.paneRect;
+            }
+            window()->setGeometry(geometry);
+        }
+        return;
+    }
+#endif
+
     // check if we can get the main window to do all the work for us first
     // (which is also the proper way to do this)
     if (!forceDefault)
@@ -411,6 +491,33 @@ QString DockWidget::settingsKey(const QString& paneName)
     return QStringLiteral("ViewPane-") + paneName;
 }
 
+// run generic function on all widgets considered for greying out/disabling
+template<typename Fn>
+void SetDefaultActionsEnabled(
+    const bool enabled, QtViewPanes& registeredPanes, const Fn& fn)
+{
+    for (QtViewPane& p : registeredPanes)
+    {
+        if (!p.m_dockWidgetInstances.empty())
+        {
+            for (auto& dockWidget : p.m_dockWidgetInstances)
+            {
+                const auto& paneName = dockWidget->PaneName();
+                // disable/fade all widgets other than those in the EntityInspector, EntityOutliner and Console
+                // note: The Console is not greyed out and the EntityInspector and EntityOutliner handle their
+                // own fading when entering/leaving ComponentMode
+                if (paneName != LyViewPane::EntityInspector &&
+                    paneName != LyViewPane::EntityInspectorPinned &&
+                    paneName != LyViewPane::Console &&
+                    paneName != LyViewPane::EntityOutliner)
+                {
+                    fn(dockWidget->widget(), enabled);
+                }
+            }
+        }
+    }
+}
+
 QtViewPaneManager::QtViewPaneManager(QObject* parent)
     : QObject(parent)
     , m_mainWindow(nullptr)
@@ -420,10 +527,34 @@ QtViewPaneManager::QtViewPaneManager(QObject* parent)
 {
     qRegisterMetaTypeStreamOperators<ViewLayoutState>("ViewLayoutState");
     qRegisterMetaTypeStreamOperators<QVector<QString> >("QVector<QString>");
+
+    // view pane manager is interested when we enter/exit ComponentMode
+    m_componentModeNotifications.BusConnect(AzToolsFramework::GetEntityContextId());
+
+    m_componentModeNotifications.SetEnteredComponentModeFunc(
+        [this](const AZStd::vector<AZ::Uuid>& /*componentModeTypes*/)
+    {
+        // gray out panels when entering ComponentMode
+        SetDefaultActionsEnabled(false, m_registeredPanes, [](QWidget* widget, bool on)
+        {
+            AzQtComponents::SetWidgetInteractEnabled(widget, on);
+        });
+    });
+
+    m_componentModeNotifications.SetLeftComponentModeFunc(
+        [this](const AZStd::vector<AZ::Uuid>& /*componentModeTypes*/)
+    {
+        // enable panels again when leaving ComponentMode
+        SetDefaultActionsEnabled(true, m_registeredPanes, [](QWidget* widget, bool on)
+        {
+            AzQtComponents::SetWidgetInteractEnabled(widget, on);
+        });
+    });
 }
 
 QtViewPaneManager::~QtViewPaneManager()
 {
+    m_componentModeNotifications.BusDisconnect();
 }
 
 static bool lessThan(const QtViewPane& v1, const QtViewPane& v2)
@@ -490,12 +621,17 @@ QtViewPaneManager* QtViewPaneManager::instance()
     return s_instance();
 }
 
+bool QtViewPaneManager::exists()
+{
+    return s_instance.exists();
+}
+
 void QtViewPaneManager::SetMainWindow(QMainWindow* mainWindow, QSettings* settings, const QByteArray& lastMainWindowState, bool enableLegacyCryEntities)
 {
     Q_ASSERT(mainWindow && !m_mainWindow && settings && !m_settings);
     m_mainWindow = mainWindow;
     m_settings = settings;
-    m_advancedDockManager = new FancyDocking(mainWindow);
+    m_advancedDockManager = new AzQtComponents::FancyDocking(mainWindow);
     m_enableLegacyCryEntities = enableLegacyCryEntities;
 
     m_defaultMainWindowState = mainWindow->saveState();
@@ -524,7 +660,7 @@ const QtViewPane* QtViewPaneManager::OpenPane(const QString& name, QtViewPane::O
         if (!pane->IsConstructed() || isMultiPane)
         {
             QWidget* w = pane->m_factoryFunc();
-            w->setProperty("restored", (modes & QtViewPane::OpenMode::RestoreLayout) != 0); 
+            w->setProperty("restored", (modes & QtViewPane::OpenMode::RestoreLayout) != 0);
             newDockWidget = new DockWidget(w, pane, m_settings, m_mainWindow, m_advancedDockManager);
 
             // track every new dock widget instance that we created
@@ -558,10 +694,24 @@ const QtViewPane* QtViewPaneManager::OpenPane(const QString& name, QtViewPane::O
             {
                 emit viewPaneCreated(pane);
             }
+
+#if AZ_TRAIT_OS_PLATFORM_APPLE
+            // handle showing fake dock widgets
+            if (pane->m_options.detachedWindow)
+            {
+                ShowFakeNonDockableDockWidget(newDockWidget, pane);
+            }
+#endif
         }
         else if (!QtViewPane::IsTabbed(newDockWidget))
         {
             newDockWidget->setVisible(true);
+#if AZ_TRAIT_OS_PLATFORM_APPLE
+            if (pane->m_options.detachedWindow)
+            {
+                newDockWidget->window()->show();
+            }
+#endif
         }
 
         if ((modes & QtViewPane::OpenMode::UseDefaultState) || isMultiPane)
@@ -680,6 +830,12 @@ bool QtViewPaneManager::ClosePane(QtViewPane* pane, QtViewPane::CloseModes close
 {
     if (pane)
     {
+        // Don't allow a dock widget to be closed if it is being dragged for docking
+        if (m_advancedDockManager && m_advancedDockManager->IsDockWidgetBeingDragged(pane->m_dockWidget))
+        {
+            return false;
+        }
+
         return pane->Close(closeModes | QtViewPane::CloseMode::Force);
     }
 
@@ -835,16 +991,26 @@ void QtViewPaneManager::RestoreDefaultLayout(bool resetSettings)
     // as the panes are moved around
     m_mainWindow->setUpdatesEnabled(false);
 
+    AzToolsFramework::EntityIdList selectedEntityIds;
+
     // Reset all of the settings, or windows opened outside of RestoreDefaultLayout won't be reset at all.
     // Also ensure that this is done after CloseAllPanes, because settings will be saved in CloseAllPanes
     if (resetSettings)
     {
+        // Store off currently selected entities
+        AzToolsFramework::ToolsApplicationRequestBus::BroadcastResult(selectedEntityIds, &AzToolsFramework::ToolsApplicationRequests::GetSelectedEntities);
+
+        // Clear any selection
+        AzToolsFramework::EntityIdList noEntities;
+        AzToolsFramework::ToolsApplicationRequests::Bus::Broadcast(&AzToolsFramework::ToolsApplicationRequests::SetSelectedEntities, noEntities);
+
         ViewLayoutState state;
 
         state.viewPanes.push_back(LyViewPane::EntityOutliner);
         state.viewPanes.push_back(LyViewPane::EntityInspector);
         state.viewPanes.push_back(LyViewPane::AssetBrowser);
         state.viewPanes.push_back(LyViewPane::Console);
+        state.viewPanes.push_back(LyViewPane::LevelInspector);
 
         // Only include the rollupbar in our default layout if legacy mode is enabled
         if (m_enableLegacyCryEntities)
@@ -875,6 +1041,7 @@ void QtViewPaneManager::RestoreDefaultLayout(bool resetSettings)
     const QtViewPane* assetBrowserViewPane = OpenPane(LyViewPane::AssetBrowser, QtViewPane::OpenMode::UseDefaultState);
     const QtViewPane* entityInspectorViewPane = OpenPane(LyViewPane::EntityInspector, QtViewPane::OpenMode::UseDefaultState);
     const QtViewPane* consoleViewPane = OpenPane(LyViewPane::Console, QtViewPane::OpenMode::UseDefaultState);
+    const QtViewPane* levelInspectorPane = OpenPane(LyViewPane::LevelInspector, QtViewPane::OpenMode::UseDefaultState);
     const QtViewPane* rollupBarViewPane = nullptr;
     if (m_enableLegacyCryEntities)
     {
@@ -903,19 +1070,22 @@ void QtViewPaneManager::RestoreDefaultLayout(bool resetSettings)
         m_mainWindow->addDockWidget(Qt::BottomDockWidgetArea, consoleViewPane->m_dockWidget);
         consoleViewPane->m_dockWidget->setFloating(false);
 
-		if (m_enableLegacyCryEntities)
-		{
-        	m_mainWindow->addDockWidget(Qt::RightDockWidgetArea, rollupBarViewPane->m_dockWidget);
-        	rollupBarViewPane->m_dockWidget->setFloating(false);
-		}
+        if (m_enableLegacyCryEntities)
+        {
+            m_mainWindow->addDockWidget(Qt::RightDockWidgetArea, rollupBarViewPane->m_dockWidget);
+            rollupBarViewPane->m_dockWidget->setFloating(false);
+        }
 
         if (entityInspectorViewPane)
         {
             m_mainWindow->addDockWidget(Qt::RightDockWidgetArea, entityInspectorViewPane->m_dockWidget);
             entityInspectorViewPane->m_dockWidget->setFloating(false);
 
-			if (m_enableLegacyCryEntities)
-       		{
+            static const float tabWidgetWidthPercentage = 0.2f;
+            int newWidth = (float)screenWidth * tabWidgetWidthPercentage;
+
+            if (m_enableLegacyCryEntities)
+            {
                 // Tab the entity inspector with the rollupbar so that when they are
                 // tabbed they will be given the rollupbar's default width which
                 // is more appropriate, and move the entity inspector to be the
@@ -924,18 +1094,43 @@ void QtViewPaneManager::RestoreDefaultLayout(bool resetSettings)
                 if (tabWidget)
                 {
                     tabWidget->moveTab(1, 0);
+
+                    if (levelInspectorPane)
+                    {
+                        tabWidget->addTab(levelInspectorPane->m_dockWidget);
+                    }
+
                     tabWidget->setCurrentWidget(entityInspectorViewPane->m_dockWidget);
 
                     // Resize our tabbed entity inspector and rollup bar dock widget
                     // so that it takes up an appropriate amount of space (with the
                     // minimum sizes removed, it was being shrunk too small by default)
-                    static const float tabWidgetWidthPercentage = 0.2f;
+
                     QDockWidget* tabWidgetParent = qobject_cast<QDockWidget*>(tabWidget->parentWidget());
-                    int newWidth = (float)screenWidth * tabWidgetWidthPercentage;
                     m_mainWindow->resizeDocks({ tabWidgetParent }, { newWidth }, Qt::Horizontal);
                 }
-        	}
-		}
+            }
+            else if (levelInspectorPane)
+            {
+                // Tab the entity inspector with the level Inspector so that when they are
+                // tabbed they will be given the rollupbar's default width which
+                // is more appropriate, and move the entity inspector to be the
+                // first tab on the left and active
+                AzQtComponents::DockTabWidget* tabWidget = m_advancedDockManager->tabifyDockWidget(levelInspectorPane->m_dockWidget, entityInspectorViewPane->m_dockWidget, m_mainWindow);
+                if (tabWidget)
+                {
+                    tabWidget->moveTab(1, 0);
+                    tabWidget->setCurrentWidget(entityInspectorViewPane->m_dockWidget);
+
+                    QDockWidget* tabWidgetParent = qobject_cast<QDockWidget*>(tabWidget->parentWidget());
+                    m_mainWindow->resizeDocks({ tabWidgetParent }, { newWidth }, Qt::Horizontal);
+                }
+            }
+            else
+            {
+                m_mainWindow->resizeDocks({ entityInspectorViewPane->m_dockWidget }, { newWidth }, Qt::Horizontal);
+            }
+        }
 
         if (assetBrowserViewPane && entityOutlinerViewPane)
         {
@@ -962,6 +1157,12 @@ void QtViewPaneManager::RestoreDefaultLayout(bool resetSettings)
         // (use window() because the MainWindow may be wrapped in another window
         // like a WindowDecoratorWrapper or another QMainWindow for various layout reasons)
         m_mainWindow->window()->showMaximized();
+
+        if (resetSettings)
+        {
+            // Restore selection
+            AzToolsFramework::ToolsApplicationRequests::Bus::Broadcast(&AzToolsFramework::ToolsApplicationRequests::SetSelectedEntities, selectedEntityIds);
+        }
     });
 }
 
@@ -1020,6 +1221,8 @@ void QtViewPaneManager::SaveLayout(QString layoutName)
 
     state.mainWindowState = m_advancedDockManager->saveState();
 
+    state.fakeDockWidgetGeometries = m_fakeDockWidgetGeometries;
+
     SaveStateToLayout(state, layoutName);
 }
 
@@ -1039,6 +1242,42 @@ void QtViewPaneManager::SaveStateToLayout(const ViewLayoutState& state, const QS
         emit savedLayoutsChanged();
     }
 }
+
+#if AZ_TRAIT_OS_PLATFORM_APPLE
+/*
+ * This methods creates a fake wrapper dock widget around the passed dock widget. The returned dock widget has
+ * no parent and can therefore be used for a contained QOpenGLWidget on macOS, since this doesn't work as expected
+ * when the QOpenGLWidget has the application's main window as (grand)parent.
+ * The return dock widget looks like a normal dock widget. It cannot be docked and no other dock widget can be
+ * docked into it.
+ */
+QDockWidget* QtViewPaneManager::ShowFakeNonDockableDockWidget(AzQtComponents::StyledDockWidget* dockWidget, QtViewPane* pane)
+{
+    dockWidget->customTitleBar()->setButtons({});
+    dockWidget->customTitleBar()->setContextMenuPolicy(Qt::NoContextMenu);
+    dockWidget->customTitleBar()->installEventFilter(new MouseEatingEventFilter(dockWidget));
+    auto fakeDockWidget = new AzQtComponents::StyledDockWidget(QString(), false, nullptr);
+    connect(dockWidget, &QObject::destroyed, fakeDockWidget, &QObject::deleteLater);
+    fakeDockWidget->setAllowedAreas(Qt::NoDockWidgetArea);
+    auto titleBar = fakeDockWidget->customTitleBar();
+    titleBar->setDragEnabled(true);
+    titleBar->setDrawSimple(true);
+    titleBar->setButtons({AzQtComponents::DockBarButton::MaximizeButton, AzQtComponents::DockBarButton::CloseButton});
+    fakeDockWidget->setWidget(dockWidget);
+    fakeDockWidget->show();
+    fakeDockWidget->setObjectName(dockWidget->objectName());
+
+    connect(fakeDockWidget, &AzQtComponents::StyledDockWidget::aboutToClose, this, [this, fakeDockWidget]() {
+        m_fakeDockWidgetGeometries[fakeDockWidget->objectName()] = fakeDockWidget->geometry();
+    });
+    if (pane->m_options.isDeletable)
+    {
+        fakeDockWidget->setAttribute(Qt::WA_DeleteOnClose);
+    }
+
+    return fakeDockWidget;
+}
+#endif
 
 void QtViewPaneManager::SerializeLayout(XmlNodeRef& parentNode) const
 {
@@ -1100,6 +1339,8 @@ ViewLayoutState QtViewPaneManager::GetLayout() const
     }
 
     state.mainWindowState = m_advancedDockManager->saveState();
+
+    state.fakeDockWidgetGeometries = m_fakeDockWidgetGeometries;
 
     return state;
 }
@@ -1173,6 +1414,16 @@ bool QtViewPaneManager::RestoreLayout(QString layoutName)
         return false;
     }
 
+    // Store off currently selected entities
+    AzToolsFramework::EntityIdList selectedEntityIds;
+    AzToolsFramework::ToolsApplicationRequestBus::BroadcastResult(selectedEntityIds, &AzToolsFramework::ToolsApplicationRequests::GetSelectedEntities);
+
+    // Clear any selection
+    AzToolsFramework::EntityIdList noEntities;
+    AzToolsFramework::ToolsApplicationRequests::Bus::Broadcast(&AzToolsFramework::ToolsApplicationRequests::SetSelectedEntities, noEntities);
+
+    m_fakeDockWidgetGeometries = state.fakeDockWidgetGeometries;
+
     for (const QString& paneName : state.viewPanes)
     {
         const QtViewPane* pane = OpenPane(paneName, QtViewPane::OpenMode::OnlyOpen);
@@ -1195,6 +1446,8 @@ bool QtViewPaneManager::RestoreLayout(QString layoutName)
     // must do this after opening all of the panes!
     m_advancedDockManager->restoreState(state.mainWindowState);
 
+    AzToolsFramework::ToolsApplicationRequests::Bus::Broadcast(&AzToolsFramework::ToolsApplicationRequests::SetSelectedEntities, selectedEntityIds);
+
     // In case of a crash it might happen that the QMainWindow state gets out of sync with the
     // QtViewPaneManager state, which would result in we opening dock widgets that QMainWindow
     // didn't know how to restore.
@@ -1210,6 +1463,8 @@ bool QtViewPaneManager::RestoreLayout(QString layoutName)
 
 bool QtViewPaneManager::RestoreLayout(const ViewLayoutState& state)
 {
+    m_fakeDockWidgetGeometries = state.fakeDockWidgetGeometries;
+
     if (!ClosePanesWithRollback(state.viewPanes))
     {
         return false;
@@ -1362,7 +1617,18 @@ QtViewPane* QtViewPaneManager::GetPane(const QString& name)
     auto it = std::find_if(m_registeredPanes.begin(), m_registeredPanes.end(),
             [name](const QtViewPane& pane) { return name == pane.m_name; });
 
-    return it == m_registeredPanes.end() ? nullptr : it;
+    QtViewPane* foundPane = ((it == m_registeredPanes.end()) ? nullptr : it);
+
+    if (foundPane == nullptr)
+    {
+        // if we couldn't find the pane based on the name (which will be the title), look it up by saveKeyName next
+        it = std::find_if(m_registeredPanes.begin(), m_registeredPanes.end(),
+            [name](const QtViewPane& pane) { return name == pane.m_options.saveKeyName; });
+
+        foundPane = ((it == m_registeredPanes.end()) ? nullptr : it);
+    }
+
+    return foundPane;
 }
 
 QtViewPane* QtViewPaneManager::GetViewportPane(int viewportType)

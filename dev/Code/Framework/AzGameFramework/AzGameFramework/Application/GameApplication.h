@@ -24,21 +24,26 @@ namespace AzGameFramework
         : public AzFramework::Application
     {
     public:
-
         AZ_CLASS_ALLOCATOR(GameApplication, AZ::SystemAllocator, 0);
 
         GameApplication();
+        GameApplication(int* argc, char*** argvS);
         ~GameApplication();
 
-        void RegisterCoreComponents() override;
         AZ::ComponentTypeList GetRequiredSystemComponents() const override;
+        void CreateStaticModules(AZStd::vector<AZ::Module*>& outModules) override;
 
         static void GetGameDescriptorPath(char(&outConfigFilename)[AZ_MAX_PATH_LEN], const char* gameName)
         {
             azstrcpy(outConfigFilename, AZ_MAX_PATH_LEN, gameName);
-            azstrcat(outConfigFilename, AZ_MAX_PATH_LEN, "/config/game.xml");
-            AZStd::to_lower(outConfigFilename, outConfigFilename + strlen(outConfigFilename));
+            azstrcat(outConfigFilename, AZ_MAX_PATH_LEN, "/Config/Game.xml");
         }
+
+
+        //////////////////////////////////////////////////////////////////////////
+        // AzFramework::ApplicationRequests::Bus
+        void QueryApplicationType(AzFramework::ApplicationTypeQuery& appType) const override;
+        //////////////////////////////////////////////////////////////////////////
 
     protected:
 

@@ -38,6 +38,7 @@
             "D3DTiledShading.cpp",
             "DriverD3D.cpp",
             "GPUTimer.cpp",
+            "GPUTimerFactory.cpp",
             "PipelineProfiler.cpp",
             "StatoscopeRenderStats.cpp",
             "D3DREBreakableGlassBuffer.h",
@@ -49,10 +50,17 @@
             "PostProcessFilters.cpp",
             "PostProcessGame.cpp",
             "PostProcessMisc.cpp",
+            "PostProcessMotionBlur.cpp",
             "PostProcessRain.cpp",
             "PostProcessSunShafts.cpp",
             "PostProcessWater.cpp",
             "PostProcessSnow.cpp"
+        ],
+        "Source Files/RTT":
+        [
+            "RTT/RTTContext.cpp",
+            "RTT/RTTContextManager.cpp",
+            "RTT/RTTSwappableRenderTarget.cpp"
         ],
         "Header Files":
         [
@@ -66,6 +74,8 @@
             "D3DColorGradingController.h",
             "D3DDebug.h",
             "D3DDeferredShading.h",
+            "D3DGPUParticleEngine.h",
+            "D3DGPUParticleProfiler.h",
             "D3DHMDRenderer.h",
             "D3DHWShader.h",
             "D3DPostProcess.h",
@@ -76,6 +86,7 @@
             "DeviceInfo.h",
             "DriverD3D.h",
             "GPUTimer.h",
+            "GPUTimerFactory.h",
             "NullD3D11Device.h",
             "PipelineProfiler.h",
             "resource.h",
@@ -83,6 +94,13 @@
             "StatoscopeRenderStats.h",
             "DeviceInfo.inl",
             "MultiLayerAlphaBlendPass.h"
+        ],
+        "Header Files/RTT":
+        [
+            "RTT/RTTContext.h",
+            "RTT/RTTContextManager.h",
+            "RTT/RTTSwappableRenderTarget.h",
+            "RTT/RTTSwappableCVar.h"
         ],
         "Common":
         [
@@ -120,6 +138,7 @@
             "../Common/OcclQuery.h",
             "../Common/RenderAuxGeom.h",
             "../Common/Renderer.h",
+            "../Common/RenderCapabilities.h",
             "../Common/RenderPipeline.h",
             "../Common/RenderThread.h",
             "../Common/ResFile.h",
@@ -144,6 +163,7 @@
         [
             "../Common/Shaders/Parser.cpp",
             "../Common/Shaders/ParserBin.cpp",
+            "../Common/Shaders/PoundPoundParser.cpp",
             "../Common/Shaders/RemoteCompiler.cpp",
             "../Common/Shaders/ShaderCache.cpp",
             "../Common/Shaders/ShaderComponents.cpp",
@@ -158,6 +178,7 @@
             "../Common/Shaders/CShaderBin.h",
             "../Common/Shaders/Parser.h",
             "../Common/Shaders/ParserBin.h",
+            "../Common/Shaders/PoundPoundParser.h",
             "../Common/Shaders/RemoteCompiler.h",
             "../Common/Shaders/Shader.h",
             "../Common/Shaders/ShaderCache.h",
@@ -214,6 +235,7 @@
             "../Common/RendElements/CREBeam.cpp",
             "../Common/RendElements/CREClientPoly.cpp",
             "../Common/RendElements/CRECloud.cpp",
+            "../Common/RendElements/CRETerrain.cpp",
             "../Common/RendElements/CREDeferredShading.cpp",
             "../Common/RendElements/CREFogVolume.cpp",
             "../Common/RendElements/CREGameEffect.cpp",
@@ -256,6 +278,32 @@
             "../Common/RendElements/Utils/PolygonMath2D.cpp",
             "../Common/RendElements/Utils/PolygonMath2D.h",
             "../Common/RendElements/Utils/SpatialHashGrid.h"
+        ],
+        "Common/RendElements/TerrainUtils":
+        [
+            "../Common/RendElements/TerrainUtils/TerrainTextureCache.cpp",
+            "../Common/RendElements/TerrainUtils/TerrainTextureCache.h",
+            "../Common/RendElements/TerrainUtils/TerrainCompositer_Render.cpp",
+            "../Common/RendElements/TerrainUtils/TerrainCompositer.cpp",
+            "../Common/RendElements/TerrainUtils/TerrainCompositer.h",
+            "../Common/RendElements/TerrainUtils/VTWrapper.cpp",
+            "../Common/RendElements/TerrainUtils/VTWrapper.h",
+            "../Common/RendElements/TerrainUtils/VirtualTexture.cpp",
+            "../Common/RendElements/TerrainUtils/VirtualTexture.h",
+            "../Common/RendElements/TerrainUtils/TerrainRenderingParameters.cpp",
+            "../Common/RendElements/TerrainUtils/TerrainRenderingParameters.h",
+            "../Common/RendElements/TerrainUtils/IndirectionMap.cpp",
+            "../Common/RendElements/TerrainUtils/IndirectionMap.h",
+            "../Common/RendElements/TerrainUtils/LRUCacheQueue.h"
+        ],
+        "Common/RendElements/TerrainUtils/CDLOD":
+        [
+            "../Common/RendElements/TerrainUtils/CDLOD/CDLODQuadTree.cpp",
+            "../Common/RendElements/TerrainUtils/CDLOD/CDLODQuadTree.h"
+        ],
+        "Common/RendElements/TerrainUtils/Debug": [
+            "../Common/RendElements/TerrainUtils/Debug/TerrainProfiler.cpp",
+            "../Common/RendElements/TerrainUtils/Debug/TerrainProfiler.h"
         ],
         "Common/RendElements/LensOptics":
         [
@@ -375,7 +423,9 @@
 			"GraphicsPipeline/ScreenSpaceSSS.h",
 			"GraphicsPipeline/ScreenSpaceSSS.cpp",
 			"GraphicsPipeline/StandardGraphicsPipeline.h",
-			"GraphicsPipeline/StandardGraphicsPipeline.cpp"
+			"GraphicsPipeline/StandardGraphicsPipeline.cpp",
+			"GraphicsPipeline/VideoRenderPass.h",
+			"GraphicsPipeline/VideoRenderPass.cpp"
 		]
 	},
 

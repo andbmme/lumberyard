@@ -23,7 +23,8 @@ namespace AZ
     * because the tracking node is stored outside the main chunk.
      */
     class BestFitExternalMapAllocator
-        : public IAllocator
+        : public AllocatorBase
+        , public IAllocatorAllocate
     {
     public:
         AZ_TYPE_INFO(BestFitExternalMapAllocator, "{36266C8B-9A2C-4E3E-9812-3DB260868A2B}")
@@ -49,30 +50,32 @@ namespace AZ
 
         bool Create(const Descriptor& desc);
 
-        void Destroy();
+        void Destroy() override;
 
         //////////////////////////////////////////////////////////////////////////
         // IAllocator
-        virtual const char*     GetName() const                 { return "BestFitExternalMapAllocator"; }
-        virtual const char*     GetDescription() const          { return "Best fit allocator with external tracking storage!"; }
+        AllocatorDebugConfig GetDebugConfig() override;
 
-        virtual pointer_type    Allocate(size_type byteSize, size_type alignment, int flags = 0, const char* name = 0, const char* fileName = 0, int lineNum = 0, unsigned int suppressStackRecord = 0);
-        virtual void            DeAllocate(pointer_type ptr, size_type byteSize = 0, size_type alignment = 0);
-        virtual size_type       Resize(pointer_type ptr, size_type newSize);
-        virtual pointer_type    ReAllocate(pointer_type ptr, size_type newSize, size_type newAlignment);
-        virtual size_type       AllocationSize(pointer_type ptr);
+        //////////////////////////////////////////////////////////////////////////
+        // IAllocatorAllocate
+        pointer_type    Allocate(size_type byteSize, size_type alignment, int flags = 0, const char* name = 0, const char* fileName = 0, int lineNum = 0, unsigned int suppressStackRecord = 0) override;
+        void            DeAllocate(pointer_type ptr, size_type byteSize = 0, size_type alignment = 0) override;
+        size_type       Resize(pointer_type ptr, size_type newSize) override;
+        pointer_type    ReAllocate(pointer_type ptr, size_type newSize, size_type newAlignment) override;
+        size_type       AllocationSize(pointer_type ptr) override;
 
-        virtual size_type       NumAllocatedBytes() const;
-        virtual size_type       Capacity() const;
-        virtual size_type       GetMaxAllocationSize() const;
-        virtual IAllocatorAllocate*  GetSubAllocator();
+        size_type       NumAllocatedBytes() const override;
+        size_type       Capacity() const override;
+        size_type       GetMaxAllocationSize() const override;
+        IAllocatorAllocate*  GetSubAllocator() override;
         //////////////////////////////////////////////////////////////////////////
 
     protected:
         BestFitExternalMapAllocator(const BestFitExternalMapAllocator&);
         BestFitExternalMapAllocator& operator=(const BestFitExternalMapAllocator&);
 
-        BestFitExternalMapSchema*   m_schema;
+        Descriptor m_desc;
+        BestFitExternalMapSchema* m_schema;
     };
 }
 

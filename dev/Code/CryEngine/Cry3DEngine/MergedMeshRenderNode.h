@@ -16,9 +16,9 @@
 #pragma once
 
 #include <limits>
-#include <AzCore/Jobs/LegacyJobExecutor.h>
 #include "ObjMan.h"
 #include "Cry3DEngineTraits.h"
+#include "MergedMeshJobExecutor.h"
 
 // Global define to enable and disable some debugging features (defined &
 // described below) to help finding issues in merged meshes at runtime.
@@ -43,10 +43,6 @@
 
 // The maximum number of contacts that a deformable is allowed to generate.
 #define MMRM_MAX_CONTACTS (32)
-
-// Disable this define to run all mergedmesh related jobs sequentially, may or
-// may not help find bugs.
-#define MMRM_USE_JOB_SYSTEM 1
 
 // The number of wind force samples along each principle axis.
 #define MMRM_WIND_DIM 4
@@ -111,7 +107,7 @@
 
 // Disable the use of vectorized on PC because a plethora of them are actually
 // not ported yet
-#if defined(WIN32) || defined(WIN64) || defined(APPLE) || defined(LINUX)
+#if AZ_LEGACY_3DENGINE_TRAIT_DISABLE_MMRM_SSE_INSTRUCTIONS
 # undef MMRM_USE_VECTORIZED_SSE_INSTRUCTIONS
 # define MMRM_USE_VECTORIZED_SSE_INSTRUCTIONS 0
 #endif
@@ -121,6 +117,7 @@
     #undef MMRM_USE_VECTORIZED_SSE_INSTRUCTIONS
     #define MMRM_USE_VECTORIZED_SSE_INSTRUCTIONS 0
 #endif
+
 // The compile-time default poolsize in bytes
 #define MMRM_DEFAULT_POOLSIZE_STR "2750"
 
@@ -256,6 +253,8 @@ class CMergedMeshRenderNode
     {
         RUT_STATIC = 0,
         RUT_DYNAMIC = 1,
+
+        RUT_NUM_UPDATE_TYPES
     };
 
     // The number of instances this rendernode maintains
@@ -278,11 +277,14 @@ class CMergedMeshRenderNode
     // Initial position of this rendernode before applying world shift
     Vec3 m_initPos;
 
+    // The position of the camera the last time we updated the merged mesh
+    Vec3 m_cameraPosAtLastUpdate;
+
     // A z rotation to apply to this rendernode
     float m_zRotation = 0.0f;
 
     // The (external) lod
-    int m_nLod = -1;
+    int m_nLod[RUT_NUM_UPDATE_TYPES] = { -1, -1 };
 
     // Is the mesh already put into the active list?
     unsigned int m_nActive : 1;
@@ -305,6 +307,9 @@ class CMergedMeshRenderNode
     // If the mesh owns its groups
     unsigned int m_ownsGroups : 1;
 
+    // If the node owns an instance that is controlled by the Dynamic Vegetation system
+    unsigned int m_hasDynamicInstances : 1;
+
     // The render state
     enum RenderMode
     {
@@ -313,6 +318,19 @@ class CMergedMeshRenderNode
         NOT_VISIBLE, // simply not visible
     };
     RenderMode m_RenderMode = NOT_VISIBLE;
+    inline const char* ToString(RenderMode renderMode) const
+    {
+        switch (renderMode)
+        {
+        case INSTANCED:
+            return "INSTANCED";
+        case DYNAMIC:
+            return "DYNAMIC";
+        case NOT_VISIBLE:
+            return "NOT_VISIBLE";
+        }
+        return "UNKNOWN";
+    }
 
     // VRAM Memory footprint of the corresponding buffers in bytes
     uint32 m_SizeInVRam = 0;
@@ -347,28 +365,28 @@ class CMergedMeshRenderNode
     int m_nProjectiles = 0;
 
     // The jobstate for all cull jobs 
-    AZ::LegacyJobExecutor m_cullJobExecutor;
+    MergedMeshJobExecutor m_cullJobExecutor;
 
     // The jobstate for all mesh update jobs
-    AZ::LegacyJobExecutor m_updateJobExecutor;
+    MergedMeshJobExecutor m_updateJobExecutor;
 
     // The jobstate for initializing spines
-    AZ::LegacyJobExecutor m_spineInitializationJobExecutor;
+    MergedMeshJobExecutor m_spineInitializationJobExecutor;
 
     // The list of rendermeshes that belong to this object
     std::vector<SMMRM> m_renderMeshes[2];
 
-    // The list of rendermeshes that belong to this object
-    std::vector< std::pair<_smart_ptr<IMaterial>, IStatObj*> > m_usedMaterials;
-
     // Only valid if we are currently streaming in data
     IReadStream_AutoPtr m_pReadStream;
 
-    // Are spines active and present in memory?
-    bool m_SpinesActive = false;
+    // Has the spine data already been initialized?
+    bool m_SpinesInitialized = false;
 
-    // Debug visualization (gets the lod passed the rendernode has selected in)
-    void DebugRender(int nLod);
+    // Does this render node have any spine / deformation data?
+    bool m_SpinesExist = false;
+
+    // Debug visualization
+    void DebugRender();
 
     // Checks if a member of a group requests to cast shadows
     bool GroupsCastShadows(RENDERMESH_UPDATE_TYPE type);
@@ -401,6 +419,9 @@ class CMergedMeshRenderNode
     // Resets the node to the initial dirty state
     void Reset();
 
+    // Initialize the spine / deformation data for a single group.
+    void InitializeSpineAndDeformationData(SMMRMGroupHeader* header);
+
 public:
     CMergedMeshRenderNode();
     virtual ~CMergedMeshRenderNode();
@@ -408,15 +429,13 @@ public:
     // Set the configured position and offset and create the sample maps
     bool Setup(const AABB& aabb, const AABB& visAbb, const PodArray<SProcVegSample>*);
 
-    // Add a instance type to the merged mesh rendernode and preallocate memory
+    // Add a instance type to the merged mesh render node and preallocate memory
     // for the actual instances
     // Returns false if the group cannot be created for some reason.
     bool AddGroup(uint32 statInstGroupId, uint32 numInstances);
-    // Return the (internal) size of this rendernode
-    const AABB& GetExtents() const { return m_internalAABB; }
 
     // Adds an instance to the map
-    IRenderNode* AddInstance(const SProcVegSample&);
+    IRenderNode* AddInstance(const SProcVegSample&, bool bRegister = true);
     // Removes an instance from the map
     size_t RemoveInstance(size_t, size_t);
 
@@ -429,6 +448,8 @@ public:
 
     bool IsDynamic() const { return m_RenderMode == DYNAMIC; }
 
+    bool HasDynamicInstances() const { return m_hasDynamicInstances; }
+
     // True if any of the groups inside this merged mesh uses terrain color.
     bool UsesTerrainColor() const;
 
@@ -436,7 +457,7 @@ public:
     uint32 NumGroups() const;
     const SMMRMGroupHeader* Group(size_t index) const;
 
-    // Returns the (mainmemory) size in bytes of the allocated internal structures to represent
+    // Returns the (main memory) size in bytes of the allocated internal structures to represent
     // all the instances.
     uint32 MetaSize() const;
 
@@ -448,9 +469,6 @@ public:
 
     // Returns the number of deformed instances
     uint32 DeformCount() const;
-
-    // Are spines active in memory?
-    bool SpinesActive() const { return m_SpinesActive; }
 
     // Activate Spines in memory
     void ActivateSpines();
@@ -478,7 +496,7 @@ public:
     // Important Note: This method should not be called from any client code,
     // it is called implicitly from Setup. Sadly, it has to be public
     // because DECLARE_CLASS_JOB macros only work on public methods.
-    bool PrepareRenderMesh(RENDERMESH_UPDATE_TYPE);
+    bool PrepareRenderMesh(RENDERMESH_UPDATE_TYPE, int nLod = 0);
 
     // Compile the instance data into a streamable chunk
     bool Compile(byte* pData, int& nSize, string* pName, std::vector<struct IStatInstGroup*>* pVegGroupTable);
@@ -486,7 +504,7 @@ public:
     // Fills the array full of samples
     void FillSamples(DynArray<Vec2>&);
 
-    // Stream in data from the filesystem for this rendernode
+    // Stream in data from the file system for this render node
     // Note the extents of the internal aabb are used to determine the filename
     bool StreamIn();
 
@@ -497,6 +515,13 @@ public:
 
     bool StreamedIn() const { return m_State == STREAMED_IN; }
 
+    // A MergedMeshRenderNode can be streamed in and out only in the runtime, and only for static instances.
+    // In-editor, nodes for static instances are created through editor data files, not runtime data files, so
+    // the runtime data files might not exist to stream from, or might be out-of-date.  For dynamic instances,
+    // the expectation is that "streaming" is controlled via spawning / despawning of dynamic vegetation areas,
+    // not by controlling it at the merged mesh sector level.
+    bool SupportsStreaming() const { return (!gEnv->IsEditor() && !gEnv->IsDedicated() && (m_hasDynamicInstances == false)); }
+
     // Update streamable components
     bool UpdateStreamableComponents(float fImportance, float fEntDistance, bool bFullUpdate);
 
@@ -505,8 +530,11 @@ public:
 
     bool PostRender(const SRenderingPassInfo& passInfo);
 
-    // util job entry function used by AsyncStreaming Callback
-    void InitializeSamples(float fExtents, const uint8* pBuffer);
+    // Used by AsyncStreaming callback to synchronously initialize the samples from the read-in buffer
+    void InitializeSamplesFromBuffer(const uint8* pBuffer);
+    // Used by AsyncStreaming callback to asynchronously perform notifications / calculations based on the
+    // samples that were initialized.
+    void FinishInitializingSamples();
     // util job entry function used by Activate Spines
     void InitializeSpines();
 
@@ -652,8 +680,14 @@ class CMergedMeshesManager
     ProjectileArrayT m_Projectiles;
     volatile int m_ProjectileLock;
 
+    MergedMeshJobExecutor m_nodeCullJobExecutor;
+
+    MergedMeshJobExecutor m_nodeUpdateJobExecutor;
+
+    MergedMeshJobExecutor m_nodeSpineInitJobExecutor;
+
     // The jobstate for all mesh update jobs
-    AZ::LegacyJobExecutor m_updateCompletionMergedMeshesManager;
+    MergedMeshJobExecutor m_updateCompletionMergedMeshesManager;
 
     size_t  m_CurrentSizeInVramDynamic;
     size_t  m_CurrentSizeInVramInstanced;
@@ -708,7 +742,9 @@ public:
     //! Returns true if the preparation step succeeds or if there are no meshes to prepare, false otherwise
     bool SyncPreparationStep();
 
-    IRenderNode* AddInstance(const SProcVegSample&);
+    IRenderNode* AddInstance(const SProcVegSample&, CMergedMeshRenderNode** ppNode = nullptr, bool bRegister = true, bool dynamicInstance = false);
+    IRenderNode* AddDynamicInstance(const IMergedMeshesManager::SInstanceSample&, IRenderNode** ppNode, bool bRegister) override;
+
     CMergedMeshRenderNode* GetNode(const Vec3& vPos);
     void RemoveMergedMesh(CMergedMeshRenderNode*);
 
@@ -721,6 +757,9 @@ public:
     void SortActiveInstances(const SRenderingPassInfo& passInfo);
     void SortActiveInstances_Async(const SRenderingPassInfo passInfo); //NOTE: called internally
     void ResetActiveNodes();
+
+    // Enable dynamic generation of merged meshes in game mode.
+    static void SetDynamicGenerationEnabled(bool enable);
 
     size_t CurrentSizeInVram() const { return CurrentSizeInVramDynamic() + CurrentSizeInVramInstanced(); }
     size_t CurrentSizeInVramDynamic() const { return m_CurrentSizeInVramDynamic; }

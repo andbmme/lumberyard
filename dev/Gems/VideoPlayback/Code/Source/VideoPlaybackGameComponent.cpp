@@ -19,47 +19,14 @@
 #include <AzCore/Serialization/SerializeContext.h>
 #include <AzCore/RTTI/BehaviorContext.h>
 #include <AzCore/Casting/numeric_cast.h>
+#include <VideoPlayback_Traits_Platform.h>
+
+#if AZ_TRAIT_VIDEOPLAYBACK_ENABLE_DECODER
 
 namespace AZ
 {
     namespace VideoPlayback
     {
-        class BehaviorVideoPlaybackNotificationBusHandler 
-            : public VideoPlaybackNotificationBus::Handler
-            , public AZ::BehaviorEBusHandler
-        {
-        public:
-            AZ_EBUS_BEHAVIOR_BINDER(BehaviorVideoPlaybackNotificationBusHandler, "{F3116FA1-3F81-4ADE-9941-C5A5C838197B}", AZ::SystemAllocator,
-                OnPlaybackStarted, 
-                OnPlaybackPaused,
-                OnPlaybackStopped,
-                OnPlaybackFinished);
-
-            // Sent when playback starts or resumes
-            void OnPlaybackStarted() override
-            {
-                Call(FN_OnPlaybackStarted);
-            }
-
-            // Sent when the video is paused
-            void OnPlaybackPaused() override
-            {
-                Call(FN_OnPlaybackPaused);
-            }
-
-            // Sent when the video is stopped
-            void OnPlaybackStopped() override
-            {
-                Call(FN_OnPlaybackStopped);
-            }
-
-            // Sent when the video finishes
-            void OnPlaybackFinished() override
-            {
-                Call(FN_OnPlaybackFinished);
-            }
-        };
-
         void VideoPlaybackGameComponent::Init()
         {
             bool success = m_videoDecoder.Init();
@@ -134,7 +101,7 @@ namespace AZ
                     //Only connect to buses if the video we've loaded is valid
                     m_entityId = GetEntityId();
 
-                    VideoPlaybackRequestBus::Handler::BusConnect(m_entityId);
+                    VideoPlaybackFramework::VideoPlaybackRequestBus::Handler::BusConnect(m_entityId);
                     AZ::TickBus::Handler::BusConnect();
                 }
             }
@@ -145,7 +112,7 @@ namespace AZ
             m_videoDecoder.UnloadVideo();
 
             AZ::TickBus::Handler::BusDisconnect();
-            VideoPlaybackRequestBus::Handler::BusDisconnect();
+            VideoPlaybackFramework::VideoPlaybackRequestBus::Handler::BusDisconnect();
         }
 
         void VideoPlaybackGameComponent::Reflect(AZ::ReflectContext* context)
@@ -175,27 +142,11 @@ namespace AZ
                         ->DataElement(AZ::Edit::UIHandlers::Default, &VideoPlaybackGameComponent::m_queueAheadCount, "Frame queue ahead count", "How many frames ahead to buffer the video")
                         ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
                             ->Attribute(AZ::Edit::Attributes::Category, "Rendering")
+                            ->Attribute(AZ::Edit::Attributes::Icon, "Editor/Icons/Components/VideoPlayback.svg")
                             ->Attribute(AZ::Edit::Attributes::AppearsInAddComponentMenu, AZ_CRC("Game"))
                             ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
                         ;
                 }
-            }
-
-            AZ::BehaviorContext* behaviorContext = azrtti_cast<AZ::BehaviorContext*>(context);
-            if (behaviorContext)
-            {
-                behaviorContext->EBus<VideoPlaybackRequestBus>("VideoPlaybackRequestBus")
-                    ->Event("Play", &VideoPlaybackRequestBus::Events::Play)
-                    ->Event("Pause", &VideoPlaybackRequestBus::Events::Pause)
-                    ->Event("Stop", &VideoPlaybackRequestBus::Events::Stop)
-                    ->Event("EnableLooping", &VideoPlaybackRequestBus::Events::EnableLooping)
-                    ->Event("IsPlaying", &VideoPlaybackRequestBus::Events::IsPlaying)
-                    ->Event("SetPlaybackSpeed", &VideoPlaybackRequestBus::Events::SetPlaybackSpeed)
-                    ;
-                
-                behaviorContext->EBus<VideoPlaybackNotificationBus>("VideoPlaybackNotificationBus")
-                    ->Handler<BehaviorVideoPlaybackNotificationBusHandler>()
-                    ;
             }
         }
 
@@ -205,7 +156,7 @@ namespace AZ
             {
                 m_playing = true;
                 m_secondsSinceLastFrame = 0.0f;
-                EBUS_EVENT_ID(m_entityId, VideoPlaybackNotificationBus, OnPlaybackStarted);
+                EBUS_EVENT_ID(m_entityId, VideoPlaybackFramework::VideoPlaybackNotificationBus, OnPlaybackStarted);
             }
         }
 
@@ -215,7 +166,7 @@ namespace AZ
             {
                 m_playing = false;
                 m_secondsSinceLastFrame = 0.0f;
-                EBUS_EVENT_ID(m_entityId, VideoPlaybackNotificationBus, OnPlaybackPaused);
+                EBUS_EVENT_ID(m_entityId, VideoPlaybackFramework::VideoPlaybackNotificationBus, OnPlaybackPaused);
             }
         }
 
@@ -223,17 +174,46 @@ namespace AZ
         {
             m_shouldStop = true;
             m_playing = true;       //Set playing to true so that we can keep "playing" and seek to the beginning of the movie
-            EBUS_EVENT_ID(m_entityId, VideoPlaybackNotificationBus, OnPlaybackStopped);
-        }
-
-        void VideoPlaybackGameComponent::EnableLooping(bool enable)
-        {
-            m_shouldLoop = enable;
+            EBUS_EVENT_ID(m_entityId, VideoPlaybackFramework::VideoPlaybackNotificationBus, OnPlaybackStopped);
         }
 
         bool VideoPlaybackGameComponent::IsPlaying()
         {
             return m_playing;
+        }
+
+        AZ::u32 VideoPlaybackGameComponent::GetQueueAheadCount()
+        {
+            return m_queueAheadCount;
+        }
+
+        void VideoPlaybackGameComponent::SetQueueAheadCount(AZ::u32 queueAheadCount)
+        {
+            m_queueAheadCount = queueAheadCount;
+        }
+
+        bool VideoPlaybackGameComponent::GetIsLooping()
+        {
+            return m_shouldLoop;
+        }
+
+        void VideoPlaybackGameComponent::SetIsLooping(bool isLooping)
+        {
+            m_shouldLoop = isLooping;
+        }
+
+        bool VideoPlaybackGameComponent::GetIsAutoPlay()
+        {
+            return false;
+        }
+
+        void VideoPlaybackGameComponent::SetIsAutoPlay(bool isAutoPlay)
+        {
+        }
+
+        float VideoPlaybackGameComponent::GetPlaybackSpeed()
+        {
+            return 1.0f / m_playbackSpeedFactor;
         }
 
         void VideoPlaybackGameComponent::SetPlaybackSpeed(float speedFactor)
@@ -249,6 +229,16 @@ namespace AZ
             //m_secondsPerFrame. To go at half speed we pass in 0.5f but we want the secondsPerFrame to double
             //so m_playbackSpeedFactor will have to be 2.0f.
             m_playbackSpeedFactor = 1.0f / speedFactor;
+        }
+
+        AZStd::string VideoPlaybackGameComponent::GetVideoPathname()
+        {
+            return m_userTextureName;
+        }
+
+        void VideoPlaybackGameComponent::SetVideoPathname(AZStd::string videoPath)
+        {
+            m_userTextureName = videoPath;
         }
 
         void VideoPlaybackGameComponent::OnTick(float deltaTime, AZ::ScriptTimePoint time)
@@ -344,7 +334,7 @@ namespace AZ
                     //If we don't want to loop we set playing to false. Otherwise it will just keep playing from the beginning
                     if (m_videoDecoder.IsFinished())
                     {
-                        EBUS_EVENT_ID(m_entityId, VideoPlaybackNotificationBus, OnPlaybackFinished);
+                        EBUS_EVENT_ID(m_entityId, VideoPlaybackFramework::VideoPlaybackNotificationBus, OnPlaybackFinished);
                         m_videoDecoder.Seek(INT64_MIN);
                         if (!m_shouldLoop)
                         {
@@ -372,3 +362,4 @@ namespace AZ
     } //namespace VideoPlayback
 }//namespace AZ
 
+#endif

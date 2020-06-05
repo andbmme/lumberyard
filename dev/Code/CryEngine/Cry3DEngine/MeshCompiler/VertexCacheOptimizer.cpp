@@ -14,10 +14,41 @@
 #include "VertexCacheOptimizer.h"
 
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#undef AZ_RESTRICTED_SECTION
+#define VERTEXCACHEOPTIMIZER_CPP_SECTION_1 1
+#define VERTEXCACHEOPTIMIZER_CPP_SECTION_2 2
+#endif
+
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION VERTEXCACHEOPTIMIZER_CPP_SECTION_1
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/VertexCacheOptimizer_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/VertexCacheOptimizer_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/VertexCacheOptimizer_cpp_salem.inl"
+    #endif
+#endif
+
 namespace vcache
 {
     bool VertexCacheOptimizer::ReorderIndicesInPlace(void* pIndices, uint32 numIndices, int indexSize)
     {
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION VERTEXCACHEOPTIMIZER_CPP_SECTION_2
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/VertexCacheOptimizer_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/VertexCacheOptimizer_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/VertexCacheOptimizer_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+        #else
         return true;
+        #endif
     }
 }

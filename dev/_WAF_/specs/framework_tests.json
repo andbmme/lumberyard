@@ -10,10 +10,14 @@
     ],
     "modules" :
     [
-        "AzCoreTests",
+        "AzCore",
         "AzCoreTestDLL",
-        "GridMateTests",
+        "AzCoreTests",
+        "GridMate",
+        "AzFramework",
+        "AzToolsFramework",
+        "AzTestRunner",
         "FrameworkTests",
-        "AzTestRunner"
+        "ProcessLaunchTest"
     ]
 }

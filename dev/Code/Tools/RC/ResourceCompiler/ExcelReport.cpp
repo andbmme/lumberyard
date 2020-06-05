@@ -14,7 +14,7 @@
 // Description : Implementation of the CryEngine Unit Testing framework
 
 
-#include "StdAfx.h"
+#include "stdafx.h"
 #include "AssetFileInfo.h"
 #include "CryPath.h"
 #include "ExcelReport.h"
@@ -35,7 +35,7 @@ struct FilesComparePredicate
 };
 
 //////////////////////////////////////////////////////////////////////////
-static inline __int64 ComputeSizeInKB(__int64 sz)
+static inline int64 ComputeSizeInKB(int64 sz)
 {
     return (sz < 0) ? 0 : (sz + 512) / 1024;
 }

@@ -9,10 +9,12 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
+
 #pragma once
 
 #include <AzCore/Component/ComponentBus.h>
 #include <AzCore/std/parallel/mutex.h>
+#include <AzFramework/Entity/EntityContext.h>
 
 namespace AzToolsFramework
 {
@@ -31,21 +33,23 @@ namespace AzToolsFramework
     public:
         using MutexType = AZStd::recursive_mutex;
 
-        /// Set whether this entity can ever be shown in the editor.
+        /// Set whether this entity is set to be visible in the editor (individual state/flag).
         virtual void SetVisibilityFlag(bool flag) = 0;
 
-        /// Get whether this entity can ever be shown in the editor.
+        /// Get whether this entity is set to be visible in the editor (individual state/flag).
         virtual bool GetVisibilityFlag() = 0;
 
-        /// Set whether this entity is currently shown in the editor.
-        /// \note It's uncommon to call this function, use SetVisibilityFlag
-        /// to hide or show this entity. There are many factors contributing to
-        /// an entity's visibility, only the code which takes all these factors
-        /// into account should call SetCurrentVisibility.
-        virtual void SetCurrentVisibility(bool visibility) = 0;
+        /// LUMBERYARD_DEPRECATED(LY-102920)
+        /// ATTN: Do not use SetCurrentVisibility, instead use SetEntityVisibility in EditorEntityHelpers.h/cpp.
+        AZ_DEPRECATED(
+            virtual void SetCurrentVisibility(bool visibility) = 0;,
+            "Do not use SetCurrentVisibility, instead use SetEntityVisibility in EditorEntityHelpers.h/cpp.")
 
-        /// Get whether this entity is currently shown in the editor.
-        virtual bool GetCurrentVisibility() = 0;
+        /// LUMBERYARD_DEPRECATED(LY-102920)
+        /// ATTN: Do not use GetCurrentVisibility, instead use EditorEntityInfoRequests::IsVisible.
+        AZ_DEPRECATED(
+            virtual bool GetCurrentVisibility() = 0;,
+            "Do not use GetCurrentVisibility, instead use EditorEntityInfoRequests::IsVisible.")
     };
 
     /// \ref EditorVisibilityRequests
@@ -55,7 +59,7 @@ namespace AzToolsFramework
      * Messages about whether an Entity is shown or hidden in the Editor.
      * See \ref EditorVisibilityRequests.
      */
-    class EditorVisibilityNotifications
+    class EditorEntityVisibilityNotifications
         : public AZ::ComponentBus
     {
     public:
@@ -64,12 +68,20 @@ namespace AzToolsFramework
         virtual void OnEntityVisibilityChanged(bool /*visibility*/) {}
 
         /// The entity's visibility flag has been changed.
-        /// \note It's uncommon to care about this event,
-        /// OnEntityVisibilityChanged is more commonly subscribed to.
         /// Even if the flag is set true, the entity may be hidden for other reasons.
+        /// ATTN: Only EditorEntityModelEntry should listen to this notification.
         virtual void OnEntityVisibilityFlagChanged(bool /*flag*/) {}
     };
 
-    /// \ref EditorVisibilityNotifications
-    using EditorVisibilityNotificationBus = AZ::EBus<EditorVisibilityNotifications>;
-}
+    /// \ref EditorEntityVisibilityNotifications
+    using EditorEntityVisibilityNotificationBus = AZ::EBus<EditorEntityVisibilityNotifications>;
+
+    /// Alias for EditorEntityVisibilityNotifications - prefer EditorEntityVisibilityNotifications,
+    /// EditorVisibilityNotifications is deprecated.
+    using EditorVisibilityNotifications = EditorEntityVisibilityNotifications;
+
+    /// Alias for EditorEntityVisibilityNotificationBus - prefer EditorEntityVisibilityNotificationBus,
+    /// EditorVisibilityNotificationBus is deprecated.
+    using EditorVisibilityNotificationBus = EditorEntityVisibilityNotificationBus;
+
+} // namespace AzToolsFramework

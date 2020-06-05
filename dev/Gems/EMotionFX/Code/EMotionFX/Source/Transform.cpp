@@ -15,48 +15,32 @@
 #include "Actor.h"
 #include "PlayBackInfo.h"
 #include <MCore/Source/Compare.h>
+#include <MCore/Source/LogManager.h>
 
 
 namespace EMotionFX
 {
-    /*
-    // copy constructor
-    Transform::Transform(const Transform& other)
-    {
-        mRotation = other.mRotation;
-        mPosition = other.mPosition;
-
-        EMFX_SCALECODE
-        (
-            mScale          = other.mScale;
-            mScaleRotation  = other.mScaleRotation;
-        )
-    }
-    */
-
-    // extended constructor
-    Transform::Transform(const AZ::Vector3& pos, const MCore::Quaternion& rotation)
+    Transform::Transform(const AZ::Vector3& pos, const AZ::Quaternion& rotation)
     {
         Set(pos, rotation);
     }
 
 
-    // extended constructor
-    Transform::Transform(const AZ::Vector3& pos, const MCore::Quaternion& rotation, const AZ::Vector3& scale)
+    Transform::Transform(const AZ::Vector3& pos, const AZ::Quaternion& rotation, const AZ::Vector3& scale)
     {
         Set(pos, rotation, scale);
     }
 
 
     // init from a matrix
-    Transform::Transform(const MCore::Matrix& mat)
+    Transform::Transform(const AZ::Transform& transform)
     {
-        InitFromMatrix(mat);
+        InitFromAZTransform(transform);
     }
 
 
     // set
-    void Transform::Set(const AZ::Vector3& position, const MCore::Quaternion& rotation)
+    void Transform::Set(const AZ::Vector3& position, const AZ::Quaternion& rotation)
     {
         mRotation       = rotation;
         mPosition       = position;
@@ -69,7 +53,7 @@ namespace EMotionFX
 
 
     // set
-    void Transform::Set(const AZ::Vector3& position, const MCore::Quaternion& rotation, const AZ::Vector3& scale)
+    void Transform::Set(const AZ::Vector3& position, const AZ::Quaternion& rotation, const AZ::Vector3& scale)
     {
     #ifdef EMFX_SCALE_DISABLED
         MCORE_UNUSED(scale);
@@ -93,7 +77,7 @@ namespace EMotionFX
             return false;
         }
 
-        if (MCore::Compare<MCore::Quaternion>::CheckIfIsClose(mRotation, right.mRotation, MCore::Math::epsilon) == false)
+        if (MCore::Compare<AZ::Quaternion>::CheckIfIsClose(mRotation, right.mRotation, MCore::Math::epsilon) == false)
         {
             return false;
         }
@@ -118,7 +102,7 @@ namespace EMotionFX
             return true;
         }
 
-        if (MCore::Compare<MCore::Quaternion>::CheckIfIsClose(mRotation, right.mRotation, MCore::Math::epsilon))
+        if (MCore::Compare<AZ::Quaternion>::CheckIfIsClose(mRotation, right.mRotation, MCore::Math::epsilon))
         {
             return true;
         }
@@ -181,42 +165,35 @@ namespace EMotionFX
 
 
     // init from a matrix
-    void Transform::InitFromMatrix(const MCore::Matrix& mat)
+    void Transform::InitFromAZTransform(const AZ::Transform& transform)
     {
     #ifndef EMFX_SCALE_DISABLED
-        AZ::Vector3 p, s;
-        mat.DecomposeQRGramSchmidt(p, mRotation, s);
-        mPosition = p;
-        mScale = s;
+        AZ::Transform transformCopy = transform;
+        mPosition = transformCopy.GetTranslation();
+        mScale = transformCopy.ExtractScale();
+        mRotation = AZ::Quaternion::CreateFromTransform(transformCopy);
     #else
-        mat.DecomposeQRGramSchmidt(mPosition, mRotation);
+        mPosition = transform.GetTranslation();
+        mRotation = AZ::Quaternion::CreateFromTransform(transform);
     #endif
+
+        mRotation.NormalizeExact();
     }
 
 
     // convert to a matrix
-    MCore::Matrix Transform::ToMatrix() const
+    AZ::Transform Transform::ToAZTransform() const
     {
-        MCore::Matrix result;
+        AZ::Transform result;
 
     #ifndef EMFX_SCALE_DISABLED
-        result.InitFromPosRotScale(mPosition, mRotation, mScale);
+        result = MCore::CreateFromQuaternionAndTranslationAndScale(mRotation, mPosition, mScale);
+
     #else
-        result.InitFromPosRot(mPosition, mRotation);
+        result = AZ::Transform::CreateFromQuaternionAndTranslation(mRotation, mPosition);
     #endif
 
         return result;
-    }
-
-
-    // convert to a matrix
-    void Transform::ToMatrix(MCore::Matrix& outMatrix) const
-    {
-    #ifndef EMFX_SCALE_DISABLED
-        outMatrix.InitFromPosRotScale(mPosition, mRotation, mScale);
-    #else
-        outMatrix.InitFromPosRot(mPosition, mRotation);
-    #endif
     }
 
 
@@ -224,7 +201,7 @@ namespace EMotionFX
     void Transform::Identity()
     {
         mPosition = AZ::Vector3::CreateZero();
-        mRotation.Identity();
+        mRotation = AZ::Quaternion::CreateIdentity();
 
         EMFX_SCALECODE
         (
@@ -236,7 +213,7 @@ namespace EMotionFX
     void Transform::Zero()
     {
         mPosition = AZ::Vector3::CreateZero();
-        mRotation.Set(0, 0, 0, 0);
+        mRotation.Set(0.0f, 0.0f, 0.0f, 0.0f);
 
         EMFX_SCALECODE
         (
@@ -248,7 +225,7 @@ namespace EMotionFX
     void Transform::ZeroWithIdentityQuaternion()
     {
         mPosition = AZ::Vector3::CreateZero();
-        mRotation.Identity();
+        mRotation = AZ::Quaternion::CreateIdentity();
 
         EMFX_SCALECODE
         (
@@ -265,12 +242,14 @@ namespace EMotionFX
         mPosition   += mRotation * (other.mPosition * mScale);
     #endif
 
-        mRotation       = mRotation * other.mRotation;
+        mRotation = mRotation * other.mRotation;
+        mRotation.NormalizeExact();
 
         EMFX_SCALECODE
         (
             mScale = mScale * other.mScale;
         )
+
 
         return *this;
     }
@@ -285,6 +264,32 @@ namespace EMotionFX
     }
 
 
+    AZ::Vector3 Transform::TransformPoint(const AZ::Vector3& point) const
+    {
+        #ifdef EMFX_SCALE_DISABLED
+        return mPosition + mRotation * point;
+        #else
+        return mPosition + mRotation * (point * mScale);
+        #endif
+    }
+
+
+    AZ::Vector3 Transform::RotateVector(const AZ::Vector3& v) const
+    {
+        return mRotation * v;
+    }
+
+
+    AZ::Vector3 Transform::TransformVector(const AZ::Vector3& v) const
+    {
+        #ifdef EMFX_SCALE_DISABLED
+        return mRotation * v;
+        #else
+        return mRotation * (v * mScale);
+        #endif
+    }
+
+
     // multiply
     Transform& Transform::Multiply(const Transform& other)
     {
@@ -294,13 +299,13 @@ namespace EMotionFX
         mPosition   = other.mRotation * (mPosition * other.mScale) + other.mPosition;
     #endif
 
-        mRotation       = other.mRotation * mRotation;
+        mRotation = other.mRotation * mRotation;
+        mRotation.NormalizeExact();
 
         EMFX_SCALECODE
         (
             mScale = other.mScale * mScale;
         )
-
         return *this;
     }
 
@@ -317,7 +322,7 @@ namespace EMotionFX
     // normalize the quaternions
     Transform& Transform::Normalize()
     {
-        mRotation.Normalize();
+        mRotation.NormalizeExact();
         return *this;
     }
 
@@ -336,12 +341,10 @@ namespace EMotionFX
     {
         EMFX_SCALECODE
         (
-            mScale.SetX(1.0f / mScale.GetX());
-            mScale.SetY(1.0f / mScale.GetY());
-            mScale.SetZ(1.0f / mScale.GetZ());
+            mScale = mScale.GetReciprocalExact();
         )
 
-        mRotation.Conjugate();
+        mRotation = mRotation.GetConjugate();
 
     #ifdef EMFX_SCALE_DISABLED
         mPosition = mRotation * -mPosition;
@@ -369,10 +372,11 @@ namespace EMotionFX
         mPosition = MCore::Mirror(mPosition, planeNormal);
 
         // mirror the quaternion axis component
-        AZ::Vector3 mirrored = MCore::Mirror(AZ::Vector3(mRotation.x, mRotation.y, mRotation.z), planeNormal);
+        AZ::Vector3 mirrored = MCore::Mirror(AZ::Vector3(mRotation.GetX(), mRotation.GetY(), mRotation.GetZ()), planeNormal);
 
         // update the rotation quaternion with inverted angle
-        mRotation.Set(mirrored.GetX(), mirrored.GetY(), mirrored.GetZ(), -mRotation.w);
+        mRotation.Set(mirrored.GetX(), mirrored.GetY(), mirrored.GetZ(), -mRotation.GetW());
+        mRotation.NormalizeExact();
 
         return *this;
     }
@@ -388,10 +392,11 @@ namespace EMotionFX
         mPosition = MCore::Mirror(mPosition, planeNormal);
 
         // mirror the quaternion axis component
-        AZ::Vector3 mirrored = MCore::Mirror(AZ::Vector3(mRotation.x, mRotation.y, mRotation.z), planeNormal);
+        AZ::Vector3 mirrored = MCore::Mirror(AZ::Vector3(mRotation.GetX(), mRotation.GetY(), mRotation.GetZ()), planeNormal);
 
         // update the rotation quaternion with inverted angle
-        mRotation.Set(mirrored.GetX(), mirrored.GetY(), mirrored.GetZ(), -mRotation.w);
+        mRotation.Set(mirrored.GetX(), mirrored.GetY(), mirrored.GetZ(), -mRotation.GetW());
+        mRotation.NormalizeExact();
 
         return *this;
     }
@@ -406,7 +411,6 @@ namespace EMotionFX
     }
 
 
-
     // multiply but output into another
     void Transform::PreMultiply(const Transform& other, Transform* outResult) const
     {
@@ -416,7 +420,8 @@ namespace EMotionFX
         outResult->mPosition    = mPosition + mRotation * other.mPosition * mScale;
     #endif
 
-        outResult->mRotation        = mRotation * other.mRotation;
+        outResult->mRotation = mRotation * other.mRotation;
+        outResult->mRotation.NormalizeExact();
 
         EMFX_SCALECODE
         (
@@ -434,7 +439,8 @@ namespace EMotionFX
         outResult->mPosition    = other.mPosition + other.mRotation * mPosition * other.mScale;
     #endif
 
-        outResult->mRotation        = other.mRotation * mRotation;
+        outResult->mRotation = other.mRotation * mRotation;
+        outResult->mRotation.NormalizeExact();
 
         EMFX_SCALECODE
         (
@@ -447,19 +453,8 @@ namespace EMotionFX
     // inverse but store the result into another
     void Transform::Inverse(Transform* outResult) const
     {
-        // inverse the rotation
-        outResult->mRotation = mRotation;
-        outResult->mRotation.Conjugate();
-
-        // calculate inverse position
-        outResult->mPosition = outResult->mRotation * -mPosition;
-
-        EMFX_SCALECODE
-        (
-            outResult->mScale.SetX(1.0f / mScale.GetX());
-            outResult->mScale.SetY(1.0f / mScale.GetY());
-            outResult->mScale.SetZ(1.0f / mScale.GetZ());
-        )
+        *outResult = *this;
+        outResult->Inverse();
     }
 
 
@@ -467,19 +462,18 @@ namespace EMotionFX
     void Transform::CalcRelativeTo(const Transform& relativeTo, Transform* outTransform) const
     {
     #ifndef EMFX_SCALE_DISABLED
-        const AZ::Vector3 invScale = AZ::Vector3(1.0f) / relativeTo.mScale;
-        MCore::Quaternion invRot = relativeTo.mRotation;
-        invRot.Conjugate();
+        const AZ::Vector3 invScale = relativeTo.mScale.GetReciprocalExact();
+        const AZ::Quaternion invRot = relativeTo.mRotation.GetConjugate();
 
         outTransform->mPosition = (invRot * (mPosition - relativeTo.mPosition)) * invScale;
         outTransform->mRotation = invRot * mRotation;
         outTransform->mScale    = mScale * invScale;
     #else
-        MCore::Quaternion invRot = relativeTo.mRotation;
-        invRot.Conjugate();
+        const AZ::Quaternion invRot = relativeTo.mRotation.GetConjugate();
         outTransform->mPosition = invRot * (mPosition - relativeTo.mPosition);
         outTransform->mRotation = invRot * mRotation;
     #endif
+        outTransform->mRotation.NormalizeExact();
     }
 
 
@@ -499,8 +493,9 @@ namespace EMotionFX
         outResult->mPosition = MCore::Mirror(mPosition, planeNormal);
 
         // mirror the quaternion axis component
-        AZ::Vector3 mirrored = MCore::Mirror(AZ::Vector3(mRotation.x, mRotation.y, mRotation.z), planeNormal);
-        outResult->mRotation.Set(mirrored.GetX(), mirrored.GetY(), mirrored.GetZ(), -mRotation.w); // store the mirrored quat
+        AZ::Vector3 mirrored = MCore::Mirror(AZ::Vector3(mRotation.GetX(), mRotation.GetY(), mRotation.GetZ()), planeNormal);
+        outResult->mRotation.Set(mirrored.GetX(), mirrored.GetY(), mirrored.GetZ(), -mRotation.GetW()); // store the mirrored quat
+        outResult->mRotation.NormalizeExact();
 
         EMFX_SCALECODE
         (
@@ -527,11 +522,10 @@ namespace EMotionFX
     Transform& Transform::Blend(const Transform& dest, float weight)
     {
         mPosition = MCore::LinearInterpolate<AZ::Vector3>(mPosition, dest.mPosition, weight);
-        mRotation = mRotation.NLerp(dest.mRotation, weight);
+        mRotation = MCore::NLerp(mRotation, dest.mRotation, weight);
 
         EMFX_SCALECODE
         (
-            //mScaleRotation    = mScaleRotation.NLerp( dest.mScaleRotation, weight );
             mScale          = MCore::LinearInterpolate<AZ::Vector3>(mScale, dest.mScale, weight);
         )
 
@@ -542,13 +536,13 @@ namespace EMotionFX
     // additive blend
     Transform& Transform::BlendAdditive(const Transform& dest, const Transform& orgTransform, float weight)
     {
-        const AZ::Vector3    relPos         = dest.mPosition - orgTransform.mPosition;
-        const MCore::Quaternion& orgRot     = orgTransform.mRotation;
-        const MCore::Quaternion rot         = orgRot.NLerp(dest.mRotation, weight);
+        const AZ::Vector3    relPos      = dest.mPosition - orgTransform.mPosition;
+        const AZ::Quaternion& orgRot     = orgTransform.mRotation;
+        const AZ::Quaternion rot         = MCore::NLerp(orgRot, dest.mRotation, weight);
 
         // apply the relative changes
-        mRotation = mRotation * (orgRot.Conjugated() * rot);
-        mRotation.Normalize();
+        mRotation = mRotation * (orgRot.GetConjugate() * rot);
+        mRotation.NormalizeExact();
         mPosition += (relPos * weight);
 
         EMFX_SCALECODE
@@ -556,6 +550,32 @@ namespace EMotionFX
             mScale += (dest.mScale - orgTransform.mScale) * weight;
         )
 
+        return *this;
+    }
+
+
+    Transform& Transform::ApplyAdditive(const Transform& additive)
+    {
+        mPosition += additive.mPosition;
+        mRotation = mRotation * additive.mRotation;
+        mRotation.NormalizeExact();
+
+        EMFX_SCALECODE
+        (
+            mScale *= additive.mScale;
+        )
+        return *this;
+    }
+
+
+    Transform& Transform::ApplyAdditive(const Transform& additive, float weight)
+    {
+        mPosition += additive.mPosition * weight;
+        mRotation = MCore::NLerp(mRotation, mRotation * additive.mRotation, weight);
+        EMFX_SCALECODE
+        (
+            mScale *= AZ::Vector3::CreateOne().Lerp(additive.mScale, weight);
+        )
         return *this;
     }
 
@@ -618,12 +638,22 @@ namespace EMotionFX
             MCore::LogInfo("Transform(%s):", name);
         }
 
-        MCore::LogInfo("mPosition = %.6f, %.6f, %.6f", mPosition.GetX(), mPosition.GetY(), mPosition.GetZ());
-        MCore::LogInfo("mRotation = %.6f, %.6f, %.6f, %.6f", mRotation.x, mRotation.y, mRotation.z, mRotation.w);
+        MCore::LogInfo("mPosition = %.6f, %.6f, %.6f",
+            static_cast<float>(mPosition.GetX()),
+            static_cast<float>(mPosition.GetY()),
+            static_cast<float>(mPosition.GetZ()));
+        MCore::LogInfo("mRotation = %.6f, %.6f, %.6f, %.6f", 
+            static_cast<float>(mRotation.GetX()),
+            static_cast<float>(mRotation.GetY()),
+            static_cast<float>(mRotation.GetZ()),
+            static_cast<float>(mRotation.GetW()));
 
         EMFX_SCALECODE
         (
-            MCore::LogInfo("mScale    = %.6f, %.6f, %.6f", mScale.GetX(), mScale.GetY(), mScale.GetZ());
+            MCore::LogInfo("mScale    = %.6f, %.6f, %.6f",
+                static_cast<float>(mScale.GetX()),
+                static_cast<float>(mScale.GetY()),
+                static_cast<float>(mScale.GetZ()));
         )
     }
 
@@ -638,24 +668,24 @@ namespace EMotionFX
 
         if (mirrorFlags & Actor::MIRRORFLAG_INVERT_X)
         {
-            inOutTransform->mRotation.w *= -1.0f;
-            inOutTransform->mRotation.x *= -1.0f;
+            inOutTransform->mRotation.SetW(inOutTransform->mRotation.GetW() * -1.0f);
+            inOutTransform->mRotation.SetX(inOutTransform->mRotation.GetX() * -1.0f);
             inOutTransform->mPosition.SetY(inOutTransform->mPosition.GetY() * -1.0f);
             inOutTransform->mPosition.SetZ(inOutTransform->mPosition.GetZ() * -1.0f);
             return;
         }
         if (mirrorFlags & Actor::MIRRORFLAG_INVERT_Y)
         {
-            inOutTransform->mRotation.w *= -1.0f;
-            inOutTransform->mRotation.y *= -1.0f;
+            inOutTransform->mRotation.SetW(inOutTransform->mRotation.GetW() * -1.0f);
+            inOutTransform->mRotation.SetY(inOutTransform->mPosition.GetY() * -1.0f);
             inOutTransform->mPosition.SetX(inOutTransform->mPosition.GetX() * -1.0f);
             inOutTransform->mPosition.SetZ(inOutTransform->mPosition.GetZ() * -1.0f);
             return;
         }
         if (mirrorFlags & Actor::MIRRORFLAG_INVERT_Z)
         {
-            inOutTransform->mRotation.w *= -1.0f;
-            inOutTransform->mRotation.z *= -1.0f;
+            inOutTransform->mRotation.SetW(inOutTransform->mRotation.GetW() * -1.0f);
+            inOutTransform->mRotation.SetZ(inOutTransform->mPosition.GetZ() * -1.0f);
             inOutTransform->mPosition.SetX(inOutTransform->mPosition.GetX() * -1.0f);
             inOutTransform->mPosition.SetY(inOutTransform->mPosition.GetY() * -1.0f);
             return;
@@ -667,11 +697,9 @@ namespace EMotionFX
     void Transform::ApplyDeltaMirrored(const Transform& sourceTransform, const Transform& targetTransform, const AZ::Vector3& mirrorPlaneNormal, uint8 mirrorFlags)
     {
         // calculate the delta from source towards target transform
-        Transform invSourceTransform = sourceTransform;
-        invSourceTransform.Inverse();
+        const Transform invSourceTransform = sourceTransform.Inversed();
 
-        Transform delta = targetTransform;
-        delta.Multiply(invSourceTransform);
+        Transform delta = targetTransform.Multiplied(invSourceTransform);
 
         Transform::ApplyMirrorFlags(&delta, mirrorFlags);
 
@@ -687,11 +715,9 @@ namespace EMotionFX
     void Transform::ApplyDelta(const Transform& sourceTransform, const Transform& targetTransform)
     {
         // calculate the delta from source towards target transform
-        Transform invSourceTransform = sourceTransform;
-        invSourceTransform.Inverse();
+        const Transform invSourceTransform = sourceTransform.Inversed();
 
-        Transform delta = targetTransform;
-        delta.Multiply(invSourceTransform);
+        const Transform delta = targetTransform.Multiplied(invSourceTransform);
 
         PreMultiply(delta);
     }
@@ -701,14 +727,11 @@ namespace EMotionFX
     void Transform::ApplyDeltaWithWeight(const Transform& sourceTransform, const Transform& targetTransform, float weight)
     {
         // calculate the delta from source towards target transform
-        Transform invSourceTransform = sourceTransform;
-        invSourceTransform.Inverse();
+        const Transform invSourceTransform = sourceTransform.Inversed();
 
-        Transform targetDelta = targetTransform;
-        targetDelta.Multiply(invSourceTransform);
+        const Transform targetDelta = targetTransform.Multiplied(invSourceTransform);
 
-        Transform finalDelta; // inits at identity
-        finalDelta.Blend(targetDelta, weight);
+        const Transform finalDelta = Transform().Blend(targetDelta, weight); // inits at identity
 
         // apply the delta to the current transform
         PreMultiply(finalDelta);
@@ -724,9 +747,9 @@ namespace EMotionFX
         }
 
         // Only keep the rotation on the Z axis.
-        mRotation.x = 0.0f;
-        mRotation.y = 0.0f;
-        mRotation.Normalize();
+        mRotation.SetX(0.0f);
+        mRotation.SetY(0.0f);
+        mRotation.NormalizeExact();
     }
 
 
@@ -739,9 +762,9 @@ namespace EMotionFX
         result.mPosition.SetZ(0.0f);
 
         // Only keep the rotation on the Z axis.
-        result.mRotation.x = 0.0f;
-        result.mRotation.y = 0.0f;
-        result.mRotation.Normalize();
+        result.mRotation.SetX(0.0f);
+        result.mRotation.SetY(0.0f);
+        result.mRotation.NormalizeExact();
 
         return result;
     }

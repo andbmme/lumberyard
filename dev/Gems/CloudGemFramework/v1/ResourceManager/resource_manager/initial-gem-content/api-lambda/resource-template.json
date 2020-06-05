@@ -150,6 +150,14 @@
                         "Role"
                     ]
                 }, 
+                "Environment": {
+                    "Variables": {
+                        "Fn::GetAtt": [
+                            "ServiceLambdaConfiguration",
+                            "CCSettings"
+                        ]
+                    }
+                },
                 "Runtime": {
                     "Fn::GetAtt": [
                         "ServiceLambdaConfiguration", 
@@ -168,7 +176,7 @@
                     "Ref": "ConfigurationKey"
                 }, 
                 "FunctionName": "ServiceLambda", 
-                "Runtime": "python2.7", 
+                "Runtime": "python3.7", 
                 "ServiceToken": {
                     "Ref": "ProjectResourceHandler"
                 }, 

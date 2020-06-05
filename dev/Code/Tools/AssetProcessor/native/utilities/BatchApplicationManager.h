@@ -20,6 +20,7 @@
 #include <AzCore/Debug/TraceMessageBus.h>
 #include "native/FileWatcher/FileWatcher.h"
 #include "native/AssetDatabase/AssetDatabase.h"
+#include "native/AssetManager/FileStateCache.h"
 #include "native/resourcecompiler/RCBuilder.h"
 #include "native/utilities/ApplicationManager.h"
 #include "native/utilities/assetUtils.h"
@@ -42,6 +43,9 @@ namespace AssetProcessor
     class AssetCatalog;
     class InternalAssetBuilderInfo;
     class AssetRequestHandler;
+    class AssetServerHandler;
+    class FileProcessor;
+    class BuilderConfigurationManager;
 }
 
 class ApplicationServer;
@@ -58,6 +62,7 @@ class BatchApplicationManager
     , public AZ::Debug::TraceMessageBus::Handler
     , protected AzToolsFramework::AssetDatabase::AssetDatabaseRequests::Bus::Handler
     , public AssetProcessor::DiskSpaceInfoBus::Handler
+    , protected AzToolsFramework::SourceControlNotificationBus::Handler
 {
     Q_OBJECT
 public:
@@ -66,6 +71,7 @@ public:
     ApplicationManager::BeforeRunStatus BeforeRun() override;
     void Destroy() override;
     bool Run() override;
+    void HandleFileRelocation() const;
     bool Activate() override;
     bool PostActivate() override;
 
@@ -76,8 +82,6 @@ public:
     AssetProcessor::AssetScanner* GetAssetScanner() const;
 
     AssetProcessor::RCController* GetRCController() const;
-
-    AzToolsFramework::AssetDatabase::AssetDatabaseConnection* GetAssetDatabaseConnection() const;
 
     ConnectionManager* GetConnectionManager() const;
     ApplicationServer* GetApplicationServer() const;
@@ -97,19 +101,29 @@ public:
     void UnRegisterBuilderDescriptor(const AZ::Uuid& builderId) override;
 
     //! AssetProcessor::AssetBuilderInfoBus Interface
-    void GetMatchingBuildersInfo(const AZStd::string& assetPath, AssetProcessor::BuilderInfoList& builderInfoList);
+    void GetMatchingBuildersInfo(const AZStd::string& assetPath, AssetProcessor::BuilderInfoList& builderInfoList) override;
+    void GetAllBuildersInfo(AssetProcessor::BuilderInfoList& builderInfoList) override;
 
     //! TraceMessageBus Interface
     bool OnError(const char* window, const char* message) override;
 
-
     //! DiskSpaceInfoBus::Handler
     bool CheckSufficientDiskSpace(const QString& savePath, qint64 requiredSpace, bool shutdownIfInsufficient) override;
+
+    //! AzFramework::SourceControlNotificationBus::Handler
+    void ConnectivityStateChanged(const AzToolsFramework::SourceControlState newState) override;
+
+    void RemoveOldTempFolders();
+
+    void Rescan();
 
 Q_SIGNALS:
     void CheckAssetProcessorManagerIdleState();
     void ConnectionStatusMsg(QString message);
-    public Q_SLOTS:
+    void SourceControlReady();
+    void OnBuildersRegistered();
+
+public Q_SLOTS:
     void OnAssetProcessorManagerIdleState(bool isIdle);
 
 protected:
@@ -123,11 +137,13 @@ protected:
     virtual void DestroyPlatformConfiguration();
     virtual void InitFileMonitor();
     virtual void DestroyFileMonitor();
+    virtual bool InitBuilderConfiguration();
     bool InitApplicationServer();
     void DestroyApplicationServer();
     virtual void InitConnectionManager();
     void DestroyConnectionManager();
     void InitAssetRequestHandler();
+    void InitFileStateCache();
     void CreateQtApplication() override;
 
     bool InitializeInternalBuilders();
@@ -136,6 +152,14 @@ protected:
     void ShutdownBuilderManager();
     bool InitAssetDatabase();
     void ShutDownAssetDatabase();
+    void InitAssetServerHandler();
+    void DestroyAssetServerHandler();
+    void InitFileProcessor();
+    void ShutDownFileProcessor();
+    void InitSourceControl();
+
+    void InitMetrics();
+    void ShutDownMetrics();
 
     // IMPLEMENTATION OF -------------- AzToolsFramework::AssetDatabase::AssetDatabaseRequests::Bus::Listener
     bool GetAssetDatabaseLocation(AZStd::string& location) override;
@@ -156,14 +180,13 @@ public Q_SLOTS:
 private Q_SLOTS:
     void CheckForIdle();
 
-private:
-#ifdef UNIT_TEST
-    bool RunUnitTests();
-#endif
-
+protected:
     int m_processedAssetCount = 0;
     int m_failedAssetsCount = 0;
+    int m_warningCount = 0;
+    int m_errorCount = 0;
     bool m_AssetProcessorManagerIdleState = false;
+    bool m_sourceControlReady = false;
     
     AZStd::vector<AZStd::unique_ptr<FolderWatchCallbackEx> > m_folderWatches;
     FileWatcher m_fileWatcher;
@@ -173,9 +196,16 @@ private:
     AssetProcessor::AssetCatalog* m_assetCatalog = nullptr;
     AssetProcessor::AssetScanner* m_assetScanner = nullptr;
     AssetProcessor::RCController* m_rcController = nullptr;
-    AssetProcessor::AssetDatabaseConnection* m_assetDatabaseConnection = nullptr;
     AssetProcessor::AssetRequestHandler* m_assetRequestHandler = nullptr;
     AssetProcessor::BuilderManager* m_builderManager = nullptr;
+    AssetProcessor::AssetServerHandler* m_assetServerHandler = nullptr;
+
+
+    AZStd::unique_ptr<AssetProcessor::FileStateBase> m_fileStateCache;
+
+    AZStd::unique_ptr<AssetProcessor::FileProcessor> m_fileProcessor;
+
+    AZStd::unique_ptr<AssetProcessor::BuilderConfigurationManager> m_builderConfig;
 
     // The internal builder
     AZStd::shared_ptr<AssetProcessor::InternalRecognizerBasedBuilder> m_internalBuilder;
@@ -192,21 +222,7 @@ private:
     // Collection of all the external module builders
     AZStd::list<AssetProcessor::ExternalModuleAssetBuilderInfo*>    m_externalAssetBuilders;
 
-    struct ExternalAssetBuilderRegistration
-    {
-        ExternalAssetBuilderRegistration() = default;
-        ExternalAssetBuilderRegistration(AssetProcessor::ExternalModuleAssetBuilderInfo* builderInfo, AZStd::string builderFilePath)
-            : m_builderInfo(builderInfo),
-            m_builderFilePath(builderFilePath)
-        {
-
-        }
-
-        AssetProcessor::ExternalModuleAssetBuilderInfo* m_builderInfo = nullptr;
-        AZStd::string m_builderFilePath;
-    };
-
-    ExternalAssetBuilderRegistration m_currentExternalAssetBuilder;
+    AssetProcessor::ExternalModuleAssetBuilderInfo* m_currentExternalAssetBuilder = nullptr;
     
     QAtomicInt m_connectionsAwaitingAssetCatalogSave = 0;
     int m_remainingAPMJobs = 0;
@@ -214,6 +230,10 @@ private:
 
     unsigned int m_highestConnId = 0;
     AzToolsFramework::Ticker* m_ticker = nullptr; // for ticking the tickbus.
+
+    QList<QMetaObject::Connection> m_connectionsToRemoveOnShutdown;
+    QString m_dependencyScanPattern;
+    int m_dependencyScanMaxIteration = AssetProcessor::MissingDependencyScanner::DefaultMaxScanIteration; // The maximum number of times to recurse when scanning a file for missing dependencies.
 };
 
 

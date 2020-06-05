@@ -17,6 +17,7 @@
 
 
 #include "RenderViewport.h"
+#include <AzCore/Component/Component.h>
 
 #include <functional>
 
@@ -37,6 +38,7 @@ namespace Ui
 class CViewportTitleDlg
     : public QWidget
     , public IEditorNotifyListener
+    , public ISystemEventListener
 {
     Q_OBJECT
 public:
@@ -80,6 +82,7 @@ protected:
     QMenu *InitializeViewportSearchMenu();
 
     virtual void OnEditorNotifyEvent(EEditorNotifyEvent event);
+    void OnSystemEvent(ESystemEvent event, UINT_PTR wparam, UINT_PTR lparam) override;
 
     void OnMaximize();
     void OnToggleHelpers();
@@ -136,5 +139,24 @@ protected:
     QAction* m_searchAndAction;
     QAction* m_searchOrAction;
 };
+
+namespace AzToolsFramework
+{
+    //! A component to reflect scriptable commands for the Editor
+    class ViewportTitleDlgPythonFuncsHandler
+        : public AZ::Component
+    {
+    public:
+        AZ_COMPONENT(ViewportTitleDlgPythonFuncsHandler, "{2D686C2D-04F0-4C96-B432-0702E774062E}")
+
+        static void Reflect(AZ::ReflectContext* context);
+
+        // AZ::Component ...
+        void Activate() override {}
+        void Deactivate() override {}
+    };
+
+} // namespace AzToolsFramework
+
 
 #endif // CRYINCLUDE_EDITOR_VIEWPORTTITLEDLG_H

@@ -89,6 +89,20 @@ namespace AzQtComponents
             int arrowWidth;
         };
 
+        struct IconButton
+        {
+            QColor activeColor;
+            QColor disabledColor;
+            QColor selectedColor;
+        };
+
+        struct DropdownButton
+        {
+            QPixmap indicatorArrowDown;
+            int menuIndicatorWidth;
+            int menuIndicatorPadding;
+        };
+
         struct Config
         {
             ColorSet primary;
@@ -98,6 +112,8 @@ namespace AzQtComponents
             Border focusedBorder;
             Frame defaultFrame;
             SmallIcon smallIcon;
+            IconButton iconButton;
+            DropdownButton dropdownButton;
         };
 
         /*!
@@ -112,6 +128,13 @@ namespace AzQtComponents
         *   AzQtComponents::Style::addClass(button, "SmallIcon");
         */
         static void applySmallIconStyle(QToolButton* button);
+
+        /*!
+        * Applies the attached button styling to a QToolButton.
+        * Same as
+        *   AzQtComponents::Style::addClass(button, "AttachedButton");
+        */
+        static void applyAttachedStyle(QToolButton* button);
 
         /*!
         * Loads the button config data from a settings object.
@@ -133,16 +156,19 @@ namespace AzQtComponents
 
         static QSize sizeFromContents(const Style* style, QStyle::ContentsType type, const QStyleOption* option, const QSize& size, const QWidget* widget, const Config& config);
 
+        static int menuButtonIndicatorWidth(const Style* style, const QStyleOption* option, const QWidget* widget, const Config& config);
+
         static bool drawPushButtonBevel(const Style* style, const QStyleOption* option, QPainter* painter, const QWidget* widget, const Config& config);
 
         static bool drawToolButton(const Style* style, const QStyleOptionComplex* option, QPainter* painter, const QWidget* widget, const Config& config);
-        static bool drawIndicatorArrow(const Style* style, const QStyleOption* option, QPainter* painter, const QWidget* widget, const Config& config);
+        static bool drawIndicatorArrowDown(const Style* style, const QStyleOption* option, QPainter* painter, const QWidget* widget, const Config& config);
 
         static bool drawPushButtonFocusRect(const Style* style, const QStyleOption* option, QPainter* painter, const QWidget* widget, const Config& config);
 
+        static QPixmap generatedIconPixmap(QIcon::Mode iconMode, const QPixmap& pixmap, const QStyleOption* option, const Config& config);
 
         // internal methods
-        static void drawSmallIconButton(const Style* style, const QStyleOption* option, QPainter* painter, const QWidget* widget, const Config& config);
+        static void drawSmallIconButton(const Style* style, const QStyleOption* option, QPainter* painter, const QWidget* widget, const Config& config, bool drawFrame = true);
         static void drawSmallIconFrame(const Style* style, const QStyleOption* option, const QRect& frame, QPainter* painter, const Config& config);
         static void drawSmallIconLabel(const Style* style, const QStyleOptionToolButton* buttonOption, QStyle::State state, const QRect& buttonArea, QPainter* painter, const QWidget* widget, const Config& config);
         static void drawSmallIconArrow(const Style* style, const QStyleOptionToolButton* buttonOption, QStyle::State state, const QRect& buttonArea, QPainter* painter, const QWidget* widget, const Config& config);

@@ -20,7 +20,7 @@
 #include <GraphCanvas/Components/Slots/Data/DataSlotBus.h>
 #include <GraphCanvas/Components/StyleBus.h>
 #include <GraphCanvas/Components/VisualBus.h>
-#include <Styling/StyleHelper.h>
+#include <GraphCanvas/Styling/StyleHelper.h>
 #include <Widgets/GraphCanvasLabel.h>
 #include <Widgets/NodePropertyDisplayWidget.h>
 
@@ -39,7 +39,27 @@ namespace GraphCanvas
         , public SceneMemberNotificationBus::Handler
         , public StyleNotificationBus::Handler
         , public VisualNotificationBus::Handler
+        , public AZ::SystemTickBus::Handler
     {
+    private:
+
+        class DataTypeConversionDataSlotDragDropInterface
+            : public DataSlotDragDropInterface
+        {
+        public:
+            AZ_CLASS_ALLOCATOR(DataTypeConversionDataSlotDragDropInterface, AZ::SystemAllocator, 0);
+
+            DataTypeConversionDataSlotDragDropInterface(const SlotId& slotId);
+
+            AZ::Outcome<DragDropState> OnDragEnterEvent(QGraphicsSceneDragDropEvent* dragDropEvent) override;
+            void OnDragLeaveEvent(QGraphicsSceneDragDropEvent* dragDropEvent) override;
+            void OnDropEvent(QGraphicsSceneDragDropEvent* dropEvent) override;
+
+        private:
+
+            SlotId m_slotId;
+        };
+
     public:
         AZ_CLASS_ALLOCATOR(DataSlotLayout, AZ::SystemAllocator, 0);
 
@@ -48,6 +68,10 @@ namespace GraphCanvas
 
         void Activate();
         void Deactivate();
+
+        // SystemTickBus
+        void OnSystemTick() override;
+        ////
 
         // SceneMemberNotificationBus
         void OnSceneSet(const AZ::EntityId&) override;
@@ -59,9 +83,6 @@ namespace GraphCanvas
 
         void OnNameChanged(const TranslationKeyedString&) override;
         void OnTooltipChanged(const TranslationKeyedString&) override;
-
-        void OnConnectedTo(const AZ::EntityId& connectionId, const Endpoint& endpoint) override;
-        void OnDisconnectedFrom(const AZ::EntityId& connectionId, const Endpoint& endpoint) override;
         ////
 
         // StyleNotificationBus
@@ -76,13 +97,25 @@ namespace GraphCanvas
 
         // DataSlotNotificationBus
         void OnDataSlotTypeChanged(const DataSlotType& dataSlotType) override;
+        void OnDisplayTypeChanged(const AZ::Uuid& dataType, const AZStd::vector<AZ::Uuid>& typeIds) override;
         ////
 
         // NodeDataSlotRequestBus
         void RecreatePropertyDisplay() override;
         ////
 
+        void OnDragEnterEvent(QGraphicsSceneDragDropEvent* dragDropEvent);
+        void OnDragLeaveEvent(QGraphicsSceneDragDropEvent* dragDropEvent);
+        void OnDropEvent(QGraphicsSceneDragDropEvent* dragDropEvent);
+
     private:
+
+        void UpdateFilterState();
+
+        void RegisterDataSlotDragDropInterface(DataSlotDragDropInterface* dragDropInterface);
+        void RemoveDataSlotDragDropInterface(DataSlotDragDropInterface* dragDropInterface);
+
+        void SetDragDropState(DragDropState dragDropState);
 
         AZ::EntityId GetSceneId() const;
 
@@ -90,7 +123,16 @@ namespace GraphCanvas
 
         void CreateDataDisplay();
         void UpdateLayout();
-        void UpdateGeometry();
+        void UpdateGeometry();        
+
+        AZStd::unordered_set< DataSlotDragDropInterface* >  m_dragDropInterfaces;
+        DataSlotDragDropInterface*                          m_activeHandler;
+        QGraphicsItem*                                      m_eventFilter;
+
+        DragDropState                                       m_dragDropState;
+
+        // Internal DragDrop Interface
+        DataSlotDragDropInterface*                          m_valueReferenceInterface;
 
         ConnectionType m_connectionType;
 
@@ -102,7 +144,15 @@ namespace GraphCanvas
         DataSlotConnectionPin*                          m_slotConnectionPin;
         GraphCanvasLabel*                               m_slotText;
 
-        QGraphicsLayoutItem*                            m_layoutItem;
+        // track the last seen values of some members to prevent UpdateLayout doing unnecessary work
+        struct
+        {
+            ConnectionType connectionType = CT_Invalid;
+            DataSlotConnectionPin* slotConnectionPin = nullptr;
+            GraphCanvasLabel* slotText = nullptr;
+            NodePropertyDisplayWidget* nodePropertyDisplay = nullptr;
+            QGraphicsWidget* spacer = nullptr;
+        } m_atLastUpdate;
     };
 
     //! Lays out the parts of the Data Slot

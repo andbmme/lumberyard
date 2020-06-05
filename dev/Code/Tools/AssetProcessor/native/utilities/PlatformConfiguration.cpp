@@ -11,7 +11,8 @@
 */
 #include "native/utilities/PlatformConfiguration.h"
 #include "native/utilities/assetUtils.h"
-#include "native/assetManager/assetScanFolderInfo.h"
+#include "native/AssetManager/assetScanFolderInfo.h"
+#include "native/AssetManager/FileStateCache.h"
 #include "native/assetprocessor.h"
 #include "native/utilities/assetUtils.h"
 #include <AzCore/Debug/Trace.h>
@@ -26,10 +27,13 @@
 #include <QJsonObject>
 #include <QFile>
 #include <QJsonValue>
+#include <QDirIterator>
 
 #include <QSettings>
 #include <QStringList>
 #include <QDir>
+
+#include <AzToolsFramework/API/EditorAssetSystemAPI.h>
 
 namespace
 {
@@ -43,19 +47,13 @@ namespace
 
     // Path to the user preferences file
     const char* s_preferencesFileName = "SetupAssistantUserPreferences.ini";
+
 }
 
 namespace AssetProcessor
 {
-    GemInformation::GemInformation(const char* identifier, const char* absolutePath, const char* relativePath, const char* displayName, bool isGameGem, bool assetOnlyGem)
-        : m_identifier(QString::fromUtf8(identifier))
-        , m_absolutePath(QString::fromUtf8(absolutePath))
-        , m_relativePath(QString::fromUtf8(relativePath))
-        , m_displayName(QString::fromUtf8(displayName))
-        , m_isGameGem(isGameGem)
-        , m_assetOnly(assetOnlyGem)
-    {
-    }
+    const char AssetConfigPlatfomrDir[] = "AssetProcessorConfig/";
+    const char AssetProcessorPlatformConfigFileName[] = "AssetProcessorPlatformConfig.ini";
 
     PlatformConfiguration::PlatformConfiguration(QObject* pParent)
         : QObject(pParent)
@@ -64,45 +62,28 @@ namespace AssetProcessor
     {
     }
 
-    bool PlatformConfiguration::InitializeFromConfigFiles(QString rootConfigFile, QString projectConfigFile)
+    bool PlatformConfiguration::AddPlatformConfigFilePaths(QStringList& configFilePaths)
+    {
+        QDir engineRoot;
+        AssetUtilities::ComputeEngineRoot(engineRoot);
+        QString configWildcardName{ "*" };
+        configWildcardName.append(AssetProcessorPlatformConfigFileName);
+        QStringList platformList = FindWildcardMatches(engineRoot.absoluteFilePath(AssetConfigPlatfomrDir), configWildcardName);
+        for (const auto& thisConfig : platformList)
+        {
+            configFilePaths.append(thisConfig);
+        }
+        return (platformList.size() > 0);
+    }
+
+    bool PlatformConfiguration::InitializeFromConfigFiles(QString absoluteSystemRoot, QString absoluteAssetRoot, QString gameName, bool addPlatformConfigs, bool addGemsConfigs)
     {
         // this function may look strange, but the point here is that each section in the config file
         // can depend on entries from the prior section, but also, each section can be overridden by
         // the other config files.
         // so we have to read each section one at a time, in order of config file priority (most important one last)
-
-        // Read in Gems for the active game
-
-        QStringList configFiles;
-
-        if (!rootConfigFile.isEmpty())
-        {
-            configFiles.push_back(rootConfigFile);
-        }
-
-        QList<GemInformation> gemInformations;
-
-        if (!ReadGems(gemInformations))
-        {
-            // if the above function returns false, this is a critical failure or error, and is a sign that a DLL is missing
-            // we cannot continue.
-            return false;
-        }
-
-        m_gemInfoList = gemInformations;
-
-        // append to the end of the list all the config files from gems.
-        bool foundGameGem = false;
-        AddGemConfigFiles(gemInformations, configFiles, foundGameGem);
-
-        // finally, push the project config, if present at the end.
-        if (!projectConfigFile.isEmpty())
-        {
-            configFiles.push_back(projectConfigFile);
-        }
-
-        // Now that we've sorted out the list of all possible config ini files and they're in order of lowest-highest priority, we read them in
-        // allowing later ones to override earlier ones.
+       
+        QStringList configFiles = AzToolsFramework::AssetUtils::GetConfigFiles(absoluteSystemRoot.toUtf8().constData(), absoluteAssetRoot.toUtf8().constData(), gameName.toUtf8().constData(), addPlatformConfigs, addGemsConfigs);
 
         // first, read the platform informations.
         for (QString configFile : configFiles)
@@ -113,10 +94,9 @@ namespace AssetProcessor
         // now read which platforms are currently enabled - this may alter the platform infos array and eradicate
         // the ones that are not suitable and currently enabled, leaving only the ones enabled either on command line
         // or config files.
-        for (QString configFile : configFiles)
-        {
-            PopulateEnabledPlatforms(configFile);
-        }
+        // the command line can always takes precidence - but can only turn on and off platforms, it cannot describe them.
+
+        PopulateEnabledPlatforms(configFiles);
 
         FinalizeEnabledPlatforms();
 
@@ -133,8 +113,17 @@ namespace AssetProcessor
             }
         }
 
-        // now add all the scan folders of gems.
-        AddGemScanFolders(gemInformations);
+        if (addGemsConfigs)
+        {
+            if (!AzToolsFramework::AssetUtils::GetGemsInfo(absoluteSystemRoot.toUtf8().constData(), absoluteAssetRoot.toUtf8().constData(), gameName.toUtf8().constData(), m_gemInfoList))
+            {
+                AZ_Error(AssetProcessor::ConsoleChannel, false, "Unable to Get Gems Info for the project (%s).", gameName.toUtf8().constData());
+                return false;
+            }
+
+            // now add all the scan folders of gems.
+            AddGemScanFolders(m_gemInfoList);
+        }
 
         // Then read metadata (which depends on scan folders)
         for (QString configFile : configFiles)
@@ -143,7 +132,7 @@ namespace AssetProcessor
         }
 
         // at this point there should be at least some watch folders besides gems.
-        if (m_scanFolders.isEmpty())
+        if (m_scanFolders.empty())
         {
             m_fatalError = "Unable to find any scan folders specified in the configuration files during load.  Please check the Asset Processor platform ini files for errors.";
             return IsValid();
@@ -152,7 +141,7 @@ namespace AssetProcessor
         return IsValid();
     }
 
-    void PlatformConfiguration::PopulateEnabledPlatforms(QString fileSource)
+    void PlatformConfiguration::PopulateEnabledPlatforms(QStringList configFiles)
     {
         // if there are no platform informations inside the ini file, there's no point in proceeding
         // since we are unaware of the existence of the platform at all
@@ -185,14 +174,12 @@ namespace AssetProcessor
             return; // command line wins!
         }
         // command line isn't active, read from config files instead.
-        // note that the current host platform is enabled by default.
+        QStringList enabledPlatforms = AzToolsFramework::AssetUtils::GetEnabledPlatforms(configFiles);
 
-        if (!m_tempEnabledPlatforms.contains(CURRENT_PLATFORM))
+        for (const QString& enabledPlatform : enabledPlatforms)
         {
-            m_tempEnabledPlatforms.push_back(CURRENT_PLATFORM);
+            m_tempEnabledPlatforms.push_back(enabledPlatform);
         }
-
-        ReadEnabledPlatformsFromConfigFile(fileSource);
     }
 
     void PlatformConfiguration::FinalizeEnabledPlatforms()
@@ -218,17 +205,14 @@ namespace AssetProcessor
         }
 #endif // defined(AZ_ENABLE_TRACING)
 
-        if (!m_tempEnabledPlatforms.isEmpty())
+        // over here, we want to eliminate any platforms in the m_enabledPlatforms array that are not in the m_tempEnabledPlatforms
+        for (int enabledPlatformIdx = static_cast<int>(m_enabledPlatforms.size() - 1); enabledPlatformIdx >= 0; --enabledPlatformIdx)
         {
-            // over here, we want to eliminate any platforms in the m_enabledPlatforms array that are not in the m_tempEnabledPlatforms
-            for (int enabledPlatformIdx = static_cast<int>(m_enabledPlatforms.size() - 1); enabledPlatformIdx >= 0; --enabledPlatformIdx)
-            {
-                const AssetBuilderSDK::PlatformInfo& platformInfo = m_enabledPlatforms[enabledPlatformIdx];
+            const AssetBuilderSDK::PlatformInfo& platformInfo = m_enabledPlatforms[enabledPlatformIdx];
 
-                if (!m_tempEnabledPlatforms.contains(platformInfo.m_identifier.c_str()))
-                {
-                    m_enabledPlatforms.erase(m_enabledPlatforms.cbegin() + enabledPlatformIdx);
-                }
+            if (!m_tempEnabledPlatforms.contains(platformInfo.m_identifier.c_str()))
+            {
+                m_enabledPlatforms.erase(m_enabledPlatforms.cbegin() + enabledPlatformIdx);
             }
         }
 
@@ -429,7 +413,7 @@ namespace AssetProcessor
                     // after the ScanFolder section here, meaning the following would be in conflict:
                     // [ScanFolder My Game]
                     // [ScanFolder My Gem]
-                    // the portable key should absolutely not include the outputprefix becuase you can map
+                    // the portable key should absolutely not include the outputprefix because you can map
                     // multiple folders into the same output prefix, it is not a suitable unique identifier.
                     QString oldDisplayName = group.split(" ", QString::SkipEmptyParts)[1];
                     QString scanFolderPortableKey = QString("from-ini-file-%1").arg(oldDisplayName);
@@ -457,9 +441,22 @@ namespace AssetProcessor
                     bool isRoot = (watchFolder.compare(normalizedRoot, Qt::CaseInsensitive) == 0);
                     recurse &= !isRoot; // root never recurses
 
+                    // New assets can be saved in any scan folder defined except for the engine root.
+                    const bool canSaveNewAssets = !isRoot;
+
                     if (!watchFolder.isEmpty())
                     {
-                        AddScanFolder(ScanFolderInfo(watchFolder, scanFolderDisplayName, scanFolderPortableKey, outputPrefix, isRoot, recurse, platforms, order));
+                        AddScanFolder(ScanFolderInfo(
+                            watchFolder,
+                            scanFolderDisplayName,
+                            scanFolderPortableKey,
+                            outputPrefix,
+                            isRoot,
+                            recurse,
+                            platforms,
+                            order,
+                            /*scanFolderId*/ 0,
+                            canSaveNewAssets));
                     }
 
                     loader.endGroup();
@@ -491,18 +488,28 @@ namespace AssetProcessor
                     AssetRecognizer rec;
                     rec.m_name = group.mid(3); // chop off the "RC " and you're left with the remainder name
 
-                    if (m_assetRecognizers.find(rec.m_name) != m_assetRecognizers.end())
+                    if (loader.value("ignore", false).toBool())
                     {
-                        rec = m_assetRecognizers[rec.m_name];
+                        // This allows a game-specific configuration to remove an AssetRecognizer that exists in
+                        // the default configuration. For example, some projects may provide an AssetBuilder for 
+                        // a file type that normally uses RC by default.
+                        m_assetRecognizers.remove(rec.m_name);
                     }
+                    else
+                    {
+                        if (m_assetRecognizers.find(rec.m_name) != m_assetRecognizers.end())
+                        {
+                            rec = m_assetRecognizers[rec.m_name];
+                        }
 
-                    if (!ReadRecognizerFromConfig(rec, loader))
-                    {
-                        return false;
-                    }
-                    if (!rec.m_platformSpecs.empty())
-                    {
-                        m_assetRecognizers[rec.m_name] = rec;
+                        if (!ReadRecognizerFromConfig(rec, loader))
+                        {
+                            return false;
+                        }
+                        if (!rec.m_platformSpecs.empty())
+                        {
+                            m_assetRecognizers[rec.m_name] = rec;
+                        }
                     }
 
                     loader.endGroup();
@@ -582,7 +589,7 @@ namespace AssetProcessor
             // already present - replace or remove it.
             if (enable)
             {
-                AssetBuilderSDK::PlatformInfo& info = *platformIt;
+                *platformIt = platform;
             }
             else
             {
@@ -622,10 +629,10 @@ namespace AssetProcessor
 
     int PlatformConfiguration::GetScanFolderCount() const
     {
-        return m_scanFolders.count();
+        return aznumeric_caster(m_scanFolders.size());
     }
 
-    QList<AssetProcessor::GemInformation> PlatformConfiguration::GetGemsInformation() const
+    AZStd::vector<AzToolsFramework::AssetUtils::GemInfo> PlatformConfiguration::GetGemsInformation() const
     {
         return m_gemInfoList;
     }
@@ -633,7 +640,7 @@ namespace AssetProcessor
     AssetProcessor::ScanFolderInfo& PlatformConfiguration::GetScanFolderAt(int index)
     {
         Q_ASSERT(index >= 0);
-        Q_ASSERT(index < m_scanFolders.count());
+        Q_ASSERT(index < m_scanFolders.size());
         return m_scanFolders[index];
     }
 
@@ -684,39 +691,52 @@ namespace AssetProcessor
         }
     }
 
-    bool PlatformConfiguration::ConvertToRelativePath(QString fullFileName, QString& relativeName, QString& scanFolderName) const
+    bool PlatformConfiguration::ConvertToRelativePath(QString fullFileName, QString& databaseSourceName, QString& scanFolderName, bool includeOutputPrefix) const
     {
         const ScanFolderInfo* info = GetScanFolderForFile(fullFileName);
+
         if (info)
         {
-            QString relPath; // empty string.
-            if (fullFileName.length() > info->ScanPath().length())
-            {
-                relPath = fullFileName.right(fullFileName.length() - info->ScanPath().length() - 1); // also eat the slash, hence -1
-            }
             scanFolderName = info->ScanPath();
+            scanFolderName.replace(AZ_WRONG_DATABASE_SEPARATOR, AZ_CORRECT_DATABASE_SEPARATOR);
 
-            if (info->GetOutputPrefix().isEmpty())
-            {
-                relativeName = relPath;
-            }
-            else
-            {
-                relativeName = info->GetOutputPrefix();
-
-                if (!relPath.isEmpty())
-                {
-                    relativeName += '/';
-                    relativeName += relPath;
-                }
-            }
-            relativeName.replace('\\', '/');
-            scanFolderName.replace('\\', '/');
-
-            return true;
+            return ConvertToRelativePath(fullFileName, info, databaseSourceName, includeOutputPrefix);
         }
         // did not find it.
         return false;
+    }
+
+    bool PlatformConfiguration::ConvertToRelativePath(const QString& fullFileName, const ScanFolderInfo* scanFolderInfo, QString& databaseSourceName, bool includeOutputPrefix)
+    {
+        if(!scanFolderInfo)
+        {
+            return false;
+        }
+
+        QString relPath; // empty string.
+        if (fullFileName.length() > scanFolderInfo->ScanPath().length())
+        {
+            relPath = fullFileName.right(fullFileName.length() - scanFolderInfo->ScanPath().length() - 1); // also eat the slash, hence -1
+        }
+
+        if ((scanFolderInfo->GetOutputPrefix().isEmpty()) || (!includeOutputPrefix))
+        {
+            databaseSourceName = relPath;
+        }
+        else
+        {
+            databaseSourceName = scanFolderInfo->GetOutputPrefix();
+
+            if (!relPath.isEmpty())
+            {
+                databaseSourceName += '/';
+                databaseSourceName += relPath;
+            }
+        }
+
+        databaseSourceName.replace(AZ_WRONG_DATABASE_SEPARATOR, AZ_CORRECT_DATABASE_SEPARATOR);
+
+        return true;
     }
 
     QString PlatformConfiguration::GetOverridingFile(QString relativeName, QString scanFolderName) const
@@ -727,8 +747,9 @@ namespace AssetProcessor
 
             if (scanFolderName.compare(scanFolderInfo.ScanPath(), Qt::CaseInsensitive) == 0)
             {
-                // we have found the root of the existing file.
-                // nothing can override it.
+                // we have found the actual folder containing the file we started with
+                // since all other folders "deeper" in the override vector are lower priority than this one
+                // (they are sorted in priority order, most priority first).
                 return QString();
             }
             QString tempRelativeName(relativeName);
@@ -744,13 +765,12 @@ namespace AssetProcessor
                 continue;
             }
 
-            QString checkForReplacement = QDir(scanFolderInfo.ScanPath()).absoluteFilePath(tempRelativeName);
-
-
-            if (QFile::exists(checkForReplacement))
+            // note that we only Update To Correct Case here, because this is one of the few situations where
+            // a file with the same relative path may be overridden but different case.
+            if (AssetUtilities::UpdateToCorrectCase(scanFolderInfo.ScanPath(), tempRelativeName))
             {
                 // we have found a file in an earlier scan folder that would override this file
-                return AssetUtilities::NormalizeFilePath(checkForReplacement);
+                return QDir(scanFolderInfo.ScanPath()).absoluteFilePath(tempRelativeName);
             }
         }
 
@@ -782,66 +802,108 @@ namespace AssetProcessor
                 continue;
             }
             QDir rooted(scanFolderInfo.ScanPath());
-            QString fullPath = rooted.absoluteFilePath(tempRelativeName);
-            if (QFile::exists(fullPath))
+            QString absolutePath = rooted.absoluteFilePath(tempRelativeName);
+            // do not call UpdateToCorrectCase here, this is an extreme hotspot in terms of how often this function is called.
+            // the only time its generally necessary to update case is when an override is found, which is generally very rare,
+            // so we save UpdateToCorrectCase for the override related functions instead of this hot path.
+            bool fileExists = false;
+            AssetProcessor::FileStateRequestBus::BroadcastResult(fileExists, &AssetProcessor::FileStateRequestBus::Events::Exists, absolutePath);
+
+            if(fileExists)
             {
-                // the problem here is that on case insensitive file systems, the file "BLAH.TXT" will also respond as existing if we ask for "blah.txt"
-                // but we want to return the actual real casing of the file itself.
-                // to do this, we use the directory information for the directory the file is in
-                // we know that this always succeeds since we just verified that the file exists.
-                QFileInfo newInfo(fullPath);
-                QStringList searchPattern;
-                searchPattern << newInfo.fileName();
-                QStringList actualCasing = newInfo.absoluteDir().entryList(searchPattern, QDir::Files);
-
-                if (actualCasing.isEmpty())
-                {
-                    return tempRelativeName;
-                }
-
-                return AssetUtilities::NormalizeFilePath(newInfo.absoluteDir().absoluteFilePath(actualCasing[0]));
+                return AssetUtilities::NormalizeFilePath(absolutePath);
             }
         }
         return QString();
     }
 
+    QStringList PlatformConfiguration::FindWildcardMatches(const QString& sourceFolder, QString relativeName, bool includeFolders) const
+    {
+        if (relativeName.isEmpty())
+        {
+            return QStringList();
+        }
+
+        const int pathLen = sourceFolder.length() + 1;
+
+        relativeName.replace('\\', '/');
+
+        QStringList returnList;
+        QRegExp nameMatch{ relativeName, Qt::CaseInsensitive, QRegExp::Wildcard };
+        QDirIterator diretoryIterator(sourceFolder, QDir::AllEntries | QDir::NoSymLinks | QDir::NoDotAndDotDot, QDirIterator::Subdirectories);
+        QStringList files;
+        while (diretoryIterator.hasNext())
+        {
+            diretoryIterator.next();
+            if (!includeFolders && !diretoryIterator.fileInfo().isFile())
+            {
+                continue;
+            }
+            QString pathMatch{ diretoryIterator.filePath().mid(pathLen) };
+            if (nameMatch.exactMatch(pathMatch))
+            {
+                returnList.append(AssetUtilities::NormalizeFilePath(diretoryIterator.filePath()));
+            }
+        }
+        return returnList;
+    }
+
     const AssetProcessor::ScanFolderInfo* PlatformConfiguration::GetScanFolderForFile(const QString& fullFileName) const
     {
         QString normalized = AssetUtilities::NormalizeFilePath(fullFileName);
+
+        // first, check for an EXACT match.  If there's an exact match, this must be the one returned!
+        // this is to catch the case where the actual path of a scan folder is fed in to this.
         for (int pathIdx = 0; pathIdx < m_scanFolders.size(); ++pathIdx)
         {
             QString scanFolderName = m_scanFolders[pathIdx].ScanPath();
-            if (normalized.startsWith(scanFolderName, Qt::CaseInsensitive))
+            if (normalized.compare(scanFolderName, Qt::CaseInsensitive) == 0)
             {
-                if (normalized.compare(scanFolderName, Qt::CaseInsensitive) == 0)
+                // if its an exact match, we're basically done
+                return &m_scanFolders[pathIdx];
+            }
+        }
+
+        for (int pathIdx = 0; pathIdx < m_scanFolders.size(); ++pathIdx)
+        {
+            QString scanFolderName = m_scanFolders[pathIdx].ScanPath();
+            if (normalized.length() > scanFolderName.length())
+            {
+                if (normalized.startsWith(scanFolderName, Qt::CaseInsensitive))
                 {
-                    // if its an exact match, we're basically done
-                    return &m_scanFolders[pathIdx];
-                }
-                else
-                {
-                    if (normalized.length() > scanFolderName.length())
+                    QChar examineChar = normalized[scanFolderName.length()]; // it must be a slash or its just a scan folder that starts with the same thing by coincidence.
+                    if (examineChar != QChar('/'))
                     {
-                        QChar examineChar = normalized[scanFolderName.length()]; // it must be a slash or its just a scan folder that starts with the same thing by coincidence.
-                        if (examineChar != QChar('/'))
+                        continue;
+                    }
+                    QString relPath = normalized.right(normalized.length() - scanFolderName.length() - 1); // also eat the slash, hence -1
+                    if (!m_scanFolders[pathIdx].RecurseSubFolders())
+                    {
+                        // we only allow things that are in the root for nonrecursive folders
+                        if (relPath.contains('/'))
                         {
                             continue;
                         }
-                        QString relPath = normalized.right(normalized.length() - scanFolderName.length() - 1); // also eat the slash, hence -1
-                        if (!m_scanFolders[pathIdx].RecurseSubFolders())
-                        {
-                            // we only allow things that are in the root for nonrecursive folders
-                            if (relPath.contains('/'))
-                            {
-                                continue;
-                            }
-                        }
-                        return &m_scanFolders[pathIdx];
                     }
+                    return &m_scanFolders[pathIdx];
                 }
             }
         }
         return nullptr; // not found.
+    }
+
+    //! Given a scan folder path, get its complete info
+    const AssetProcessor::ScanFolderInfo* PlatformConfiguration::GetScanFolderByPath(const QString& scanFolderPath) const
+    {
+        QString normalized = AssetUtilities::NormalizeFilePath(scanFolderPath);
+        for (int pathIdx = 0; pathIdx < m_scanFolders.size(); ++pathIdx)
+        {
+            if (QString::compare(m_scanFolders[pathIdx].ScanPath(), normalized, Qt::CaseSensitive) == 0)
+            {
+                return &m_scanFolders[pathIdx];
+            }
+        }
+        return nullptr;
     }
 
     int PlatformConfiguration::GetMinJobs() const
@@ -981,9 +1043,11 @@ namespace AssetProcessor
         target.m_version = loader.value("version", QString()).toString();
         target.m_testLockSource = loader.value("lockSource", false).toBool();
         target.m_isCritical = loader.value("critical", false).toBool();
+        target.m_checkServer = loader.value("checkServer", false).toBool();
         target.m_supportsCreateJobs = loader.value("supportsCreateJobs", false).toBool();
         target.m_priority = loader.value("priority", 0).toInt();
         QString assetTypeString = loader.value("productAssetType", QString()).toString();
+        target.m_outputProductDependencies = loader.value("outputProductDependencies", false).toBool();
         if (!assetTypeString.isEmpty())
         {
             target.m_productAssetType = AZ::Uuid(assetTypeString.toUtf8().data());
@@ -998,183 +1062,19 @@ namespace AssetProcessor
         return true;
     }
 
-    bool PlatformConfiguration::ReadGems(QList<GemInformation>& gemInfoList)
+    void PlatformConfiguration::AddGemScanFolders(const AZStd::vector<AzToolsFramework::AssetUtils::GemInfo>& gemInfoList)
     {
-        Gems::IGemRegistry* registry = nullptr;
-        Gems::IProjectSettings* projectSettings = nullptr;
-
-        AZ::ModuleManagerRequests::LoadModuleOutcome result = AZ::Failure(AZStd::string("Failed to connect to ModuleManagerRequestBus"));
-        AZ::ModuleManagerRequestBus::BroadcastResult(result, &AZ::ModuleManagerRequestBus::Events::LoadDynamicModule, "GemRegistry", AZ::ModuleInitializationSteps::Load, false);
-        if (!result.IsSuccess())
-        {
-            AZ_Error("PlatformConfiguration", false, "Could not load the GemRegistry module - %s", result.GetError().c_str());
-            return false;
-        }
-
-        // Use shared_ptr aliasing ctor to use the refcount/deleter from the moduledata pointer, but we only need to store the dynamic module handle.
-        auto registryModule = AZStd::shared_ptr<AZ::DynamicModuleHandle>(result.GetValue(), result.GetValue()->GetDynamicModuleHandle());
-        auto CreateGemRegistry = registryModule->GetFunction<Gems::RegistryCreatorFunction>(GEMS_REGISTRY_CREATOR_FUNCTION_NAME);
-        auto DestroyGemRegistry = registryModule->GetFunction<Gems::RegistryDestroyerFunction>(GEMS_REGISTRY_DESTROYER_FUNCTION_NAME);
-        if (!CreateGemRegistry || !DestroyGemRegistry)
-        {
-            AZ_Error("Gems", false, "Failed to load GemRegistry functions.");
-            return false;
-        }
-
-        registry = CreateGemRegistry();
-        if (!registry)
-        {
-            AZ_Error("Gems", false, "Failed to create Gems::GemRegistry.");
-            return false;
-        }
-
-        // we use absolute search paths here to avoid alias issues
-        // we want both the Gems folder in your current project
-        // as well as the Gems folder in the engine.
-        QDir gameProjectRoot;
-        QDir engineRoot;
-        AssetUtilities::ComputeAssetRoot(gameProjectRoot);
-        AssetUtilities::ComputeEngineRoot(engineRoot);
-        QString gameFolderName = AssetUtilities::ComputeGameName();
-
-
-        QString gameProjectRootAbsPath = gameProjectRoot.absolutePath();
-        QString engineRootAbsPath = engineRoot.absolutePath();
-
-        if (!gameProjectRootAbsPath.isEmpty())
-        {
-            registry->AddSearchPath({ gameProjectRootAbsPath.toUtf8().constData(), "Gems" }, false);
-        }
-        else
-        {
-            gameProjectRootAbsPath = engineRootAbsPath;
-        }
-
-        if ((!engineRootAbsPath.isEmpty()) && (engineRootAbsPath != gameProjectRootAbsPath))
-        {
-            registry->AddSearchPath({ engineRootAbsPath.toUtf8().constData(), "Gems" }, false);
-        }
-
-        projectSettings = registry->CreateProjectSettings();
-        if (!projectSettings)
-        {
-            DestroyGemRegistry(registry);
-            AZ_Error("Gems", false, "Failed to create Gems::ProjectSettings.");
-            return false;
-        }
-
-        if (!projectSettings->Initialize(gameProjectRootAbsPath.toUtf8().constData(), gameFolderName.toUtf8().constData()))
-        {
-            AZ_Error("Gems", false, "Failed to initialize Gems::ProjectSettings.");
-            registry->DestroyProjectSettings(projectSettings);
-            DestroyGemRegistry(registry);
-            return false;
-        }
-
-        auto loadProjectOutcome = registry->LoadProject(*projectSettings, true);
-        if (!loadProjectOutcome.IsSuccess())
-        {
-            AZ_Error("Gems", false, "Failed to load Gems project: %s", loadProjectOutcome.GetError().c_str());
-            registry->DestroyProjectSettings(projectSettings);
-            DestroyGemRegistry(registry);
-            return false;
-        }
-
-        for (const auto& pair : projectSettings->GetGems())
-        {
-            Gems::IGemDescriptionConstPtr desc = registry->GetGemDescription(pair.second);
-
-            if (!desc)
-            {
-                Gems::ProjectGemSpecifier spec = pair.second;
-                AZStd::string errorStr = AZStd::string::format(
-                        "Failed to load Gem with ID %s and Version %s (from path %s).",
-                        spec.m_id.ToString<AZStd::string>().c_str(), spec.m_version.ToString().c_str(), spec.m_path.c_str());
-
-                if (Gems::IGemDescriptionConstPtr latestVersion = registry->GetLatestGem(pair.first))
-                {
-                    errorStr += AZStd::string::format(" Found version %s, you may want to use that instead.", latestVersion->GetVersion().ToString().c_str());
-                }
-
-                AZ_Error("Gems", false, errorStr.c_str());
-                continue;
-            }
-
-            // Note: the two 'false' parameters in the ToString call below ToString(false, false)
-            // eliminates brackets and dashes in the formatting of the UUID.
-            // this keeps it compatible with legacy formatting which also omitted the curly braces and the dashes in the UUID.
-            AZStd::string gemId = desc->GetID().ToString<AZStd::string>(false, false).c_str();
-            AZStd::to_lower(gemId.begin(), gemId.end());
-
-            Gems::ModuleDefinitionVector moduleList = desc->GetModules();
-            
-            bool assetOnlyGem = true;
-            
-            for (Gems::ModuleDefinitionConstPtr moduleDef : moduleList)
-            {
-                if (moduleDef->m_linkType != Gems::LinkType::NoCode)
-                {
-                    assetOnlyGem = false;
-                    break;
-                }
-            }
-
-            gemInfoList.push_back({ gemId.c_str(), desc->GetAbsolutePath().c_str(), desc->GetPath().c_str(), desc->GetName().c_str(), desc->IsGameGem(), assetOnlyGem });
-        }
-
-        registry->DestroyProjectSettings(projectSettings);
-        DestroyGemRegistry(registry);
-        return true;
-    }
-
-    // iterate over all the gems and add their asset processor config snippets to the configFilesOut array
-    // make sure you put the game gems at the end.
-    void PlatformConfiguration::AddGemConfigFiles(const QList<GemInformation>& gemInfoList, QStringList& configFilesOut, bool& foundGameGem)
-    {
-        // there can only be one gam gem per project, so if we find one, we cache the name of it so that
-        // later we can add it to the very end of the list, giving it the ability to override all other config files.
-        foundGameGem = false;
-        QString gameConfigPath;
-
-        for (const GemInformation& gemElement : gemInfoList)
-        {
-            QString gemGuid = gemElement.m_identifier;
-            QString gemAbsolutePath = gemElement.m_absolutePath;
-
-            QDir gemDir(gemAbsolutePath);
-            QString absPathToConfigFile = gemDir.absoluteFilePath("AssetProcessorGemConfig.ini");
-            if (gemElement.m_isGameGem)
-            {
-                gameConfigPath = absPathToConfigFile;
-            }
-            else
-            {
-                configFilesOut.push_back(absPathToConfigFile);
-            }
-        }
-
-        // if a 'game gem' was discovered during the above loop, we want to append it to the END of the list
-        if (!gameConfigPath.isEmpty())
-        {
-            configFilesOut.push_back(gameConfigPath);
-            foundGameGem = true;
-        }
-    }
-
-    void PlatformConfiguration::AddGemScanFolders(const QList<GemInformation>& gemInfoList)
-    {
-        int readGems = 0;
         int gemOrder = g_gemStartingOrder;
         int gemGameOrder = 1; // game gems are very high priority, start at 1 onwards.
         AZStd::vector<AssetBuilderSDK::PlatformInfo> platforms;
         PopulatePlatformsForScanFolder(platforms);
 
-        for (const GemInformation& gemElement : gemInfoList)
+        for (const AzToolsFramework::AssetUtils::GemInfo& gemElement : gemInfoList)
         {
-            QString gemGuid = gemElement.m_identifier;
-            QString gemAbsolutePath = gemElement.m_absolutePath; // this is an absolute path!
-            QString gemDisplayName = gemElement.m_displayName;
-            QString gemRelativePath = gemElement.m_relativePath;
+            QString gemGuid = gemElement.m_identifier.c_str();
+            QString gemAbsolutePath = gemElement.m_absoluteFilePath.c_str(); // this is an absolute path!
+            QString gemDisplayName = gemElement.m_gemName.c_str();
+            QString gemRelativePath = gemElement.m_relativeFilePath.c_str();
 
             QDir gemDir(gemAbsolutePath);
 
@@ -1185,12 +1085,12 @@ namespace AssetProcessor
             //      Output Prefix:  "" // empty string - this means put it in @assets@ as per default
             //      Is Root:        False
             //      Recursive:      True
-            QString gemFolder = gemDir.absoluteFilePath("Assets");
+            QString gemFolder = gemDir.absoluteFilePath(AzToolsFramework::AssetUtils::GemInfo::GetGemAssetFolder().c_str());
 
             // note that we normalize this gem path with slashes so that there's nothing special about it compared to other scan folders
             gemFolder = AssetUtilities::NormalizeDirectoryPath(gemFolder);
 
-            QString assetBrowserDisplayName = QString("Gems/%1/Assets").arg(gemDisplayName);
+            QString assetBrowserDisplayName = AzToolsFramework::AssetUtils::GemInfo::GetGemAssetFolder().c_str(); // Gems always use assets folder as their displayname...
             QString portableKey = QString("gemassets-%1").arg(gemGuid);
             QString outputPrefix; // empty intentionally here
             bool isRoot = false;
@@ -1198,7 +1098,17 @@ namespace AssetProcessor
             int order = gemElement.m_isGameGem ? gemGameOrder++ : gemOrder++;
 
             AZ_TracePrintf(AssetProcessor::DebugChannel, "Adding GEM assets folder for monitoring / scanning: %s.\n", gemFolder.toUtf8().data());
-            AddScanFolder(ScanFolderInfo(gemFolder, assetBrowserDisplayName, portableKey, outputPrefix, isRoot, isRecursive, platforms, order));
+            AddScanFolder(ScanFolderInfo(
+                gemFolder,
+                assetBrowserDisplayName,
+                portableKey,
+                outputPrefix,
+                isRoot,
+                isRecursive,
+                platforms,
+                order,
+                /*scanFolderId*/ 0,
+                /*canSaveNewAssets*/ true)); // Users can create assets like slices in Gem asset folders.
 
             // add the gem folder itself for the root metadata (non-recursive)
             // note that these root folders only exist to make sure "gem.json" is in the cache at the path @root@/Gems/GemName/Gem.json

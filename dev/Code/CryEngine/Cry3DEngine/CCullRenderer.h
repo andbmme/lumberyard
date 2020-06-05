@@ -11,8 +11,6 @@
 */
 // Original file Copyright Crytek GMBH or its affiliates, used under license.
 
-#ifndef CRYINCLUDE_CRY3DENGINE_CCULLRENDERER_H
-#define CRYINCLUDE_CRY3DENGINE_CCULLRENDERER_H
 #pragma once
 
 #include "VMath.hpp"
@@ -27,7 +25,18 @@
 extern  SHWOccZBuffer HWZBuffer;
 
 
-#if   defined(WIN64)
+#if defined(AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/CCullRenderer_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/CCullRenderer_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/CCullRenderer_h_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#elif defined(WIN64)
 #define CULLINLINE inline
 #define CULLNOINLINE inline
 #else
@@ -488,11 +497,7 @@ namespace NAsyncCull
 
         bool DownLoadHWDepthBuffer(float nearPlane, float farPlane, float nearestMax, float Bias)
         {
-#if defined(LINUX)
-            Matrix44A   Reproject _ALIGN(16);
-#else
-            Matrix44A& Reproject    =   *reinterpret_cast<Matrix44A*>(&m_Reproject);
-#endif
+            Matrix44A& Reproject = *reinterpret_cast<Matrix44A*>(&m_Reproject);
 
             m_VMaxXY    =   NVMath::int32Tofloat(NVMath::Vec4(SIZEX, SIZEY, SIZEX, SIZEY));
 
@@ -1560,4 +1565,3 @@ namespace NAsyncCull
 
 template<uint32 SIZEX, uint32 SIZEY>
 _MS_ALIGN(128) float NAsyncCull::CCullRenderer<SIZEX, SIZEY>::m_ZBufferMainMemory[SIZEX * SIZEY] _ALIGN(128);
-#endif // CRYINCLUDE_CRY3DENGINE_CCULLRENDERER_H

@@ -15,10 +15,28 @@
 #include <EMotionFX/Source/ActorManager.h>
 #include <EMotionFX/Source/MotionManager.h>
 #include <EMotionFX/Source/AnimGraphManager.h>
+#include <MCore/Source/LogManager.h>
 
 
 namespace CommandSystem
 {
+    const char* CommandSelect::s_SelectCmdName = "Select";
+    const char* CommandUnselect::s_unselectCmdName = "Unselect";
+    const char* CommandClearSelection::s_clearSelectionCmdName = "ClearSelection";
+    const char* CommandToggleLockSelection::s_toggleLockSelectionCmdName = "ToggleLockSelection";
+
+    CommandUnselect::CommandUnselect(MCore::Command * orgCommand)
+        : MCore::Command(s_unselectCmdName, orgCommand) 
+    { }
+
+    CommandClearSelection::CommandClearSelection(MCore::Command * orgCommand)
+        : MCore::Command(s_clearSelectionCmdName, orgCommand)
+    { }
+
+    CommandToggleLockSelection::CommandToggleLockSelection(MCore::Command * orgCommand)
+        : MCore::Command(s_toggleLockSelectionCmdName, orgCommand)
+    { }
+
     void SelectActorInstancesUsingCommands(const MCore::Array<EMotionFX::ActorInstance*>& selectedActorInstances)
     {
         SelectionList& selection = GetCommandManager()->GetCurrentSelection();
@@ -48,25 +66,25 @@ namespace CommandSystem
         if (nothingChanged == false)
         {
             // create our command group
-            MCore::String outResult;
+            AZStd::string outResult;
             MCore::CommandGroup commandGroup("Select actor instances");
 
             // clear the old selection
             commandGroup.AddCommandString("Unselect -actorInstanceID SELECT_ALL -actorID SELECT_ALL");
 
             // add the newly selected actor instances
-            MCore::String commandString;
+            AZStd::string commandString;
             for (uint32 a = 0; a < numSelectedActorInstances; ++a)
             {
                 EMotionFX::ActorInstance* actorInstance = selectedActorInstances[a];
-                commandString.Format("Select -actorInstanceID %i -actorID %i", actorInstance->GetID(), actorInstance->GetActor()->GetID());
-                commandGroup.AddCommandString(commandString.AsChar());
+                commandString = AZStd::string::format("Select -actorInstanceID %i -actorID %i", actorInstance->GetID(), actorInstance->GetActor()->GetID());
+                commandGroup.AddCommandString(commandString.c_str());
             }
 
             // execute the group command
             if (GetCommandManager()->ExecuteCommandGroup(commandGroup, outResult) == false)
             {
-                MCore::LogError(outResult.AsChar());
+                MCore::LogError(outResult.c_str());
             }
         }
     }
@@ -90,10 +108,6 @@ namespace CommandSystem
     bool CheckIfHasAnimGraphSelectionParameter(const MCore::CommandLine& parameters)
     {
         if (parameters.CheckIfHasParameter("animGraphIndex")  )
-        {
-            return true;
-        }
-        if (parameters.CheckIfHasParameter("animGraphName")   )
         {
             return true;
         }
@@ -137,7 +151,7 @@ namespace CommandSystem
 
     // constructor
     CommandSelect::CommandSelect(MCore::Command* orgCommand)
-        : MCore::Command("Select", orgCommand)
+        : MCore::Command(s_SelectCmdName, orgCommand)
     {
     }
 
@@ -149,7 +163,7 @@ namespace CommandSystem
 
 
     // the actual selection routine used by the select and the unselect command
-    bool CommandSelect::Select(Command* command, const MCore::CommandLine& parameters, MCore::String& outResult, bool unselect)
+    bool CommandSelect::Select(Command* command, const MCore::CommandLine& parameters, AZStd::string& outResult, bool unselect)
     {
         // if we are in selection lock mode return directly
         //if (GetCommandManager()->GetLockSelection())
@@ -161,13 +175,13 @@ namespace CommandSystem
         const uint32 numMotions         = EMotionFX::GetMotionManager().GetNumMotions();
         const uint32 numAnimGraphs     = EMotionFX::GetAnimGraphManager().GetNumAnimGraphs();
 
-        MCore::String valueString;
+        AZStd::string valueString;
 
         // add the actor with the given index to the selection list
         if (parameters.CheckIfHasParameter("actorID"))
         {
             parameters.GetValue("actorID", command, &valueString);
-            if (valueString.CheckIfIsEqualNoCase("SELECT_ALL"))
+            if (AzFramework::StringFunc::Equal(valueString.c_str(), "SELECT_ALL", false /* no case */))
             {
                 // iterate through all available actors and add them to the selection
                 for (uint32 i = 0; i < numActors; ++i)
@@ -197,7 +211,7 @@ namespace CommandSystem
                 EMotionFX::Actor* actor = EMotionFX::GetActorManager().FindActorByID(actorID);
                 if (actor == nullptr)
                 {
-                    outResult.Format("Cannot select actor. Actor ID %i is not valid.", actorID);
+                    outResult = AZStd::string::format("Cannot select actor. Actor ID %i is not valid.", actorID);
                     return false;
                 }
 
@@ -223,7 +237,7 @@ namespace CommandSystem
         {
             // get the actor name and check if it is valid
             parameters.GetValue("actorName", command, &valueString);
-            if (valueString.GetIsEmpty())
+            if (valueString.empty())
             {
                 outResult = "Actor name is empty. Cannot select actors with empty name.";
                 return false;
@@ -239,7 +253,7 @@ namespace CommandSystem
                     continue;
                 }
 
-                if (valueString.CheckIfIsEqualNoCase(actor->GetName()))
+                if (AzFramework::StringFunc::Equal(valueString.c_str(), actor->GetName(), false /* no case */))
                 {
                     if (unselect == false)
                     {
@@ -258,7 +272,7 @@ namespace CommandSystem
         if (parameters.CheckIfHasParameter("actorInstanceID"))
         {
             parameters.GetValue("actorInstanceID", command, &valueString);
-            if (valueString.CheckIfIsEqualNoCase("SELECT_ALL"))
+            if (AzFramework::StringFunc::Equal(valueString.c_str(), "SELECT_ALL", false /* no case */))
             {
                 // iterate through all available actor instances and add them to the selection
                 for (uint32 i = 0; i < numActorInstances; ++i)
@@ -287,7 +301,7 @@ namespace CommandSystem
                 EMotionFX::ActorInstance* actorInstance = EMotionFX::GetActorManager().FindActorInstanceByID(actorInstanceID);
                 if (actorInstance == nullptr)
                 {
-                    outResult.Format("Actor instance ID %i is not valid. There are no actor instances registered in the actor manager with the given ID.", actorInstanceID);
+                    outResult = AZStd::string::format("Actor instance ID %i is not valid. There are no actor instances registered in the actor manager with the given ID.", actorInstanceID);
                     return false;
                 }
 
@@ -313,7 +327,7 @@ namespace CommandSystem
         {
             // get the motion name and check if it is valid
             parameters.GetValue("motionName", command, &valueString);
-            if (valueString.GetIsEmpty())
+            if (valueString.empty())
             {
                 outResult = "Motion name is empty. Cannot select motions with empty name.";
                 return false;
@@ -331,7 +345,7 @@ namespace CommandSystem
                 }
 
                 // compare the motion name to the parameter
-                if (valueString.CheckIfIsEqualNoCase(motion->GetName()))
+                if (AzFramework::StringFunc::Equal(valueString.c_str(), motion->GetName(), false /* no case */))
                 {
                     if (unselect == false)
                     {
@@ -349,7 +363,7 @@ namespace CommandSystem
         if (parameters.CheckIfHasParameter("motionIndex"))
         {
             parameters.GetValue("motionIndex", command, &valueString);
-            if (valueString.CheckIfIsEqualNoCase("SELECT_ALL"))
+            if (AzFramework::StringFunc::Equal(valueString.c_str(), "SELECT_ALL", false /* no case */))
             {
                 // iterate through all available motions and add them to the selection
                 for (uint32 i = 0; i < numMotions; ++i)
@@ -384,7 +398,7 @@ namespace CommandSystem
                     }
                     else
                     {
-                        outResult.Format("Motion index '%i' is not valid. Valid range is [0, %i].", motionIndex, numMotions - 1);
+                        outResult = AZStd::string::format("Motion index '%i' is not valid. Valid range is [0, %i].", motionIndex, numMotions - 1);
                     }
 
                     return false;
@@ -393,7 +407,7 @@ namespace CommandSystem
                 // get the given motion from the motion library and add/remove it to the selection
                 EMotionFX::Motion* motion = EMotionFX::GetMotionManager().GetMotion(motionIndex);
 
-                if (!motion->GetIsOwnedByRuntime())
+                if (motion->GetIsOwnedByRuntime())
                 {
                     return false;
                 }
@@ -414,7 +428,7 @@ namespace CommandSystem
         if (parameters.CheckIfHasParameter("animGraphIndex"))
         {
             parameters.GetValue("animGraphIndex", command, &valueString);
-            if (valueString.CheckIfIsEqualNoCase("SELECT_ALL"))
+            if (AzFramework::StringFunc::Equal(valueString.c_str(), "SELECT_ALL", false /* no case */))
             {
                 // iterate through all available motions and add them to the selection
                 for (uint32 i = 0; i < numAnimGraphs; ++i)
@@ -449,7 +463,7 @@ namespace CommandSystem
                     }
                     else
                     {
-                        outResult.Format("Anim graph index '%i' is not valid. Valid range is [0, %i].", animGraphIndex, numAnimGraphs - 1);
+                        outResult = AZStd::string::format("Anim graph index '%i' is not valid. Valid range is [0, %i].", animGraphIndex, numAnimGraphs - 1);
                     }
 
                     return false;
@@ -479,7 +493,7 @@ namespace CommandSystem
         if (parameters.CheckIfHasParameter("animGraphID"))
         {
             parameters.GetValue("animGraphID", command, &valueString);
-            if (valueString.CheckIfIsEqualNoCase("SELECT_ALL"))
+            if (AzFramework::StringFunc::Equal(valueString.c_str(), "SELECT_ALL", false /* no case */))
             {
                 // iterate through all available motions and add them to the selection
                 for (uint32 i = 0; i < numAnimGraphs; ++i)
@@ -509,7 +523,7 @@ namespace CommandSystem
                 EMotionFX::AnimGraph*  animGraph      = EMotionFX::GetAnimGraphManager().FindAnimGraphByID(animGraphID);
                 if (animGraph == nullptr)
                 {
-                    outResult.Format("Anim graph id '%i' is not valid. Cannot find anim graph with the given id.", animGraphID);
+                    outResult = AZStd::string::format("Anim graph id '%i' is not valid. Cannot find anim graph with the given id.", animGraphID);
                     return false;
                 }
 
@@ -529,50 +543,12 @@ namespace CommandSystem
             }
         }
 
-
-        // add the anim graph with the given name to the selection list
-        if (parameters.CheckIfHasParameter("animGraphName"))
-        {
-            // get the anim graph name and check if it is valid
-            parameters.GetValue("animGraphName", command, &valueString);
-            if (valueString.GetIsEmpty())
-            {
-                outResult = "Anim graph name is empty. Cannot select anim graphs without a name.";
-                return false;
-            }
-
-            // iterate through all available anim graphs and add them to the selection
-            for (uint32 i = 0; i < numAnimGraphs; ++i)
-            {
-                // get the current motion
-                EMotionFX::AnimGraph* animGraph = EMotionFX::GetAnimGraphManager().GetAnimGraph(i);
-
-                if (animGraph->GetIsOwnedByRuntime())
-                {
-                    continue;
-                }
-
-                // compare the motion name to the parameter
-                if (valueString.CheckIfIsEqualNoCase(animGraph->GetName()))
-                {
-                    if (unselect == false)
-                    {
-                        selection.AddAnimGraph(animGraph);
-                    }
-                    else
-                    {
-                        selection.RemoveAnimGraph(animGraph);
-                    }
-                }
-            }
-        }
-
         return true;
     }
 
 
     // execute the command
-    bool CommandSelect::Execute(const MCore::CommandLine& parameters, MCore::String& outResult)
+    bool CommandSelect::Execute(const MCore::CommandLine& parameters, AZStd::string& outResult)
     {
         // store the old selection list for undo
         mData = GetCommandManager()->GetCurrentSelection();
@@ -583,7 +559,7 @@ namespace CommandSystem
 
 
     // undo the command
-    bool CommandSelect::Undo(const MCore::CommandLine& parameters, MCore::String& outResult)
+    bool CommandSelect::Undo(const MCore::CommandLine& parameters, AZStd::string& outResult)
     {
         MCORE_UNUSED(parameters);
         MCORE_UNUSED(outResult);
@@ -606,7 +582,6 @@ namespace CommandSystem
         GetSyntax().AddParameter("motionInstanceIndex",    ".",    MCore::CommandSyntax::PARAMTYPE_STRING, "SELECT_ALL");
         GetSyntax().AddParameter("nodeName",               ".",    MCore::CommandSyntax::PARAMTYPE_STRING, "unnamed");
         GetSyntax().AddParameter("nodeIndex",              ".",    MCore::CommandSyntax::PARAMTYPE_STRING, "SELECT_ALL");
-        GetSyntax().AddParameter("animGraphName",         ".",    MCore::CommandSyntax::PARAMTYPE_STRING, "unnamed");
         GetSyntax().AddParameter("animGraphIndex",        ".",    MCore::CommandSyntax::PARAMTYPE_STRING, "SELECT_ALL");
         GetSyntax().AddParameter("animGraphID",           ".",    MCore::CommandSyntax::PARAMTYPE_STRING, "SELECT_ALL");
     }
@@ -630,7 +605,7 @@ namespace CommandSystem
 
 
     // execute the command
-    bool CommandUnselect::Execute(const MCore::CommandLine& parameters, MCore::String& outResult)
+    bool CommandUnselect::Execute(const MCore::CommandLine& parameters, AZStd::string& outResult)
     {
         // store the old selection list for undo
         mData = GetCommandManager()->GetCurrentSelection();
@@ -641,7 +616,7 @@ namespace CommandSystem
 
 
     // undo the command
-    bool CommandUnselect::Undo(const MCore::CommandLine& parameters, MCore::String& outResult)
+    bool CommandUnselect::Undo(const MCore::CommandLine& parameters, AZStd::string& outResult)
     {
         MCORE_UNUSED(parameters);
         MCORE_UNUSED(outResult);
@@ -664,7 +639,6 @@ namespace CommandSystem
         GetSyntax().AddParameter("motionInstanceIndex",    ".",    MCore::CommandSyntax::PARAMTYPE_STRING, "SELECT_ALL");
         GetSyntax().AddParameter("nodeName",               ".",    MCore::CommandSyntax::PARAMTYPE_STRING, "unnamed");
         GetSyntax().AddParameter("nodeIndex",              ".",    MCore::CommandSyntax::PARAMTYPE_STRING, "SELECT_ALL");
-        GetSyntax().AddParameter("animGraphName",         ".",    MCore::CommandSyntax::PARAMTYPE_STRING, "unnamed");
         GetSyntax().AddParameter("animGraphIndex",        ".",    MCore::CommandSyntax::PARAMTYPE_STRING, "SELECT_ALL");
         GetSyntax().AddParameter("animGraphID",           ".",    MCore::CommandSyntax::PARAMTYPE_STRING, "SELECT_ALL");
     }
@@ -688,7 +662,7 @@ namespace CommandSystem
 
 
     // execute the command
-    bool CommandClearSelection::Execute(const MCore::CommandLine& parameters, MCore::String& outResult)
+    bool CommandClearSelection::Execute(const MCore::CommandLine& parameters, AZStd::string& outResult)
     {
         MCORE_UNUSED(parameters);
         MCORE_UNUSED(outResult);
@@ -710,7 +684,7 @@ namespace CommandSystem
 
 
     // undo the command
-    bool CommandClearSelection::Undo(const MCore::CommandLine& parameters, MCore::String& outResult)
+    bool CommandClearSelection::Undo(const MCore::CommandLine& parameters, AZStd::string& outResult)
     {
         MCORE_UNUSED(parameters);
         MCORE_UNUSED(outResult);
@@ -745,7 +719,7 @@ namespace CommandSystem
 
 
     // execute the command
-    bool CommandToggleLockSelection::Execute(const MCore::CommandLine& parameters, MCore::String& outResult)
+    bool CommandToggleLockSelection::Execute(const MCore::CommandLine& parameters, AZStd::string& outResult)
     {
         MCORE_UNUSED(parameters);
         MCORE_UNUSED(outResult);
@@ -761,7 +735,7 @@ namespace CommandSystem
 
 
     // undo the command
-    bool CommandToggleLockSelection::Undo(const MCore::CommandLine& parameters, MCore::String& outResult)
+    bool CommandToggleLockSelection::Undo(const MCore::CommandLine& parameters, AZStd::string& outResult)
     {
         MCORE_UNUSED(parameters);
         MCORE_UNUSED(outResult);

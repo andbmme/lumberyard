@@ -21,81 +21,76 @@
 #include <AzCore/std/typetraits/is_enum.h>
 #include <AzCore/std/typetraits/underlying_type.h>
 #include <AzCore/std/typetraits/add_reference.h>
+#include <AzCore/std/reference_wrapper.h>
+#include <AzCore/std/typetraits/remove_reference.h>
+#include <AzCore/std/typetraits/is_convertible.h>
+#include <AzCore/std/typetraits/is_lvalue_reference.h>
+#include <AzCore/std/typetraits/void_t.h>
 
-#ifdef AZ_HAS_RVALUE_REFS
-#   include <AzCore/std/typetraits/decay.h>
-#   include <AzCore/std/typetraits/remove_reference.h>
-#   include <AzCore/std/typetraits/is_convertible.h>
-#   include <AzCore/std/typetraits/is_lvalue_reference.h>
-#endif // AZ_HAS_RVALUE_REFS
-#ifndef AZSTD_HAS_TYPE_TRAITS_INTRINSICS
-    #include <AzCore/std/typetraits/has_trivial_constructor.h>
-    #include <AzCore/std/typetraits/has_trivial_destructor.h>
-    #include <AzCore/std/typetraits/has_trivial_copy.h>
-    #include <AzCore/std/typetraits/has_trivial_assign.h>
-#endif
+#include <memory>
 
 namespace AZStd
 {
     //////////////////////////////////////////////////////////////////////////
     // rvalue
-#ifdef AZ_HAS_RVALUE_REFS
     // rvalue move
     template<class T>
-    typename AZStd::remove_reference<T>::type && move(T && t)
+    constexpr AZStd::remove_reference_t<T>&& move(T && t)
     {
-        return static_cast<typename AZStd::remove_reference<T>::type &&>(t);
+        return static_cast<AZStd::remove_reference_t<T>&&>(t);
     }
 
-    // rvalue forward
-    /*template<class T, class U>
-    inline T&& forward(U&& u)   { return static_cast<T&&>(u); }*/
-    template<class T, class U>
-    inline T && forward(U && u
-        , typename AZStd::Utils::enable_if_c<AZStd::is_lvalue_reference<T>::value ? AZStd::is_lvalue_reference<U>::value : true>::type * = 0
-        , typename AZStd::Utils::enable_if_c<AZStd::is_convertible<typename AZStd::remove_reference<U>::type*, typename AZStd::remove_reference<T>::type*>::value>::type * = 0)
-    {
-        return static_cast<T &&>(u);
-    }
-#else
-    template<class T>
-    inline const T& move(const T& t)
-    {
-        return t;
-    }
-    template<class T, class U>
-    inline const T& forward(const U& u)
-    {
-        return static_cast<const T&>(u);
-    }
+    using std::forward;
+    using std::declval;
 
-#endif //AZ_HAS_RVALUE_REFS
+    template <class T>
+    struct default_delete
+    {
+        template <class U, 
+            class = typename enable_if<is_convertible<U*, T*>::value, void>::type>
+        void operator()(U* ptr) const
+        {
+            delete ptr;
+        }
+    };
+
+    template <class T>
+    struct default_delete<T[]>
+    {
+        template<class U,
+            class = typename enable_if<is_convertible<U(*)[], T(*)[]>::value, void>::type>
+        default_delete(const default_delete<U[]>&)
+        {
+        }
+
+        template<class U,
+            class = typename enable_if<is_convertible<U(*)[], T(*)[]>::value, void>::type>
+        void operator()(U *ptr) const
+        {
+            delete[] ptr;
+        }
+    };
+
+    template <class T>
+    struct no_delete
+    {
+        template <class U>
+        void operator()(U*) const {}
+    };
     //////////////////////////////////////////////////////////////////////////
 
     //////////////////////////////////////////////////////////////////////////
     // Swap
-    template<class T>
-    AZ_INLINE void swap(T& a, T& b)
-    {
-#ifdef AZ_HAS_RVALUE_REFS
-        T tmp = AZStd::move(a);
-        a = AZStd::move(b);
-        b = AZStd::move(tmp);
-#else
-        T tmp = a;
-        a = b;
-        b = tmp;
-#endif
-    }
+    using std::swap;
 
-    template<class ForewardIterator1, class ForewardIterator2>
-    AZ_FORCE_INLINE void                    iter_swap(ForewardIterator1 a, ForewardIterator2 b)
+    template<class ForwardIterator1, class ForwardIterator2>
+    AZ_FORCE_INLINE void                    iter_swap(ForwardIterator1 a, ForwardIterator2 b)
     {
         AZStd::swap(*a, *b);
     }
 
-    template<class ForewardIterator1, class ForewardIterator2>
-    AZ_FORCE_INLINE ForewardIterator2       swap_ranges(ForewardIterator1 first1, ForewardIterator1 last1, ForewardIterator2 first2)
+    template<class ForwardIterator1, class ForwardIterator2>
+    AZ_FORCE_INLINE ForwardIterator2       swap_ranges(ForwardIterator1 first1, ForwardIterator1 last1, ForwardIterator2 first2)
     {
         for (; first1 != last1; ++first1, ++first2)
         {
@@ -106,30 +101,11 @@ namespace AZStd
     }
     //////////////////////////////////////////////////////////////////////////
 
-    // Pairs (this should be obsolete, replace fully with tuples)
-    namespace Internal
-    {
-        template<class L1, class L2, class R1, class R2>
-        struct are_pair_args_comparable
-        {
-            static const bool value =
-                is_same
-                <
-                    typename AZStd::remove_reference<typename AZStd::remove_const<L1>::type>::type,
-                    typename AZStd::remove_reference<typename AZStd::remove_const<R1>::type>::type
-                >::value &&
-                is_same
-                <
-                    typename AZStd::remove_reference<typename AZStd::remove_const<L2>::type>::type,
-                    typename AZStd::remove_reference<typename AZStd::remove_const<R2>::type>::type
-                >::value;
-        };
-    }
-
     // The structure that encapsulates index lists
     template <size_t... Is>
     struct index_sequence
     {
+        static constexpr size_t size = sizeof...(Is);
     };
 
     // Collects internal details for generating index ranges [MIN, MAX)
@@ -158,7 +134,7 @@ namespace AZStd
     using make_index_sequence = typename Internal::range_builder<0, N>::type;
 
     struct piecewise_construct_t {};
-    static const piecewise_construct_t piece_construct{};
+    static constexpr piecewise_construct_t piece_construct{};
 
     template<class T1, class T2>
     struct pair
@@ -168,63 +144,62 @@ namespace AZStd
         typedef T2              second_type;
 
         /// Construct from defaults
-        AZ_FORCE_INLINE pair()
+        constexpr pair()
             : first(T1())
             , second(T2()) {}
         /// Constructs only the first element, default the second.
-        AZ_FORCE_INLINE pair(const T1& value1)
+        constexpr pair(const T1& value1)
             : first(value1)
             , second(T2()) {}
         /// Construct from specified values.
-        AZ_FORCE_INLINE pair(const T1& value1, const T2& value2)
+        constexpr pair(const T1& value1, const T2& value2)
             : first(value1)
             , second(value2) {}
         /// Copy constructor
-        pair(const this_type& rhs)
+        constexpr pair(const this_type& rhs)
             : first(rhs.first)
             , second(rhs.second) {}
         // construct from compatible pair
         template<class Other1, class Other2>
-        AZ_FORCE_INLINE pair(const pair<Other1, Other2>& rhs)
+        constexpr pair(const pair<Other1, Other2>& rhs)
             : first(rhs.first)
             , second(rhs.second) {}
 
-#ifdef AZ_HAS_RVALUE_REFS
-        typedef typename AZStd::remove_reference<T1>::type TT1;
-        typedef typename AZStd::remove_reference<T2>::type TT2;
+        using TT1 = AZStd::remove_reference_t<T1>;
+        using TT2 = AZStd::remove_reference_t<T2>;
 
-        pair(TT1&& value1, TT2&& value2)
+        constexpr pair(TT1&& value1, TT2&& value2)
             : first(AZStd::move(value1))
             , second(AZStd::move(value2)) {}
-        pair(const TT1& value1, TT2&& value2)
+        constexpr pair(const TT1& value1, TT2&& value2)
             : first(value1)
             , second(AZStd::move(value2)) {}
-        pair(TT1&& value1, const TT2& value2)
+        constexpr pair(TT1&& value1, const TT2& value2)
             : first(AZStd::move(value1))
             , second(value2) {}
         template<class Other1, class Other2>
-        pair(Other1&& value1, Other2&& value2)
+        constexpr pair(Other1&& value1, Other2&& value2)
             : first(AZStd::forward<Other1>(value1))
             , second(AZStd::forward<Other2>(value2)) {}
-        pair(pair&& rhs)
+        constexpr pair(pair&& rhs)
             : first(AZStd::move(rhs.first))
             , second(AZStd::move(rhs.second)) {}
         template<class Other1, class Other2>
-        pair(pair<Other1, Other2>&& rhs)
+        constexpr pair(pair<Other1, Other2>&& rhs)
             : first(AZStd::forward<Other1>(rhs.first))
             , second(AZStd::forward<Other2>(rhs.second)) {}
 
         template<template<class...> class TupleType, class... Args1, class... Args2>
-        pair(piecewise_construct_t,
+        constexpr pair(piecewise_construct_t,
             TupleType<Args1...> first_args,
             TupleType<Args2...> second_args);
 
         template<template<class...> class TupleType, class... Args1, class... Args2, size_t... I1, size_t... I2>
-        pair(piecewise_construct_t, TupleType<Args1...>& first_args,
+        constexpr pair(piecewise_construct_t, TupleType<Args1...>& first_args,
             TupleType<Args2...>& second_args, AZStd::index_sequence<I1...>,
             AZStd::index_sequence<I2...>);
 
-        this_type& operator=(this_type&& rhs)
+        constexpr this_type& operator=(this_type&& rhs)
         {
             first = AZStd::move(rhs.first);
             second = AZStd::move(rhs.second);
@@ -232,14 +207,14 @@ namespace AZStd
         }
 
         template<class Other1, class Other2>
-        this_type& operator=(const pair<Other1, Other2>&& rhs)
+        constexpr this_type& operator=(const pair<Other1, Other2>&& rhs)
         {
             first = AZStd::move(rhs.first);
             second = AZStd::move(rhs.second);
             return *this;
         }
 
-        void swap(this_type&& rhs)
+        constexpr void swap(this_type&& rhs)
         {
             if (this != &rhs)
             {
@@ -247,9 +222,8 @@ namespace AZStd
                 second = AZStd::move(rhs.second);
             }
         }
-#endif // AZ_HAS_RVALUE_REFS
 
-        AZ_FORCE_INLINE void swap(this_type& rhs)
+        void swap(this_type& rhs)
         {
             // exchange contents with _Right
             if (this != &rhs)
@@ -259,7 +233,7 @@ namespace AZStd
             }
         }
 
-        this_type& operator=(const this_type& rhs)
+        constexpr this_type& operator=(const this_type& rhs)
         {
             first = rhs.first;
             second = rhs.second;
@@ -267,7 +241,7 @@ namespace AZStd
         }
 
         template<class Other1, class Other2>
-        this_type& operator=(const pair<Other1, Other2>& rhs)
+        constexpr this_type& operator=(const pair<Other1, Other2>& rhs)
         {
             first = rhs.first;
             second = rhs.second;
@@ -279,82 +253,61 @@ namespace AZStd
     };
 
     // pair
-#ifdef AZ_HAS_RVALUE_REFS
     template<class T1, class T2>
-    inline
-    void swap(pair<T1, T2>& left, pair<T1, T2>&& right)
+    constexpr void swap(pair<T1, T2>& left, pair<T1, T2>&& right)
     {
         typedef pair<T1, T2> pair_type;
         left.swap(AZStd::forward<pair_type>(right));
     }
 
     template<class T1, class T2>
-    inline
-    void swap(pair<T1, T2>&& left, pair<T1, T2>& right)
+    constexpr void swap(pair<T1, T2>&& left, pair<T1, T2>& right)
     {
         typedef pair<T1, T2> pair_type;
         right.swap(AZStd::forward<pair_type>(left));
     }
-#endif // #ifdef AZ_HAS_RVALUE_REFS
 
     template<class T1, class T2>
-    AZ_FORCE_INLINE void swap(pair<T1, T2>& left, pair<T1, T2>& _Right)
+    constexpr void swap(pair<T1, T2>& left, pair<T1, T2>& _Right)
     {   // swap _Left and _Right pairs
         left.swap(_Right);
     }
 
-    template<class L1, class L2, class R1, class R2, class = typename enable_if<Internal::are_pair_args_comparable<L1, L2, R1, R2>::value>::type>
-    AZ_FORCE_INLINE bool operator==(const pair<L1, L2>& left, const pair<R1, R2>& right)
+    template<class L1, class L2, class R1, class R2, class = AZStd::void_t<decltype(declval<L1>() == declval<R1>() && declval<L2>() == declval<R2>())>>
+    constexpr bool operator==(const pair<L1, L2>& left, const pair<R1, R2>& right)
     {   // test for pair equality
-        return (left.first == right.first && left.second == right.second);
+        return left.first == right.first && left.second == right.second;
     }
 
-    template<class L1, class L2, class R1, class R2, class = typename enable_if<Internal::are_pair_args_comparable<L1, L2, R1, R2>::value>::type>
-    AZ_FORCE_INLINE bool operator!=(const pair<L1, L2>& left, const pair<R1, R2>& right)
+    template<class L1, class L2, class R1, class R2, class = AZStd::void_t<decltype(declval<L1>() == declval<R1>() && declval<L2>() == declval<R2>())>>
+    constexpr bool operator!=(const pair<L1, L2>& left, const pair<R1, R2>& right)
     {   // test for pair inequality
         return !(left == right);
     }
 
-    template<class L1, class L2, class R1, class R2, class = typename enable_if<Internal::are_pair_args_comparable<L1, L2, R1, R2>::value>::type>
-    AZ_FORCE_INLINE bool operator<(const pair<L1, L2>& left, const pair<R1, R2>& right)
+    template<class L1, class L2, class R1, class R2, class = AZStd::void_t<decltype(declval<L1>() < declval<R1>() || (!(declval<R1>() < declval<L1>()) && declval<L2>() < declval<R2>()))>>
+    constexpr bool operator<(const pair<L1, L2>& left, const pair<R1, R2>& right)
     {   // test if left < right for pairs
         return (left.first < right.first || (!(right.first < left.first) && left.second < right.second));
     }
 
-    template<class L1, class L2, class R1, class R2, class = typename enable_if<Internal::are_pair_args_comparable<L1, L2, R1, R2>::value>::type>
-    AZ_FORCE_INLINE bool operator>(const pair<L1, L2>& left, const pair<R1, R2>& right)
+    template<class L1, class L2, class R1, class R2, class = AZStd::void_t<decltype(declval<L1>() < declval<R1>() || (!(declval<R1>() < declval<L1>()) && declval<L2>() < declval<R2>()))>>
+    constexpr bool operator>(const pair<L1, L2>& left, const pair<R1, R2>& right)
     {   // test if left > right for pairs
         return right < left;
     }
 
-    template<class L1, class L2, class R1, class R2, class = typename enable_if<Internal::are_pair_args_comparable<L1, L2, R1, R2>::value>::type>
-    AZ_FORCE_INLINE bool operator<=(const pair<L1, L2>& left, const pair<R1, R2>& right)
+    template<class L1, class L2, class R1, class R2, class = AZStd::void_t<decltype(declval<L1>() < declval<R1>() || (!(declval<R1>() < declval<L1>()) && declval<L2>() < declval<R2>()))>>
+    constexpr bool operator<=(const pair<L1, L2>& left, const pair<R1, R2>& right)
     {   // test if left <= right for pairs
         return !(right < left);
     }
 
-    template<class L1, class L2, class R1, class R2, class = typename enable_if<Internal::are_pair_args_comparable<L1, L2, R1, R2>::value>::type>
-    AZ_FORCE_INLINE bool operator>=(const pair<L1, L2>& left, const pair<R1, R2>& right)
+    template<class L1, class L2, class R1, class R2, class = AZStd::void_t<decltype(declval<L1>() < declval<R1>() || (!(declval<R1>() < declval<L1>()) && declval<L2>() < declval<R2>()))>>
+    constexpr bool operator>=(const pair<L1, L2>& left, const pair<R1, R2>& right)
     {   // test if left >= right for pairs
         return !(left < right);
     }
-
-#ifndef AZSTD_HAS_TYPE_TRAITS_INTRINSICS
-    // Without compiler help we should help a little.
-    // the pair class doesn't have a dtor, so if the paired objects don't have one we don't need to call it.
-    template< class T1, class T2>
-    struct has_trivial_destructor< pair<T1, T2> >
-        : public ::AZStd::integral_constant<bool, ::AZStd::type_traits::ice_and<has_trivial_destructor<T1>::value, has_trivial_destructor<T2>::value>::value> {};
-    template< class T1, class T2>
-    struct has_trivial_constructor< pair<T1, T2> >
-        : public ::AZStd::integral_constant<bool, ::AZStd::type_traits::ice_and<has_trivial_constructor<T1>::value, has_trivial_constructor<T2>::value>::value> {};
-    template< class T1, class T2>
-    struct has_trivial_copy< pair<T1, T2> >
-        : public ::AZStd::integral_constant<bool, ::AZStd::type_traits::ice_and<has_trivial_copy<T1>::value, has_trivial_copy<T2>::value>::value> {};
-    template< class T1, class T2>
-    struct has_trivial_assign< pair<T1, T2> >
-        : public ::AZStd::integral_constant<bool, ::AZStd::type_traits::ice_and<has_trivial_assign<T1>::value, has_trivial_assign<T2>::value>::value> {};
-#endif
 
     //////////////////////////////////////////////////////////////////////////
     // Address of
@@ -365,17 +318,17 @@ namespace AZStd
         struct addr_impl_ref
         {
             T& m_v;
-            AZ_FORCE_INLINE addr_impl_ref(T& v)
+            constexpr addr_impl_ref(T& v)
                 : m_v(v) {}
-            addr_impl_ref& operator=(const addr_impl_ref& v) { m_v = v; }
-            AZ_FORCE_INLINE operator T& () const { return m_v; }
+            constexpr addr_impl_ref& operator=(const addr_impl_ref& v) { m_v = v; }
+            constexpr operator T& () const { return m_v; }
         };
 
         template<class T>
         struct addressof_impl
         {
             static AZ_FORCE_INLINE T* f(T& v, long) { return reinterpret_cast<T*>(&const_cast<char&>(reinterpret_cast<const volatile char&>(v))); }
-            static AZ_FORCE_INLINE T* f(T* v, int)  { return v; }
+            static constexpr T* f(T* v, int)  { return v; }
         };
     }
 
@@ -390,76 +343,9 @@ namespace AZStd
     //////////////////////////////////////////////////////////////////////////
     // Ref wrapper
     template<class T>
-    class reference_wrapper
+    constexpr T* get_pointer(reference_wrapper<T> const& r)
     {
-    public:
-        typedef T type;
-        explicit reference_wrapper(T& t)
-            : m_t(AZStd::addressof(t)) {}
-        operator T& () const {
-            return *m_t;
-        }
-        T& get() const { return *m_t; }
-        T* get_pointer() const { return m_t; }
-    private:
-        T* m_t;
-    };
-
-    template<class T>
-    AZ_FORCE_INLINE reference_wrapper<T> const ref(T& t)
-    {
-        return reference_wrapper<T>(t);
-    }
-
-    template<class T>
-    AZ_FORCE_INLINE reference_wrapper<T const> const cref(T const& t)
-    {
-        return reference_wrapper<T const>(t);
-    }
-
-    template<typename T>
-    class is_reference_wrapper
-        : public AZStd::false_type
-    {
-    };
-
-#ifdef AZ_HAS_RVALUE_REFS
-    template<class T>
-    struct unwrap_reference
-    {
-        typedef typename AZStd::decay<T>::type type;
-    };
-#else
-    template<typename T>
-    struct unwrap_reference
-    {
-        typedef T type;
-    };
-#endif
-
-#define AUX_REFERENCE_WRAPPER_METAFUNCTIONS_DEF(X) \
-    template<typename T>                           \
-    struct is_reference_wrapper< X >               \
-        : public AZStd::true_type                  \
-    {                                              \
-    };                                             \
-                                                   \
-    template<typename T>                           \
-    struct unwrap_reference< X >                   \
-    {                                              \
-        typedef T type;                            \
-    };                                             \
-
-    AUX_REFERENCE_WRAPPER_METAFUNCTIONS_DEF(reference_wrapper<T>)
-    AUX_REFERENCE_WRAPPER_METAFUNCTIONS_DEF(reference_wrapper<T> const)
-    AUX_REFERENCE_WRAPPER_METAFUNCTIONS_DEF(reference_wrapper<T> volatile)
-    AUX_REFERENCE_WRAPPER_METAFUNCTIONS_DEF(reference_wrapper<T> const volatile)
-#undef AUX_REFERENCE_WRAPPER_METAFUNCTIONS_DEF
-
-    template<class T>
-    AZ_FORCE_INLINE T* get_pointer(reference_wrapper<T> const& r)
-    {
-        return r.get_pointer();
+        return &r.get();
     }
     // end reference_wrapper
     //////////////////////////////////////////////////////////////////////////
@@ -468,7 +354,7 @@ namespace AZStd
     // get_pointer
     // get_pointer(p) extracts a ->* capable pointer from p
     template<class T>
-    T* get_pointer(T* p)    { return p; }
+    constexpr T* get_pointer(T* p)    { return p; }
     //template<class T> T * get_pointer(std::auto_ptr<T> const& p)
     //{
     //  return p.get();
@@ -477,9 +363,8 @@ namespace AZStd
 
     //////////////////////////////////////////////////////////////////////////
     // make_pair
-#ifdef AZ_HAS_RVALUE_REFS
     template<class T1, class T2>
-    inline pair<typename AZStd::unwrap_reference<T1>::type, typename AZStd::unwrap_reference<T2>::type>
+    constexpr pair<typename AZStd::unwrap_reference<T1>::type, typename AZStd::unwrap_reference<T2>::type>
     make_pair(T1&& value1, T2&& value2)
     {
         typedef pair<typename AZStd::unwrap_reference<T1>::type, typename AZStd::unwrap_reference<T2>::type> pair_type;
@@ -487,7 +372,7 @@ namespace AZStd
     }
 
     template<class T1, class T2>
-    inline pair<typename AZStd::unwrap_reference<T1>::type, typename AZStd::unwrap_reference<T2>::type>
+    constexpr pair<typename AZStd::unwrap_reference<T1>::type, typename AZStd::unwrap_reference<T2>::type>
     make_pair(const T1& value1, T2&& value2)
     {
         typedef pair<typename AZStd::unwrap_reference<T1>::type, typename AZStd::unwrap_reference<T2>::type> pair_type;
@@ -495,27 +380,20 @@ namespace AZStd
     }
 
     template<class T1, class T2>
-    inline pair<typename AZStd::unwrap_reference<T1>::type, typename AZStd::unwrap_reference<T2>::type>
+    constexpr pair<typename AZStd::unwrap_reference<T1>::type, typename AZStd::unwrap_reference<T2>::type>
     make_pair(T1&& value1, const T2& value2)
     {
         typedef pair<typename AZStd::unwrap_reference<T1>::type, typename AZStd::unwrap_reference<T2>::type> pair_type;
         return pair_type(AZStd::forward<T1>(value1), (typename AZStd::unwrap_reference<T2>::type)value2);
     }
     template<class T1, class T2>
-    inline pair<typename AZStd::unwrap_reference<T1>::type, typename AZStd::unwrap_reference<T2>::type>
+    constexpr pair<typename AZStd::unwrap_reference<T1>::type, typename AZStd::unwrap_reference<T2>::type>
     make_pair(const T1& value1, const T2& value2)
     {
         typedef pair<typename AZStd::unwrap_reference<T1>::type, typename AZStd::unwrap_reference<T2>::type> pair_type;
         return pair_type((typename AZStd::unwrap_reference<T1>::type)value1, (typename AZStd::unwrap_reference<T2>::type)value2);
     }
-#else
-    template<class T1, class T2>
-    inline pair<T1, T2> make_pair(const T1& value1, const T2& value2)
-    {
-        return pair<T1, T2>(value1, value2);
-    }
-#endif // AZ_HAS_RVALUE_REFS
-       //////////////////////////////////////////////////////////////////////////
+    //////////////////////////////////////////////////////////////////////////
 
     template<class T, bool isEnum = AZStd::is_enum<T>::value>
     struct RemoveEnum
@@ -559,11 +437,31 @@ namespace AZStd
         typedef R(type)(Args...);
     };
 
+#if __cpp_noexcept_function_type
+    // C++17 makes exception specifications as part of the type in paper P0012R1
+    // Therefore noexcept overloads must distinguished from non-noexcept overloads
+    template<class R, class... Args>
+    struct RemoveFunctionConst<R(Args...) noexcept>
+    {
+        typedef R(type)(Args...) noexcept;
+    };
+#endif
+
     template<class R, class C, class... Args>
     struct RemoveFunctionConst<R(C::*)(Args...)>
     {
         using type = R(C::*)(Args...);
     };
+
+#if __cpp_noexcept_function_type
+    // C++17 makes exception specifications as part of the type in paper P0012R1
+    // Therefore noexcept overloads must distinguished from non-noexcept overloads
+    template<class R, class C, class... Args>
+    struct RemoveFunctionConst<R(C::*)(Args...) noexcept>
+    {
+        using type = R(C::*)(Args...) noexcept;
+    };
+#endif
 
     template<class R, class C, class... Args>
     struct RemoveFunctionConst<R(C::*)(Args...) const>
@@ -571,8 +469,15 @@ namespace AZStd
         using type = R(C::*)(Args...);
     };
 
-    template <class T>
-    typename AZStd::add_rvalue_reference<T>::type declval();
+#if __cpp_noexcept_function_type
+    // C++17 makes exception specifications as part of the type in paper P0012R1
+    // Therefore noexcept overloads must distinguished from non-noexcept overloads
+    template<class R, class C, class... Args>
+    struct RemoveFunctionConst<R(C::*)(Args...) const noexcept>
+    {
+        using type = R(C::*)(Args...) noexcept;
+    };
+#endif
 
     template <template <class> class, typename...>
     struct sequence_and;
@@ -603,6 +508,43 @@ namespace AZStd
     {
         static const bool value = false;
     };
+
+    struct in_place_t
+    {
+        explicit constexpr in_place_t() = default;
+    };
+    constexpr in_place_t in_place{};
+
+    template<typename T>
+    struct in_place_type_t
+    {
+        explicit constexpr in_place_type_t() = default;
+    };
+    template <typename T>
+    constexpr in_place_type_t<T> in_place_type{};
+
+    template<size_t I>
+    struct in_place_index_t
+    {
+        explicit constexpr in_place_index_t() = default;
+    };
+    template<size_t I>
+    constexpr in_place_index_t<I> in_place_index{}; 
+
+    namespace Internal
+    {
+        template <typename T>
+        struct is_in_place_index
+            : false_type
+        {};
+
+        template <size_t Index>
+        struct is_in_place_index<in_place_index_t<Index>>
+            : true_type
+        {};
+        template <typename T>
+        using is_in_place_index_t = typename is_in_place_index<T>::type;
+    }
 }
 
 #endif // AZSTD_UTILS_H

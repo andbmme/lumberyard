@@ -9,7 +9,7 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
-#include "precompiled.h"
+
 #include "ContractRTTI.h"
 
 #include <Core/ContractBus.h>
@@ -20,10 +20,14 @@ namespace ScriptCanvas
 {
     AZ::Outcome<void, AZStd::string> ContractRTTI::OnEvaluate(const Slot& sourceSlot, const Slot& targetSlot) const
     {
+        AZ::Entity* nodeEntity{};
+        AZ::ComponentApplicationBus::BroadcastResult(nodeEntity, &AZ::ComponentApplicationRequests::FindEntity, targetSlot.GetNodeId());
+        const auto node = nodeEntity ? AZ::EntityUtils::FindFirstDerivedComponent<Node>(nodeEntity) : nullptr;
+
         bool valid{};
         if (m_flags == Inclusive)
         {
-            if (const Node* node = Node::FindNodeConst(targetSlot.GetNodeId()))
+            if (node)
             {
                 for (const auto& type : m_types)
                 {
@@ -37,7 +41,7 @@ namespace ScriptCanvas
         }
         else
         {
-            if (const Node* node = Node::FindNodeConst(targetSlot.GetNodeId()))
+            if (node)
             {
                 valid = true;
                 

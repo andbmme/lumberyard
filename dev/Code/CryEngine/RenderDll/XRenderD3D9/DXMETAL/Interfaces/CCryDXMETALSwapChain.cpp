@@ -19,12 +19,12 @@
 #include "CCryDXMETALGIOutput.hpp"
 #include "CCryDXMETALSwapChain.hpp"
 #include "CCryDXMETALTexture2D.hpp"
-#include "../Implementation/METALDevice.hpp"
+#include "../Implementation/MetalDevice.hpp"
 #include "../Implementation/METALContext.hpp"
 #include "../Implementation/GLResource.hpp"
 
 
-#if defined(AZ_PLATFORM_APPLE_OSX)
+#if defined(AZ_PLATFORM_MAC)
 #include <AppKit/AppKit.h>
 #else
 #include <UIKit/UIKit.h>
@@ -74,7 +74,7 @@ bool CCryDXGLSwapChain::CreateDrawableView()
         NativeWindowType* mainWindow = reinterpret_cast<NativeWindowType*>(m_kDesc.OutputWindow);
         // Use the window's view as our own since the METALDevice class created
         // it and not an outside tool like the editor
-#if defined(AZ_PLATFORM_APPLE_OSX)
+#if defined(AZ_PLATFORM_MAC)
         m_currentView = reinterpret_cast<MetalView*>([mainWindow.contentViewController view]);
 #else
         m_currentView = reinterpret_cast<MetalView*>([mainWindow.rootViewController view]);
@@ -84,7 +84,9 @@ bool CCryDXGLSwapChain::CreateDrawableView()
     {
         NativeViewType* superView = reinterpret_cast<NativeViewType*>(m_kDesc.OutputWindow);
         NCryMetal::CDevice* pDevice(m_spDevice->GetGLDevice());
-        m_currentView = [[MetalView alloc] initWithFrame: [superView frame]
+        // Use the superView bounds because we want the MetalView to appear at the origin of the
+        // superView
+        m_currentView = [[MetalView alloc] initWithFrame: [superView bounds]
                                                    scale: 1.0f
                                                   device: pDevice->GetMetalDevice()];
         [superView addSubview: m_currentView];
@@ -142,6 +144,8 @@ bool CCryDXGLSwapChain::UpdateTexture(bool bSetPixelFormat)
     else
      */
     {
+        // We need to release the existing texture before creating a new one.
+        SAFE_RELEASE(m_spExposedBackBufferTexture);
         NCryMetal::STexturePtr spGLTexture(NCryMetal::CreateTexture2D(kBackBufferDesc, NULL, m_spDevice->GetGLDevice()));
         m_spExposedBackBufferTexture = new CCryDXGLTexture2D(kBackBufferDesc, spGLTexture, m_spDevice);
     }
@@ -157,7 +161,16 @@ bool CCryDXGLSwapChain::UpdateTexture(bool bSetPixelFormat)
 HRESULT CCryDXGLSwapChain::Present(UINT SyncInterval, UINT Flags)
 {
     NCryMetal::CDevice* pDevice(m_spDevice->GetGLDevice());
+    ID3D11DeviceContext* pContext;
+    m_spDevice->GetImmediateContext(&pContext);
+    
+    //  This forces clear if someone cleared RT but haven't not rendered anything before present.
+    CCryDXGLDeviceContext::FromInterface(pContext)->GetMetalContext()->FlushFrameBufferState();
 
+    //Just commit the main CB and get another commandbuffer to do the final upscale. This will help the
+    //gpu get started on the neext frame early and reduce latency.
+    CCryDXGLDeviceContext::FromInterface(pContext)->GetMetalContext()->Flush(nil, 0);
+    
     if (!m_Drawable)
     {
         m_Drawable = [m_currentView.metalLayer nextDrawable];
@@ -173,59 +186,55 @@ HRESULT CCryDXGLSwapChain::Present(UINT SyncInterval, UINT Flags)
         }
     }
 
-    // Igor: this assert is kept here as a reminder that m_Drawable can be NULL
-    //CRY_ASSERT(m_Drawable);
+    //This assert is kept here as a reminder that m_Drawable can be NULL
+    CRY_ASSERT(m_Drawable);
+    
+    //  This essentially upscales virtual back buffer to the actual one.
+    if (m_Drawable && m_spExposedBackBufferTexture != m_spBackBufferTexture)
     {
+        NCryMetal::CContext::CopyFilterType filterType = NCryMetal::CContext::POINT;
+        if (1 == CRenderer::CV_r_UpscalingQuality)
         {
-            ID3D11DeviceContext* pContext;
-            m_spDevice->GetImmediateContext(&pContext);
-
-            //  This forces clear if someone cleared RT but haven't not rendered anything before present.
-            CCryDXGLDeviceContext::FromInterface(pContext)->GetGLContext()->FlushFrameBufferState();
-
-            //  Igor: this essentially upscales virtual back buffer to the actual one.
-            if (m_Drawable && m_spExposedBackBufferTexture != m_spBackBufferTexture)
-            {
-                NCryMetal::CContext::CopyFilterType filterType = NCryMetal::CContext::POINT;
-                if (1 == CRenderer::CV_r_UpscalingQuality)
-                {
-                    filterType = NCryMetal::CContext::BILINEAR;
-                }
-                else if (2 == CRenderer::CV_r_UpscalingQuality)
-                {
-                    filterType = NCryMetal::CContext::BICUBIC;
-                }
-                else if (3 == CRenderer::CV_r_UpscalingQuality)
-                {
-                    filterType = NCryMetal::CContext::LANCZOS;
-                }
-
-                bool bRes = CCryDXGLDeviceContext::FromInterface(pContext)->GetGLContext()->
-                        TrySlowCopySubresource(m_spBackBufferTexture->GetGLTexture(), 0, 0, 0, 0,
-                        m_spExposedBackBufferTexture->GetGLTexture(), 0, 0, filterType);
-
-                //  Make sure copy actually happens.
-                CRY_ASSERT(bRes);
-            }
-
-            //  This commits command buffer.
-            CCryDXGLDeviceContext::FromInterface(pContext)->GetGLContext()->Flush(true);
-
-            pContext->Release();
+            filterType = NCryMetal::CContext::BILINEAR;
+        }
+        else if (2 == CRenderer::CV_r_UpscalingQuality)
+        {
+            filterType = NCryMetal::CContext::BICUBIC;
+        }
+        else if (3 == CRenderer::CV_r_UpscalingQuality)
+        {
+            filterType = NCryMetal::CContext::LANCZOS;
         }
 
-        if (m_Drawable)
+        bool bRes = CCryDXGLDeviceContext::FromInterface(pContext)->GetMetalContext()->
+                TrySlowCopySubresource(m_spBackBufferTexture->GetGLTexture(), 0, 0, 0, 0,
+                m_spExposedBackBufferTexture->GetGLTexture(), 0, 0, filterType);
+
+        //  Make sure copy actually happens.
+        CRY_ASSERT(bRes);
+    
+    }
+
+    float syncInterval = 0.0f;
+    static ICVar* vSyncCVar = gEnv && gEnv->pConsole ? gEnv->pConsole->GetCVar("r_Vsync"): nullptr;
+    static ICVar* sysMaxFPSCVar = gEnv && gEnv->pConsole ? gEnv->pConsole->GetCVar("sys_MaxFPS") : nullptr;
+    if (sysMaxFPSCVar && vSyncCVar)
+    {
+        const int32 maxFPS = sysMaxFPSCVar->GetIVal();
+        uint32 vSync = vSyncCVar->GetIVal();
+        if (maxFPS > 0 && vSync != 0)
         {
-            [m_Drawable present];
-            [m_Drawable release];
-            m_Drawable = nil;
+            syncInterval = 1.0f/maxFPS;
         }
     }
 
-    //  Igor: leave a hint for the graphics debugger.
-    id<MTLCommandQueue> mtlCommandQueue = pDevice->GetMetalCommandQueue();
-    [mtlCommandQueue insertDebugCaptureBoundary];
+    //  This commits command buffer.
+    CCryDXGLDeviceContext::FromInterface(pContext)->GetMetalContext()->Flush(m_Drawable, syncInterval);
 
+    pContext->Release();
+    [m_Drawable release];
+    m_Drawable = nil;
+    
     {
         ID3D11DeviceContext* pContext;
         m_spDevice->GetImmediateContext(&pContext);
@@ -233,7 +242,7 @@ HRESULT CCryDXGLSwapChain::Present(UINT SyncInterval, UINT Flags)
         //  Create a new command buffer here. Can't do this on flush because need to do present, then insertDebugCaptureBoundary first.
         //  Although it is perfectly ok to flush then create a new command buffer, then do present and mark the end of frame,
         //  XCode frame capture won't work at all in this case.
-        CCryDXGLDeviceContext::FromInterface(pContext)->GetGLContext()->InitMetalFrameResources();
+        CCryDXGLDeviceContext::FromInterface(pContext)->GetMetalContext()->InitMetalFrameResources();
 
         pContext->Release();
     }

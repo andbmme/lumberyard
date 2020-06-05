@@ -25,6 +25,8 @@
 
 #include <QPainter>
 
+#include <AzCore/Math/Uuid.h>
+
 //! Size of the texture preview
 #define LAYER_TEX_PREVIEW_CX 128
 //! Size of the texture preview
@@ -77,7 +79,7 @@ CLayer::CLayer()
     m_minSlopeAngle = 0;
     m_maxSlopeAngle = 90;
 
-    m_guid = QUuid::createUuid();
+    m_guid = AZ::Uuid::CreateRandom();
 
     // Create the bitmap
     m_bmpLayerTexPrev = QImage(LAYER_TEX_PREVIEW_CX, LAYER_TEX_PREVIEW_CX, QImage::Format_RGBA8888);
@@ -424,7 +426,7 @@ bool CLayer::LoadTexture(const QString& lpBitmapName, UINT iWidth, UINT iHeight)
     // Retrieve the bits from the bitmap
     memcpy(m_texture.GetData(), bmpLoad.bits(), 128 * 128 * sizeof(DWORD));
     // no alpha-channel wanted
-    std::transform(m_texture.GetData(), m_texture.GetData() + 128 * 128, m_texture.GetData(), [](unsigned int i) { return 0x00ffffff & i; });
+    AZStd::transform(m_texture.GetData(), m_texture.GetData() + 128 * 128, m_texture.GetData(), [](unsigned int i) { return 0x00ffffff & i; });
 
     return true;
 }
@@ -443,14 +445,8 @@ inline bool IsPower2(int n)
 
 bool CLayer::LoadTexture(QString strFileName)
 {
-    CLogFile::FormatLine("Loading layer texture (%s)...", strFileName.toUtf8().data());
-
-    // Save the filename
     m_strLayerTexPath = Path::FullPathToGamePath(strFileName);
-    if (m_strLayerTexPath.isEmpty())
-    {
-        m_strLayerTexPath = strFileName;
-    }
+    CLogFile::FormatLine("Loading layer texture %s from %s...", m_strLayerTexPath.toUtf8().data(), strFileName.toUtf8().data());
 
     return LoadTextureFromPath();
 }
@@ -670,7 +666,7 @@ void CLayer::AssignMaterial(const QString& materialName)
         if (m_pSurfaceType && m_pSurfaceType->GetLayerReferenceCount() == 1)
         {
             m_pSurfaceType->SetMaterial(materialName);
-            m_pSurfaceType->SetName(materialName);
+            m_pSurfaceType->SetName(m_strLayerName);
         }
         else if (terrainManager->GetSurfaceTypeCount() < MAX_SURFACE_TYPE_ID_COUNT)
         {
@@ -680,7 +676,7 @@ void CLayer::AssignMaterial(const QString& materialName)
             SetSurfaceType(pSrfType);
 
             pSrfType->SetMaterial(materialName);
-            pSrfType->SetName(materialName);
+            pSrfType->SetName(m_strLayerName);
             terrainManager->AddSurfaceType(pSrfType);
 
             pSrfType->AssignUnusedSurfaceTypeID();

@@ -13,12 +13,9 @@
 #ifndef __RENDERGL_TEXTURECACHE_H
 #define __RENDERGL_TEXTURECACHE_H
 
-#include <MCore/Source/UnicodeString.h>
+#include <AzCore/std/string/string.h>
 #include <MCore/Source/Array.h>
 #include "RenderGLConfig.h"
-
-// include OpenGL
-#include "GLInclude.h"
 
 
 namespace RenderGL
@@ -29,15 +26,15 @@ namespace RenderGL
 
     public:
         Texture();
-        Texture(GLuint texID, uint32 width, uint32 height);
+        Texture(AZ::u32 texID, uint32 width, uint32 height);
         ~Texture();
 
         MCORE_INLINE uint32 GetHeight() const       { return mHeight; }
-        MCORE_INLINE uint32 GetID() const           { return mTexture; }
+        MCORE_INLINE AZ::u32 GetID() const          { return mTexture; }
         MCORE_INLINE uint32 GetWidth() const        { return mWidth; }
 
     protected:
-        GLuint mTexture;
+        AZ::u32 mTexture;
         uint32 mWidth;
         uint32 mHeight;
     };
@@ -71,7 +68,7 @@ namespace RenderGL
 
         struct Entry
         {
-            MCore::String   mName;      // the search key (unique for each texture)
+            AZStd::string   mName;      // the search key (unique for each texture)
             Texture*        mTexture;
         };
 

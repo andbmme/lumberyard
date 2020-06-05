@@ -22,11 +22,7 @@
 #include <ISourceControl.h>
 #include "EntityObject.h"
 #include "SplineObject.h"
-#include "HyperGraph/FlowGraphManager.h"
-#include "HyperGraph/FlowGraph.h"
-#include "HyperGraph/FlowGraphNode.h"
 
-#include "Util/BoostPythonHelpers.h"
 #include "Material/Material.h"
 #include <StringUtils.h>
 #include "Util/FileUtil.h"
@@ -364,7 +360,6 @@ void CObjectLayerManager::DeleteLayer(CObjectLayer* pLayer)
     }
 
     NotifyListeners(ON_LAYER_REMOVE, pLayer);
-    GetIEditor()->GetFlowGraphManager()->SendNotifyEvent(EHG_GRAPH_INVALIDATE);
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -564,7 +559,7 @@ void CObjectLayerManager::Serialize(CObjectArchive& ar)
         CFileUtil::ForEach(layerPath, [&externalLayers](const QString& filepath)
         {
             // ignore if this is not a layer file
-            if (Path::GetExt(filepath).compare(LAYER_FILE_EXTENSION + 1, Qt::CaseInsensitive) != 0)
+            if (Path::GetExt(filepath).compare(&LAYER_FILE_EXTENSION[1], Qt::CaseInsensitive) != 0)
             {
                 return;
             }
@@ -645,6 +640,7 @@ bool CObjectLayerManager::SaveExternalLayer(CObjectArchive* pArchive, CObjectLay
 {
     // Form file name from layer name.
     QString path = Path::AddPathSlash(GetIEditor()->GetGameEngine()->GetLevelPath()) + m_layersPath;
+    path = Path::GamePathToFullPath(path); 
     QString file = pLayer->GetExternalLayerPath();
 
     if (CFileUtil::OverwriteFile(file))
@@ -721,7 +717,12 @@ void CObjectLayerManager::LoadExternalLayer(CObjectArchive& ar, CObjectLayer* pL
         m_bOverwriteDuplicates = false;
         ar.node = prevRoot;
 
-        uint32 attr = CFileUtil::GetAttributes(file.toUtf8().data());
+        // set false here - do not use source control for the original load.
+        // this is becuase this list box enqueues additional background requests to refresh the status in the background
+        // so there is no need to immediately block the main thread here during the initial load.  So we check whether
+        // it is read only locally on disk rather than going all the way to source control.  (These states should match up
+        // anyway, it will only not match up if the user has specifically made it writable locally)
+        uint32 attr = CFileUtil::GetAttributes(file.toUtf8().data(), false); 
         if (gSettings.freezeReadOnly && (attr & SCC_FILE_ATTRIBUTE_READONLY))
         {
             pLayer->SetFrozen(true);
@@ -1166,7 +1167,10 @@ void CObjectLayerManager::SetupLayerSwitches(bool isOnlyClear, bool isOnlyRender
 
         if (!isOnlyRenderNodes)
         {
-            gEnv->pEntitySystem->AddLayer(pLayer->GetName().toUtf8().data(), pLayer->GetParent() ? pLayer->GetParent()->GetName().toUtf8().data() : "", pLayer->GetLayerID(), pLayer->IsPhysics(), pLayer->GetSpecs(), pLayer->IsDefaultLoaded());
+            if (gEnv->pEntitySystem)
+            {
+                gEnv->pEntitySystem->AddLayer(pLayer->GetName().toUtf8().data(), pLayer->GetParent() ? pLayer->GetParent()->GetName().toUtf8().data() : "", pLayer->GetLayerID(), pLayer->IsPhysics(), pLayer->GetSpecs(), pLayer->IsDefaultLoaded());
+            }
 
             for (int k = 0; k < objects.size(); k++)
             {
@@ -1180,14 +1184,20 @@ void CObjectLayerManager::SetupLayerSwitches(bool isOnlyClear, bool isOnlyRender
                             node->SetLayerId(pLayer->GetLayerID());
                         }
 
-                        gEnv->pEntitySystem->AddEntityToLayer(pLayer->GetName().toUtf8().data(), ((CEntityObject*)pObj)->GetEntityId());
+                        if (gEnv->pEntitySystem)
+                        {
+                            gEnv->pEntitySystem->AddEntityToLayer(pLayer->GetName().toUtf8().data(), ((CEntityObject*)pObj)->GetEntityId());
+                        }
                     }
                 }
             }
         }
     }
     // make sure parent - child relation is valid in editor
-    gEnv->pEntitySystem->LinkLayerChildren();
+    if (gEnv->pEntitySystem)
+    {
+        gEnv->pEntitySystem->LinkLayerChildren();
+    }
 
     // Hide brashes when Game mode is started
     if (!isOnlyRenderNodes)
@@ -1316,185 +1326,3 @@ bool CObjectLayerManager::ReloadLayer(CObjectLayer* pLayer)
     return true;
 }
 
-//////////////////////////////////////////////////////////////////////////
-namespace
-{
-    bool PyCreateLayer(const char* pName)
-    {
-        CObjectLayerManager* pLayerManager = GetIEditor()->GetObjectManager()->GetLayersManager();
-        if (!pLayerManager)
-        {
-            AZ_Error("LayerManager", false, "The Layer Manager is invalid.\nIt could be corrupted, or you may be attempting to gather layer information before it has been initialzied.");
-            return false;
-        }
-
-        CObjectLayer* pLayer = pLayerManager->FindLayerByName(pName);
-        if (pLayer)
-        {
-            return false;
-        }
-
-        pLayer = pLayerManager->CreateLayer();
-        pLayer->SetName(pName);
-        pLayerManager->SetCurrentLayer(pLayer);
-        pLayerManager->NotifyLayerChange(pLayer);
-        return true;
-    }
-
-    bool PyIsLayerExist(const char* pName)
-    {
-        if (GetIEditor()->GetObjectManager()->GetLayersManager()->FindLayerByName(pName))
-        {
-            return true;
-        }
-        return false;
-    }
-
-    void PyFreezeLayer(const char* pName)
-    {
-        CObjectLayerManager* pLayerManager = GetIEditor()->GetObjectManager()->GetLayersManager();
-        CObjectLayer* pLayer = pLayerManager->FindLayerByName(pName);
-
-        if (!pLayer)
-        {
-            AZ_Error("LayerManager", false, "Could not resolve layer name \"%s\" to a layer.\nMake sure it exists before attempting to freeze the layer.", pName);
-            return;
-        }
-
-        CUndo undo("Freeze Layer");
-        pLayer->SetFrozen(true);
-    }
-
-    void PyUnfreezeLayer(const char* pName)
-    {
-        CObjectLayerManager* pLayerManager = GetIEditor()->GetObjectManager()->GetLayersManager();
-        CObjectLayer* pLayer = pLayerManager->FindLayerByName(pName);
-
-        if (!pLayer)
-        {
-            AZ_Error("LayerManager", false, "Could not resolve layer name \"%s\" to a layer.\nMake sure it exists before attempting to unfreeze the layer.", pName);
-            return;
-        }
-
-        CUndo undo("Unfreeze Layer");
-        pLayer->SetFrozen(false);
-    }
-
-    void PyHideLayer(const char* pName)
-    {
-        CObjectLayerManager* pLayerManager = GetIEditor()->GetObjectManager()->GetLayersManager();
-        CObjectLayer* pLayer = pLayerManager->FindLayerByName(pName);
-        if (!pLayer)
-        {
-            AZ_Error("LayerManager", false, "Could not resolve layer name \"%s\" to a layer.\nMake sure it exists before attempting to hide the layer.", pName);
-            return;
-        }
-
-        CUndo undo("Hide Layer");
-        pLayer->SetVisible(false);
-    }
-
-    void PyUnhideLayer(const char* pName)
-    {
-        CObjectLayerManager* pLayerManager = GetIEditor()->GetObjectManager()->GetLayersManager();
-        CObjectLayer* pLayer = pLayerManager->FindLayerByName(pName);
-        if (!pLayer)
-        {
-            AZ_Error("LayerManager", false, "Could not resolve layer name \"%s\" to a layer.\nMake sure it exists before attempting to show the layer.", pName);
-            return;
-        }
-
-        CUndo undo("Unhide Layer");
-        pLayer->SetVisible(true);
-    }
-
-    void PyRenameLayer(const char* pNameOld, const char* pNameNew)
-    {
-        CObjectLayerManager* pLayerManager = GetIEditor()->GetObjectManager()->GetLayersManager();
-        CObjectLayer* pLayer = pLayerManager->FindLayerByName(pNameOld);
-        if (!pLayer)
-        {
-            AZ_Error("LayerManager", false, "Could not resolve layer name \"%s\" to a layer.\nMake sure it exists before attempting to rename the layer.", pNameOld);
-            return;
-        }
-
-        CUndo undo("Rename Layer");
-        pLayer->SetName(pNameNew, true);
-        pLayerManager->NotifyLayerChange(pLayer);
-    }
-
-    QString PyGetNameOfSelectedLayer()
-    {
-        CObjectLayerManager* pLayerManager = GetIEditor()->GetObjectManager()->GetLayersManager();
-        CObjectLayer* pLayer = pLayerManager->GetCurrentLayer();
-        if (!pLayer)
-        {
-            AZ_Error("LayerManager", false, "Could not get the layer name of the selected layer.\nMake sure you have a layer selected.");
-            return QString();
-        }
-        return pLayer->GetName();
-    }
-
-    void PySelectLayer(const char* pName)
-    {
-        CObjectLayerManager* pLayerManager = GetIEditor()->GetObjectManager()->GetLayersManager();
-        CObjectLayer* pLayer = pLayerManager->FindLayerByName(pName);
-        if (!pLayer)
-        {
-            AZ_Error("LayerManager", false, "Could not resolve layer name \"%s\" to a layer.\nMake sure it exists before attempting to select the layer by name.", pName);
-            return;
-        }
-        pLayerManager->SetCurrentLayer(pLayer);
-        pLayerManager->NotifyLayerChange(pLayer);
-    }
-
-    std::vector<std::string> PyGetAllLayerNames()
-    {
-        CObjectLayerManager* pLayerMgr = GetIEditor()->GetObjectManager()->GetLayersManager();
-        if (!pLayerMgr)
-        {
-            AZ_Error("LayerManager", false, "The Layer Manager is invalid.\nIt could be corrupted, or you may be attempting to gather layer information before it has been initialzied.");
-            return std::vector<std::string>();
-        }
-
-        std::vector<std::string> result;
-        std::vector<CObjectLayer*> layers;
-        pLayerMgr->GetLayers(layers);
-        for (size_t i = 0; i < layers.size(); ++i)
-        {
-            result.push_back(layers[i]->GetName().toUtf8().data());
-        }
-        return result;
-    }
-}
-
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyCreateLayer, general, create_layer,
-    "Creates new layer with specific name and returns bool value if layer was created or not.",
-    "general.create_layer(str layerName)");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyFreezeLayer, general, freeze_layer,
-    "Freezes layer with specific name.",
-    "general.freeze_layer(str layerName)");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyUnfreezeLayer, general, unfreeze_layer,
-    "Unfreezes layer with specific name.",
-    "general.unfreeze_layer(str layerName)");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyHideLayer, general, hide_layer,
-    "Hides layer with specific name.",
-    "general.hide_layer(str layerName)");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyUnhideLayer, general, unhide_layer,
-    "Unhides layer with specific name.",
-    "general.unhide_layer(str layerName)");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyRenameLayer, general, rename_layer,
-    "Renames layer with specific name.",
-    "general.rename_layer(str layerName, str newLayerName)");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyIsLayerExist, general, is_layer_exist,
-    "Checks existence of layer with specific name.",
-    "general.is_layer_exist(str layerName)");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyGetNameOfSelectedLayer, general, get_name_of_selected_layer,
-    "Returns the name of the selected layer.",
-    "general.get_name_of_selected_layer(str layerName)");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PySelectLayer, general, select_layer,
-    "Selects the layer with the given name.",
-    "general.select_layer(str layerName)");
-REGISTER_ONLY_PYTHON_COMMAND_WITH_EXAMPLE(PyGetAllLayerNames, general, get_names_of_all_layers,
-    "Get a list of all layer names in the level.",
-    "general.get_names_of_all_layers()");

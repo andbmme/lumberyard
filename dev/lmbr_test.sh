@@ -23,6 +23,5 @@ else
     exit 1
 fi
 
-
 PYP=$ENGINE_DIR/Code/Tools/AzTestScanner
-env PYTHONPATH=$PYP python -m aztest $*
+env PYTHONPATH=$PYP $ENGINE_DIR/Tools/Python/python3.sh -m aztest $*

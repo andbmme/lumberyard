@@ -2,12 +2,6 @@
 <ui version="4.0">
  <class>TerrainTextureDialog</class>
  <widget class="QDialog" name="TerrainTextureDialog">
-   <property name="minimumSize">
-     <size>
-       <width>0</width>
-       <height>550</height>
-     </size>
-   </property>
   <property name="geometry">
    <rect>
     <x>0</x>
@@ -15,6 +9,12 @@
     <width>756</width>
     <height>563</height>
    </rect>
+  </property>
+  <property name="minimumSize">
+   <size>
+    <width>0</width>
+    <height>550</height>
+   </size>
   </property>
   <property name="windowTitle">
    <string>Terrain Texture Layers</string>
@@ -131,6 +131,13 @@
              </property>
             </widget>
            </item>
+            <item>
+              <widget class="ClickableLabel" name="exportSplatMapClickable">
+                <property name="text">
+                  <string>Export Splat Map</string>
+                </property>
+              </widget>
+            </item>
           </layout>
          </widget>
         </item>
@@ -197,6 +204,14 @@
            </item>
           </layout>
          </widget>
+        </item>
+        <item>
+         <layout class="QVBoxLayout" name="materialSelection">
+           <item>
+             <widget class="QLabel" name="terrainNotFoundMessage">
+             </widget>
+           </item>
+         </layout>
         </item>
         <item>
          <widget class="QCollapsibleGroupBox" name="optionsGroupBox">

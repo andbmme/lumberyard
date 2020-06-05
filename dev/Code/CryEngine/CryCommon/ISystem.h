@@ -11,8 +11,8 @@
 */
 // Original file Copyright Crytek GMBH or its affiliates, used under license.
 
-// In Mac, including ISystem without including platform.h first fails because platform.h 
-// includes CryThread.h which includes CryThread_pthreads.h which uses ISystem (gEnv). 
+// In Mac, including ISystem without including platform.h first fails because platform.h
+// includes CryThread.h which includes CryThread_pthreads.h which uses ISystem (gEnv).
 // So plaform.h needs the contents of ISystem.h.
 // By including platform.h outside of the guard, we give platform.h the right include order
 #include <platform.h> // Needed for LARGE_INTEGER (for consoles).
@@ -22,16 +22,24 @@
 #pragma once
 
 #ifdef CRYSYSTEM_EXPORTS
-    #define CRYSYSTEM_API DLL_EXPORT
+#define CRYSYSTEM_API DLL_EXPORT
 #else
-    #define CRYSYSTEM_API DLL_IMPORT
+#define CRYSYSTEM_API DLL_IMPORT
 #endif
 
 #include "CryAssert.h"
 #include "CompileTimeAssert.h"
 
 #include <AzCore/IO/SystemFile.h>
-#include <AzCore/std/any.h>
+
+#if defined(AZ_RESTRICTED_PLATFORM)
+#undef AZ_RESTRICTED_SECTION
+#define ISYSTEM_H_SECTION_1 1
+#define ISYSTEM_H_SECTION_2 2
+#define ISYSTEM_H_SECTION_3 3
+#define ISYSTEM_H_SECTION_4 4
+#define ISYSTEM_H_SECTION_5 5
+#endif
 
 ////////////////////////////////////////////////////////////////////////////////////////////////
 // Forward declarations
@@ -41,7 +49,6 @@
 #include <ILog.h> // <> required for Interfuscator
 #include "CryVersion.h"
 #include "smartptr.h"
-#include <IMemory.h> // <> required for Interfuscator
 #include <ISystemScheduler.h> // <> required for Interfuscator
 #include <memory> // shared_ptr
 #include <IFilePathManager.h>
@@ -91,6 +98,8 @@ struct ICharacterManager;
 struct SFileVersion;
 struct INameTable;
 struct IBudgetingSystem;
+struct ILevelSystem;
+struct IViewSystem;
 struct IFlowSystem;
 struct IDialogSystem;
 namespace DRS {
@@ -99,7 +108,6 @@ namespace DRS {
 struct IMaterialEffects;
 struct IParticleManager;
 class IOpticsManager;
-struct IHardwareMouse;
 class ICrySizer;
 struct ITestSystem;
 class IXMLBinarySerializer;
@@ -118,6 +126,7 @@ struct ISoftCodeMgr;
 struct IZLibCompressor;
 struct IZLibDecompressor;
 struct ILZ4Decompressor;
+class IZStdDecompressor;
 struct IOutputPrintSink;
 struct IPhysicsDebugRenderer;
 struct IPhysRenderer;
@@ -184,73 +193,44 @@ namespace JobManager {
 
 enum ESystemUpdateFlags
 {
-    ESYSUPDATE_IGNORE_AI            = 0x0001,
+    ESYSUPDATE_IGNORE_AI = 0x0001,
     ESYSUPDATE_IGNORE_PHYSICS = 0x0002,
     // Summary:
     //   Special update mode for editor.
-    ESYSUPDATE_EDITOR                   =   0x0004,
-    ESYSUPDATE_MULTIPLAYER      = 0x0008,
+    ESYSUPDATE_EDITOR = 0x0004,
+    ESYSUPDATE_MULTIPLAYER = 0x0008,
     ESYSUPDATE_EDITOR_AI_PHYSICS = 0x0010,
     ESYSUPDATE_EDITOR_ONLY = 0x0020,
     ESYSUPDATE_UPDATE_VIEW_ONLY = 0x0040
 };
 
-static const int NUM_SPEC_LEVELS = 4;
-static const int NUM_PLATFORMS = 8;
-
 // Description:
 //   Configuration specification, depends on user selected machine specification.
 enum ESystemConfigSpec
 {
-    CONFIG_AUTO_SPEC     = 0,
-    CONFIG_LOW_SPEC      = 1,
-    CONFIG_MEDIUM_SPEC   = 2,
-    CONFIG_HIGH_SPEC     = 3,
+    CONFIG_AUTO_SPEC = 0,
+    CONFIG_LOW_SPEC = 1,
+    CONFIG_MEDIUM_SPEC = 2,
+    CONFIG_HIGH_SPEC = 3,
     CONFIG_VERYHIGH_SPEC = 4,
 
-    END_CONFIG_SPEC_ENUM, // MUST BE LSAT VALUE. USED FOR ERROR CHECKING.
-};
-
-// Description:
-//   Status of cvar for a specifc platform and spec level
-//   editedValue - current setting within Graphics Settings Dialog box
-//   overwrittenValue - original setting from platform config file (set to originalValue if not found)
-//   originalValue - original settings from sys_spec config file index
-
-struct CVarFileStatus
-{
-    AZStd::any editedValue;
-    AZStd::any overwrittenValue;
-    AZStd::any originalValue;
-    CVarFileStatus(AZStd::any edit, AZStd::any over, AZStd::any orig) : editedValue(edit), overwrittenValue(over), originalValue(orig) {}
-};
-
-// Description:
-//   Status of specific cvar for Editor mapping
-//   type - CVAR_INT / CVAR_FLOAT / CVAR_STRING
-//   cvarGroup - source of cvar (sys_spec_particles, sys_spec_physics, etc.) or "miscellaneous" if only specified in platform config file
-//   fileVals = CVarFileStatus for each spec level of a specific platform
-
-struct CVarInfo
-{
-    int type;
-    AZStd::string cvarGroup;
-    AZStd::vector<CVarFileStatus> fileVals;
+    END_CONFIG_SPEC_ENUM, // MUST BE LAST VALUE. USED FOR ERROR CHECKING.
 };
 
 // Description:
 //   Configuration platform. Autodetected at start, can be modified through the editor.
 enum ESystemConfigPlatform
 {
-    CONFIG_INVALID_PLATFORM   = 0,
-    CONFIG_PC                 = 1,
-    CONFIG_OSX_GL             = 2,
-    CONFIG_OSX_METAL          = 3,
-    CONFIG_ANDROID            = 4,
-    CONFIG_IOS                = 5,
-    CONFIG_XBONE              = 6,
-    CONFIG_PS4                = 7,
-    CONFIG_APPLETV            = 8,
+    CONFIG_INVALID_PLATFORM = 0,
+    CONFIG_PC = 1,
+    CONFIG_OSX_GL = 2,
+    CONFIG_OSX_METAL = 3,
+    CONFIG_ANDROID = 4,
+    CONFIG_IOS = 5,
+    CONFIG_XENIA = 6,
+    CONFIG_PROVO = 7,
+    CONFIG_APPLETV = 8,
+    CONFIG_SALEM = 9,
 
     END_CONFIG_PLATFORM_ENUM, // MUST BE LSAT VALUE. USED FOR ERROR CHECKING.
 };
@@ -433,19 +413,19 @@ enum ESystemEvent
 
     // Summary:
     //   Called before switching to level memory heap
-    ESYSTEM_EVENT_SWITCHING_TO_LEVEL_HEAP,
+    ESYSTEM_EVENT_SWITCHING_TO_LEVEL_HEAP_DEPRECATED,
 
     // Summary:
     //   Called after switching to level memory heap
-    ESYSTEM_EVENT_SWITCHED_TO_LEVEL_HEAP,
+    ESYSTEM_EVENT_SWITCHED_TO_LEVEL_HEAP_DEPRECATED,
 
     // Summary:
     //   Called before switching to global memory heap
-    ESYSTEM_EVENT_SWITCHING_TO_GLOBAL_HEAP,
+    ESYSTEM_EVENT_SWITCHING_TO_GLOBAL_HEAP_DEPRECATED,
 
     // Summary:
     //   Called after switching to global memory heap
-    ESYSTEM_EVENT_SWITCHED_TO_GLOBAL_HEAP,
+    ESYSTEM_EVENT_SWITCHED_TO_GLOBAL_HEAP_DEPRECATED,
 
     // Description:
     //   Sent after precaching of the streaming system has been done
@@ -496,7 +476,27 @@ enum ESystemEvent
     //      Sent when frontend is reloaded
     ESYSTEM_EVENT_FRONTEND_RELOADED,
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION ISYSTEM_H_SECTION_1
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/ISystem_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/ISystem_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/ISystem_h_salem.inl"
+    #endif
+#endif
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION ISYSTEM_H_SECTION_2
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/ISystem_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/ISystem_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/ISystem_h_salem.inl"
+    #endif
+#endif
     ESYSTEM_EVENT_STREAMING_INSTALL_ERROR,
 
     // Description:
@@ -506,10 +506,6 @@ enum ESystemEvent
     // Description:
     //      Sent when a new audio implementation is loaded
     ESYSTEM_EVENT_AUDIO_IMPLEMENTATION_LOADED,
-
-    // Description:
-    //      Sent when optional modules (like gems) should register their flow nodes
-    ESYSTEM_EVENT_FLOW_SYSTEM_REGISTER_EXTERNAL_NODES,
 
     ESYSTEM_EVENT_USER = 0x1000,
 
@@ -521,7 +517,7 @@ enum ESystemEvent
 struct ISystemUserCallback
 {
     // <interfuscator:shuffle>
-    virtual ~ISystemUserCallback(){}
+    virtual ~ISystemUserCallback() {}
     // Description:
     //   This method is called at the earliest point the ISystem pointer can be used
     //   the log might not be yet there.
@@ -593,7 +589,7 @@ struct ISystemUserCallback
 struct ISystemEventListener
 {
     // <interfuscator:shuffle>
-    virtual ~ISystemEventListener(){}
+    virtual ~ISystemEventListener() {}
     virtual void OnSystemEventAnyThread(ESystemEvent event, UINT_PTR wparam, UINT_PTR lparam) {}
     virtual void OnSystemEvent(ESystemEvent event, UINT_PTR wparam, UINT_PTR lparam) { }
     // </interfuscator:shuffle>
@@ -604,7 +600,7 @@ struct ISystemEventListener
 struct ISystemEventDispatcher
 {
     // <interfuscator:shuffle>
-    virtual ~ISystemEventDispatcher(){}
+    virtual ~ISystemEventDispatcher() {}
     virtual bool RegisterListener(ISystemEventListener* pListener) = 0;
     virtual bool RemoveListener(ISystemEventListener* pListener) = 0;
 
@@ -651,6 +647,16 @@ struct ICVarsWhitelist
 };
 #endif // defined(CVARS_WHITELIST)
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION ISYSTEM_H_SECTION_3
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/ISystem_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/ISystem_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/ISystem_h_salem.inl"
+    #endif
+#endif
 
 namespace AZ
 {
@@ -676,7 +682,7 @@ struct SSystemInitParams
     bool remoteResourceCompiler;
     bool connectToRemote;
     bool waitForConnection; // if true, wait for the remote connection to be established before proceeding to system init.
-    char assetsPlatform[64]; // what flavor of assets to load.  ("pc" / "es3" / "ps4" / "ios" / "xboxone").  Corresponds to those in rc.ini and asset processor ini // ACCEPTED_USE
+    char assetsPlatform[64]; // what flavor of assets to load.  Corresponds to those in rc.ini and asset processor ini
     char gameFolderName[256]; // just the name.  Not the full path.
     char gameDLLName[256]; // just the name.  Not the full path.  ("ExampleGame") - does not include extension
     char branchToken[12]; // information written by the assetprocessor which help determine whether the game/editor are running from the same branch or not
@@ -691,11 +697,11 @@ struct SSystemInitParams
     char szSystemCmdLine[2048];                     // Command line.
 
 
-    // set some paths before you create the system.
+                                                    // set some paths before you create the system.
 
-    // rootPath - (REQUIRED) folder containing root.  Must contain system.cfg or bootstrap.cfg basically.
-    // the remainder are optional and if specified should contain prefixes that can be prepended to any file to get to that location:
-    // READ ONLY!
+                                                    // rootPath - (REQUIRED) folder containing root.  Must contain system.cfg or bootstrap.cfg basically.
+                                                    // the remainder are optional and if specified should contain prefixes that can be prepended to any file to get to that location:
+                                                    // READ ONLY!
     char rootPath[256];
     char rootPathCache[256];
 
@@ -754,9 +760,9 @@ struct SSystemInitParams
 
     ISystem* pSystem;                                           // Pointer to existing ISystem interface, it will be reused if not NULL.
     IGameStartup* pGameStartup;                     // Pointer to the calling GameStartup instance, to allow use of some game specific data during engine init.
-    //  char szLocalIP[256];                                    // local IP address (needed if we have several servers on one machine)
+                                                    //  char szLocalIP[256];                                    // local IP address (needed if we have several servers on one machine)
 
-    typedef void* (* ProtectedFunction)(void* param1, void* param2);
+    typedef void* (*ProtectedFunction)(void* param1, void* param2);
     ProtectedFunction pProtectedFunctions[eProtectedFuncsLast];         // Protected functions.
 
     SCvarsDefault* pCvarsDefault;               // to override the default value of some cvar
@@ -849,19 +855,19 @@ struct SSystemInitParams
 
     bool UseAssetCache() const
     {
-#if defined(AZ_PLATFORM_WINDOWS) || defined(AZ_PLATFORM_APPLE_OSX)
+#if defined(AZ_PLATFORM_WINDOWS) || defined(AZ_PLATFORM_MAC) || defined(AZ_PLATFORM_LINUX)
         char checkPath[AZ_MAX_PATH_LEN] = { 0 };
         azsnprintf(checkPath, AZ_MAX_PATH_LEN, "%s/engine.json", rootPathCache);
         return AZ::IO::SystemFile::Exists(checkPath);
 #else
         return false;
-#endif // defined(AZ_PLATFORM_WINDOWS) || defined(AZ_PLATFORM_APPLE)
+#endif // defined(AZ_PLATFORM_WINDOWS) || AZ_TRAIT_OS_PLATFORM_APPLE
     }
 };
 
 // Summary:
 //   Typedef for frame profile callback function.
-typedef void (* FrameProfilerSectionCallback)(class CFrameProfilerSection* pSection);
+typedef void(*FrameProfilerSectionCallback)(class CFrameProfilerSection* pSection);
 
 // Notes:
 //   Can be used for LoadConfiguration().
@@ -870,7 +876,7 @@ typedef void (* FrameProfilerSectionCallback)(class CFrameProfilerSection* pSect
 struct ILoadConfigurationEntrySink
 {
     // <interfuscator:shuffle>
-    virtual ~ILoadConfigurationEntrySink(){}
+    virtual ~ILoadConfigurationEntrySink() {}
     virtual void OnLoadConfigurationEntry(const char* szKey, const char* szValue, const char* szGroup) = 0;
     virtual void OnLoadConfigurationEntry_End() {}
     // </interfuscator:shuffle>
@@ -909,7 +915,7 @@ struct SSystemUpdateStats
     SSystemUpdateStats()
         : avgUpdateTime(0.0f)
         , minUpdateTime(0.0f)
-        , maxUpdateTime(0.0f){}
+        , maxUpdateTime(0.0f) {}
     float avgUpdateTime;
     float minUpdateTime;
     float maxUpdateTime;
@@ -933,7 +939,6 @@ struct SSystemGlobalEnvironment
     // **************************************************************************************
     IScriptSystem*             pScriptSystem;
     IPhysicalWorld*            pPhysicalWorld;
-    IFlowSystem*               pFlowSystem;
     IInput*                    pInput;
     IStatoscope*        pStatoscope;
     ICryPak*                   pCryPak;
@@ -950,7 +955,7 @@ struct SSystemGlobalEnvironment
     IEntitySystem*             pEntitySystem;
     IConsole*                  pConsole;
     Telemetry::ITelemetrySystem* pTelemetrySystem;
-    ISystem*                   pSystem;
+    ISystem*                   pSystem = nullptr;
     ICharacterManager*         pCharacterManager;
     IAISystem*                 pAISystem;
     ILog*                      pLog;
@@ -959,9 +964,7 @@ struct SSystemGlobalEnvironment
     INameTable*                pNameTable;
     IVisualLog*                pVisualLog;
     IRenderer*                 pRenderer;
-    IHardwareMouse*            pHardwareMouse;
     IMaterialEffects*          pMaterialEffects;
-    JobManager::IJobManager*   pJobManager;
     ISoftCodeMgr*                            pSoftCodeMgr;
     IOverloadSceneManager*       pOverloadSceneManager;
     IServiceNetwork*              pServiceNetwork;
@@ -973,19 +976,29 @@ struct SSystemGlobalEnvironment
     IFilePathManager* pFilePathManager;
     IThreadManager*               pThreadManager;
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION ISYSTEM_H_SECTION_4
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/ISystem_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/ISystem_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/ISystem_h_salem.inl"
+    #endif
+#endif
 
     ISystemScheduler*          pSystemScheduler;
 
     threadID                                 mMainThreadId;     //The main thread ID is used in multiple systems so should be stored globally
 
-    //////////////////////////////////////////////////////////////////////////
+                                                                //////////////////////////////////////////////////////////////////////////
     uint32                     nMainFrameID;
 
     //////////////////////////////////////////////////////////////////////////
     const char*                szCmdLine;  // Startup command line.
 
-    //////////////////////////////////////////////////////////////////////////
-    // Generic debug string which can be easily updated by any system and output by the debug handler
+                                           //////////////////////////////////////////////////////////////////////////
+                                           // Generic debug string which can be easily updated by any system and output by the debug handler
     enum
     {
         MAX_DEBUG_STRING_LENGTH = 128
@@ -1024,8 +1037,8 @@ struct SSystemGlobalEnvironment
     // Protected functions.
     SSystemInitParams::ProtectedFunction pProtectedFunctions[eProtectedFuncsLast];  // Protected functions.
 
-    //////////////////////////////////////////////////////////////////////////
-    // Flag to able to print out of memory conditon
+                                                                                    //////////////////////////////////////////////////////////////////////////
+                                                                                    // Flag to able to print out of memory conditon
     bool                                            bIsOutOfMemory;
     bool                                            bIsOutOfVideoMemory;
 
@@ -1109,14 +1122,7 @@ struct SSystemGlobalEnvironment
 #if defined(CONSOLE)
         return false;
 #else
-        if (!pGame)
-        {
-            return bEditor;
-        }
-        else
-        {
-            return bEditor && !bEditorGameMode;
-        }
+        return bEditor && !bEditorGameMode;
 #endif
     }
 
@@ -1140,12 +1146,6 @@ struct SSystemGlobalEnvironment
         m_isCutscenePlaying = isPlaying;
     }
 
-    // Getter function for jobmanager
-    ILINE JobManager::IJobManager* GetJobManager()
-    {
-        return pJobManager;
-    }
-
     ILINE bool IsInToolMode() const
     {
         return bToolMode;
@@ -1156,14 +1156,14 @@ struct SSystemGlobalEnvironment
         bToolMode = bNewToolMode;
     }
 
-    ILINE void SetDynamicMergedMeshGenerationEnable(bool mmgenEnable)
+    ILINE void SetDynamicMergedMeshGenerationEnabled(bool mmgenEnable)
     {
-        m_bDynamicMergedMeshGenerationEnable = mmgenEnable;
+        m_bDynamicMergedMeshGenerationEnabled = mmgenEnable;
     }
 
-    ILINE const bool IsDynamicMergedMeshGenerationEnable() const
+    ILINE const bool IsDynamicMergedMeshGenerationEnabled() const
     {
-        return m_bDynamicMergedMeshGenerationEnable;
+        return m_bDynamicMergedMeshGenerationEnabled;
     }
 
 #if !defined(CONSOLE)
@@ -1177,14 +1177,14 @@ private:
 
     bool m_isFMVPlaying;
     bool m_isCutscenePlaying;
-    bool m_bDynamicMergedMeshGenerationEnable;
+    bool m_bDynamicMergedMeshGenerationEnabled;
 
 public:
     SSystemGlobalEnvironment()
         : pSystemScheduler(nullptr)
         , szCmdLine("")
         , bToolMode(false)
-        , m_bDynamicMergedMeshGenerationEnable(false)
+        , m_bDynamicMergedMeshGenerationEnabled(false)
     {
     };
 };
@@ -1201,7 +1201,7 @@ public:
 struct IProfilingSystem
 {
     // <interfuscator:shuffle>
-    virtual ~IProfilingSystem(){}
+    virtual ~IProfilingSystem() {}
     //////////////////////////////////////////////////////////////////////////
     // VTune Profiling interface.
 
@@ -1225,7 +1225,7 @@ struct ISystem
     struct ILoadingProgressListener
     {
         // <interfuscator:shuffle>
-        virtual ~ILoadingProgressListener(){}
+        virtual ~ILoadingProgressListener() {}
         virtual void OnLoadingProgress(int steps) = 0;
         // </interfuscator:shuffle>
     };
@@ -1248,14 +1248,14 @@ struct ISystem
 #endif
 
     // <interfuscator:shuffle>
-    virtual ~ISystem(){}
+    virtual ~ISystem() {}
     // Summary:
     //   Releases ISystem.
     virtual void Release() = 0;
     virtual ILoadConfigurationEntrySink* GetCVarsWhiteListConfigSink() const = 0; // will return NULL if no whitelisting
 
-    // Summary:
-    //   Returns pointer to the global environment structure.
+                                                                                  // Summary:
+                                                                                  //   Returns pointer to the global environment structure.
     virtual SSystemGlobalEnvironment* GetGlobalEnvironment() = 0;
 
     // Summary:
@@ -1298,9 +1298,9 @@ struct ISystem
     //   Renders the statistics; this is called from RenderEnd, but if the
     //   Host application (Editor) doesn't employ the Render cycle in ISystem,
     //   it may call this method to render the essential statistics.
-    virtual void RenderStatistics () = 0;
+    virtual void RenderStatistics() = 0;
     virtual void RenderPhysicsHelpers() = 0;
-    virtual void RenderPhysicsStatistics (IPhysicalWorld* pWorld) = 0;
+    virtual void RenderPhysicsStatistics(IPhysicalWorld* pWorld) = 0;
 
     // Summary:
     //   Returns the current used memory.
@@ -1391,12 +1391,13 @@ struct ISystem
     virtual IZLibCompressor* GetIZLibCompressor() = 0;
     virtual IZLibDecompressor* GetIZLibDecompressor() = 0;
     virtual ILZ4Decompressor* GetLZ4Decompressor() = 0;
+    virtual IZStdDecompressor* GetZStdDecompressor() = 0;
     virtual ICryPerfHUD* GetPerfHUD() = 0;
     virtual IPlatformOS* GetPlatformOS() = 0;
     virtual INotificationNetwork* GetINotificationNetwork() = 0;
-    virtual IHardwareMouse* GetIHardwareMouse() = 0;
     virtual IDialogSystem* GetIDialogSystem() = 0;
-    virtual IFlowSystem* GetIFlowSystem() = 0;
+    virtual IViewSystem* GetIViewSystem() = 0;
+    virtual ILevelSystem* GetILevelSystem() = 0;
     virtual IBudgetingSystem* GetIBudgetingSystem() = 0;
     virtual INameTable* GetINameTable() = 0;
     virtual IDiskProfiler* GetIDiskProfiler() = 0;
@@ -1408,7 +1409,7 @@ struct ISystem
     virtual IStreamEngine* GetStreamEngine() = 0;
     virtual ICmdLine* GetICmdLine() = 0;
     virtual ILog* GetILog() = 0;
-    virtual ICryPak* GetIPak()  = 0;
+    virtual ICryPak* GetIPak() = 0;
     virtual ICryFont* GetICryFont() = 0;
     virtual IEntitySystem* GetIEntitySystem() = 0;
     virtual IMemoryManager* GetIMemoryManager() = 0;
@@ -1452,7 +1453,6 @@ struct ISystem
     // Summary:
     //   Game is created after System init, so has to be set explicitly.
     virtual void                        SetIGame(IGame* pGame) = 0;
-    virtual void            SetIFlowSystem(IFlowSystem* pFlowSystem) = 0;
     virtual void SetIDialogSystem(IDialogSystem* pDialogSystem) = 0;
     virtual void SetIMaterialEffects(IMaterialEffects* pMaterialEffects) = 0;
     virtual void SetIParticleManager(IParticleManager* pParticleManager) = 0;
@@ -1484,7 +1484,7 @@ struct ISystem
 
     // Summary:
     //   Creates new xml node.
-    virtual XmlNodeRef CreateXmlNode(const char* sNodeName = "", bool bReuseStrings = false) = 0;
+    virtual XmlNodeRef CreateXmlNode(const char* sNodeName = "", bool bReuseStrings = false, bool bIsProcessingInstruction = false) = 0;
     // Summary:
     //   Loads xml from memory buffer, returns 0 if load failed.
     virtual XmlNodeRef LoadXmlFromBuffer(const char* buffer, size_t size, bool bReuseStrings = false, bool bSuppressWarnings = false) = 0;
@@ -1621,14 +1621,6 @@ struct ISystem
     //             if false changes only server config spec (as known on the client).
     virtual void SetConfigSpec(ESystemConfigSpec spec, ESystemConfigPlatform platform, bool bClient) = 0;
 
-    // Summary:
-    //   Return pointer to the Editor map for the Graphics Settings Dialog
-    virtual AZStd::unordered_map<AZStd::string, CVarInfo>* GetGraphicsSettingsMap() const = 0;
-
-    // Summary:
-    //   Sets pointer to the Editor map for the Graphics Settings Dialog
-    virtual void SetGraphicsSettingsMap(AZStd::unordered_map<AZStd::string, CVarInfo>* editorMap) = 0;
-
     //////////////////////////////////////////////////////////////////////////
 
     // Summary:
@@ -1698,7 +1690,7 @@ struct ISystem
     virtual bool UnregisterErrorObserver(IErrorObserver* errorObserver) = 0;
 
     // Summary:
-    //  Called after the processing of the assert message box(Windows or Xbox). // ACCEPTED_USE
+    //  Called after the processing of the assert message box on some platforms.
     //  It will be called even when asserts are disabled by the console variables.
     virtual void OnAssert(const char* condition, const char* message, const char* fileName, unsigned int fileLineNumber) = 0;
 
@@ -1714,6 +1706,13 @@ struct ISystem
     // Typically it should only be called by CryAssert.
     virtual void SetAssertVisible(bool bAssertVisble) = 0;
     //////////////////////////////////////////////////////////////////////////
+
+    // Summary:
+    //  Enable/Disable drawing the console 
+    virtual void SetConsoleDrawEnabled(bool enabled) = 0;
+
+    //  Enable/Disable drawing the UI 
+    virtual void SetUIDrawEnabled(bool enabled) = 0;
 
     // Summary:
     //   Get the index of the currently running Crytek application. (0 = first instance, 1 = second instance, etc)
@@ -1762,7 +1761,7 @@ struct ISystem
     //   Should be after init game.
     // Example:
     //   +g_gametype ASSAULT +map "testy"
-    virtual void ExecuteCommandLine() = 0;
+    virtual void ExecuteCommandLine(bool deferred=true) = 0;
 
     // Description:
     //  GetSystemUpdate stats (all systems update without except console)
@@ -1777,10 +1776,6 @@ struct ISystem
     virtual void DumpMemoryCoverage() = 0;
     virtual ESystemGlobalState  GetSystemGlobalState(void) = 0;
     virtual void SetSystemGlobalState(const ESystemGlobalState systemGlobalState) = 0;
-
-    // Summary:
-    //      Add a PlatformOS create flag
-    virtual void AddPlatformOSCreateFlag(const uint8 createFlag) = 0;
 
     // Summary:
     //      Asynchronous memcpy
@@ -1835,17 +1830,21 @@ struct ISystem
     //      Unregister an IWindowMessageHandler that was previously registered using RegisterWindowMessageHandler
     virtual void UnregisterWindowMessageHandler(IWindowMessageHandler* pHandler) = 0;
 
-    // Deprecated, use AzFramework::ApplicationRequests::PumpSystemEventLoopUntilEmpty instead
-    virtual int AZ_DEPRECATED(PumpWindowMessage(bool bAll, WIN_HWND hWnd = 0),
-        "PumpWindowMessage has been deprecated, use AzFramework::ApplicationRequests::PumpSystemEventLoopUntilEmpty instead.")
-    {
-        // AzFramework::ApplicationRequests::Bus::Broadcast(&AzFramework::ApplicationRequests::PumpSystemEventLoopUntilEmpty);
-        return 0;
-    }
-
     // Create an instance of a Local File IO object (which reads directly off the local filesystem, instead of,
     // for example, reading from the network or a pack or USB or such.
     virtual std::shared_ptr<AZ::IO::FileIOBase> CreateLocalFileIO() = 0;
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+    // EBus interface used to listen for cry system notifications
+    class CrySystemNotifications : public AZ::EBusTraits
+    {
+    public:
+        virtual ~CrySystemNotifications() = default;
+
+        // Override to be notified right before the call to ISystem::Render
+        virtual void OnPreRender() {}
+    };
+    using CrySystemNotificationBus = AZ::EBus<CrySystemNotifications>;
 };
 
 //JAT - this is a very important function for the dedicated server - it lets us run >1000 players per piece of server hardware
@@ -1862,7 +1861,7 @@ struct DiskOperationInfo
         , m_nFileOpenCount(0)
         , m_nFileReadCount(0)
         , m_dOperationSize(0.)
-        , m_dOperationTime(0.)   {}
+        , m_dOperationTime(0.) {}
     int m_nSeeksCount;
     int m_nFileOpenCount;
     int m_nFileReadCount;
@@ -1904,14 +1903,14 @@ struct DiskOperationInfo
 
 struct CLoadingTimeProfiler
 {
-    CLoadingTimeProfiler (ISystem* pSystem, const char* szFuncName)
-        : m_pSystem (pSystem)
+    CLoadingTimeProfiler(ISystem* pSystem, const char* szFuncName)
+        : m_pSystem(pSystem)
     {
         m_pSystem = pSystem;
         m_pTimeContainer = m_pSystem->StartLoadingSectionProfiling(this, szFuncName);
     }
 
-    ~CLoadingTimeProfiler ()
+    ~CLoadingTimeProfiler()
     {
         m_pSystem->EndLoadingSectionProfiling(this);
     }
@@ -1942,12 +1941,12 @@ public:
     }
 };
 
-#ifdef AZ_PROFILE_TELEMETRY 
+#ifdef AZ_PROFILE_TELEMETRY
 
 #define LOADING_TIME_PROFILE_SECTION AZ_PROFILE_FUNCTION(AZ::Debug::ProfileCategory::AzCore)
-#define LOADING_TIME_PROFILE_SECTION_ARGS(...) AZ_PROFILE_SCOPE_DYNAMIC(AZ::Debug::ProfileCategory::AzCore, __VA_ARGS__) 
-#define LOADING_TIME_PROFILE_SECTION_NAMED(sectionName) AZ_PROFILE_SCOPE(AZ::Debug::ProfileCategory::AzCore, sectionName) 
-#define LOADING_TIME_PROFILE_SECTION_NAMED_ARGS(sectionName, args) AZ_PROFILE_SCOPE_DYNAMIC(AZ::Debug::ProfileCategory::AzCore, sectionName, args) 
+#define LOADING_TIME_PROFILE_SECTION_ARGS(...) AZ_PROFILE_SCOPE_DYNAMIC(AZ::Debug::ProfileCategory::AzCore, __VA_ARGS__)
+#define LOADING_TIME_PROFILE_SECTION_NAMED(sectionName) AZ_PROFILE_SCOPE(AZ::Debug::ProfileCategory::AzCore, sectionName)
+#define LOADING_TIME_PROFILE_SECTION_NAMED_ARGS(sectionName, args) AZ_PROFILE_SCOPE_DYNAMIC(AZ::Debug::ProfileCategory::AzCore, sectionName, args)
 
 #else
 
@@ -1973,7 +1972,7 @@ public:
 //////////////////////////////////////////////////////////////////////////
 // CrySystem DLL Exports.
 //////////////////////////////////////////////////////////////////////////
-typedef ISystem* (* PFNCREATESYSTEMINTERFACE)(SSystemInitParams& initParams);
+typedef ISystem* (*PFNCREATESYSTEMINTERFACE)(SSystemInitParams& initParams);
 
 
 //////////////////////////////////////////////////////////////////////////
@@ -1986,12 +1985,17 @@ extern SC_API SSystemGlobalEnvironment* gEnv;
 //   Gets the system interface.
 inline ISystem* GetISystem()
 {
-    static ISystem* s_system = gEnv ? gEnv->pSystem : nullptr;
-    if (!s_system)
+    // Some unit tests temporarily install and then uninstall ISystem* mocks.
+    // It is generally okay for runtime and tool systems which call this function to cache the returned pointer, 
+    // because their lifetime is usually shorter than the lifetime of the ISystem* implementation.
+    // It is NOT safe for this function to cache it as a static itself, though, as the static it would cache
+    // it inside may outlive the the actual instance implementing ISystem* when unit tests are torn down and then restarted.
+    ISystem* systemInterface = gEnv ? gEnv->pSystem : nullptr;
+    if (!systemInterface)
     {
-        CrySystemRequestBus::BroadcastResult(s_system, &CrySystemRequests::GetCrySystem);
+        CrySystemRequestBus::BroadcastResult(systemInterface, &CrySystemRequests::GetCrySystem);
     }
-    return s_system;
+    return systemInterface;
 };
 
 inline ISystemScheduler* GetISystemScheduler(void)
@@ -2002,7 +2006,7 @@ inline ISystemScheduler* GetISystemScheduler(void)
 
 // Description:
 //   This function must be called once by each module at the beginning, to setup global pointers.
-extern "C" DLL_EXPORT void ModuleInitISystem(ISystem* pSystem, const char* moduleName);
+extern "C" AZ_DLL_EXPORT void ModuleInitISystem(ISystem* pSystem, const char* moduleName);
 extern bool g_bProfilerEnabled;
 extern int g_iTraceAllocations;
 
@@ -2010,7 +2014,7 @@ extern int g_iTraceAllocations;
 //   Interface of the DLL.
 extern "C"
 {
-CRYSYSTEM_API ISystem* CreateSystemInterface(const SSystemInitParams& initParams);
+    CRYSYSTEM_API ISystem* CreateSystemInterface(const SSystemInitParams& initParams);
 }
 
 // Description:
@@ -2059,19 +2063,29 @@ inline void CryWarning(EValidatorModule module, EValidatorSeverity severity, con
 }
 
 #ifdef EXCLUDE_CVARHELP
-    #define CVARHELP(_comment)  0
+#define CVARHELP(_comment)  0
 #else
-    #define CVARHELP(_comment)  _comment
+#define CVARHELP(_comment)  _comment
 #endif
 
 //Provide macros for fixing cvars for release mode on consoles to enums to allow for code stripping
 //Do not enable for PC, apply VF_CHEAT there if required
 #if defined(CONSOLE)
-    #define CONST_CVAR_FLAGS (VF_CHEAT)
+#define CONST_CVAR_FLAGS (VF_CHEAT)
 #else
-    #define CONST_CVAR_FLAGS (VF_NULL)
+#define CONST_CVAR_FLAGS (VF_NULL)
 #endif
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION ISYSTEM_H_SECTION_5
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/ISystem_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/ISystem_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/ISystem_h_salem.inl"
+    #endif
+#endif
 #if defined(_RELEASE) && defined(IS_CONSOLE_PLATFORM)
 #ifndef LOG_CONST_CVAR_ACCESS
 #error LOG_CONST_CVAR_ACCESS should be defined in ProjectDefines.h
@@ -2162,7 +2176,7 @@ namespace Detail
                 InvalidAccess();
             }
         }
-        void ClearFlags (int flags) {}
+        void ClearFlags(int flags) {}
         int GetFlags() const { return VF_CONST_CVAR | VF_READONLY; }
         int SetFlags(int flags) { return 0; }
         int GetType() { return SQueryTypeEnum<T>::type; }
@@ -2199,39 +2213,39 @@ namespace Detail
         }                                                                                \
     } while (0)
 
-    # define CONSOLE_CONST_CVAR_MODE
-    # define DeclareConstIntCVar(name, defaultValue) enum { name = (defaultValue) }
-    # define DeclareStaticConstIntCVar(name, defaultValue) enum { name = (defaultValue) }
+# define CONSOLE_CONST_CVAR_MODE
+# define DeclareConstIntCVar(name, defaultValue) enum { name = (defaultValue) }
+# define DeclareStaticConstIntCVar(name, defaultValue) enum { name = (defaultValue) }
 
 # define DefineConstIntCVarName(strname, name, defaultValue, flags, help) { COMPILE_TIME_ASSERT((int)(defaultValue) == (int)(name)); REGISTER_DUMMY_CVAR(int, strname, defaultValue); }
 # define DefineConstIntCVar(name, defaultValue, flags, help) { COMPILE_TIME_ASSERT((int)(defaultValue) == (int)(name)); REGISTER_DUMMY_CVAR(int, (#name), defaultValue); }
 // DefineConstIntCVar2 is deprecated, any such instance can be converted to the 3 variant by removing the quotes around the first parameter
 # define DefineConstIntCVar3(name, _var_, defaultValue, flags, help) { COMPILE_TIME_ASSERT((int)(defaultValue) == (int)(_var_)); REGISTER_DUMMY_CVAR(int, name, defaultValue); }
-    # define AllocateConstIntCVar(scope, name)
+# define AllocateConstIntCVar(scope, name)
 
 # define DefineConstFloatCVar(name, flags, help) { REGISTER_DUMMY_CVAR(float, (#name), name ## Default); }
-    # define DeclareConstFloatCVar(name)
-    # define DeclareStaticConstFloatCVar(name)
-    # define AllocateConstFloatCVar(scope, name)
+# define DeclareConstFloatCVar(name)
+# define DeclareStaticConstFloatCVar(name)
+# define AllocateConstFloatCVar(scope, name)
 
 #else
 
-    # define DeclareConstIntCVar(name, defaultValue) int name
-    # define DeclareStaticConstIntCVar(name, defaultValue) static int name
-    # define DefineConstIntCVarName(strname, name, defaultValue, flags, help) \
+# define DeclareConstIntCVar(name, defaultValue) int name { defaultValue }
+# define DeclareStaticConstIntCVar(name, defaultValue) static int name
+# define DefineConstIntCVarName(strname, name, defaultValue, flags, help) \
     (gEnv->pConsole == 0 ? 0 : gEnv->pConsole->Register(strname, &name, defaultValue, flags | CONST_CVAR_FLAGS, CVARHELP(help)))
-    # define DefineConstIntCVar(name, defaultValue, flags, help) \
+# define DefineConstIntCVar(name, defaultValue, flags, help) \
     (gEnv->pConsole == 0 ? 0 : gEnv->pConsole->Register((#name), &name, defaultValue, flags | CONST_CVAR_FLAGS, CVARHELP(help), 0, false))
 // DefineConstIntCVar2 is deprecated, any such instance can be converted to the 3 variant by removing the quotes around the first parameter
-    # define DefineConstIntCVar3(_name, _var, _def_val, _flags, help) \
+# define DefineConstIntCVar3(_name, _var, _def_val, _flags, help) \
     (gEnv->pConsole == 0 ? 0 : gEnv->pConsole->Register(_name, &(_var), (_def_val), (_flags) | CONST_CVAR_FLAGS, CVARHELP(help), 0, false))
-    # define AllocateConstIntCVar(scope, name) int scope:: name
+# define AllocateConstIntCVar(scope, name) int scope:: name
 
-    # define DefineConstFloatCVar(name, flags, help) \
+# define DefineConstFloatCVar(name, flags, help) \
     (gEnv->pConsole == 0 ? 0 : gEnv->pConsole->Register((#name), &name, name ## Default, flags | CONST_CVAR_FLAGS, CVARHELP(help), 0, false))
-    # define DeclareConstFloatCVar(name) float name
-    # define DeclareStaticConstFloatCVar(name) static float name
-    # define AllocateConstFloatCVar(scope, name) float scope:: name
+# define DeclareConstFloatCVar(name) float name
+# define DeclareStaticConstFloatCVar(name) static float name
+# define AllocateConstFloatCVar(scope, name) float scope:: name
 #endif
 
 #if defined(USE_CRY_ASSERT)
@@ -2294,6 +2308,8 @@ static void AssertConsoleExists(void)
 // Summary:
 //   Preferred way to unregister a CVar
 #define UNREGISTER_CVAR(_name)                                                      (ASSERT_CONSOLE_EXISTS, gEnv->pConsole == 0 ? (void)0 : gEnv->pConsole->UnregisterVariable(_name))
+//   Preferred way to unregister a console command
+#define UNREGISTER_COMMAND(_name)                                                           (ASSERT_CONSOLE_EXISTS, gEnv->pConsole == 0 ? (void)0 : gEnv->pConsole->RemoveCommand(_name))
 
 ////////////////////////////////////////////////////////////////////////////////
 //
@@ -2384,9 +2400,9 @@ static void AssertConsoleExists(void)
 
 #ifdef EXCLUDE_NORMAL_LOG               // setting this removes a lot of logging to reduced code size (useful for consoles)
 
-    #define CryLog(...) ((void)0)
-    #define CryComment(...) ((void)0)
-    #define CryLogAlways(...) ((void)0)
+#define CryLog(...) ((void)0)
+#define CryComment(...) ((void)0)
+#define CryLogAlways(...) ((void)0)
 
 #else // EXCLUDE_NORMAL_LOG
 

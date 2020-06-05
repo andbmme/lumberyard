@@ -19,6 +19,7 @@
 #include <SceneAPI/SceneCore/Containers/SceneManifest.h>
 #include <SceneAPI/SceneCore/Containers/Utilities/Filters.h>
 #include <SceneAPI/SceneCore/Utilities/Reporting.h>
+#include <SceneAPI/SceneCore/DataTypes/Groups/IMeshGroup.h>
 #include <SceneAPI/SceneCore/DataTypes/Groups/ISceneNodeGroup.h>
 #include <SceneAPI/SceneCore/DataTypes/Groups/ISkinGroup.h>
 #include <SceneAPI/SceneCore/DataTypes/GraphData/IMeshVertexUVData.h>
@@ -69,7 +70,7 @@ namespace AZ
                             DataTypes::ISceneNodeGroup* sceneNodeGroup = azrtti_cast<DataTypes::ISceneNodeGroup*>(&target);
                             sceneNodeGroup->GetRuleContainer().AddRule(AZStd::move(rule));
                         }
-                        else
+                        else if (target.RTTI_IsTypeOf(DataTypes::IMeshGroup::TYPEINFO_Uuid()))
                         {
                             AZStd::shared_ptr<SceneData::StaticMeshAdvancedRule> rule = AZStd::make_shared<SceneData::StaticMeshAdvancedRule>();
                             rule->SetVertexColorStreamName(firstVertexColorStream.empty() ?
@@ -94,8 +95,10 @@ namespace AZ
             }
 
             Events::ProcessingResult MeshAdvancedRule::UpdateManifest(Containers::Scene& scene, ManifestAction action,
-                RequestingApplication /*requester*/)
+                RequestingApplication requester)
             {
+                AZ_UNUSED(requester);
+
                 if (action == ManifestAction::Update)
                 {
                     UpdateMeshAdvancedRules(scene);
@@ -115,15 +118,35 @@ namespace AZ
                 for (DataTypes::ISceneNodeGroup& group : view)
                 {
                     AZ_TraceContext("Scene node group", group.GetName());
-                    const Containers::RuleContainer& rules = group.GetRuleContainer();
+                    Containers::RuleContainer& rules = group.GetRuleContainer();
                     const size_t ruleCount = rules.GetRuleCount();
+
+                    // The Mesh Advanced Rules were previously invalidly applied to any group containing a vertex color stream, and should be cleaned up if unnecessarily added to existing data.
+                    // We use a list to track indices of rules to remove in a separate pass since the RuleContainer does not have direct iterator access.
+                    bool isValidGroupType = group.RTTI_IsTypeOf(DataTypes::IMeshGroup::TYPEINFO_Uuid()) || group.RTTI_IsTypeOf(DataTypes::ISkinGroup::TYPEINFO_Uuid());
+                    AZStd::vector<size_t> rulesToRemove;
+
                     for (size_t index = 0; index < ruleCount; ++index)
                     {
                         DataTypes::IMeshAdvancedRule* rule = azrtti_cast<DataTypes::IMeshAdvancedRule*>(rules.GetRule(index).get());
                         if (rule)
                         {
-                            UpdateMeshAdvancedRule(scene, rule);
+                            if (isValidGroupType)
+                            {
+                                UpdateMeshAdvancedRule(scene, rule);
+                            }
+                            else
+                            {
+                                rulesToRemove.push_back(index);
+                            }
                         }
+                    }
+
+                    // Remove in reversed order, as otherwise the indices will be wrong. For example if we remove index 3, then index 6 would really be 5 afterwards.
+                    // By doing this in reversed order we remove items at the end of the list first so it won't impact the indices of previous ones.
+                    for (AZStd::vector<size_t>::reverse_iterator it = rulesToRemove.rbegin(); it != rulesToRemove.rend(); ++it)
+                    { 
+                        rules.RemoveRule(*it);
                     }
                 }
             }

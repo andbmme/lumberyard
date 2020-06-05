@@ -604,6 +604,12 @@ class MPSession
     : public CarrierEventBus::Handler
 {
 public:
+
+    ~MPSession()
+    {
+        CarrierEventBus::Handler::BusDisconnect();
+    }
+
     ReplicaManager& GetReplicaMgr() { return m_rm; }
     void            SetTransport(Carrier* transport) { m_pTransport = transport; CarrierEventBus::Handler::BusConnect(transport->GetGridMate()); }
     Carrier*        GetTransport() { return m_pTransport; }
@@ -2747,7 +2753,7 @@ TEST_F(Integ_BasicHostChunkDescriptorTest, BasicHostChunkDescriptorTest)
             AZ_TEST_ASSERT(HostChunk::nProxyActivations == 1);
             AZ_TEST_ASSERT(nodes[Client].GetReplicaMgr().FindReplica(hostReplica->GetRepId())->FindReplicaChunk<HostChunk>());
 
-            AZ_TEST_START_ASSERTTEST;
+            AZ_TEST_START_TRACE_SUPPRESSION;
             clientReplica = Replica::CreateReplica("ClientReplica");
             clientReplica->AttachReplicaChunk(CreateReplicaChunk<HostChunk>());
             nodes[Client].GetReplicaMgr().AddMaster(clientReplica);
@@ -2755,7 +2761,7 @@ TEST_F(Integ_BasicHostChunkDescriptorTest, BasicHostChunkDescriptorTest)
 
         if (tick == 400)
         {
-            AZ_TEST_STOP_ASSERTTEST(1);
+            AZ_TEST_STOP_TRACE_SUPPRESSION(1);
             AZ_TEST_ASSERT(HostChunk::nMasterActivations == 2);
             AZ_TEST_ASSERT(HostChunk::nProxyActivations == 1);
             AZ_TEST_ASSERT(!nodes[Host].GetReplicaMgr().FindReplica(clientReplica->GetRepId())->FindReplicaChunk<HostChunk>());

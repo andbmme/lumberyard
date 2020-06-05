@@ -1,4 +1,15 @@
-#include "stdafx.h"
+/*
+* All or portions of this file Copyright (c) Amazon.com, Inc. or its affiliates, or 
+* a third party where indicated.
+*
+* For complete copyright and license terms please see the LICENSE at the root of this
+* distribution (the "License"). All use of this software is governed by the License,  
+* or, if provided, by the license below or the license accompanying this file. Do not
+* remove or modify any license notices. This file is distributed on an "AS IS" BASIS,
+* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  
+*
+*/
+#include "StdAfx.h"
 
 #include "ReflectedVar.h"
 #include <AzToolsFramework/UI/PropertyEditor/ReflectedPropertyEditor.hxx>
@@ -57,6 +68,12 @@ void ReflectedVarInit::setupReflection(AZ::SerializeContext* serializeContext)
         ->Version(1)
         ->Field("properties", &CPropertyContainer::m_properties);
 
+    serializeContext->Class <CReflectedVarMotion, CReflectedVar >()
+        ->Version(1)
+        ->Field("motion", &CReflectedVarMotion::m_motion)
+        ->Field("assetId", &CReflectedVarMotion::m_assetId)
+        ;
+
     AZ::EditContext* ec = serializeContext->GetEditContext();
     if (ec)
     {
@@ -102,6 +119,12 @@ void ReflectedVarInit::setupReflection(AZ::SerializeContext* serializeContext)
             ->Attribute(AZ::Edit::Attributes::Visibility, &CPropertyContainer::GetVisibility)
             ->Attribute(AZ::Edit::Attributes::AutoExpand, &CPropertyContainer::m_autoExpand)
             ->Attribute(AZ::Edit::Attributes::ValueText, &CPropertyContainer::m_valueText) //will be ignored if blank
+            ;
+
+        ec->Class< CReflectedVarMotion >("VarMotion", "Motion")
+            ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
+            ->Attribute(AZ::Edit::Attributes::NameLabelOverride, &CReflectedVarMotion::varName)
+            ->Attribute(AZ::Edit::Attributes::DescriptionTextOverride, &CReflectedVarMotion::description)
             ;
     }
     CReflectedVarString::reflect(serializeContext);
@@ -300,7 +323,7 @@ AZ::u32 CReflectedVarGenericProperty::handler()
         return AZ_CRC("ePropertyEquip", 0x66ffd290);
     case ePropertyReverbPreset:
         return AZ_CRC("ePropertyReverbPreset", 0x51469f38);
-    case ePropertyCustomAction:
+    case ePropertyDeprecated0:
         return AZ_CRC("ePropertyCustomAction", 0x4ffa5ba5);
     case ePropertyGameToken:
         return AZ_CRC("ePropertyGameToken", 0x34855b6f);

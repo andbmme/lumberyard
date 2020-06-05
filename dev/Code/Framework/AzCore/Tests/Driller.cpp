@@ -11,8 +11,6 @@
 */
 #include <time.h>
 
-#include "TestTypes.h"
-
 #include <AzCore/IO/FileIOEventBus.h>
 
 #include <AzCore/Driller/Driller.h>
@@ -25,6 +23,7 @@
 #include <AzCore/Component/ComponentApplication.h>
 #include <AzCore/Memory/MemoryComponent.h>
 #include <AzCore/IO/StreamerComponent.h>
+#include <AzCore/UnitTest/TestTypes.h>
 
 //#define AZ_CORE_DRILLER_COMPARE_TEST
 #if defined(AZ_CORE_DRILLER_COMPARE_TEST)
@@ -33,43 +32,10 @@
 #   include <AzCore/Serialization/SerializeContext.h>
 #endif
 
+#include <AZTestShared/Utils/Utils.h>
+
 using namespace AZ;
 using namespace AZ::Debug;
-
-#if   defined(AZ_PLATFORM_LINUX) || defined(AZ_PLATFORM_APPLE_OSX)
-#   define AZ_ROOT_TEST_FOLDER "./"
-#elif defined(AZ_PLATFORM_ANDROID)
-#   define AZ_ROOT_TEST_FOLDER  "/sdcard/"
-#elif defined(AZ_PLATFORM_APPLE_IOS)
-#   define AZ_ROOT_TEST_FOLDER "/Documents/"
-#elif defined(AZ_PLATFORM_APPLE_TV)
-#   define AZ_ROOT_TEST_FOLDER "/Library/Caches/"
-#else
-#   define AZ_ROOT_TEST_FOLDER ""
-#endif
-
-namespace // anonymous
-{
-#if defined(AZ_PLATFORM_APPLE_IOS) || defined(AZ_PLATFORM_APPLE_TV)
-    AZStd::string GetTestFolderPath()
-    {
-        return AZStd::string(getenv("HOME")) + AZ_ROOT_TEST_FOLDER;
-    }
-    void MakePathFromTestFolder(char* buffer, int bufferLen, const char* fileName)
-    {
-        azsnprintf(buffer, bufferLen, "%s%s%s", getenv("HOME"), AZ_ROOT_TEST_FOLDER, fileName);
-    }
-#else
-    AZStd::string GetTestFolderPath()
-    {
-        return AZ_ROOT_TEST_FOLDER;
-    }
-    void MakePathFromTestFolder(char* buffer, int bufferLen, const char* fileName)
-    {
-        azsnprintf(buffer, bufferLen, "%s%s", AZ_ROOT_TEST_FOLDER, fileName);
-    }
-#endif
-} // anonymous namespace
 
 namespace UnitTest
 {
@@ -109,9 +75,14 @@ namespace UnitTest
         {
             BusConnect();
         }
+
+        ~MyDrilledObject() override
+        {
+            BusDisconnect();
+        }
         //////////////////////////////////////////////////////////////////////////
         // MyDrillerCommandBus
-        virtual MyDrilledObject* RequestDrilledObject()
+        MyDrilledObject* RequestDrilledObject() override
         {
             return this;
         }
@@ -143,11 +114,11 @@ namespace UnitTest
     public:
         AZ_CLASS_ALLOCATOR(MyDriller, OSAllocator, 0);
 
-        virtual const char*  GroupName() const          { return "TestDrillers"; }
-        virtual const char*  GetName() const            { return "MyTestDriller"; }
-        virtual const char*  GetDescription() const     { return "MyTestDriller description...."; }
-        virtual int          GetNumParams() const       { return static_cast<int>(m_params.size()); }
-        virtual const Param* GetParam(int index) const  { return &m_params[index]; }
+        const char*  GroupName() const override          { return "TestDrillers"; }
+        const char*  GetName() const override            { return "MyTestDriller"; }
+        const char*  GetDescription() const override     { return "MyTestDriller description...."; }
+        int          GetNumParams() const override       { return static_cast<int>(m_params.size()); }
+        const Param* GetParam(int index) const override  { return &m_params[index]; }
 
         MyDriller()
             : m_isDetailedCapture(false)
@@ -161,7 +132,7 @@ namespace UnitTest
             m_params.push_back(isDetailed);
         }
 
-        virtual void Start(const Param* params = NULL, int numParams = 0)
+        void Start(const Param* params = NULL, int numParams = 0) override
         {
             m_isDetailedCapture = m_params[0].value != 0;
             if (params)
@@ -185,7 +156,7 @@ namespace UnitTest
 
             BusConnect();
         }
-        virtual void Stop()
+        void Stop() override
         {
             drilledObject = NULL;
             m_output->BeginTag(AZ_CRC("MyDriller", 0xc3b7dceb));
@@ -194,7 +165,7 @@ namespace UnitTest
             BusDisconnect();
         }
 
-        virtual void OnEventX(int data)
+        void OnEventX(int data) override
         {
             void* ptr = AZ_INVALID_POINTER;
             float f = 3.2f;
@@ -205,7 +176,7 @@ namespace UnitTest
             m_output->EndTag(AZ_CRC("MyDriller", 0xc3b7dceb));
         }
 
-        virtual void OnStringEvent()
+        void OnStringEvent() override
         {
             m_output->BeginTag(AZ_CRC("MyDriller", 0xc3b7dceb));
             m_output->BeginTag(AZ_CRC("StringEvent", 0xd1e005df));
@@ -270,12 +241,12 @@ namespace UnitTest
                 return NULL;
             }
 
-            virtual DrillerHandlerParser*   OnEnterTag(u32 tagName)
+            DrillerHandlerParser*   OnEnterTag(u32 tagName) override
             {
                 (void)tagName;
                 return NULL;
             }
-            virtual void                    OnData(const DrillerSAXParser::Data& dataNode)
+            void                    OnData(const DrillerSAXParser::Data& dataNode) override
             {
                 if (dataNode.m_name == AZ_CRC("OnStart", 0x8b372fca) || dataNode.m_name == AZ_CRC("OnStop", 0xf6701caa))
                 {
@@ -541,7 +512,7 @@ namespace UnitTest
                 return NULL;
             }
 
-            virtual DrillerHandlerParser*   OnEnterTag(u32 tagName)
+            DrillerHandlerParser*   OnEnterTag(u32 tagName) override
             {
                 if (tagName == AZ_CRC("StringEvent", 0xd1e005df))
                 {
@@ -549,7 +520,7 @@ namespace UnitTest
                 }
                 return NULL;
             }
-            virtual void                    OnData(const DrillerSAXParser::Data& dataNode)
+            void                    OnData(const DrillerSAXParser::Data& dataNode) override
             {
                 if (dataNode.m_name == AZ_CRC("OnStart", 0x8b372fca) || dataNode.m_name == AZ_CRC("OnStop", 0xf6701caa))
                 {
@@ -931,57 +902,54 @@ namespace UnitTest
     {
         ComponentApplication app;
 
-        // open a driller output file stream
-        char testFileName[AZ_MAX_PATH_LEN];
-        MakePathFromTestFolder(testFileName, AZ_MAX_PATH_LEN, "drillapptest.dat");
-        DrillerOutputFileStream fs;
-        fs.Open(testFileName, IO::SystemFile::SF_OPEN_CREATE | IO::SystemFile::SF_OPEN_WRITE_ONLY);
-
-        // create a list of driller we what to drill
-        DrillerManager::DrillerListType drillersToDrill;
-        DrillerManager::DrillerInfo di;
-        di.id = AZ_CRC("TraceMessagesDriller", 0xa61d1b00);
-        drillersToDrill.push_back(di);
-        di.id = AZ_CRC("StreamerDriller", 0x2f27ed88);
-        drillersToDrill.push_back(di);
-        di.id = AZ_CRC("MemoryDriller", 0x1b31269d);
-        drillersToDrill.push_back(di);
-
         //////////////////////////////////////////////////////////////////////////
         // Create application environment code driven
         ComponentApplication::Descriptor appDesc;
         appDesc.m_memoryBlocksByteSize = 10 * 1024 * 1024;
+        appDesc.m_enableDrilling = true;
         Entity* systemEntity = app.Create(appDesc);
-    
+
         systemEntity->CreateComponent<MemoryComponent>();
         systemEntity->CreateComponent<StreamerComponent>(); // note that this component is what registers the streamer driller
 
         systemEntity->Init();
         systemEntity->Activate();
 
-        AZ_TEST_ASSERT(app.GetDrillerManager() != NULL);
-        DrillerSession* drillerSession = app.GetDrillerManager()->Start(fs, drillersToDrill);
-        AZ_TEST_ASSERT(drillerSession != NULL);
-
-
-        const int numOfFrames = 10000;
-        void* memory = NULL;
-        for (int i = 0; i < numOfFrames; ++i)
         {
-            //AZ_TracePrintf("MyDrillWindow","Test"); too much stuff in the output
-            memory = azmalloc(rand() % 2048 + 1);
-            azfree(memory);
-            app.Tick();
-        }
+            // open a driller output file stream
+            char testFileName[AZ_MAX_PATH_LEN];
+            MakePathFromTestFolder(testFileName, AZ_MAX_PATH_LEN, "drillapptest.dat");
+            DrillerOutputFileStream fs;
+            fs.Open(testFileName, IO::SystemFile::SF_OPEN_CREATE | IO::SystemFile::SF_OPEN_WRITE_ONLY);
 
-        app.GetDrillerManager()->Stop(drillerSession); // stop session manually
+            // create a list of driller we what to drill
+            DrillerManager::DrillerListType drillersToDrill;
+            DrillerManager::DrillerInfo di;
+            di.id = AZ_CRC("TraceMessagesDriller", 0xa61d1b00);
+            drillersToDrill.push_back(di);
+            di.id = AZ_CRC("StreamerDriller", 0x2f27ed88);
+            drillersToDrill.push_back(di);
+            di.id = AZ_CRC("MemoryDriller", 0x1b31269d);
+            drillersToDrill.push_back(di);
+
+            ASSERT_NE(nullptr, app.GetDrillerManager());
+            DrillerSession* drillerSession = app.GetDrillerManager()->Start(fs, drillersToDrill);
+            ASSERT_NE(nullptr, drillerSession);
+
+            const int numOfFrames = 10000;
+            void* memory = NULL;
+            for (int i = 0; i < numOfFrames; ++i)
+            {
+                memory = azmalloc(rand() % 2048 + 1);
+                azfree(memory);
+                app.Tick();
+            }
+
+            app.GetDrillerManager()->Stop(drillerSession); // stop session manually
+            fs.Close(); // close the file with driller info
+        }
 
         app.Destroy();
         //////////////////////////////////////////////////////////////////////////
-
-        // close the file with driller info
-        fs.Close();
-
-        // TODO: Open the file and check that we have some valid drilling data
     }
 }

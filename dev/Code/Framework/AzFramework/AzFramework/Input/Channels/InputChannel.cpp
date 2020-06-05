@@ -28,6 +28,7 @@ namespace AzFramework
         , m_state(inputChannel.GetState())
         , m_value(inputChannel.GetValue())
         , m_delta(inputChannel.GetDelta())
+        , m_localUserId(inputChannel.GetInputDevice().GetAssignedLocalUserId())
     {
     }
 
@@ -40,6 +41,7 @@ namespace AzFramework
         , m_state(state)
         , m_value((state == State::Began || state == State::Updated) ? 1.0f : 0.0f)
         , m_delta((state == State::Began) ? 1.0f : ((state == State::Ended) ? -1.0f : 0.0f))
+        , m_localUserId(0)
     {
     }
 
@@ -54,7 +56,23 @@ namespace AzFramework
         , m_state(state)
         , m_value(value)
         , m_delta(delta)
+        , m_localUserId(0)
     {
+    }
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+    AZ::Vector2 InputChannel::PositionData2D::ConvertToScreenSpaceCoordinates(float screenWidth, float screenHeight) const
+    {
+        return AZ::Vector2(m_normalizedPosition.GetX() * screenWidth,
+                           m_normalizedPosition.GetY() * screenHeight);
+    }
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+    void InputChannel::PositionData2D::UpdateNormalizedPositionAndDelta(const AZ::Vector2& newPosition)
+    {
+        const AZ::Vector2 oldPosition = m_normalizedPosition;
+        m_normalizedPosition = newPosition;
+        m_normalizedPositionDelta = newPosition - oldPosition;
     }
 
     ////////////////////////////////////////////////////////////////////////////////////////////////
@@ -89,6 +107,7 @@ namespace AzFramework
                 ->Attribute(AZ::Script::Attributes::Storage, AZ::Script::Attributes::StorageType::Value)
                 ->Attribute(AZ::Script::Attributes::ExcludeFrom, AZ::Script::Attributes::ExcludeFlags::All)
                 ->Attribute(AZ::Script::Attributes::Category, "Input")
+                ->Constructor<const char*>()
                 ->Constructor<const char*, AZ::u32>()
                 ->Property("channelId", BehaviorValueProperty(&BusIdType::m_channelId))
                 ->Property("deviceIndex", BehaviorValueProperty(&BusIdType::m_deviceIndex))
@@ -120,7 +139,8 @@ namespace AzFramework
     // Input request example:
     //
     //  function ScriptName:OnTick(deltaTime, timePoint)
-    //      local inputChannel = InputChannelRequestBus.Event.GetInputChannel(InputChannelRequest_BusId(mouse_button_left, 0))
+    //      local channelRequestId = InputChannelRequest_BusId(InputDeviceMouse.mouse_button_left)
+    //      local inputChannel = InputChannelRequestBus.Event.GetInputChannel(channelRequestId)
     //      if (inputChannel:IsActive()) then
     //          Debug.Log("Left mouse button active")
     //      end
@@ -137,6 +157,7 @@ namespace AzFramework
                 ->Property("channelName", [](InputChannel* thisPtr) { return thisPtr->GetInputChannelId().GetName(); }, nullptr)
                 ->Property("deviceName", [](InputChannel* thisPtr) { return thisPtr->GetInputDevice().GetInputDeviceId().GetName(); }, nullptr)
                 ->Property("deviceIndex", [](InputChannel* thisPtr) { return thisPtr->GetInputDevice().GetInputDeviceId().GetIndex(); }, nullptr)
+                ->Property("localUserId", [](InputChannel* thisPtr) { return thisPtr->GetInputDevice().GetAssignedLocalUserId(); }, nullptr)
                 ->Property("state", [](InputChannel* thisPtr) { return thisPtr->GetState(); }, nullptr)
                 ->Property("value", [](InputChannel* thisPtr) { return thisPtr->GetValue(); }, nullptr)
                 ->Property("delta", [](InputChannel* thisPtr) { return thisPtr->GetDelta(); }, nullptr)
@@ -162,6 +183,10 @@ namespace AzFramework
                 ->Attribute(AZ::Script::Attributes::ExcludeFrom, AZ::Script::Attributes::ExcludeFlags::All)
                 ->Attribute(AZ::Script::Attributes::Category, "Input")
                 ->Event("GetInputChannel", &InputChannelRequestBus::Events::GetInputChannel)
+                ->Event("SimulateRawInput", &InputChannelRequestBus::Events::SimulateRawInput)
+                ->Event("SimulateRawInput2D", &InputChannelRequestBus::Events::SimulateRawInput2D)
+                ->Event("SimulateRawInput3D", &InputChannelRequestBus::Events::SimulateRawInput3D)
+                ->Event("SimulateRawInputWithPosition2D", &InputChannelRequestBus::Events::SimulateRawInputWithPosition2D)
             ;
         }
     }

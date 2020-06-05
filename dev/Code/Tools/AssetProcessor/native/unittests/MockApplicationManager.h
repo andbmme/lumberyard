@@ -3,17 +3,14 @@
 * its licensors.
 *
 * For complete copyright and license terms please see the LICENSE at the root of this
-* distribution(the "License").All use of this software is governed by the License,
-*or, if provided, by the license below or the license accompanying this file.Do not
-* remove or modify any license notices.This file is distributed on an "AS IS" BASIS,
+* distribution (the "License"). All use of this software is governed by the License,
+*or, if provided, by the license below or the license accompanying this file. Do not
+* remove or modify any license notices. This file is distributed on an "AS IS" BASIS,
 *WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
 
-#ifndef MOCK_APPLICATION_MANAGER_H
-#define MOCK_APPLICATION_MANAGER_H
-
-#if defined (UNIT_TEST)
+#pragma once
 
 #include "../utilities/ApplicationManagerAPI.h"
 #include "native/AssetManager/assetProcessorManager.h"
@@ -65,6 +62,7 @@ namespace AssetProcessor
         void UnRegisterAllBuilders();
 
         void GetMatchingBuildersInfo(const AZStd::string& assetPath, AssetProcessor::BuilderInfoList& builderInfoList) override;
+        void GetAllBuildersInfo(AssetProcessor::BuilderInfoList& builderInfoList) override;
 
         void ResetMatchingBuildersInfoFunctionCalls();
         int GetMatchingBuildersInfoFunctionCalls();
@@ -73,9 +71,6 @@ namespace AssetProcessor
 
         bool GetBuilderByID(const AZStd::string& builderName, AZStd::shared_ptr<InternalMockBuilder>& builder);
         bool GetBuildUUIDFromName(const AZStd::string& builderName, AZ::Uuid& buildUUID);
-    protected:
-        AZStd::unordered_map<AZStd::string, AZStd::shared_ptr<InternalMockBuilder> > m_internalBuilders;
-
         struct BuilderFilePatternMatcherAndBuilderDesc
         {
             AssetUtilities::BuilderFilePatternMatcher   m_matcherBuilderPattern;
@@ -83,8 +78,11 @@ namespace AssetProcessor
             AZ::Uuid                                    m_internalUuid;
             AZStd::string                               m_internalBuilderName;
         };
-        
+
         AZStd::list<BuilderFilePatternMatcherAndBuilderDesc> m_matcherBuilderPatterns;
+    protected:
+        AZStd::unordered_map<AZStd::string, AZStd::shared_ptr<InternalMockBuilder> > m_internalBuilders;
+
         AZStd::unordered_map<AZStd::string, AZ::Uuid > m_internalBuilderUUIDByName;
         int m_getMatchingBuildersInfoFunctionCalls;
         int m_internalBuilderRegistrationCount;
@@ -99,11 +97,11 @@ namespace AssetProcessor
 
         //! AssetProcessor::AssetBuilderInfoBus Interface
         void GetMatchingBuildersInfo(const AZStd::string& assetPath, AssetProcessor::BuilderInfoList& builderInfoList) override;
+        void GetAllBuildersInfo(AssetProcessor::BuilderInfoList& builderInfoList) override;
         ////////////////////////////////////////////////
 
         AssetBuilderSDK::AssetBuilderDesc m_assetBuilderDesc;
         int m_numberOfJobsToCreate = 0;
     };
 }
-#endif // UNIT_TEST
-#endif //MOCK_APPLICATION_MANAGER_H
+

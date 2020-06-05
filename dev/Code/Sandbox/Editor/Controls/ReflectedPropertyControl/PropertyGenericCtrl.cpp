@@ -1,4 +1,15 @@
-#include "stdafx.h"
+/*
+* All or portions of this file Copyright (c) Amazon.com, Inc. or its affiliates, or 
+* a third party where indicated.
+*
+* For complete copyright and license terms please see the LICENSE at the root of this
+* distribution (the "License"). All use of this software is governed by the License,  
+* or, if provided, by the license below or the license accompanying this file. Do not
+* remove or modify any license notices. This file is distributed on an "AS IS" BASIS,
+* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  
+*
+*/
+#include "StdAfx.h"
 
 #include "PropertyGenericCtrl.h"
 #include <QtWidgets/QHBoxLayout>
@@ -18,7 +29,6 @@
 #include "SmartObjectStateDialog.h"
 #include "SmartObjectPatternDialog.h"
 #include "SmartObjectHelperDialog.h"
-#include "SmartObjectActionDialog.h"
 #include "SmartObjectEventDialog.h"
 #include "SmartObjectTemplateDialog.h"
 #include "ShadersDialog.h"
@@ -27,13 +37,11 @@
 #include "Particles/ParticleItem.h"
 #include "Particles/ParticleDialog.h"
 #include "SelectLightAnimationDialog.h"
-#include "SelectGameTokenDialog.h"
 #include "SelectSequenceDialog.h"
 #include "SelectMissionObjectiveDialog.h"
 #include "GenericSelectItemDialog.h"
 #include "EquipPackDialog.h"
 #include "SelectEAXPresetDlg.h"
-#include "CustomActions/CustomActionDialog.h"
 #include "DataBaseDialog.h"
 #include "QtViewPaneManager.h"
 #include <ILocalizationManager.h>
@@ -143,14 +151,6 @@ void SOStatePatternPropertyEditor::onEditClicked()
     soPatternDlg.SetPattern(sPattern);
     if (soPatternDlg.exec() == QDialog::Accepted)
         SetValue(soPatternDlg.GetPattern());
-}
-
-void SOActionPropertyEditor::onEditClicked()
-{
-    CSmartObjectActionDialog soDlg(this);
-    soDlg.SetSOAction(GetValue());
-    if (soDlg.exec() == QDialog::Accepted)
-        SetValue(soDlg.GetSOAction());
 }
 
 void SOHelperPropertyEditor::onEditClicked()
@@ -266,23 +266,6 @@ void ReverbPresetPropertyEditor::onEditClicked()
         SetValue(PresetDlg.GetCurrPreset());
     }
 }
-
-void CustomActionPropertyEditor::onEditClicked()
-{
-    CCustomActionDialog customActionDlg(this);
-    customActionDlg.SetCustomAction(GetValue());
-    if (customActionDlg.exec() == QDialog::Accepted)
-        SetValue(customActionDlg.GetCustomAction());
-}
-
-void GameTokenPropertyEditor::onEditClicked()
-{
-    CSelectGameTokenDialog gtDlg(this);
-    gtDlg.PreSelectGameToken(GetValue());
-    if (gtDlg.exec() == QDialog::Accepted)
-        SetValue(gtDlg.GetSelectedGameToken());
-}
-
 
 void MissionObjPropertyEditor::onEditClicked()
 {
@@ -498,7 +481,7 @@ ListEditWidget::ListEditWidget(QWidget *pParent /*= nullptr*/)
     connect(expandButton, &QAbstractButton::toggled, m_listView, &QWidget::setVisible);
 
     connect(m_model, &QAbstractItemModel::dataChanged, this, &ListEditWidget::OnModelDataChange);
-    connect(m_valueEdit, &QLineEdit::editingFinished, [this](){SetValue(m_valueEdit->text(), true); } );
+    connect(m_valueEdit, &QLineEdit::editingFinished, this, [this](){SetValue(m_valueEdit->text(), true); } );
 
     QVBoxLayout *mainLayout = new QVBoxLayout(this);
     QHBoxLayout *topLayout = new QHBoxLayout;

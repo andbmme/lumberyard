@@ -14,6 +14,7 @@
 #include "rcjoblistmodel.h"
 #include "rcjob.h"
 #include "native/assetprocessor.h"
+#include <AzToolsFramework/API/EditorAssetSystemAPI.h>
 
 namespace AssetProcessor
 {
@@ -53,17 +54,58 @@ namespace AssetProcessor
             setDynamicSortFilter(true);
             m_dirtyNeedsResort = false;
         }
+        RCJob* anyPendingJob = nullptr;
+        bool waitingOnCatalog = false; // If we find an asset thats waiting on the catalog, don't assume there's a cyclic dependency.  We'll wait until the catalog is updated and then check again.
+
         for (int idx = 0; idx < rowCount(); ++idx)
         {
             QModelIndex parentIndex = mapToSource(index(idx, 0));
             RCJob* actualJob = m_sourceModel->getItem(parentIndex.row());
             if ((actualJob) && (actualJob->GetState() == RCJob::pending))
             {
-                return actualJob;
+                bool canProcessJob = true;
+                for (const JobDependencyInternal& jobDepedencyInternal : actualJob->GetJobDependencies())
+                {
+                    if (jobDepedencyInternal.m_jobDependency.m_type == AssetBuilderSDK::JobDependencyType::Order || jobDepedencyInternal.m_jobDependency.m_type == AssetBuilderSDK::JobDependencyType::OrderOnce)
+                    {
+                        const AssetBuilderSDK::JobDependency& jobDependency = jobDepedencyInternal.m_jobDependency;
+                        QueueElementID elementId(jobDependency.m_sourceFile.m_sourceFileDependencyPath.c_str(), jobDependency.m_platformIdentifier.c_str(), jobDependency.m_jobKey.c_str());
+
+                        if (m_sourceModel->isInFlight(elementId) || m_sourceModel->isInQueue(elementId))
+                        {
+                            canProcessJob = false;
+                            if (!anyPendingJob)
+                            {
+                                anyPendingJob = actualJob;
+                            }
+                        }
+                        else if(m_sourceModel->isWaitingOnCatalog(elementId))
+                        {
+                            canProcessJob = false;
+                            waitingOnCatalog = true;
+                        }
+                    }
+                }
+
+                if (canProcessJob)
+                {
+                    return actualJob;
+                }
             }
         }
-        // there are no jobs to do.
-        return nullptr;
+
+        // Either there are no jobs to do or there is a cyclic order job dependency.
+        if (anyPendingJob && m_sourceModel->jobsInFlight() == 0 && !waitingOnCatalog)
+        {
+            AZ_Warning(AssetProcessor::DebugChannel, false, " Cyclic job order dependency detected. Processing job (%s, %s, %s, %s) to unblock.",
+                anyPendingJob->GetJobEntry().m_pathRelativeToWatchFolder.toUtf8().data(), anyPendingJob->GetJobKey().toUtf8().data(),
+                anyPendingJob->GetJobEntry().m_platformInfo.m_identifier.c_str(), anyPendingJob->GetBuilderGuid().ToString<AZStd::string>().c_str());
+            return anyPendingJob;
+        }
+        else
+        {
+            return nullptr;
+        }
     }
 
     bool RCQueueSortModel::filterAcceptsRow(int source_row, const QModelIndex& source_parent) const
@@ -146,11 +188,11 @@ namespace AssetProcessor
         // arbitrarily, lets have PC get done first since pc-format assets are what the editor uses.
         if (leftJob->GetPlatformInfo().m_identifier != rightJob->GetPlatformInfo().m_identifier)
         {
-            if (leftJob->GetPlatformInfo().m_identifier == CURRENT_PLATFORM)
+            if (leftJob->GetPlatformInfo().m_identifier == AzToolsFramework::AssetSystem::GetHostAssetPlatform())
             {
                 return true; // left wins.
             }
-            if (rightJob->GetPlatformInfo().m_identifier == CURRENT_PLATFORM)
+            if (rightJob->GetPlatformInfo().m_identifier == AzToolsFramework::AssetSystem::GetHostAssetPlatform())
             {
                 return false; // right wins
             }

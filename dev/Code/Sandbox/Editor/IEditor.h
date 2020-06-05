@@ -60,7 +60,6 @@ class CMaterail;
 class CEntityPrototype;
 struct IEditorParticleManager;
 class CPrefabManager;
-class CGameTokenManager;
 class CLensFlareManager;
 class CEAXPresetManager;
 class CErrorReport;
@@ -69,11 +68,9 @@ class CBaseLibraryDialog;
 class ICommandManager;
 class CEditorCommandManager;
 class CHyperGraphManager;
-class CFlowGraphManager;
 class CConsoleSynchronization;
 class CUIEnumsDatabase;
 struct ISourceControl;
-struct IAssetTagging;
 struct IEditorClassFactory;
 struct IDataBaseItem;
 struct ITransformManipulator;
@@ -85,12 +82,9 @@ class C3DConnexionDriver;
 #endif
 class CRuler;
 class CSettingsManager;
-class CCustomActionsEditorManager;
 struct IExportManager;
 class CDisplaySettings;
 struct SGizmoParameters;
-class CFlowGraphDebuggerEditor;
-class CEditorFlowGraphModuleManager;
 class CLevelIndependentFileMan;
 class CMissingAssetResolver;
 class CSelectionTreeManager;
@@ -122,14 +116,18 @@ struct IEditorParticleUtils;  // Leroy@conffx
 struct ILogFile; // Vladimir@conffx
 
 // Qt/QML
+
+#ifdef DEPRECATED_QML_SUPPORT
 class QQmlEngine;
+#endif // #ifdef DEPRECATED_QML_SUPPORT
+
 class QWidget;
 class QMimeData;
 class QString;
 class QColor;
 class QPixmap;
 
-#ifndef AZ_PLATFORM_APPLE
+#if !AZ_TRAIT_OS_PLATFORM_APPLE && !defined(AZ_PLATFORM_LINUX)
 typedef void* HANDLE;
 struct HWND__;
 typedef HWND__* HWND;
@@ -177,8 +175,8 @@ enum EEditorNotifyEvent
     // Game related events.
     eNotify_OnBeginGameMode,           // Sent when editor goes to game mode.
     eNotify_OnEndGameMode,             // Sent when editor goes out of game mode.
-    eNotify_OnEnableFlowSystemUpdate,  // Sent when game engine enables flowsystem updates
-    eNotify_OnDisableFlowSystemUpdate, // Sent when game engine disables flowsystem updates
+    eNotify_Deprecated0,               // formerly eNotify_OnEnableFlowSystemUpdate
+    eNotify_Deprecated1,               // formerly eNotify_OnDisableFlowSystemUpdate
 
     // AI/Physics simulation related events.
     eNotify_OnBeginSimulationMode,     // Sent when simulation mode is started.
@@ -236,8 +234,17 @@ enum EEditorNotifyEvent
     eNotify_OnExportBrushes, // For Designer objects, or objects using the Designer Tool.
 
     eNotify_OnTextureLayerChange,      // Sent when texture layer was added, removed or moved
+
+    eNotify_OnSplatmapImport, // Sent when splatmaps get imported
+
+#ifdef DEPRECATED_QML_SUPPORT
     eNotify_BeforeQMLDestroyed, // called before QML is destroyed so you can kill your resources (if any)
     eNotify_QMLReady, // when QML has been re-initialized - this can happen during runtime if plugins are unloaded and loaded and is your opportunity to register your types.
+#else
+    // QML is deprecated! These are left here so that the enum order doesn't change. Don't use
+    eNotify_BeforeQMLDestroyed_Deprecated,
+    eNotify_QMLReady_Deprecated,
+#endif
 
     eNotify_OnParticleUpdate,          // A particle effect was modified.
     eNotify_OnAddAWSProfile,           // An AWS profile was added
@@ -245,7 +252,16 @@ enum EEditorNotifyEvent
     eNotify_OnSwitchAWSDeployment,     // The AWS deployment was switched
     eNotify_OnFirstAWSUse,             // This should only be emitted once
 
-    eNotify_OnRefCoordSysChange
+    eNotify_OnRefCoordSysChange,
+
+    // Entity selection events.
+    eNotify_OnEntitiesSelected,
+    eNotify_OnEntitiesDeselected,
+
+    // More document events - added here in case enum values matter to any event consumers, metrics reporters, etc.
+    eNotify_OnBeginCreate,               // Sent when the document is starting to be created.
+    eNotify_OnEndCreate,                 // Sent when the document creation is finished.
+
 };
 
 // UI event handler
@@ -262,7 +278,7 @@ struct IUIEvent
 struct IDocListener
 {
     virtual ~IDocListener() = default;
-    
+
     //! Called after new level is created.
     virtual void OnNewDocument() = 0;
     //! Called after level have been loaded.
@@ -402,7 +418,7 @@ enum EDataBaseItemType
     EDB_TYPE_PREFAB,
     EDB_TYPE_EAXPRESET,
     EDB_TYPE_SOUNDMOOD,
-    EDB_TYPE_GAMETOKEN,
+    EDB_TYPE_DEPRECATED, // formerly EDB_TYPE_GAMETOKEN
     EDB_TYPE_FLARE
 };
 
@@ -429,7 +445,7 @@ enum EModifiedModule
 struct IPickObjectCallback
 {
     virtual ~IPickObjectCallback() = default;
-    
+
     //! Called when object picked.
     virtual void OnPick(CBaseObject* picked) = 0;
     //! Called when pick mode cancelled.
@@ -465,7 +481,7 @@ class CTrackViewSequence;
 struct ITrackViewSequenceManager
 {
     virtual IAnimSequence* OnCreateSequenceObject(QString name, bool isLegacySequence = true, AZ::EntityId entityId = AZ::EntityId()) = 0;
-    
+
     //! Notifies of the delete of a sequence entity OR legacy sequence object
     //! @param entityId The Sequence Component Entity Id OR the legacy sequence object Id packed in the lower 32-bits, as returned from IAnimSequence::GetSequenceEntityId()
     virtual void OnDeleteSequenceEntity(const AZ::EntityId& entityId) = 0;
@@ -474,9 +490,6 @@ struct ITrackViewSequenceManager
     //! Only intended for use with scripting or other cases where a user provides a name.
     virtual CTrackViewSequence* GetSequenceByName(QString name) const = 0;
 
-    //! Get the legacy sequence with the given name. There can only be one legacy sequence with a given name.
-    virtual CTrackViewSequence* GetLegacySequenceByName(QString name) const = 0;
-
     //! Get the sequence with the given EntityId. For legacy support, legacy sequences can be found by giving
     //! the sequence ID in the lower 32 bits of the EntityId.
     virtual CTrackViewSequence* GetSequenceByEntityId(const AZ::EntityId& entityId) const = 0;
@@ -484,8 +497,6 @@ struct ITrackViewSequenceManager
     virtual void OnCreateSequenceComponent(AZStd::intrusive_ptr<IAnimSequence>& sequence) = 0;
 
     virtual void OnSequenceActivated(const AZ::EntityId& entityId) = 0;
-
-    virtual void OnLegacySequencePostLoad(CTrackViewSequence* sequence, bool undo) = 0;
 };
 
 //! Interface to expose TrackViewSequence functionality to SequenceComponent
@@ -523,6 +534,8 @@ struct IEditor
     virtual bool IsModified() = 0;
     //! Save current document.
     virtual bool SaveDocument() = 0;
+    //! Legacy version of WriteToConsole; don't use.
+    virtual void WriteToConsole(const char* string) = 0;
     //! Write the passed string to the editors console
     virtual void WriteToConsole(const QString& string) = 0;
     //! Set value of console variable.
@@ -550,6 +563,8 @@ struct IEditor
     virtual QString GetSearchPath(EEditorPathName path) = 0;
     //! This folder is supposed to store Sandbox user settings and state
     virtual QString GetResolvedUserFolder() = 0;
+    //! Returns the name of the sys_game_folder
+    virtual QString GetProjectName() = 0;
     //! Execute application and get console output.
     virtual bool ExecuteConsoleApp(
         const QString& CommandLine,
@@ -641,32 +656,16 @@ struct IEditor
     virtual CMusicManager* GetMusicManager() = 0;
     //! Get Prefabs Manager.
     virtual CPrefabManager* GetPrefabManager() = 0;
-    //! Get Game Tokens Manager.
-    virtual CGameTokenManager* GetGameTokenManager() = 0;
     //! Get Lens Flare Manager.
     virtual CLensFlareManager* GetLensFlareManager() = 0;
     virtual float GetTerrainElevation(float x, float y) = 0;
     virtual class CHeightmap* GetHeightmap() = 0;
+    virtual class IHeightmap* GetIHeightmap() = 0;
     virtual class CVegetationMap* GetVegetationMap() = 0;
     virtual class CAIManager*   GetAI() = 0;
     virtual Editor::EditorQtApplication* GetEditorQtApplication() = 0;
     virtual const QColor& GetColorByName(const QString& name) = 0;
 
-    virtual class CCustomActionsEditorManager*  GetCustomActionManager() = 0;
-    //////////////////////////////////////////////////////////////////////////
-    // Material FX  Related.
-    //////////////////////////////////////////////////////////////////////////
-    virtual class CMaterialFXGraphMan*  GetMatFxGraphManager() = 0;
-
-    //////////////////////////////////////////////////////////////////////////
-    // Flowgraph Modules  Related.
-    //////////////////////////////////////////////////////////////////////////
-    virtual class CEditorFlowGraphModuleManager*    GetFlowGraphModuleManager() = 0;
-
-    //////////////////////////////////////////////////////////////////////////
-    // Flowgraph Debugger  Related.
-    //////////////////////////////////////////////////////////////////////////
-    virtual class CFlowGraphDebuggerEditor* GetFlowGraphDebuggerEditor() = 0;
     virtual struct IMovieSystem* GetMovieSystem() = 0;
     virtual class CEquipPackLib* GetEquipPackLib() = 0;
     virtual class CPluginManager* GetPluginManager() = 0;
@@ -834,6 +833,8 @@ struct IEditor
     virtual bool FlushUndo(bool isShowMessage = false) = 0;
     //! Clear the last N number of steps in the undo stack
     virtual bool ClearLastUndoSteps(int steps) = 0;
+    //! Clear all current Redo steps in the undo stack
+    virtual bool ClearRedoStack() = 0;
     //! Retrieve current animation context.
     virtual CAnimationContext* GetAnimation() = 0;
     //! Retrieve sequence manager
@@ -845,6 +846,7 @@ struct IEditor
     //! Get global Error Report instance.
     virtual IErrorReport* GetErrorReport() = 0;
     virtual IErrorReport* GetLastLoadedLevelErrorReport() = 0;
+    virtual void StartLevelErrorReportRecording() = 0;
     virtual void CommitLevelErrorReport() = 0;
     // Retrieve interface to FileUtil
     virtual IFileUtil* GetFileUtil() = 0;
@@ -862,15 +864,10 @@ struct IEditor
     virtual void UnregisterDocListener(IDocListener* listener) = 0;
     //! Retrieve interface to the source control.
     virtual ISourceControl* GetSourceControl() = 0;
-    //! Retrieve interface to the asset tagging api.
-    virtual IAssetTagging* GetAssetTagging() = 0;
     //! Retrieve true if source control is provided and enabled in settings
     virtual bool IsSourceControlAvailable() = 0;
     //! Only returns true if source control is both available AND currently connected and functioning
     virtual bool IsSourceControlConnected() = 0;
-    // Retrieve pointer to the global flow graph manager.
-    virtual CFlowGraphManager* GetFlowGraphManager() = 0;
-
 
     virtual CUIEnumsDatabase* GetUIEnumsDatabase() = 0;
     virtual void AddUIEnums() = 0;
@@ -894,8 +891,8 @@ struct IEditor
     // Console federation helper
     virtual void LaunchAWSConsole(QString destUrl) = 0;
 
-	// Prompt to open the Project Configurator with a specific message.
-	virtual bool ToProjectConfigurator(const QString& msg, const QString& caption, const QString& location) = 0;
+    // Prompt to open the Project Configurator with a specific message.
+    virtual bool ToProjectConfigurator(const QString& msg, const QString& caption, const QString& location) = 0;
 
     // Provides a way to extend the context menu of an object. The function gets called every time the menu is opened.
     typedef Functor2<QMenu*, const CBaseObject*> TContextMenuExtensionFunc;
@@ -907,7 +904,11 @@ struct IEditor
     virtual IAssetBrowser* GetAssetBrowser() = 0; // Vladimir@Conffx
     virtual IImageUtil* GetImageUtil() = 0;  // Vladimir@conffx
     virtual SEditorSettings* GetEditorSettings() = 0;
+
+#ifdef DEPRECATED_QML_SUPPORT
     virtual QQmlEngine* GetQMLEngine() const = 0;
+#endif // #ifdef DEPRECATED_QML_SUPPORT
+
     virtual ILogFile* GetLogFile() = 0;  // Vladimir@conffx
 
     // unload all plugins.  Destroys the QML engine because it has to.
@@ -922,6 +923,8 @@ struct IEditor
     // For flagging if the legacy UI items should be enabled
     virtual bool IsLegacyUIEnabled() = 0;
     virtual void SetLegacyUIEnabled(bool enabled) = 0;
+
+    virtual bool IsNewViewportInteractionModelEnabled() const = 0;
 };
 
 //! Callback used by editor when initializing for info in UI dialogs

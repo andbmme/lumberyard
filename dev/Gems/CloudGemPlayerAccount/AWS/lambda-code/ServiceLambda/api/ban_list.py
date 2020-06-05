@@ -12,12 +12,12 @@
 import account_utils
 import errors
 import service
-import admin_accountSearch
+from . import admin_accountSearch
 import json
 
 @service.api
 def get(request):
     full_list =  admin_accountSearch.default_search()
     return {
-        "players": [p["CognitoUsername"] for p in full_list["Accounts"] if p.get('AccountBlacklisted', False)]
+        "players": [p["CognitoUsername"] for p in full_list["Accounts"] if p.get("CognitoUsername") and p.get('AccountBlacklisted', False)]
     }

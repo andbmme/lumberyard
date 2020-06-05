@@ -1,0 +1,8 @@
+{
+    "auto": {
+        "Asset/Runtime": [
+            "Asset/RuntimeAssetSystemComponent.cpp",
+            "Asset/RuntimeAssetSystemComponent.h"
+        ]
+    }
+}

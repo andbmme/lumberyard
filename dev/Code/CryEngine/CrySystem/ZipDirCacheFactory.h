@@ -20,7 +20,6 @@
 
 
 #include <ProjectDefines.h>
-#include <CheatProtection.h>
 
 namespace ZipDir
 {
@@ -50,6 +49,9 @@ namespace ZipDir
 
             // Store all file names as crc32 in a flat directory structure.
             FLAGS_FILENAMES_AS_CRC32 = BIT(6),
+
+            // if this is set, zip path will be searched inside other zips
+            FLAGS_READ_INSIDE_PAK = BIT(7),
         };
 
         // initializes the internal structures
@@ -89,7 +91,7 @@ namespace ZipDir
         bool Prepare();
 
         // return the CRC that has been hard coded into the exe for this pak (tamper protection + build validation for patches)
-        CHEAT_PROTECTION_EXPORT unsigned long GetReferenceCRCForPak();
+        unsigned long GetReferenceCRCForPak();
 
         // searches for CDREnd record in the given file
         bool FindCDREnd();// throw(ErrorEnum);

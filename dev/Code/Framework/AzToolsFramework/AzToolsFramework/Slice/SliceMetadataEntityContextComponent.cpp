@@ -17,6 +17,9 @@
 
 #include <AzToolsFramework/Commands/PreemptiveUndoCache.h>
 #include <AzToolsFramework/Entity/EditorEntitySortComponent.h>
+#include <AzToolsFramework/ToolsComponents/EditorDisabledCompositionComponent.h>
+#include <AzToolsFramework/ToolsComponents/EditorInspectorComponent.h>
+#include <AzToolsFramework/ToolsComponents/EditorPendingCompositionComponent.h>
 
 #include "SliceMetadataEntityContextComponent.h"
 
@@ -30,7 +33,10 @@ namespace AzToolsFramework
         , m_requiredSliceMetadataComponentTypes
         // These are the components that will be force added to every slice metadata entity
         ({
-            azrtti_typeid<Components::EditorEntitySortComponent>()
+            azrtti_typeid<Components::EditorEntitySortComponent>(),
+            azrtti_typeid<AzToolsFramework::Components::EditorPendingCompositionComponent>(),
+            azrtti_typeid<AzToolsFramework::Components::EditorDisabledCompositionComponent>(),
+            azrtti_typeid<AzToolsFramework::Components::EditorInspectorComponent>()
         })
     {
     }
@@ -167,7 +173,7 @@ namespace AzToolsFramework
         AZ_Assert(metadataEntity.GetState() == AZ::Entity::ES_ACTIVE, "Metadata Entity Failed To Activate");
 
         // All metadata entities created should have a metadata association component
-        AZStd::unordered_set<AZ::EntityId> associatedEntities;
+        AZStd::set<AZ::EntityId> associatedEntities;
         AZ::SliceMetadataInfoRequestBus::Event(metadataEntity.GetId(), &AZ::SliceMetadataInfoRequestBus::Events::GetAssociatedEntities, associatedEntities);
         for (const auto& editorEntityId : associatedEntities)
         {

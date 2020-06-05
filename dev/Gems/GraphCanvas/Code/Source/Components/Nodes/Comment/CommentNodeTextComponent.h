@@ -11,12 +11,14 @@
 */
 #pragma once
 
+AZ_PUSH_DISABLE_WARNING(4251 4800 4244, "-Wunknown-warning-option")
 #include <QGraphicsGridLayout>
 #include <QGraphicsLinearLayout>
 #include <QGraphicsProxyWidget>
 #include <QGraphicsWidget>
 #include <QPlainTextEdit>
 #include <QTimer>
+AZ_POP_DISABLE_WARNING
 
 #include <AzCore/Component/Component.h>
 #include <AzCore/Math/Color.h>
@@ -29,6 +31,7 @@
 #include <GraphCanvas/Components/Nodes/NodeLayoutBus.h>
 #include <GraphCanvas/Components/SceneBus.h>
 #include <GraphCanvas/Components/Slots/Data/DataSlotBus.h>
+#include <GraphCanvas/Types/EntitySaveData.h>
 #include <Widgets/GraphCanvasLabel.h>
 #include <Widgets/NodePropertyDisplayWidget.h>
 
@@ -44,37 +47,15 @@ namespace GraphCanvas
         , public CommentRequestBus::Handler
         , public CommentLayoutRequestBus::Handler
         , public EntitySaveDataRequestBus::Handler
+        , public CommentNodeTextSaveDataInterface
     {
     public:
         AZ_COMPONENT(CommentNodeTextComponent, "{15C568B0-425C-4655-814D-0A299341F757}", GraphCanvasPropertyComponent);
 
-        class CommentNodeTextComponentSaveData
-            : public ComponentSaveData
-        {
-        public:
-            AZ_RTTI(CommentNodeTextComponentSaveData, "{524D8380-AC09-444E-870E-9CEF2535B4A2}", ComponentSaveData);
-            AZ_CLASS_ALLOCATOR(CommentNodeTextComponentSaveData, AZ::SystemAllocator, 0);
-
-            CommentNodeTextComponentSaveData();
-            CommentNodeTextComponentSaveData(CommentNodeTextComponent* nodeComponent);
-
-            void operator=(const CommentNodeTextComponentSaveData& other);
-
-            void OnCommentChanged();
-            void UpdateStyleOverrides();
-
-            AZStd::string m_comment;
-            FontConfiguration m_fontConfiguration;
-
-        private:
-            CommentNodeTextComponent* m_callback;
-        };
-
-        friend class CommentNodeTextComponentSaveData;
-
         static void Reflect(AZ::ReflectContext*);
 
         CommentNodeTextComponent();
+        CommentNodeTextComponent(AZStd::string_view initialText);
         ~CommentNodeTextComponent() = default;
 
         // AZ::Component
@@ -113,6 +94,13 @@ namespace GraphCanvas
         const AZStd::string& GetComment() const override;
 
         void SetCommentMode(CommentMode commentMode) override;
+
+        void SetBackgroundColor(const AZ::Color& color) override;
+        AZ::Color GetBackgroundColor() const override;
+        ////
+
+        // CommentNodeTextSaveDataInterface
+        CommentMode GetCommentMode() const override;
         ////
 
         // CommentLayoutRequestBus
@@ -126,15 +114,19 @@ namespace GraphCanvas
 
     protected:
 
-        void OnCommentChanged();
-        void UpdateStyleOverrides();
+        // CommentNodeTextSaveDataInterface
+        void OnCommentChanged() override;
+        void OnBackgroundColorChanged() override;
+        void UpdateStyleOverrides() override;
+        ////
 
     private:
         CommentNodeTextComponent(const CommentNodeTextComponent&) = delete;
 
-        CommentNodeTextComponentSaveData m_saveData;
+        CommentMode                 m_commentMode;
+        CommentNodeTextSaveData     m_saveData;
 
-        CommentTextGraphicsWidget* m_commentTextWidget;
+        CommentTextGraphicsWidget*  m_commentTextWidget;
     };
 }
 

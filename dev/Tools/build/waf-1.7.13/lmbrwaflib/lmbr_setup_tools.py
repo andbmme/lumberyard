@@ -9,7 +9,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #
 
+
+# waflib imports
 from waflib.Configure import conf
+
 
 LMBR_SETUP_QT_FILTERS = {
     "win": {
@@ -23,6 +26,9 @@ LMBR_SETUP_QT_FILTERS = {
             "Qt5Widgets",
             "Qt5Concurrent",
             "Qt5WinExtras",
+            "Qt5Xml",
+            "libEGL",
+            "libGLESv2"
         ],
 
         "qtlibs": {
@@ -91,6 +97,7 @@ LMBR_SETUP_QT_FILTERS = {
                 "lib": [
                     "QtConcurrent.framework",
                     "QtCore.framework",
+                    "QtDbus.framework",
                     "QtGui.framework",
                     "QtNetwork.framework",
                     "QtPrintSupport.framework",
@@ -98,7 +105,8 @@ LMBR_SETUP_QT_FILTERS = {
                     "QtQuick.framework",
                     "QtSvg.framework",
                     "QtWidgets.framework",
-                    "QtXml.framework"
+                    "QtXml.framework",
+                    "QtMacExtras.framework"
                 ],
                 "plugins": [
                     "imageformats/libqdds.dylib",
@@ -130,6 +138,7 @@ LMBR_SETUP_QT_FILTERS = {
                 "lib": [
                     "QtConcurrent.framework",
                     "QtCore.framework",
+                    "QtDbus.framework",
                     "QtGui.framework",
                     "QtNetwork.framework",
                     "QtPrintSupport.framework",
@@ -137,7 +146,8 @@ LMBR_SETUP_QT_FILTERS = {
                     "QtQuick.framework",
                     "QtSvg.framework",
                     "QtWidgets.framework",
-                    "QtXml.framework"
+                    "QtXml.framework",
+                    "QtMacExtras.framework"
                 ],
                 "plugins": [
                     "imageformats/libqdds_debug.dylib",
@@ -198,21 +208,17 @@ LMBR_SETUP_QT_FILTERS = {
 def get_lmbr_setup_tools_output_folder(ctx, platform_override=None, configuration_override=None):
     curr_platform, curr_configuration = ctx.get_platform_and_configuration()
 
-    if platform_override is not None and isinstance(platform_override, basestring):
+    if platform_override is not None and isinstance(platform_override, str):
         curr_platform = platform_override
 
-    if configuration_override is not None and isinstance(configuration_override, basestring):
+    if configuration_override is not None and isinstance(configuration_override, str):
         curr_configuration = configuration_override
 
     output_folder_platform      = ""
     output_folder_compiler      = ""
     if curr_platform.startswith("win_"):
         output_folder_platform  = "Win"
-        if "vs2013" in curr_platform:
-            output_folder_compiler = "vc120"
-        elif "vs2015" in curr_platform:
-            output_folder_compiler = "vc140"
-
+        output_folder_compiler = "msvc"
     elif curr_platform.startswith("darwin_"):
         output_folder_platform  = "Mac"
         output_folder_compiler  = "clang"
@@ -233,15 +239,9 @@ def get_lmbr_setup_tools_output_folder(ctx, platform_override=None, configuratio
     output_folder = "Tools/LmbrSetup/" + output_folder_platform
 
     # do not manipulate string if we do not have all the data
-    if output_folder_platform != "" and output_folder_compiler != "" and output_folder_configuration != "":
-        if output_folder_test != "":
-            output_folder += "." + output_folder_compiler
-            output_folder += "." + output_folder_configuration
-            output_folder += "." + output_folder_test
-        elif output_folder_configuration != "Profile":
-            output_folder += "." + output_folder_compiler
-            output_folder += "." + output_folder_configuration
-        elif output_folder_compiler != "vc140" and output_folder_compiler != "clang":
-            output_folder += "." + output_folder_compiler
+    if output_folder_platform != "":
+            output_folder += ".{}".format(output_folder_compiler) if output_folder_compiler != "msvc" and output_folder_compiler != "clang" else ""
+            output_folder += ".{}".format(output_folder_configuration) if output_folder_configuration != "" and output_folder_configuration != "Profile" else ""
+            output_folder += ".{}".format(output_folder_test) if output_folder_test != "" else ""
 
     return output_folder

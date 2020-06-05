@@ -168,6 +168,16 @@ struct IRenderAuxGeom
     //   col        - Color of the sphere.
     //   drawShaded - True if you want to draw the sphere shaded, false otherwise.
     virtual void DrawSphere(const Vec3& pos, float radius, const ColorB& col, bool drawShaded = true) = 0;
+
+    // Summary:
+    //   Draws a disk.
+    // Arguments:
+    //   pos        - Center of the disk.
+    //   radius     - Radius of the disk.
+    //   col        - Color of the disk.
+    //   drawShaded - True if you want to draw the disk shaded, false otherwise.
+    virtual void DrawDisk(const Vec3& pos, const Vec3& dir, float radius, const ColorB& col, bool drawShaded = true) = 0;
+
     // Summary:
     //   Draws a cone.
     // Arguments:
@@ -199,6 +209,27 @@ struct IRenderAuxGeom
     //   Draws Text.
     //##@{
     virtual void RenderText(Vec3 pos, SDrawTextInfo& ti, const char* format, va_list args) = 0;
+
+    // Summary:
+    //   Draws 3d Label.
+    //##@{
+    void Draw3dLabel(Vec3 pos, float font_size, const ColorF& color, const char* label_text, ...) PRINTF_PARAMS(5, 6)
+    {
+        va_list args;
+        va_start(args, label_text);
+
+        SDrawTextInfo ti;
+        ti.xscale = ti.yscale = font_size;
+        ti.color[0] = color[0];
+        ti.color[1] = color[1];
+        ti.color[2] = color[2];
+        ti.color[3] = color[3];
+        ti.flags = eDrawText_2D | eDrawText_FixedSize | eDrawText_Monospace;
+
+        RenderText(pos, ti, label_text, args);
+
+        va_end(args);
+    }
 
     void Draw2dLabelInternal(float x, float y, float font_size, const float* pfColor, int flags, const char* format, va_list args)
     {

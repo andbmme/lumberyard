@@ -33,7 +33,7 @@ namespace ScriptCanvasEditor
 
         if (serializeContext)
         {
-            serializeContext->Class<CreateNodeMimeEvent, GraphCanvas::GraphCanvasMimeEvent>()
+            serializeContext->Class<CreateNodeMimeEvent, GraphCanvas::CreateSplicingNodeMimeEvent>()
                 ->Version(0)
                 ;
         }
@@ -44,22 +44,27 @@ namespace ScriptCanvasEditor
         return m_nodeIdPair;
     }
         
-    bool CreateNodeMimeEvent::ExecuteEvent(const AZ::Vector2&, AZ::Vector2& sceneDropPosition, const AZ::EntityId& sceneId)
+    bool CreateNodeMimeEvent::ExecuteEvent(const AZ::Vector2&, AZ::Vector2& sceneDropPosition, const AZ::EntityId& graphCanvasGraphId)
     {
-        AZ::EntityId graphId;
-        GeneralRequestBus::BroadcastResult(graphId, &GeneralRequests::GetGraphId, sceneId);
+        ScriptCanvas::ScriptCanvasId scriptCanvasId;
+        GeneralRequestBus::BroadcastResult(scriptCanvasId, &GeneralRequests::GetScriptCanvasId, graphCanvasGraphId);
 
-        m_nodeIdPair = CreateNode(graphId);
+        if (!scriptCanvasId.IsValid() || !graphCanvasGraphId.IsValid())
+        {
+            return false;
+        }
+
+        m_nodeIdPair = CreateNode(scriptCanvasId);
 
         if (m_nodeIdPair.m_graphCanvasId.IsValid() && m_nodeIdPair.m_scriptCanvasId.IsValid())
         {
-            GraphCanvas::SceneRequestBus::Event(sceneId, &GraphCanvas::SceneRequests::AddNode, m_nodeIdPair.m_graphCanvasId, sceneDropPosition);
+            GraphCanvas::SceneRequestBus::Event(graphCanvasGraphId, &GraphCanvas::SceneRequests::AddNode, m_nodeIdPair.m_graphCanvasId, sceneDropPosition);
             GraphCanvas::SceneMemberUIRequestBus::Event(m_nodeIdPair.m_graphCanvasId, &GraphCanvas::SceneMemberUIRequests::SetSelected, true);
 
-            ScriptCanvasEditor::NodeCreationNotificationBus::Event(sceneId, &ScriptCanvasEditor::NodeCreationNotifications::OnGraphCanvasNodeCreated, m_nodeIdPair.m_graphCanvasId);
+            ScriptCanvasEditor::NodeCreationNotificationBus::Event(scriptCanvasId, &ScriptCanvasEditor::NodeCreationNotifications::OnGraphCanvasNodeCreated, m_nodeIdPair.m_graphCanvasId);
 
             AZ::EntityId gridId;
-            GraphCanvas::SceneRequestBus::EventResult(gridId, sceneId, &GraphCanvas::SceneRequests::GetGrid);
+            GraphCanvas::SceneRequestBus::EventResult(gridId, graphCanvasGraphId, &GraphCanvas::SceneRequests::GetGrid);
 
             AZ::Vector2 offset;
             GraphCanvas::GridRequestBus::EventResult(offset, gridId, &GraphCanvas::GridRequests::GetMinorPitch);
@@ -83,6 +88,21 @@ namespace ScriptCanvasEditor
         return false;
     }
 
+    AZ::EntityId CreateNodeMimeEvent::CreateSplicingNode(const AZ::EntityId& graphCanvasGraphId)
+    {
+        ScriptCanvas::ScriptCanvasId scriptCanvasId;
+        GeneralRequestBus::BroadcastResult(scriptCanvasId, &GeneralRequests::GetScriptCanvasId, graphCanvasGraphId);
+
+        ScriptCanvasEditor::NodeIdPair idPair = CreateNode(scriptCanvasId);
+
+        if (idPair.m_graphCanvasId.IsValid() && idPair.m_scriptCanvasId.IsValid())
+        {
+            return idPair.m_graphCanvasId;
+        }
+
+        return AZ::EntityId();
+    }
+
     ///////////////////////////////////
     // SpecializedCreateNodeMimeEvent
     ///////////////////////////////////
@@ -94,6 +114,22 @@ namespace ScriptCanvasEditor
         if (serializeContext)
         {
             serializeContext->Class<SpecializedCreateNodeMimeEvent, GraphCanvas::GraphCanvasMimeEvent>()
+                ->Version(0)
+                ;
+        }
+    }
+
+    /////////////////////////////
+    // MultiCreateNodeMimeEvent
+    /////////////////////////////
+
+    void MultiCreateNodeMimeEvent::Reflect(AZ::ReflectContext* reflectContext)
+    {
+        AZ::SerializeContext* serializeContext = azrtti_cast<AZ::SerializeContext*>(reflectContext);
+
+        if (serializeContext)
+        {
+            serializeContext->Class<MultiCreateNodeMimeEvent, SpecializedCreateNodeMimeEvent>()
                 ->Version(0)
                 ;
         }

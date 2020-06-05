@@ -18,11 +18,22 @@ $ waf configure xcode_mac
 $ waf configure xcode_appletv
 """
 
-from waflib import Context, TaskGen, Build, Utils, Logs
-from waflib.TaskGen import feature, after_method
-from waflib.Configure import conf
+# System Imports
+import copy
+import os
+import re
+import subprocess
+import sys
 
-import os, sys, copy
+# waflib imports
+from waflib import Build, Context, Logs, Options, TaskGen, Utils
+from waflib.Configure import conf, conf_event, ConfigurationContext
+from waflib.TaskGen import after_method, feature
+
+# lmbrwaflib imports
+from lmbrwaflib.build_configurations import PLATFORM_MAP
+
+
 
 HEADERS_GLOB = '**/(*.h|*.hpp|*.H|*.inl)'
 
@@ -53,13 +64,39 @@ MAP_EXT = {
     '.yy':  "sourcecode.yacc",
 
     '.plist': "text.plist.xml",
-    ".nib":   "wrapper.nib",
-    ".xib":   "text.xib",
+    '.nib':   "wrapper.nib",
+    '.xib':   "text.xib",
 }
 
-LMBR_WAF_SCRIPT_REL_PATH = "Tools/build/waf-1.7.13/lmbr_waf"
+LMBR_WAF_SCRIPT_REL_PATH = 'Tools/build/waf-1.7.13/lmbr_waf'
 
-do_debug_print = False
+XCTEST_WRAPPER_TARGETS = ('ios', )
+XCTEST_WRAPPER_REL_PATH = 'Code/Tools/Apple/XCTestWrapper'
+XCTEST_WRAPPER_SOURCE = [
+    'LumberyardXCTestWrapperTests.mm',
+]
+XCTEST_WRAPPER_FILES = XCTEST_WRAPPER_SOURCE + [ 'Info.plist' ]
+
+PLATFORM_SDK_NAME = {
+    'appletv'       : 'appletvos',
+    'darwin_x64'    : 'macosx',
+    'ios'           : 'iphoneos',
+}
+
+FRAMEWORKS_REL_PATH = 'System/Library/Frameworks'
+
+XCODE_WORKSPACE_SETTINGS = r'''<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version=\"1.0\">
+<dict>
+    <key>BuildSystemType</key>
+    <string>Original</string>
+    <key>PreviewsEnabled</key>
+    <false/>
+    </dict>
+</plist>
+'''
+
 root_dir = ''
 id = 562000999
 uintmax = 2147483647
@@ -79,7 +116,7 @@ class XCodeNode:
     def tostring(self, value):
         if isinstance(value, dict):
             result = "{\n"
-            for k,v in value.items():
+            for k,v in list(value.items()):
                 result = result + "\t\t\t%s = %s;\n" % (k, self.tostring(v))
             result = result + "\t\t}"
             return result
@@ -98,7 +135,7 @@ class XCodeNode:
 
     def write_recursive(self, value, file):
         if isinstance(value, dict):
-            for k,v in value.items():
+            for k,v in list(value.items()):
                 self.write_recursive(v, file)
         elif isinstance(value, list):
             for i in value:
@@ -107,18 +144,17 @@ class XCodeNode:
             value.write(file)
 
     def write(self, file):
-        for attribute,value in self.__dict__.items():
+        for attribute,value in list(self.__dict__.items()):
             if attribute[0] != '_':
                 self.write_recursive(value, file)
 
         w = file.write
         w("\t%s = {\n" % self._id)
         w("\t\tisa = %s;\n" % self.__class__.__name__)
-        for attribute,value in self.__dict__.items():
+        for attribute,value in list(self.__dict__.items()):
             if attribute[0] != '_':
                 w("\t\t%s = %s;\n" % (attribute, self.tostring(value)))
         w("\t};\n\n")
-
 
 
 # Configurations
@@ -137,9 +173,10 @@ class XCConfigurationList(XCodeNode):
         self.defaultConfigurationIsVisible = 0
         self.defaultConfigurationName = settings and settings[0].name or ""
 
+
 # Group/Files
 class PBXFileReference(XCodeNode):
-    def __init__(self, name, path, filetype = '', sourcetree = "SOURCE_ROOT"):
+    def __init__(self, name, path, filetype = '', sourcetree = "SOURCE_ROOT", explicit_filetype = ''):
         XCodeNode.__init__(self)
         self.fileEncoding = 4
         if not filetype:
@@ -149,8 +186,12 @@ class PBXFileReference(XCodeNode):
         self.name = name
         self.path = path
         self.sourceTree = sourcetree
+        if explicit_filetype:
+            self.explicitFileType = explicit_filetype
 
 class PBXGroup(XCodeNode):
+    folders_cache = {}
+
     def __init__(self, name, sourcetree = "<group>"):
         XCodeNode.__init__(self)
         self.children = []
@@ -164,17 +205,18 @@ class PBXGroup(XCodeNode):
                 child.sort_recursive()
 
     def add(self, root, sources):
-        global do_debug_print
-        folders = {}
+        folders = PBXGroup.folders_cache
         def folder(node):
-            if do_debug_print:
-                print(node)
-                print(node.name)
-                print(node.parent)
+            if not node:
+                return self
+
+            Logs.debug('xcode_group: %s', node)
+            Logs.debug('xcode_group: %s', node.name)
+            Logs.debug('xcode_group: %s', node.parent)
+
             if node == root:
                 return self
-            if node == None:
-                return self
+
             try:
                 return folders[node]
             except KeyError:
@@ -185,9 +227,9 @@ class PBXGroup(XCodeNode):
                 return new_folder
 
         for s in sources:
-            if do_debug_print:
-                print('========')
-                print(s)
+            Logs.debug('xcode_group: ========')
+            Logs.debug('xcode_group: %s', s)
+
             a_folder = folder(s.parent)
             source = PBXFileReference(s.name, s.abspath())
             a_folder.children.append(source)
@@ -198,6 +240,7 @@ class PBXGroup(XCodeNode):
                 child.get_child_file_references_recursive(file_references)
             elif isinstance(child, PBXFileReference):
                 file_references.append(child)
+
 
 # Targets
 class PBXLegacyTarget(XCodeNode):
@@ -224,7 +267,6 @@ class PBXLegacyTarget(XCodeNode):
 class PBXShellScriptBuildPhase(XCodeNode):
     def __init__(self):
         XCodeNode.__init__(self)
-        global root_dir
         self.buildActionMask = uintmax # default when adding a build phase manually from Xcode
         self.files = []
         self.inputPaths = []
@@ -233,112 +275,186 @@ class PBXShellScriptBuildPhase(XCodeNode):
         self.shellPath = "/bin/sh"
         self.shellScript = ""
 
-class PBXSourcesBuildPhase(XCodeNode):
+class PBXBuildPhaseBase(XCodeNode):
     def __init__(self, files):
         XCodeNode.__init__(self)
         self.buildActionMask = uintmax # default when adding a build phase manually from Xcode
         self.files = []
         for file in files:
-            self.files.append(PBXBuildFile(file)) 
+            self.files.append(PBXBuildFile(file))
         self.runOnlyForDeploymentPostprocessing = 0
 
-class PBXResourcesBuildPhase(XCodeNode):
-    def __init__(self, files):
-        XCodeNode.__init__(self)
-        self.buildActionMask = uintmax # default when adding a build phase manually from Xcode
-        self.files = []
-        for file in files:
-            self.files.append(PBXBuildFile(file)) 
-        self.runOnlyForDeploymentPostprocessing = 0
-
+class PBXSourcesBuildPhase(PBXBuildPhaseBase):
+    pass
+class PBXFrameworksBuildPhase(PBXBuildPhaseBase):
+    pass
+class PBXResourcesBuildPhase(PBXBuildPhaseBase):
+    pass
 
 class PBXBuildFile(XCodeNode):
     def __init__(self, file_reference):
         XCodeNode.__init__(self)
         self.fileRef = file_reference._id
-        self.settings = { 'COMPILER_FLAGS' : "" }
 
+class PBXTargetDependency(XCodeNode):
+    def __init__(self, pbx_native_target):
+        XCodeNode.__init__(self)
+        self.target = pbx_native_target
 
 class PBXNativeTarget(XCodeNode):
-    def __init__(self, platform_name, project_spec, task_generator, settings, ctx):
+    def __init__(self, platform_name, ctx):
         XCodeNode.__init__(self)
 
-        self.lmbr_waf_script = os.path.join(ctx.engine_path, LMBR_WAF_SCRIPT_REL_PATH)
-
-        if (task_generator == None):
-            return
-
-        target = task_generator.name
-        node = task_generator.link_task.outputs[0].change_ext('.app')
-        env =  task_generator.env
-
-        project_name = None
-        for name in ctx.get_enabled_game_project_list():
-
-            legacy_project_and_platform_modules = ctx.project_and_platform_modules(name, platform_name)
-
-            if len(legacy_project_and_platform_modules)>0:
-                # If there are modules defined for the project (in its projects.json), then this is a
-                # legacy game project (game.dll).  Perform the legacy project_name determination
-                if target in legacy_project_and_platform_modules:
-                    project_name = name
-                    break
-            else:
-                # If there are no modules, then this is a game project
-                # that is gem based only.  The project_name will equal the
-                # target
-                project_name = target
-                break
-
-        target_settings = copy.copy(settings)
-        target_settings['PRODUCT_NAME'] = ctx.get_executable_name(project_name)
-        target_settings['INFOPLIST_FILE'] = task_generator.to_nodes(getattr(task_generator, 'mac_plist', [''])[0])[0].abspath()
-        target_settings['ASSETCATALOG_COMPILER_APPICON_NAME'] = ctx.get_app_icon(target)
-        target_settings['ASSETCATALOG_COMPILER_LAUNCHIMAGE_NAME'] = ctx.get_launch_image(target)
-
-        build_configuration_list = []
-        for config in ctx.get_target_configurations():
-
-            per_configuartion_build_settings = copy.copy(target_settings)
-            per_configuartion_build_settings['CONFIGURATION_BUILD_DIR'] = ctx.get_output_folders(platform_name, config)[0].abspath()
-            if env and env.ARCH:
-                per_configuartion_build_settings['ARCHS'] = " ".join(env.ARCH)
-
-            build_configuration_list.append(XCBuildConfiguration(config, per_configuartion_build_settings))
-        self.buildConfigurationList = XCConfigurationList(build_configuration_list)
+        self._ctx = ctx
+        self._platform_name = platform_name
 
         self.buildPhases = []
-        self.add_prepare_for_archive_build_phase_to_target()
-        self.add_waf_build_phase_to_target('build_' + platform_name + "_$CONFIGURATION" + ' -p ' + project_spec)
-        self.add_cleanup_after_archive_build_phase_to_target()
-
         self.buildRules = []
         self.dependencies = []
+
+    def init_as_exectuable(self, task_generator, settings, project_spec):
+        if not task_generator:
+            return
+
+        ctx = self._ctx
+        platform_name = self._platform_name
+
+        target = task_generator.name
+        node = task_generator.link_task.outputs[0]
+
+        target_settings = copy.copy(settings)
+        target_settings['PRODUCT_NAME'] = node.name
+
+        task_gen_for_plist = task_generator
+
+        # For the launchers they do not have the plist info files, but the game project does.
+        # Search for the game project and grab its plist info file.
+        launcher_name = ctx.get_launcher_name(platform_name)
+        if launcher_name and target.endswith(launcher_name):
+            task_gen_for_plist = ctx.get_tgen_by_name(target[:-len(launcher_name)])
+
+        # Not all native target are going to have a plist file (like command line executables).
+        plist_files = getattr(task_gen_for_plist, 'mac_plist', None)
+        if plist_files:
+            plist_nodes = task_gen_for_plist.to_nodes(plist_files)
+            if plist_nodes:
+                target_settings['INFOPLIST_FILE'] = plist_nodes[0].abspath()
+                # Since we have a plist file we are going to create an app bundle for this native target
+                node = node.change_ext('.app')
+
+        target_settings['ASSETCATALOG_COMPILER_APPICON_NAME'] = ctx.get_app_icon(target)
+        target_settings['ASSETCATALOG_COMPILER_LAUNCHIMAGE_NAME'] = ctx.get_launch_image(target)
+        target_settings['RUN_WAF_BUILD'] = 'YES'
+
+        output_folder = getattr(task_generator, 'output_folder', None)
+        if output_folder and isinstance(output_folder, list):
+            output_folder = output_folder[0]
+
+        output_sub_folder = getattr(task_generator, 'output_sub_folder', None)
+        arch = task_generator.env['ARCH'] if task_generator.env else None
+
+        self._generate_build_config_list(target_settings, output_folder, output_sub_folder, arch)
+
+        self.add_prepare_for_archive_build_phase_to_target()
+        self.add_waf_phase_to_target('build_{}_$CONFIGURATION  -p{} --package-projects-automatically=False'.format(platform_name, project_spec))
+        self.add_waf_phase_to_target('package_{}_$CONFIGURATION  -p{} --run-xcode-for-packaging=False'.format(platform_name, project_spec))
+        self.add_cleanup_after_archive_build_phase_to_target()
+
         self.name = target
         self.productName = task_generator.output_file_name
-        self.productType = "com.apple.product-type.application"
+        self.productType = 'com.apple.product-type.application'
         self.productReference = PBXFileReference(target, node.abspath(), 'wrapper.application', 'BUILT_PRODUCTS_DIR')
 
-    def add_waf_build_phase_to_target(self, build_action):
+    def init_as_test(self, project, target_executable, settings):
+        ctx = self._ctx
+
+        name = '{}Tests'.format(target_executable.name)
+
+        target_product_name = target_executable.productName
+        product_name = '{}Tests'.format(target_product_name)
+
+        target_settings = copy.copy(settings)
+
+        target_settings['PRODUCT_NAME'] = product_name
+        target_settings['INFOPLIST_FILE'] = os.path.join(ctx.engine_path, XCTEST_WRAPPER_REL_PATH, 'Info.plist')
+
+        target_settings['TEST_HOST'] = '$(BUILT_PRODUCTS_DIR)/{}.app/{}'.format(target_product_name, target_product_name)
+        target_settings['BUNDLE_LOADER'] = '$(TEST_HOST)'
+
+        target_settings['LD_RUNPATH_SEARCH_PATHS'] = [
+            '$(inherited)',
+            '@executable_path/Frameworks',
+            '@loader_path/Frameworks'
+        ]
+        target_settings['COPY_PHASE_STRIP'] = 'NO'
+        target_settings['CLANG_CXX_LANGUAGE_STANDARD'] = 'c++17'
+
+        self._generate_build_config_list(target_settings)
+
+        test_wrapper_source = []
+        for test_file in XCTEST_WRAPPER_SOURCE:
+            file_ref = project.find_pbx_file_reference(os.path.join(XCTEST_WRAPPER_REL_PATH, test_file))
+            if file_ref:
+                test_wrapper_source.append(file_ref)
+
+        if len(test_wrapper_source) != len(XCTEST_WRAPPER_SOURCE):
+            ctx.fatal('[ERROR] Failed to find the Lumberyard XCTest Wrapper reference source file(s) in project')
+
+        ui_kit = project.find_pbx_file_reference(os.path.join('Frameworks', 'UIKit.framework'))
+        if not ui_kit:
+            ctx.fatal('[ERROR] Failed to find the UIKit.framework reference in project')
+
+        self.buildPhases = [
+            PBXSourcesBuildPhase(test_wrapper_source),
+            PBXFrameworksBuildPhase([ ui_kit ])
+        ]
+
+        self.dependencies = [ PBXTargetDependency(target_executable) ]
+
+        self.name = name
+        self.productName = product_name
+        self.productType = 'com.apple.product-type.bundle.unit-test'
+
+        test_target = '{}.xctest'.format(self.productName)
+        test_target_path = os.path.join(target_executable.productReference.path, 'Plugins', test_target)
+
+        self.productReference = PBXFileReference(test_target, test_target_path, sourcetree = 'BUILT_PRODUCTS_DIR', explicit_filetype = 'wrapper.cfbundle')
+
+    def add_waf_phase_to_target(self, build_action):
+        global root_dir
+
+        cwd = XCodeEscapeSpacesForShell(root_dir)
+        lmbr_waf_script = XCodeEscapeSpacesForShell(os.path.join(self._ctx.engine_path, LMBR_WAF_SCRIPT_REL_PATH))
+
+        script = (
+            'if [ \\"${RUN_WAF_BUILD}\\" = \\"YES\\" ]; then\n'
+            '\t\\"\\%s\\" \\"%s\\" -cwd \\"%s\\" %s\n'
+            'fi'
+        ) % (sys.executable, lmbr_waf_script, cwd, build_action)
 
         waf_build_phase = PBXShellScriptBuildPhase()
-        waf_build_phase.shellScript = "'%s' '%s' -cwd '%s' %s" % (sys.executable, XCodeEscapeSpacesForShell(self.lmbr_waf_script), XCodeEscapeSpacesForShell(root_dir), build_action)
+        waf_build_phase.shellScript = script
         self.buildPhases.append(waf_build_phase)
 
     def add_prepare_for_archive_build_phase_to_target(self):
-        # When doing archive builds we need to first clean the target build directory, and create a symlink to the actual archive location.
-        # Xcode normally does this itself as a built-in archive step, but it fails if we've already built the project because waf will have
-        # created a directory in the same place that Xcode attempts to create the symlink, resulting in an archive with no executable in it!
+        '''
+        When doing archive builds we need to first clean the target build directory, and create a symlink to the actual archive location.
+        Xcode normally does this itself as a built-in archive step, but it fails if we've already built the project because waf will have
+        created a directory in the same place that Xcode attempts to create the symlink, resulting in an archive with no executable in it!
+        '''
         prepare_for_archive_build_phase = PBXShellScriptBuildPhase()
         prepare_for_archive_build_phase.runOnlyForDeploymentPostprocessing = 1 # Only run this build step for archive builds
-        prepare_for_archive_build_phase.shellScript = \
-        'rm -rf \\"$BUILT_PRODUCTS_DIR/$WRAPPER_NAME\\"\\n' \
-        'ln -sf \\"$TARGET_BUILD_DIR/$WRAPPER_NAME\\" \\"$BUILT_PRODUCTS_DIR/$WRAPPER_NAME\\"'
+        prepare_for_archive_build_phase.shellScript = (
+            'rm -rf \\"$BUILT_PRODUCTS_DIR/$WRAPPER_NAME\\"\n'
+            'ln -sf \\"$TARGET_BUILD_DIR/$WRAPPER_NAME\\" \\"$BUILT_PRODUCTS_DIR/$WRAPPER_NAME\\"'
+        )
         self.buildPhases.append(prepare_for_archive_build_phase)
 
     def add_cleanup_after_archive_build_phase_to_target(self):
-        # After doing archive builds we need to delete the symlink that gets created to the target build directory,
-        # otherwise subsequent build or clean commands will fails when trying to create the project structure.
+        '''
+        After doing archive builds we need to delete the symlink that gets created to the target build directory,
+        otherwise subsequent build or clean commands will fails when trying to create the project structure.
+        '''
         cleanup_after_archive_build_phase = PBXShellScriptBuildPhase()
         cleanup_after_archive_build_phase.runOnlyForDeploymentPostprocessing = 1 # Only run this build step for archive builds
         cleanup_after_archive_build_phase.shellScript = 'rm -rf \\"$BUILT_PRODUCTS_DIR/$WRAPPER_NAME\\"'
@@ -347,54 +463,54 @@ class PBXNativeTarget(XCodeNode):
     def add_resources_build_phase_to_target(self, files):
         self.buildPhases.append(PBXResourcesBuildPhase(files))
 
-    def add_rsync_rsources_build_phase_to_target(self, dev_assets_folder_ref, release_assets_folder_ref, target_assets_subdir):
-        rsync_build_phase = PBXShellScriptBuildPhase()
-        clean_dev_folder_path               = '\\"' + XCodeEscapeSpacesForShell(dev_assets_folder_ref.path.rstrip('/')) + '/\\"'
-        clean_dev_bootstrap_file_path       = '\\"' + XCodeEscapeSpacesForShell(dev_assets_folder_ref.path.rstrip('/')) + '/bootstrap.cfg\\"'
-        clean_dev_config_file_path          = '\\"' + XCodeEscapeSpacesForShell(dev_assets_folder_ref.path.rstrip('/')) + '/' + self.name + '/config/game.xml\\"'
-        clean_release_folder_path           = '\\"' + XCodeEscapeSpacesForShell(release_assets_folder_ref.path.rstrip('/')) + '/\\"'
-        clean_target_folder_path            = '\\"$TARGET_BUILD_DIR/$WRAPPER_NAME/' + target_assets_subdir + '/\\"'
-        clean_target_bootstrap_file_path    = '\\"$TARGET_BUILD_DIR/$WRAPPER_NAME/' + target_assets_subdir + '/bootstrap.cfg\\"'
-        exclude_and_filter_options          = '--delete-excluded --exclude .DS_Store --exclude CVS --exclude .svn --exclude .git --exclude .hg --exclude assetcatalog.xml.tmp --filter \\"P /user/\\"'
-        clean_target_config_folder          = '\\"$TARGET_BUILD_DIR/$WRAPPER_NAME/' + target_assets_subdir + '/' + self.name.lower() + '/config/\\"'
-        clean_target_config_file_path       = '\\"$TARGET_BUILD_DIR/$WRAPPER_NAME/' + target_assets_subdir + '/' + self.name.lower() + '/config/game.xml\\"'
-
-        # For release builds we need to use the asset paks, but for development builds
-        # we want to use the loose assets (although the asset paks can be used instead).
-        # Additionally, if we're running in Virtual File System (VFS) mode, we only want
-        # to copy the bootstrap.cfg file
-        rsync_build_phase.shellScript  = \
-        'if [ \\"${CONFIGURATION}\\" = \\"release\\" ]; then\\n' \
-        '  rsync -rtuvk ' + exclude_and_filter_options + ' ' + clean_release_folder_path + ' ' + clean_target_folder_path + '\\n' \
-        'else\\n' \
-        '  while read line; do\\n' \
-        '    if [[ $line == remote_filesystem* ]]; then\\n' \
-        '      eval $line\\n' \
-        '      remote_filesystem=\\"$(echo -e \\"${remote_filesystem}\\" | tr -d \\\'[[:space:]]\\\')\\"\\n' \
-        '    fi\\n' \
-        '  done < ' + clean_dev_bootstrap_file_path + '\\n' \
-        '  if [ \\"$remote_filesystem\\" -eq 1 ]; then\\n' \
-        '    rm -rf ' + clean_target_folder_path + '\\n' \
-        '    mkdir -p ' + clean_target_folder_path + '\\n' \
-        '    mkdir -p ' + clean_target_config_folder + '\\n' \
-        '    rsync -rtuvk ' + clean_dev_bootstrap_file_path + ' ' + clean_target_bootstrap_file_path + '\\n' \
-        '    rsync -rtuvk ' + clean_dev_config_file_path + ' ' + clean_target_config_file_path + '\\n' \
-        '  else\\n' \
-        '    mkdir -p ' + clean_target_folder_path + '\\n' \
-        '    rsync -rtuvk ' + exclude_and_filter_options + ' ' + clean_dev_folder_path + ' ' + clean_target_folder_path + '\\n' \
-        '  fi\\n' \
-        'fi'
-
-        self.buildPhases.append(rsync_build_phase)
-
     def add_remove_embedded_provisioning_build_phase_to_target(self):
-        '''Remove the embedded provisioning file before each deploy to force xcode to sign the application.
-           There are times when the executable is copied over but xcode does not sign it.
-           When xcode then deploys the app it fails because the executable was not signed.
-           Deleting the embeded manifest file forces xcode to regenerate it and sign the executable.'''
+        '''
+        Remove the embedded provisioning file before each deploy to force xcode to sign the application.
+        There are times when the executable is copied over but xcode does not sign it. When xcode then
+        deploys the app it fails because the executable was not signed. Deleting the embeded manifest
+        file forces xcode to regenerate it and sign the executable.
+        '''
         remove_embedded_provisioning_build_phase = PBXShellScriptBuildPhase()
         remove_embedded_provisioning_build_phase.shellScript = 'rm -f \\"$TARGET_BUILD_DIR/$WRAPPER_NAME/embedded.mobileprovision\\"'
         self.buildPhases.append(remove_embedded_provisioning_build_phase)
+
+    def _generate_build_config_list(self, settings, output_folder_override = None, output_sub_folder = None, archs_override = None):
+        ctx = self._ctx
+        platform_name = self._platform_name
+
+        # Because of how wscript files are executed when we recurse (project_generator phase) the
+        # tools that go into the lmbr_setup tools output are incomplete. For this case we call
+        # get_lmbr_setup_tools_output_folder ourselves with a platform and config override to get
+        # the correct output folder.
+        is_lmbr_setup_tool = False
+        if output_folder_override and (output_folder_override in ctx.get_lmbr_setup_tools_output_folder()):
+            is_lmbr_setup_tool = True
+
+        build_configurations = []
+        for config in ctx.get_target_configurations():
+            config_settings = copy.copy(settings)
+
+            build_dir = ''
+
+            if is_lmbr_setup_tool:
+                output_folder_override = ctx.get_lmbr_setup_tools_output_folder(platform_name, config)
+                build_dir = os.path.join(ctx.engine_path, output_folder_override)
+
+            else:
+                build_dir = ctx.get_output_folders(platform_name, config)[0].abspath()
+
+            if output_sub_folder:
+                build_dir = os.path.join(build_dir, output_sub_folder)
+
+            config_settings['CONFIGURATION_BUILD_DIR'] = os.path.normpath(build_dir)
+
+            if archs_override:
+                config_settings['ARCHS'] = ' '.join(archs_override)
+
+            build_configurations.append(XCBuildConfiguration(config, config_settings))
+
+        self.buildConfigurationList = XCConfigurationList(build_configurations)
+
 
 # Root project object
 class PBXProject(XCodeNode):
@@ -448,22 +564,63 @@ class PBXProject(XCodeNode):
         w("\trootObject = %s;\n" % self._id)
         w("}\n")
 
+    def find_pbx_file_reference(self, file_path):
+        '''
+        Search the entire project source tree for a PBXFileReference specified by a relative file path.
+        '''
+        node = self.mainGroup
+        path_parts = file_path.split('/')
+
+        for path_part in path_parts:
+            # if we've somehow managed to get a node that isn't a PBXGroup before exhausting the path,
+            # the file doesn't exist
+            if not isinstance(node, PBXGroup):
+                return None
+
+            for child in node.children:
+                if child.name == path_part:
+                    node = child
+                    break
+            # the file doesn't exist if all children were exhausted
+            else:
+                return None
+
+        if isinstance(node, PBXFileReference):
+            return node
+
+        return None
+
     def add_task_gen(self, task_generator, ctx):
+        target = PBXNativeTarget(self.platform_name, ctx)
+        target.init_as_exectuable(task_generator, self.settings, self.project_spec)
 
-        is_mac_app_game_project = getattr(task_generator, 'mac_app', False) and getattr(task_generator, 'mac_app_game_project', True)
+        self.targets.append(target)
+        self._output.children.append(target.productReference)
 
-        if not is_mac_app_game_project and not getattr(task_generator, 'ios_app', False) and not getattr(task_generator, 'appletv_app', False):
-            self.targets.append(PBXLegacyTarget(self.platform_name, self.project_spec, task_generator.name, ctx))
-        else:
-            target = PBXNativeTarget(self.platform_name, self.project_spec, task_generator, self.settings, ctx)
-            self.targets.append(target)
-            self._output.children.append(target.productReference)
+        if self.platform_name in XCTEST_WRAPPER_TARGETS:
+            test_target = PBXNativeTarget(self.platform_name, ctx)
+            test_target.init_as_test(self, target, self.settings)
+
+            self.targets.append(test_target)
+            self._output.children.append(test_target.productReference)
+
+        return target
+
 
 class xcode(Build.BuildContext):
+
+    def get_launcher_name(self, platform_name):
+        return 'ClientLauncher'
 
     def get_settings(self):
         settings = {}
         return settings
+
+    def get_dev_source_assets_subdir(self):
+        return self.get_bootstrap_assets(self.get_target_platform_name())
+
+    def get_release_source_assets_subdir(self):
+        return '{}_paks'.format(self.get_dev_source_assets_subdir())
 
     def collect_source(self, task_generator):
         source_files = task_generator.to_nodes(getattr(task_generator, 'source', []))
@@ -472,7 +629,7 @@ class xcode(Build.BuildContext):
         source = list(set(source_files + plist_files))
         return source
 
-    def generate_project(self):
+    def execute(self):
         global root_dir
 
         self.restore()
@@ -485,6 +642,7 @@ class xcode(Build.BuildContext):
         xcode_project_name = self.get_xcode_project_name()
         if not xcode_project_name:
             xcode_project_name = getattr(Context.g_module, Context.APPNAME, 'project')
+
         project = PBXProject(xcode_project_name, ('Xcode 3.2', 46), self)
         project.set_project_spec(self.options.project_spec)
 
@@ -492,10 +650,44 @@ class xcode(Build.BuildContext):
         project.set_platform_name(platform_name)
         project.set_settings(self.get_settings())
 
+        resource_group = PBXGroup("Resources")
+        project.mainGroup.children.append(resource_group)
+
         spec_modules = self.spec_modules(project.project_spec)
         project_modules = [];
         for project_name in self.get_enabled_game_project_list():
             project_modules = project_modules + self.project_and_platform_modules(project_name, platform_name)
+
+
+        target_platforms = ['all']
+        for platform in self.get_target_platforms():
+            target_platforms.append(self.platform_to_platform_alias(platform))
+            target_platforms.append(platform)
+
+        target_platforms = set(target_platforms)
+
+        # add the xctest wrapper source files to the project for platforms that leverage it for commandline installation
+        if platform_name in XCTEST_WRAPPER_TARGETS:
+            xctest_root_node = self.srcnode.make_node(XCTEST_WRAPPER_REL_PATH.split('/'))
+            test_files = [ xctest_root_node.make_node(test_file) for test_file in XCTEST_WRAPPER_FILES ]
+
+            project.mainGroup.add(self.srcnode, test_files)
+
+            xcrun_cmd = [
+                'xcrun',
+                '--sdk',
+                PLATFORM_SDK_NAME[platform_name],
+                '--show-sdk-path'
+            ]
+            sdk_path = subprocess.check_output(xcrun_cmd).decode(sys.stdout.encoding or 'iso8859-1', 'replace').strip()
+
+            # the installTest requires UIKit to show a dialog
+            frameworks_group = PBXGroup('Frameworks')
+            ui_kit = PBXFileReference('UIKit.framework', os.path.join(sdk_path, FRAMEWORKS_REL_PATH, 'UIKit.framework'), 'wrapper.framework', '<absolute>')
+            frameworks_group.children.append(ui_kit)
+
+            project.mainGroup.children.append(frameworks_group)
+
 
         source_files = []
         for group in self.groups:
@@ -503,41 +695,60 @@ class xcode(Build.BuildContext):
                 if not isinstance(task_generator, TaskGen.task_gen):
                     continue
 
-                if task_generator.target not in spec_modules and task_generator.target not in project_modules:
-                    Logs.debug('xcode: not adding module to project %s' % task_generator.target)
+                if (task_generator.target not in spec_modules) and (task_generator.target not in project_modules):
+                    Logs.debug('xcode: Skipping %s because it is not part of the spec', task_generator.name)
                     continue
 
                 task_generator.post()
 
-                features = Utils.to_list(getattr(task_generator, 'features', ''))
+                platforms = target_platforms.intersection(task_generator.platforms)
+                if not platforms:
+                    Logs.debug('xcode: Skipping %s because it is not supported on platform %s', task_generator.name, platform_name)
+                    continue
 
                 source_files = list(set(source_files + self.collect_source(task_generator)))
 
-                if 'cprogram' or 'cxxprogram' in features:
-                    project.add_task_gen(task_generator, self)
+                # Match any C/C++ program feature
+                features = Utils.to_list(getattr(task_generator, 'features', ''))
+                have_feature_match = False
+                for a_feature in features:
+                    if re.search("c.*program", a_feature) != None:
+                        have_feature_match = True
+                        break
+                else:
+                    Logs.debug('xcode: Skipping %s because it is not a program', task_generator.name)
+                    continue
+
+                pbx_native_target = project.add_task_gen(task_generator, self)
+                xcassets_path = getattr(task_generator, 'darwin_xcassets', None)
+                if xcassets_path:
+                    app_resources_group = PBXGroup(task_generator.name)
+                    resource_group.children.append(app_resources_group)
+                    xcassets_folder_node = self.engine_node.make_node(xcassets_path)
+                    xcode_assets_folder_ref = PBXFileReference('xcassets', xcassets_folder_node.abspath(), 'folder.assetcatalog')
+                    app_resources_group.children.append(xcode_assets_folder_ref)
+                    pbx_native_target.add_resources_build_phase_to_target([xcode_assets_folder_ref])
 
         project.mainGroup.add(self.srcnode, source_files)
         project.targets.sort(key=lambda target: [isinstance(target, PBXLegacyTarget), target.name])
 
         # Create a dummy target that builds all source files so Xcode find file/symbol functionality works
+        dummy_target = PBXNativeTarget(project.platform_name, self)
+
         source_file_references = []
         project.mainGroup.get_child_file_references_recursive(source_file_references)
-        dummy_target = PBXNativeTarget(project.platform_name, project.project_spec, None, project.settings, self)
         dummy_target.buildPhases = [PBXSourcesBuildPhase(source_file_references)]
-        dummy_target.buildRules = []
-        dummy_target.dependencies = []
-        dummy_target.name = "DummyTargetForSymbols"
-        dummy_target.productName = "DummyTargetForSymbols"
-        dummy_target.productType = "com.apple.product-type.tool"
-        dummy_target.productReference = PBXFileReference("DummyTargetForSymbols", "DummyTargetForSymbols", 'compiled.mach-o.executable', 'BUILT_PRODUCTS_DIR')
+
+        dummy_target.name = 'DummyTargetForSymbols'
+        dummy_target.productName = 'DummyTargetForSymbols'
+        dummy_target.productType = 'com.apple.product-type.tool'
+        dummy_target.productReference = PBXFileReference('DummyTargetForSymbols', 'DummyTargetForSymbols', 'compiled.mach-o.executable', 'BUILT_PRODUCTS_DIR')
+
         project._output.children.append(dummy_target.productReference)
         project.targets.append(dummy_target)
 
-        # Create resource group/folder structure and attach it to the native
+        # Create game resource group/folder structure and attach it to the native
         # projects
-        resource_group = PBXGroup("Resources")
-        project.mainGroup.children.append(resource_group)
-
         root_assets_folder = self.srcnode.make_node("Cache")
 
         for game_project in self.get_enabled_game_project_list():
@@ -557,41 +768,47 @@ class xcode(Build.BuildContext):
             game_resources_group.children.append(xcode_assets_folder_ref)
 
             for target in project.targets:
-                if isinstance(target, PBXNativeTarget) and target.name == game_project:
+                launcher_name = self.get_launcher_name(platform_name) or ''
+                if isinstance(target, PBXNativeTarget) and target.name == game_project + launcher_name:
                     target.add_remove_embedded_provisioning_build_phase_to_target()
-                    target.add_rsync_rsources_build_phase_to_target(dev_assets_folder_ref, release_assets_folder_ref, self.get_target_assets_subdir())
                     target.add_resources_build_phase_to_target([xcode_assets_folder_ref])
 
         project.mainGroup.sort_recursive()
 
         projectDir = self.srcnode.make_node("/%s.xcodeproj" % xcode_project_name)
-            
+
         projectDir.mkdir()
         node = projectDir.make_node('project.pbxproj')
         project.write(open(node.abspath(), 'w'))
+
+        # Generate settings to make Xcode use the Legacy Build System
+        project_ws_node = projectDir.make_node('project.xcworkspace')
+        project_ws_node.mkdir()
+
+        shared_data_node = project_ws_node.make_node("xcshareddata")
+        shared_data_node.mkdir()
+        wpfile = shared_data_node.make_node("WorkspaceSettings.xcsettings")
+
+        with open(wpfile.abspath(),"w") as f:
+            f.write(XCODE_WORKSPACE_SETTINGS)
 
 
 class xcode_mac(xcode):
     '''Generate an xcode project for Mac'''
     cmd = 'xcode_mac'
+    is_project_generator = True
 
     def get_target_platforms(self):
-        return ['darwin', 'darwin_x64']
+        return ['darwin_x64']
 
     def get_target_platform_name(self):
         return 'darwin_x64'
 
     def get_target_configurations(self):
-        return self.get_supported_configurations()
+        return PLATFORM_MAP['darwin_x64'].get_configuration_names()
 
     def get_xcode_project_name(self):
         return self.get_mac_project_name()
-
-    def get_dev_source_assets_subdir(self):
-        return '/osx_gl'
-
-    def get_release_source_assets_subdir(self):
-        return '/osx_gl_paks'
 
     def get_target_assets_subdir(self):
         return 'Contents/Resources/assets'
@@ -605,55 +822,31 @@ class xcode_mac(xcode):
     def get_launch_image(self, project):
         return self.get_mac_launch_image(project)
 
-    def execute(self):
-        self.generate_project()
-
 
 class xcode_ios(xcode):
     '''Generate an xcode project for iOS'''
     cmd = 'xcode_ios'
+    is_project_generator = True
 
     def get_target_platforms(self):
-            return [ 'ios' ]
+        return ['ios']
 
     def get_target_platform_name(self):
         return 'ios'
 
     def get_target_configurations(self):
-        supported_configurations = []
-        for config in self.get_supported_configurations():
-            if not ('_dedicated' in config):
-                supported_configurations.append(config)
-        return supported_configurations
+        return PLATFORM_MAP['ios'].get_configuration_names()
 
     def get_settings(self):
         settings = xcode.get_settings(self)
-        settings_file = self.root.find_node(Context.launch_dir).find_node('/_WAF_/ios/iossettings.json')
-        if settings_file != None:
-            settings.update(self.parse_json_file(settings_file))
-            if self.options.generate_debug_info:
-                settings['GCC_GENERATE_DEBUGGING_SYMBOLS'] = True
-            else:
-                settings['GCC_OPTIMIZATION_LEVEL'] = 3
 
-        else:
-            Logs.warn('xcode: Could not find a iossettings.json file in %s. Project will not have all necessary options set correctly' % (Context.launch_dir + '/_WAF_/ios/'))
-
-        # For symroot need to have the full path so change the value from
-        # relative path to a full path
-        if 'SYMROOT' in settings:
-            settings['SYMROOT'] = Context.launch_dir + "/" + settings['SYMROOT']
+        get_arm_settings_func = getattr(self, 'get_{}_xcode_settings'.format(self.get_target_platform_name()), lambda : dict())
+        settings.update(get_arm_settings_func())
 
         return settings
-    
+
     def get_xcode_project_name(self):
         return self.get_ios_project_name()
-
-    def get_dev_source_assets_subdir(self):
-        return '/ios'
-
-    def get_release_source_assets_subdir(self):
-        return '/ios_paks'
 
     def get_target_assets_subdir(self):
         return 'assets'
@@ -667,58 +860,23 @@ class xcode_ios(xcode):
     def get_launch_image(self, project):
         return self.get_ios_launch_image(project)
 
-    def execute(self):
-        self.generate_project()
 
-
-class xcode_appletv(xcode):
+class xcode_appletv(xcode_ios):
     '''Generate an xcode project for apple tv'''
     cmd = 'xcode_appletv'
+    is_project_generator = True
 
     def get_target_platforms(self):
-            return [ 'appletv' ]
+        return ['appletv']
 
     def get_target_platform_name(self):
         return 'appletv'
 
     def get_target_configurations(self):
-        supported_configurations = []
-        for config in self.get_supported_configurations():
-            if not ('_dedicated' in config):
-                supported_configurations.append(config)
-        return supported_configurations
+        return PLATFORM_MAP['appletv'].get_configuration_names()
 
-    def get_settings(self):
-        settings = xcode.get_settings(self)
-        settings_file = self.root.find_node(Context.launch_dir).find_node('/_WAF_/appletv/appletvsettings.json')
-        if settings_file != None:
-            settings.update(self.parse_json_file(settings_file))
-            if self.options.generate_debug_info:
-                settings['GCC_GENERATE_DEBUGGING_SYMBOLS'] = True
-            else:
-                settings['GCC_OPTIMIZATION_LEVEL'] = 3
-
-        else:
-            Logs.warn('xcode: Could not find a appletvsettings.json file in %s. Project will not have all necessary options set correctly' % (Context.launch_dir + '/_WAF_/appletv/'))
-
-        # For symroot need to have the full path so change the value from
-        # relative path to a full path
-        if 'SYMROOT' in settings:
-            settings['SYMROOT'] = Context.launch_dir + "/" + settings['SYMROOT']
-
-        return settings
-    
     def get_xcode_project_name(self):
         return self.get_appletv_project_name()
-
-    def get_dev_source_assets_subdir(self):
-        return '/ios'
-
-    def get_release_source_assets_subdir(self):
-        return '/ios_paks'
-
-    def get_target_assets_subdir(self):
-        return 'assets'
 
     def get_xcode_source_assets_subdir(self):
         return '/Resources/AppleTVLauncher/Images.xcassets'
@@ -728,10 +886,6 @@ class xcode_appletv(xcode):
 
     def get_launch_image(self, project):
         return self.get_appletv_launch_image(project)
-
-    def execute(self):
-        self.generate_project()
-
 
 @conf
 def get_project_overrides(ctx, target):
@@ -758,3 +912,31 @@ def get_solution_overrides(self):
 def xcode_stub_parse_vcxproj(self):
     pass
 
+
+@conf_event(after_methods=['load_compile_rules_for_enabled_platforms'],
+            after_events=['inject_generate_uber_command', 'inject_generate_module_def_command'])
+def inject_xcode_commands(conf):
+    """
+    Make sure optional xcode project command(s) are injected into the configuration pipeline as needed
+    """
+    if not isinstance(conf, ConfigurationContext):
+        return
+    if not Utils.unversioned_sys_platform() == 'darwin':
+        return
+
+    def _add_optioned_command(option, command):
+        if conf.is_option_true(option):
+            # Workflow improvement: for all builds generate projects after the build
+            # except when using the default build target 'utilities' then do it before
+            if 'build' in Options.commands:
+                build_cmd_idx = Options.commands.index('build')
+                Options.commands.insert(build_cmd_idx, command)
+            else:
+                Options.commands.append(command)
+
+    # Insert the optional xcode project generation commands in the configure pipeline
+    _add_optioned_command('generate_ios_projects_automatically', 'xcode_ios')
+
+    _add_optioned_command('generate_appletv_projects_automatically', 'xcode_appletv')
+
+    _add_optioned_command('generate_mac_projects_automatically', 'xcode_mac')

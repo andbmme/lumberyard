@@ -13,17 +13,27 @@
 #include <AzCore/Module/Module.h>
 #include <AzCore/Module/DynamicModuleHandle.h>
 #include <AzFramework/Metrics/MetricsPlainTextNameRegistration.h>
+#include <SceneBuilder/SceneBuilderComponent.h>
+#include <SceneBuilder/SceneSerializationHandler.h>
 #include <Config/Components/SceneProcessingConfigSystemComponent.h>
 #include <Config/Components/SoftNameBehavior.h>
 #include <Config/Widgets/GraphTypeSelector.h>
+#include <Exporting/Components/TangentGenerateComponent.h>
+#include <Exporting/Components/TangentPreExportComponent.h>
+
+#include <SceneAPI/SceneCore/SceneCore.h>
+#include <SceneAPI/SceneData/SceneData.h>
+#include <SceneAPI/FbxSceneBuilder/FbxSceneBuilder.h>
 
 namespace AZ
 {
     namespace SceneProcessing
     {
+#if !defined(SCENE_CORE_STATIC)
         AZStd::unique_ptr<DynamicModuleHandle> s_sceneCoreModule;
         AZStd::unique_ptr<DynamicModuleHandle> s_sceneDataModule;
         AZStd::unique_ptr<DynamicModuleHandle> s_fbxSceneBuilderModule;
+#endif // !defined(SCENE_CORE_STATIC)
 
         class SceneProcessingModule
             : public Module
@@ -34,17 +44,27 @@ namespace AZ
             SceneProcessingModule()
                 : Module()
             {
+#if defined(SCENE_CORE_STATIC)
+                AZ::SceneAPI::SceneCore::Initialize();
+                AZ::SceneAPI::SceneData::Initialize();
+                AZ::SceneAPI::FbxSceneBuilder::Initialize();
+#else
                 LoadSceneModule(s_sceneCoreModule, "SceneCore");
                 LoadSceneModule(s_sceneDataModule, "SceneData");
                 LoadSceneModule(s_fbxSceneBuilderModule, "FbxSceneBuilder");
+#endif // defined(SCENE_CORE_STATIC)
+
+                SceneProcessingConfig::GraphTypeSelector::Register();
 
                 m_descriptors.insert(m_descriptors.end(),
                 {
                     SceneProcessingConfig::SceneProcessingConfigSystemComponent::CreateDescriptor(),
                     SceneProcessingConfig::SoftNameBehavior::CreateDescriptor(),
+                    SceneBuilder::BuilderPluginComponent::CreateDescriptor(),
+                    SceneBuilder::SceneSerializationHandler::CreateDescriptor(),
+                    AZ::SceneExportingComponents::TangentPreExportComponent::CreateDescriptor(),
+                    AZ::SceneExportingComponents::TangentGenerateComponent::CreateDescriptor()
                 });
-
-                SceneProcessingConfig::GraphTypeSelector::Register();
 
                 // This is an internal Amazon gem, so register it's components for metrics tracking, otherwise the name of the component won't get sent back.
                 // IF YOU ARE A THIRDPARTY WRITING A GEM, DO NOT REGISTER YOUR COMPONENTS WITH EditorMetricsComponentRegistrationBus
@@ -61,9 +81,15 @@ namespace AZ
             {
                 SceneProcessingConfig::GraphTypeSelector::Unregister();
 
+                #if defined(SCENE_CORE_STATIC)
+                AZ::SceneAPI::FbxSceneBuilder::Uninitialize();
+                AZ::SceneAPI::SceneData::Uninitialize();
+                AZ::SceneAPI::SceneCore::Uninitialize();
+                #else
                 UnloadModule(s_fbxSceneBuilderModule);
                 UnloadModule(s_sceneDataModule);
                 UnloadModule(s_sceneCoreModule);
+                #endif
             }
 
             AZ::ComponentTypeList GetRequiredSystemComponents() const override

@@ -214,7 +214,7 @@ FileNode::FileNode(const QString& path, AWSProjectModel* projectModel, bool doNo
 {
 }
 
-QVariant FileNode::data(int role) const 
+QVariant FileNode::data(int role) const
 {
     auto result = PathNode::data(role);
     if (result.isValid() && m_fileContentModel && m_fileContentModel->IsModified())
@@ -254,7 +254,7 @@ QSharedPointer<IFileContentModel> FileNode::GetFileContentModel()
     return m_fileContentModel;
 }
 
-void FileNode::VisitDetail(IAWSProjectDetailVisitor* visitor) 
+void FileNode::VisitDetail(IAWSProjectDetailVisitor* visitor)
 {
     visitor->VisitProjectDetail(GetFileContentModel());
 }
@@ -619,7 +619,9 @@ public:
         auto resourceGroupStatusModel = ProjectModel()->ResourceGroupStatusModel(index());
         if (resourceGroupStatusModel)
         {
-            resourceGroupStatusModel->Refresh();
+            // If file contents have changed force refresh update on the model. This will update the
+            // resource group detail widget immediately. Avoid bugs caused by inconsistent UI state.
+            resourceGroupStatusModel->Refresh(true);
         }
         ParseResourceNodes();
     }
@@ -1485,10 +1487,10 @@ QModelIndex AWSProjectModel::ProjectStackIndex() const
 
 ///////////////////////////////////////////////////////////////////////////////
 
-void AWSProjectModel::AddResourceGroup(const QString& resourceGroupName, bool includeExampleResources, AsyncOperationCallback callback)
+void AWSProjectModel::CreateCloudGem(const QString& name, const QString& initialContent, AsyncOperationCallback callback)
 {
 
-    auto _callback = [this, callback](const QString& key, const QVariant value)
+    auto _callback = [callback](const QString& key, const QVariant value)
     {
         if (key == "success")
         {
@@ -1501,18 +1503,18 @@ void AWSProjectModel::AddResourceGroup(const QString& resourceGroupName, bool in
     };
 
     QVariantMap args;
-    args["resource_group"] = resourceGroupName;
-    args["include_example_resources"] = includeExampleResources;
-    ResourceManager()->ExecuteAsync(_callback, "add-resource-group", args);
+    args["gem_name"] = name;
+    args["initial_content"] = initialContent;
+    ResourceManager()->ExecuteAsync(_callback, "create-cloud-gem", args);
 
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 
-void AWSProjectModel::RemoveResourceGroup(const QString& resourceGroupName, AsyncOperationCallback callback)
+void AWSProjectModel::DisableResourceGroup(const QString& resourceGroupName, AsyncOperationCallback callback)
 {
 
-    auto _callback = [this, callback](const QString& key, const QVariant value)
+    auto _callback = [callback](const QString& key, const QVariant value)
     {
         if (key == "success")
         {
@@ -1526,7 +1528,30 @@ void AWSProjectModel::RemoveResourceGroup(const QString& resourceGroupName, Asyn
 
     QVariantMap args;
     args["resource_group"] = resourceGroupName;
-    ResourceManager()->ExecuteAsync(_callback, "remove-resource-group", args);
+    ResourceManager()->ExecuteAsync(_callback, "disable-resource-group", args);
+
+}
+
+///////////////////////////////////////////////////////////////////////////////
+
+void AWSProjectModel::EnableResourceGroup(const QString& resourceGroupName, AsyncOperationCallback callback)
+{
+
+    auto _callback = [callback](const QString& key, const QVariant value)
+    {
+        if (key == "success")
+        {
+            callback(QString{});
+        }
+        else if (key == "error")
+        {
+            callback(value.toString());
+        }
+    };
+
+    QVariantMap args;
+    args["resource_group"] = resourceGroupName;
+    ResourceManager()->ExecuteAsync(_callback, "enable-resource-group", args);
 
 }
 
@@ -1535,7 +1560,7 @@ void AWSProjectModel::RemoveResourceGroup(const QString& resourceGroupName, Asyn
 void AWSProjectModel::AddServiceApi(const QString& resourceGroupName, AsyncOperationCallback callback)
 {
 
-    auto _callback = [this, callback](const QString& key, const QVariant value)
+    auto _callback = [callback](const QString& key, const QVariant value)
     {
         if (key == "success")
         {
@@ -1569,7 +1594,7 @@ void AWSProjectModel::CreateDeploymentStack(const QString& deploymentName, bool 
     args["confirm_aws_usage"] = true;
     args["confirm_security_change"] = true;
     ResourceManager()->ExecuteAsync(
-        ResourceManager()->GetDeploymentStatusModel(deploymentName)->GetStackEventsModelInternal()->GetRequestId(), 
+        ResourceManager()->GetDeploymentStatusModel(deploymentName)->GetStackEventsModelInternal()->GetRequestId(),
         "create-deployment-stack", args);
 }
 
@@ -1582,7 +1607,7 @@ void AWSProjectModel::DeleteDeploymentStack(const QString& deploymentName)
     args["deployment"] = deploymentName;
     args["confirm_resource_deletion"] = true;
     ResourceManager()->ExecuteAsync(
-        model->GetStackEventsModelInternal()->GetRequestId(), 
+        model->GetStackEventsModelInternal()->GetRequestId(),
         "delete-deployment-stack", args);
 }
 
@@ -1752,7 +1777,15 @@ void AWSProjectModel::OnDeploymentInProgress(const QString& deploymentName)
     DeploymentListNode* deploymentListNode = static_cast<DeploymentListNode*>(itemFromIndex(DeploymentListIndex()));
     Node* deploymentNode = static_cast<Node*>(deploymentListNode->GetDeploymentNode(deploymentName));
 
-    deploymentNode->SetIsUpdating(true);
+    // This guard is to avoid a crash that happens in resource manager UI when switching to mis configured profile, quickly
+    // clicking create deployment using the bad profile and then trying switching back to bad profile and  trying to delete newly created deployment.
+    // This is not a solution to the underlying problem of slow responsiveness between Resource Manager UI and python boost bindings,
+    // which is the root cause of the issue. After the fix above the below check should not be needed as the OnDeploymentInProgress
+    // method wont be called from DeploymentStatusModel->DeleteStack() as (ResourceManager()->IsProjectInitialized()) will return false correctly
+    if (deploymentNode)
+    {
+        deploymentNode->SetIsUpdating(true);
+    }
 }
 
 ///////////////////////////////////////////////////////////////////////////////

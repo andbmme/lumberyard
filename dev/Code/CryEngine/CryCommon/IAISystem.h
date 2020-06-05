@@ -11,13 +11,11 @@
 */
 // Original file Copyright Crytek GMBH or its affiliates, used under license.
 
-#ifndef CRYINCLUDE_CRYCOMMON_IAISYSTEM_H
-#define CRYINCLUDE_CRYCOMMON_IAISYSTEM_H
 #pragma once
 
 #include "SerializeFwd.h"
 #include <IAIRecorder.h> // <> required for Interfuscator
-#include <IJobManager.h> // <> required for Interfuscator
+#include <ITimer.h>
 #include <IPhysics.h>
 #include <CryFixedArray.h>
 #include <IEntity.h>
@@ -61,7 +59,6 @@ class ICentralInterestManager;
 struct ITacticalPointSystem;
 struct ITargetTrackManager;
 struct Sphere;
-struct IAIActionManager;
 struct ISmartObjectManager;
 struct HidespotQueryContext;
 class IVisionMap;
@@ -897,17 +894,8 @@ struct IAISystem
     virtual INavigation* GetINavigation() = 0;
     virtual IAIRecorder* GetIAIRecorder() = 0;
     virtual struct IMovementSystem* GetMovementSystem() const = 0;
-    virtual AIActionSequence::ISequenceManager* GetSequenceManager() const = 0;
     virtual IClusterDetector* GetClusterDetector() const = 0;
     //Get Subsystems///////////////////////////////////////////////////////////////////////////////////////////////
-    ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-
-
-    ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    //AI Actions///////////////////////////////////////////////////////////////////////////////////////////////////
-    virtual IAIActionManager* GetAIActionManager() = 0;
-    //AI Actions///////////////////////////////////////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
@@ -1019,8 +1007,6 @@ struct IAISystem
     virtual IAIObject* GetBeacon(unsigned short nGroupID) = 0;
     virtual void UpdateBeacon(unsigned short nGroupID, const Vec3& vPos, IAIObject* pOwner = 0) = 0;
 
-    virtual bool ParseTables(int firstTable, bool parseMovementAbility, IFunctionHandler* pH, AIObjectParams& aiParams, bool& updateAlways) = 0;
-
     // !!! added to resolve merge conflict: to be removed in dev/c2 !!!
     virtual float GetFrameStartTimeSecondsVirtual() const = 0;
     //WTF are these?///////////////////////////////////////////////////////////////////////////////////////////////
@@ -1041,6 +1027,26 @@ struct IAISystem
     virtual IPathFollowerPtr CreateAndReturnNewDefaultPathFollower(const PathFollowerParams& params, const IPathObstacles& pathObstacleObject) = 0;
     // </interfuscator:shuffle>
 };
+
+class CryLegacyAISystemRequests
+    : public AZ::EBusTraits
+{
+public:
+    //////////////////////////////////////////////////////////////////////////
+    // EBusTraits overrides
+    static const AZ::EBusHandlerPolicy HandlerPolicy = AZ::EBusHandlerPolicy::Single;
+    static const AZ::EBusAddressPolicy AddressPolicy = AZ::EBusAddressPolicy::Single;
+    //////////////////////////////////////////////////////////////////////////
+
+    //////////////////////////////////////////////////////////////////////////
+    // Creates and initializes a legacy IAISystem instance
+    virtual IAISystem* InitAISystem() = 0;
+
+    //////////////////////////////////////////////////////////////////////////
+    // Shuts down and destroys a legacy IAISystem instance
+    virtual void ShutdownAISystem(IAISystem* aiSystem) = 0;
+};
+using CryLegacyAISystemRequestBus = AZ::EBus<CryLegacyAISystemRequests>;
 
 #if defined(ENABLE_LW_PROFILERS)
 class CAILightProfileSection
@@ -1069,6 +1075,3 @@ private:
 #else
 #define AISYSTEM_LIGHT_PROFILER()
 #endif
-
-#endif // CRYINCLUDE_CRYCOMMON_IAISYSTEM_H
-

@@ -54,13 +54,21 @@ struct SDeformableMeshData
 
 struct SSpine
 {
-    ~SSpine() { delete[] pVtx; delete[] pVtxCur; delete[] pSegDim; }
-    SSpine() { pVtx = 0; pVtxCur = 0; pSegDim = 0; bActive = false; nVtx = 0; len = 0; navg = Vec3(0, 0, 0); idmat = 0; iAttachSpine = 0; iAttachSeg = 0; }
+    ~SSpine() { delete[] pVtx; delete[] pVtxCur; delete[] pSegDim; delete[] pStiffness; delete[] pDamping; delete[] pThickness; }
+    SSpine() : bActive(false), pVtx(nullptr), pVtxCur(nullptr), pSegDim(nullptr),
+        pStiffness(nullptr), pDamping(nullptr), pThickness(nullptr),
+        nVtx(0), len(0.0f), navg(0.0f, 0.0f, 0.0f), idmat(0), iAttachSpine(0), iAttachSeg(0) {}
 
     bool bActive;
     Vec3* pVtx;
     Vec3* pVtxCur;
     Vec4* pSegDim;
+
+    /// Per bone UDP for stiffness, damping and thickness for touch bending vegetation
+    float* pStiffness;
+    float* pDamping;
+    float* pThickness;
+
     int nVtx;
     float len;
     Vec3 navg;
@@ -69,12 +77,19 @@ struct SSpine
     int iAttachSeg;
 };
 
+namespace Physics
+{
+    struct TouchBendingSkeletonHandle;
+}
+
 class CStatObjFoliage
     : public IFoliage
     , public Cry3DEngineBase
 {
 public:
-    CStatObjFoliage()
+    CStatObjFoliage() :
+        m_touchBendingSkeletonProxy(nullptr),
+        m_worldAabb(AABB::type_reset::RESET)
     {
         m_next = 0;
         m_prev = 0;
@@ -117,7 +132,7 @@ public:
     virtual int Serialize(TSerialize ser);
     virtual void SetFlags(int flags);
     virtual int GetFlags() { return m_flags; }
-    virtual IRenderNode* GetIRenderNode()   {   return m_pVegInst; }
+    virtual IRenderNode* GetIRenderNode() { return m_pVegInst; }
     virtual int GetBranchCount() { return m_nRopes; }
     virtual IPhysicalEntity* GetBranchPhysics(int iBranch) { return (unsigned int)iBranch < (unsigned int)m_nRopes ? m_pRopes[iBranch] : 0; }
 
@@ -130,7 +145,7 @@ public:
     void Update(float dt, const CCamera& rCamera);
     void BreakBranch(int idx);
 
-    CStatObjFoliage* m_next, * m_prev;
+    CStatObjFoliage* m_next, *m_prev;
     int m_nRefCount;
     int m_flags;
     CStatObj* m_pStatObj;
@@ -148,6 +163,14 @@ public:
     CRenderObject* m_pRenderObject;
     float m_timeInvisible;
     int m_bDelete;
+
+    //Used only by TouchBendingGem START (TouchBendingCVegetationAgent.cpp)
+    /// Opaque pointer created by TouchBending Gem. Used by TouchBendingCVegetationAgent to
+    /// talk to the Touch Bending Gem on behalf of each CStatObjFoliage object. 
+    Physics::TouchBendingSkeletonHandle* m_touchBendingSkeletonProxy;
+    AABB m_worldAabb;
+    //Used only by TouchBendingGem END
+
     // history for skinning data, needed for motion blur
     struct
     {
@@ -246,7 +269,7 @@ struct SPhysGeomArray
 
 struct SSyncToRenderMeshContext
 {
-    Vec3* vmin, * vmax;
+    Vec3* vmin, *vmax;
     int iVtx0;
     int nVtx;
     strided_pointer<Vec3> pVtx;
@@ -459,6 +482,11 @@ private:
     SSyncToRenderMeshContext* m_pAsyncUpdateContext;
 
     //////////////////////////////////////////////////////////////////////////
+    // Cloth inverse masses
+    //////////////////////////////////////////////////////////////////////////
+    AZStd::vector<float> m_clothInverseMasses;
+
+    //////////////////////////////////////////////////////////////////////////
     // METHODS.
     //////////////////////////////////////////////////////////////////////////
 public:
@@ -491,7 +519,7 @@ public:
     virtual bool IsLodsAreLoadedFromSeparateFile() override { return m_bLodsAreLoadedFromSeparateFile; }
 
     virtual int GetSubObjectMeshCount() const override { return m_nSubObjectMeshCount; }
-    virtual void SetSubObjectMeshCount(int count) { m_nSubObjectMeshCount = count;  }
+    virtual void SetSubObjectMeshCount(int count) { m_nSubObjectMeshCount = count; }
 
     virtual unsigned int GetVehicleOnlyPhysics() { return m_bVehicleOnlyPhysics; };
     virtual int GetIDMatBreakable() { return m_idmatBreakable; };
@@ -598,7 +626,7 @@ public:
     _smart_ptr<CStatObj>* GetLods() override { return m_pLODs; }
     int GetLoadedLodsNum() override { return m_nLoadedLodsNum; }
     void SetMerged(bool state)  override { m_bMerged = state; }
-    int GetRenderMeshMemoryUsage() const override { return m_nRenderMeshMemoryUsage;  }
+    int GetRenderMeshMemoryUsage() const override { return m_nRenderMeshMemoryUsage; }
     int FindNearesLoadedLOD(int nLodIn, bool bSearchUp = false) override;
     int FindHighestLOD(int nBias) override;
 
@@ -752,11 +780,15 @@ public:
     string& GetFileName() override { return m_szFileName; }
     const string& GetFileName() const override { return m_szFileName; }
 
+    const string& GetCGFNodeName() const override { return m_cgfNodeName; }
+
     int GetUserCount() const override { return m_nUsers; }
     bool CheckGarbage() const override { return m_bCheckGarbage; }
     void SetCheckGarbage(bool val) override { m_bCheckGarbage = val; }
     IStatObj* GetLodLevel0() override { return m_pLod0; }
     void SetLodLevel0(IStatObj* lod) override { m_pLod0 = lod; }
+
+    AZStd::vector<float>& GetClothInverseMasses() override { return m_clothInverseMasses; }
 
 protected:
     // Called by async stream callback.
@@ -804,6 +836,12 @@ protected:
     }
 
     bool CheckForStreamingDependencyLoop(const char* szFilenameDependancy) const;
+
+    /// LOD support for touch bending vegetation
+    void InitializeSkinnedChunk();
+
+    void FillClothInverseMasses(CMesh& mesh);
+
 } _ALIGN(8);
 
 

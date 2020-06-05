@@ -9,7 +9,7 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
-#include "stdafx.h"
+#include "EditorUI_QT_Precompiled.h"
 #include "QCollapseWidget.h"
 #include <VariableWidgets/ui_qcollapsewidget.h>
 #include <QLabel>
@@ -28,7 +28,6 @@ QCollapseWidget::QCollapseWidget(QWidget* parent, CAttributeItem* attributeItem)
     , ui(new Ui::QCollapseWidget)
     , m_attributeItem(attributeItem)
 {
-    menu = new ContextMenu(this);
     ui->setupUi(this);
 
     #ifdef EDITOR_QT_UI_EXPORTS

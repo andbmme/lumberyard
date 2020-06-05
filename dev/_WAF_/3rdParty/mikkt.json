@@ -1,0 +1,12 @@
+{
+    "name": "mikkt",
+    "source": "@3P:mikkt@",
+    "description": "Mikkt Library",
+    "system_includes": [
+        "."
+    ],
+    "defines": [],
+    "lib_required": "True"
+}
+
+

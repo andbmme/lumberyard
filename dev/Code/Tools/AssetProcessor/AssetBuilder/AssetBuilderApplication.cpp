@@ -74,16 +74,44 @@ void AssetBuilderApplication::RegisterCoreComponents()
 
 void AssetBuilderApplication::StartCommon(AZ::Entity* systemEntity)
 {
+    InstallCtrlHandler();
+
     AzToolsFramework::ToolsApplication::StartCommon(systemEntity);
+
+#if defined(AZ_PLATFORM_MAC)
+    // The asset builder needs to start astcenc as a child process to compress textures.
+    // astcenc is started by the PVRTexLib dynamic library. In order for it to be able to find
+    // the executable, we need to set the PATH environment variable.
+    AZStd::string binFolder;
+    AZ::ComponentApplicationBus::BroadcastResult(binFolder, &AZ::ComponentApplicationBus::Events::GetBinFolder);
+
+    AZStd::string appBinPath;
+    AzFramework::StringFunc::Path::Join(GetAppRoot(), binFolder.c_str(), appBinPath);
+
+    AZStd::string envPath;
+    if (azstricmp(GetAppRoot(), GetEngineRoot()) != 0)
+    {
+        AZStd::string engineBinPath;
+        AzFramework::StringFunc::Path::Join(GetEngineRoot(), binFolder.c_str(), engineBinPath);
+
+        envPath = AZStd::string::format("%s:%s", appBinPath.c_str(), engineBinPath.c_str());
+    }
+    else
+    {
+        envPath = AZStd::move(appBinPath);
+    }
+
+    setenv("PATH", envPath.c_str(), 1);
+#endif // AZ_PLATFORM_MAC
 
     AZStd::string configFilePath;
     AZStd::string gameRoot;
-    
+
     if (m_commandLine.GetNumSwitchValues("gameRoot") > 0)
     {
         gameRoot = m_commandLine.GetSwitchValue("gameRoot", 0);
     }
-    
+
     if (gameRoot.empty())
     {
         if (IsInDebugMode())
@@ -101,15 +129,18 @@ void AssetBuilderApplication::StartCommon(AZ::Entity* systemEntity)
             AZ_Printf(AssetBuilderSDK::InfoWindow, "gameRoot is best specified as the full path to the game's asset folder.");
         }
     }
-    
+
     AZ::IO::FileIOBase* fileIO = AZ::IO::FileIOBase::GetInstance();
     if (fileIO)
     {
         fileIO->SetAlias("@devassets@", gameRoot.c_str());
     }
 
-    AzFramework::StringFunc::Path::Join(gameRoot.c_str(), "config/editor.xml", configFilePath);
+    AzFramework::StringFunc::Path::Join(gameRoot.c_str(), "Config/Editor.xml", configFilePath);
     ReflectModulesFromAppDescriptor(configFilePath.c_str());
+
+    // once we load all the modules from the app descriptor, create an entity with the builders inside gems
+    CreateAndAddEntityFromComponentTags(AZStd::vector<AZ::Crc32>({ AssetBuilderSDK::ComponentTags::AssetBuilder }), "AssetBuilders Entity");
 
     // the asset builder app never writes source files, only assets, so there is no need to do any kind of asset upgrading
     AZ::Data::AssetManager::Instance().SetAssetInfoUpgradingEnabled(false);
@@ -136,4 +167,55 @@ bool AssetBuilderApplication::ReadGameFolderFromBootstrap(AZStd::string& result)
     }
 
     return AzFramework::StringFunc::Path::Join(assetRoot.c_str(), gameFolder.c_str(), result);
+}
+
+void AssetBuilderApplication::ResolveModulePath(AZ::OSString& modulePath)
+{
+    AzFramework::Application::ResolveModulePath(modulePath);
+}
+
+bool AssetBuilderApplication::GetOptionalAppRootArg(char destinationRootArgBuffer[], size_t destinationRootArgBufferSize) const
+{
+    // Only continue if the application received any arguments from the command line
+    if ((!this->m_argC) || (!this->m_argV))
+    {
+        return false;
+    }
+
+    int argc = *this->m_argC;
+    char** argv = *this->m_argV;
+
+    // Search for the app root argument (-approot=<PATH>) where <PATH> is the app root path to set for the application
+    const static char* appRootArgPrefix = "-approot=";
+    size_t appRootArgPrefixLen = strlen(appRootArgPrefix);
+
+    const char* appRootArg = nullptr;
+    for (int index = 0; index < argc; index++)
+    {
+        if (strncmp(appRootArgPrefix, argv[index], appRootArgPrefixLen) == 0)
+        {
+            appRootArg = &argv[index][appRootArgPrefixLen];
+            break;
+        }
+    }
+
+    if (appRootArg)
+    {
+        if (!AzFramework::StringFunc::Path::StripQuotes(appRootArg, destinationRootArgBuffer, destinationRootArgBufferSize))
+        {
+            return false;
+        }
+
+        const char lastChar = destinationRootArgBuffer[strlen(destinationRootArgBuffer) - 1];
+        bool needsTrailingPathDelim = (lastChar != AZ_CORRECT_FILESYSTEM_SEPARATOR) && (lastChar != AZ_WRONG_FILESYSTEM_SEPARATOR);
+        if (needsTrailingPathDelim)
+        {
+            azstrncat(destinationRootArgBuffer, destinationRootArgBufferSize, AZ_CORRECT_FILESYSTEM_SEPARATOR_STRING, 1);
+        }
+        return true;
+    }
+    else
+    {
+        return false;
+    }
 }

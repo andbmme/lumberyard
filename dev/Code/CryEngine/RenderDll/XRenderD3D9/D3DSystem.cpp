@@ -17,6 +17,42 @@
 #include "WindowsUtils.h"
 #include "D3DGPUParticleEngine.h"
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#undef AZ_RESTRICTED_SECTION
+#define D3DSYSTEM_CPP_SECTION_1 1
+#define D3DSYSTEM_CPP_SECTION_2 2
+#define D3DSYSTEM_CPP_SECTION_3 3
+#define D3DSYSTEM_CPP_SECTION_4 4
+#define D3DSYSTEM_CPP_SECTION_5 5
+#define D3DSYSTEM_CPP_SECTION_6 6
+#define D3DSYSTEM_CPP_SECTION_7 7
+#define D3DSYSTEM_CPP_SECTION_8 8
+#define D3DSYSTEM_CPP_SECTION_9 9
+#define D3DSYSTEM_CPP_SECTION_10 10
+#define D3DSYSTEM_CPP_SECTION_11 11
+#define D3DSYSTEM_CPP_SECTION_12 12
+#define D3DSYSTEM_CPP_SECTION_13 13
+#define D3DSYSTEM_CPP_SECTION_14 14
+#define D3DSYSTEM_CPP_SECTION_15 15
+#define D3DSYSTEM_CPP_SECTION_16 16
+#define D3DSYSTEM_CPP_SECTION_17 17
+#define D3DSYSTEM_CPP_SECTION_18 18
+#define D3DSYSTEM_CPP_SECTION_19 19
+#define D3DSYSTEM_CPP_SECTION_20 20
+#define D3DSYSTEM_CPP_SECTION_21 21
+#endif
+
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DSYSTEM_CPP_SECTION_1
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DSystem_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DSystem_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DSystem_cpp_salem.inl"
+    #endif
+#endif
+
 
 #include "D3DStereo.h"
 #include "D3DPostProcess.h"
@@ -34,26 +70,25 @@
     #define LoadLibrary  LoadLibraryA
   #endif // !UNICODE
 
-// Disable Uncrustify because it will put spaces around the slashes: *INDENT-OFF*
-# if 0 // Set to 0 to load DLL at runtime, you need to redist amd_ags(64).dll yourself
-#   ifdef WIN64
-      LINK_THIRD_PARTY_LIBRARY(SDKs/AMD/AGS Lib/lib/x64/static/amd_ags64.lib)
-#   else // WIN64
-      LINK_THIRD_PARTY_LIBRARY(SDKs/AMD/AGS Lib/lib/Win32/static/amd_ags.lib)
-#   endif // WIN64
-# else
-#   define _AMD_AGS_USE_DLL
-# endif
-# include <AMD/AGS Lib/inc/amd_ags.h>
-# include <NVAPI/nvapi.h>
-#	ifdef WIN64
-        LINK_THIRD_PARTY_LIBRARY(SDKs/NVAPI/amd64/nvapi64.lib)
-#	else // WIN64
-        LINK_THIRD_PARTY_LIBRARY(SDKs/NVAPI/x86/nvapi.lib)
-#	endif // WIN64
-#endif // defined(WIN32)
-// Enable Uncrustify: *INDENT-ON*
+#include <amd_ags.h>
+#pragma warning(push)
+#pragma warning(disable:4819)   // Invalid character not in default code page
+#pragma warning(disable:4828)
+#include <nvapi.h>
+#pragma warning(pop)
 
+#endif // defined(WIN32)
+
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DSYSTEM_CPP_SECTION_2
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DSystem_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DSystem_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DSystem_cpp_salem.inl"
+    #endif
+#endif
 
 #include "../Common/RenderCapabilities.h"
 
@@ -160,10 +195,10 @@ bool CD3D9Renderer::CreateContext(WIN_HWND hWnd, bool bAllowMSAA, int SSX, int S
     pContext->m_Height = m_height;
     pContext->m_pSwapChain  = 0;
     pContext->m_pBackBuffer = 0;
-    pContext->m_nViewportWidth  = m_width  / (m_CurrContext ? m_CurrContext->m_nSSSamplesX : 1);
-    pContext->m_nViewportHeight = m_height / (m_CurrContext ? m_CurrContext->m_nSSSamplesY : 1);
-    pContext->m_nSSSamplesX = std::max(1, SSX);
-    pContext->m_nSSSamplesY = std::max(1, SSY);
+    pContext->m_nViewportWidth  = aznumeric_cast<int>(aznumeric_cast<float>(m_width)  / (m_CurrContext ? m_CurrContext->m_fPixelScaleX : 1.0f));
+    pContext->m_nViewportHeight = aznumeric_cast<int>(aznumeric_cast<float>(m_height) / (m_CurrContext ? m_CurrContext->m_fPixelScaleY : 1.0f));
+    pContext->m_fPixelScaleX = aznumeric_cast<float>(std::max(1, SSX));
+    pContext->m_fPixelScaleY = aznumeric_cast<float>(std::max(1, SSY));
     pContext->m_bMainViewport = !gEnv->IsEditor();
     m_CurrContext = pContext;
     m_RContexts.AddElem(pContext);
@@ -301,6 +336,8 @@ bool CD3D9Renderer::CreateMSAADepthBuffer()
 
         SAFE_RELEASE(m_RP.m_MSAAData.m_pZBuffer);
         SAFE_RELEASE(m_RP.m_MSAAData.m_pDepthTex);
+        
+        SAFE_RELEASE(m_DepthBufferOrigMSAA.pSurf);
         m_DepthBufferOrigMSAA.pTex = nullptr;
         m_DepthBufferOrigMSAA.pSurf = m_pZBuffer;
         m_DepthBufferOrigMSAA.pTarget = m_pZTexture;
@@ -498,10 +535,20 @@ bool CD3D9Renderer::ChangeResolution(int nNewWidth, int nNewHeight, int nNewColD
         m_FullResRect.right = m_width;
         m_FullResRect.bottom = m_height;
 
-#if defined(WIN32) || defined(WIN64) || defined(LINUX) || defined(APPLE)
+#if defined(WIN32) || defined(WIN64) || defined(LINUX) || defined(APPLE) || defined(CREATE_DEVICE_ON_MAIN_THREAD)
         m_pRT->RC_SetViewport(0, 0, m_width, m_height);
 #else
         RT_SetViewport(0, 0, m_width, m_height);
+#endif
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DSYSTEM_CPP_SECTION_3
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DSystem_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DSystem_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DSystem_cpp_salem.inl"
+    #endif
 #endif
         m_MainViewport.nX = 0;
         m_MainViewport.nY = 0;
@@ -677,36 +724,37 @@ int CD3D9Renderer::EnumDisplayFormats(SDispFormat* formats)
 #if defined(SUPPORT_DEVICE_INFO)
 
     unsigned int numModes = 0;
-    if (SUCCEEDED(m_devInfo.Output()->GetDisplayModeList(m_devInfo.SwapChainDesc().BufferDesc.Format, 0, &numModes, 0)) && numModes)
+    if (m_devInfo.Output())
     {
-        std::vector<DXGI_MODE_DESC> dispModes(numModes);
-        if (SUCCEEDED(m_devInfo.Output()->GetDisplayModeList(m_devInfo.SwapChainDesc().BufferDesc.Format, 0, &numModes, &dispModes[0])) && numModes)
+        if (SUCCEEDED(m_devInfo.Output()->GetDisplayModeList(m_devInfo.SwapChainDesc().BufferDesc.Format, 0, &numModes, 0)) && numModes)
         {
-            std::sort(dispModes.begin(), dispModes.end(), compareDXGIMODEDESC);
-
-            unsigned int numUniqueModes = 0;
-            unsigned int prevWidth = 0;
-            unsigned int prevHeight = 0;
-            for (unsigned int i = 0; i < numModes; ++i)
+            std::vector<DXGI_MODE_DESC> dispModes(numModes);
+            if (SUCCEEDED(m_devInfo.Output()->GetDisplayModeList(m_devInfo.SwapChainDesc().BufferDesc.Format, 0, &numModes, &dispModes[0])) && numModes)
             {
-                if (prevWidth != dispModes[i].Width || prevHeight != dispModes[i].Height)
+                std::sort(dispModes.begin(), dispModes.end(), compareDXGIMODEDESC);
+
+                unsigned int numUniqueModes = 0;
+                unsigned int prevWidth = 0;
+                unsigned int prevHeight = 0;
+                for (unsigned int i = 0; i < numModes; ++i)
                 {
-                    if (formats)
+                    if (prevWidth != dispModes[i].Width || prevHeight != dispModes[i].Height)
                     {
-                        formats[numUniqueModes].m_Width = dispModes[i].Width;
-                        formats[numUniqueModes].m_Height = dispModes[i].Height;
-                        //  Confetti BEGIN: Igor Lobanchikov
-                        formats[numUniqueModes].m_BPP = CTexture::BytesPerBlock(CTexture::TexFormatFromDeviceFormat(dispModes[i].Format)) * 8;
-                        //  Confetti End: Igor Lobanchikov
+                        if (formats)
+                        {
+                            formats[numUniqueModes].m_Width = dispModes[i].Width;
+                            formats[numUniqueModes].m_Height = dispModes[i].Height;
+                            formats[numUniqueModes].m_BPP = CTexture::BytesPerBlock(CTexture::TexFormatFromDeviceFormat(dispModes[i].Format)) * 8;
+                        }
+
+                        prevWidth = dispModes[i].Width;
+                        prevHeight = dispModes[i].Height;
+                        ++numUniqueModes;
                     }
-
-                    prevWidth = dispModes[i].Width;
-                    prevHeight = dispModes[i].Height;
-                    ++numUniqueModes;
                 }
-            }
 
-            numModes = numUniqueModes;
+                numModes = numUniqueModes;
+            }
         }
     }
 
@@ -736,7 +784,19 @@ void CD3D9Renderer::UnSetRes()
 
 void CD3D9Renderer::DestroyWindow(void)
 {
-#if   defined(OPENGL) // Scrubber safe exclusion
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DSYSTEM_CPP_SECTION_4
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DSystem_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DSystem_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DSystem_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#elif defined(OPENGL) // Scrubber safe exclusion
 #else
     SAFE_RELEASE(m_DeviceContext);
 #endif
@@ -988,7 +1048,6 @@ void CD3D9Renderer::ShutDownFast()
     }
     SAFE_DELETE(m_pRT);
 
-    //  Confetti BEGIN: Igor Lobanchikov
 #if defined(OPENGL)
 #if !DXGL_FULL_EMULATION && !defined(CRY_USE_METAL)
     if (CV_r_multithreaded)
@@ -998,7 +1057,6 @@ void CD3D9Renderer::ShutDownFast()
 #endif //!DXGL_FULL_EMULATION
     m_devInfo.Release();
 #endif //defined(OPENGL)
-    //  Confetti End: Igor Lobanchikov
 }
 
 void CD3D9Renderer::RT_ShutDown(uint32 nFlags)
@@ -1039,7 +1097,6 @@ void CD3D9Renderer::RT_ShutDown(uint32 nFlags)
 
     FX_PipelineShutdown();
 
-    //  Confetti BEGIN: Igor Lobanchikov
 #if defined(SUPPORT_DEVICE_INFO)
     //m_devInfo.Release();
 #  if defined(OPENGL) && !DXGL_FULL_EMULATION && !defined(CRY_USE_METAL)
@@ -1047,7 +1104,6 @@ void CD3D9Renderer::RT_ShutDown(uint32 nFlags)
     m_pRT->m_kDXGLContextHandle.Set(NULL);
 #  endif //if defined(OPENGL) && !DXGL_FULL_EMULATION
 #endif
-    //  Confetti End: Igor Lobanchikov
 
 
     SAFE_RELEASE(m_pZBufferReadOnlyDSV);
@@ -1083,6 +1139,16 @@ void CD3D9Renderer::ShutDown(bool bReInit)
     //CBaseResource::ShutDown();
     ForceFlushRTCommands();
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DSYSTEM_CPP_SECTION_5
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DSystem_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DSystem_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DSystem_cpp_salem.inl"
+    #endif
+#endif
     //////////////////////////////////////////////////////////////////////////
     // Clear globals.
     //////////////////////////////////////////////////////////////////////////
@@ -1091,7 +1157,6 @@ void CD3D9Renderer::ShutDown(bool bReInit)
 
         SAFE_DELETE(m_pRT);
 
-    //  Confetti BEGIN: Igor Lobanchikov
 #if defined(OPENGL)
 #if !DXGL_FULL_EMULATION && !defined(CRY_USE_METAL)
     if (CV_r_multithreaded)
@@ -1101,7 +1166,6 @@ void CD3D9Renderer::ShutDown(bool bReInit)
 #endif //!DXGL_FULL_EMULATION
     m_devInfo.Release();
 #endif //defined(OPENGL)
-    //  Confetti End: Igor Lobanchikov
 
     if (!bReInit)
     {
@@ -1113,6 +1177,10 @@ void CD3D9Renderer::ShutDown(bool bReInit)
 
     EnableGPUTimers2(false);
     AllowGPUTimers2(false);
+
+#if defined(OPENGL) && !DXGL_FULL_EMULATION && !defined(CRY_USE_METAL)
+    DXGLFinalize();
+#endif //defined(OPENGL) && !DXGL_FULL_EMULATION
 
     PostShutDown();
 }
@@ -1321,7 +1389,7 @@ bool CD3D9Renderer::SetWindowIcon(const char* path)
         return false;
     }
 
-    if (stricmp(path, m_iconPath.c_str()) == 0)
+    if (azstricmp(path, m_iconPath.c_str()) == 0)
     {
         return true;
     }
@@ -1536,10 +1604,10 @@ WIN_HWND CD3D9Renderer::Init(int x, int y, int width, int height, unsigned int c
 {
     LOADING_TIME_PROFILE_SECTION;
 
-    MEMSTAT_CONTEXT(EMemStatContextTypes::MSC_Other, 0, "Renderer initialisation");
-
     if (!iSystem || !iLog)
     {
+        AZ_Error("CD3D9Renderer::Init", iSystem, "Renderer initialization failed because iSystem was null.");
+        AZ_Error("CD3D9Renderer::Init", iLog, "Renderer initialization failed because iLog was null.");
         return 0;
     }
 
@@ -1553,7 +1621,19 @@ WIN_HWND CD3D9Renderer::Init(int x, int y, int width, int height, unsigned int c
     m_CVColorBits = iConsole->GetCVar("r_ColorBits");
 
     bool bNativeResolution;
-#if   defined(IOS)
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DSYSTEM_CPP_SECTION_6
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DSystem_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DSystem_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DSystem_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#elif defined(IOS)
     bNativeResolution = true;
 #elif defined(APPLETV)
     bNativeResolution = true;
@@ -1586,11 +1666,9 @@ WIN_HWND CD3D9Renderer::Init(int x, int y, int width, int height, unsigned int c
     bNativeResolution = false;
 #endif
 
-    //  Confetti BEGIN: Igor Lobanchikov
 #if defined(OPENGL) && !DXGL_FULL_EMULATION && !defined(CRY_USE_METAL)
     DXGLInitialize(CV_r_multithreaded ? 4 : 0);
 #endif //defined(OPENGL) && !DXGL_FULL_EMULATION
-    //  Confetti End: Igor Lobanchikov
 
 #ifdef D3DX_SDK_VERSION
     iLog->Log("D3DX_SDK_VERSION = %d", D3DX_SDK_VERSION);
@@ -1705,12 +1783,10 @@ WIN_HWND CD3D9Renderer::Init(int x, int y, int width, int height, unsigned int c
         {
             CTexture::s_eTFZ = eTF_R16F;
         }
-        //  Confetti BEGIN: Igor Lobanchikov
         if (!gcpRendD3D->UseHalfFloatRenderTargets())
         {
             CTexture::s_eTFZ = eTF_R16U;
         }
-        //  Confetti End: Igor Lobanchikov
 
         // Note: Not rolling this into the if statement above in case s_eTFZ is set to R16F on initialization
         if (CTexture::s_eTFZ != eTF_R32F)
@@ -1808,15 +1884,23 @@ WIN_HWND CD3D9Renderer::Init(int x, int y, int width, int height, unsigned int c
         "To reset a previously loaded chart call r_ColorGradingChartImage 0.\n"
         "Usage: r_ColorGradingChartImage [path of color chart image/reset]");
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DSYSTEM_CPP_SECTION_7
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DSystem_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DSystem_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DSystem_cpp_salem.inl"
+    #endif
+#endif
 
-    //  Confetti BEGIN: Igor Lobanchikov
 #if defined(OPENGL) && !DXGL_FULL_EMULATION && !defined(CRY_USE_METAL)
     if (!m_pRT->IsRenderThread())
     {
         DXGLUnbindDeviceContext(&GetDeviceContext(), !CV_r_multithreaded);
     }
 #endif //defined(OPENGL) && !DXGL_FULL_EMULATION
-    //  Confetti End: Igor Lobanchikov
 
     if (!bShaderCacheGen)
     {
@@ -1851,8 +1935,12 @@ WIN_HWND CD3D9Renderer::Init(int x, int y, int width, int height, unsigned int c
 
     if (!bShaderCacheGen)
     {
+#if !defined(AZ_PLATFORM_LINUX)
         // create the D3D implementation of the GPU particle system.
         m_gpuParticleEngine = new CD3DGPUParticleEngine();
+#else
+        AZ_Warning("Rendering", false, "GPU Particles not supported on Linux");
+#endif
     }
 
     // Success, return the window handle
@@ -1962,8 +2050,12 @@ bool CD3D9Renderer::CheckSSAAChange()
 {
     const int width = m_CVWidth ? m_CVWidth->GetIVal() : m_width;
     const int height = m_CVHeight ? m_CVHeight->GetIVal() : m_height;
-    const int maxSamples = min(m_MaxTextureSize / width, m_MaxTextureSize / height);
-    const int numSSAASamples = clamp_tpl(CV_r_Supersampling, 1, maxSamples);
+    int numSSAASamples = 1;
+    if (width > 0 && height > 0)
+    {
+        const int maxSamples = min(m_MaxTextureSize / width, m_MaxTextureSize / height);
+        numSSAASamples = clamp_tpl(CV_r_Supersampling, 1, maxSamples);
+    }
     if (m_numSSAASamples != numSSAASamples)
     {
         m_numSSAASamples = numSSAASamples;
@@ -1985,7 +2077,7 @@ void CD3D9Renderer::InitAMDAPI()
     {
         return;
     }
-    AGSDriverVersionInfoStruct driverInfo = {0};
+    AGSDriverVersionInfoStruct driverInfo = {};
     status = AGSDriverGetVersionInfo(&driverInfo);
 
     if (status != AGS_SUCCESS)
@@ -2036,14 +2128,15 @@ void CD3D9Renderer::InitNVAPI()
         return;
     }
 
-    NV_DISPLAY_DRIVER_VERSION version = {0};
-    version.version = NV_DISPLAY_DRIVER_VERSION_VER;
+    NvU32 version2;
+    char branchVersion[NVAPI_SHORT_STRING_MAX];
 
-    NvAPI_Status status = NvAPI_GetDisplayDriverVersion(NVAPI_DEFAULT_HANDLE, &version);
+    NvAPI_Status status = NvAPI_SYS_GetDriverAndBranchVersion(&version2, branchVersion);
     if (status != NVAPI_OK)
     {
         iLog->LogError("NVAPI: Unable to get driver version (%d)", status);
     }
+    SetNvidiaDriverVersion(version2);
 
     // enumerate displays
     for (int i = 0; i < NVAPI_MAX_DISPLAYS; ++i)
@@ -2100,7 +2193,19 @@ bool CD3D9Renderer::SetRes()
     m_pixelAspectRatio = 1.0f;
 
     ///////////////////////////////////////////////////////////////////
-#if   defined(IOS) || defined(APPLETV) || defined(ANDROID)
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DSYSTEM_CPP_SECTION_8
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DSystem_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DSystem_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DSystem_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#elif defined(IOS) || defined(APPLETV) || defined(ANDROID)
     m_bFullScreen = true;
 
     if (!m_devInfo.CreateDevice(false, m_width, m_height, m_backbufferWidth, m_backbufferHeight, m_zbpp, OnD3D11CreateDevice, CreateWindowCallback))
@@ -2169,24 +2274,33 @@ bool SPixFormat::CheckSupport(D3DFormat Format, const char* szDescr, ETexture_Us
         if (nOptions & (D3D11_FORMAT_SUPPORT_TEXTURE2D | D3D11_FORMAT_SUPPORT_TEXTURECUBE))
         {
             bool canAutoGenMips = (nOptions & D3D11_FORMAT_SUPPORT_MIP_AUTOGEN) != 0;
-            //  Confetti BEGIN: Igor Lobanchikov
             bool canReadSRGB = CTexture::IsDeviceFormatSRGBReadable(Format);
 
-            //  Confetti BEGIN: Igor Lobanchikov
-            //  TODO: Igor: check if need to allow other compressed formats to stay here formats here too?
+            //  TODO: check if need to allow other compressed formats to stay here formats here too?
             //  Adding PVRTC format here improved the picture on iOS device.
-            //  Confetti End: Igor Lobanchikov
 
             bool bCanMips = true;
 
             Init();
             DeviceFormat  = Format;
-            MaxWidth      = D3D11_REQ_TEXTURE2D_U_OR_V_DIMENSION;
-            MaxHeight     = D3D11_REQ_TEXTURE2D_U_OR_V_DIMENSION;
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DSYSTEM_CPP_SECTION_9
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DSystem_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DSystem_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DSystem_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#else
+            MaxWidth = D3D11_REQ_TEXTURE2D_U_OR_V_DIMENSION;
+            MaxHeight = D3D11_REQ_TEXTURE2D_U_OR_V_DIMENSION;
+#endif
             Desc          = szDescr;
-            //  Confetti BEGIN: Igor Lobanchikov
             BytesPerBlock = CTexture::BytesPerBlock(CTexture::TexFormatFromDeviceFormat(Format));
-            //  Confetti End: Igor Lobanchikov
 
             bCanDS            = (nOptions & D3D11_FORMAT_SUPPORT_DEPTH_STENCIL) != 0;
             bCanRT            = (nOptions & D3D11_FORMAT_SUPPORT_RENDER_TARGET) != 0;
@@ -2248,11 +2362,9 @@ void SPixFormatSupport::CheckFormatSupport()
     m_FormatR8.CheckSupport(DXGI_FORMAT_R8_UNORM, "R8");
     m_FormatR8S.CheckSupport(DXGI_FORMAT_R8_SNORM, "R8S");
     m_FormatR16.CheckSupport(DXGI_FORMAT_R16_UNORM, "R16");
-    //  Confetti BEGIN: Igor Lobanchikov
     m_FormatR16U.CheckSupport(DXGI_FORMAT_R16_UINT, "R16U");
     m_FormatR16G16U.CheckSupport(DXGI_FORMAT_R16G16_UINT, "R16G16U");
     m_FormatR10G10B10A2UI.CheckSupport(DXGI_FORMAT_R10G10B10A2_UINT, "R10G10B10A2UI");
-    //  Confetti End: Igor Lobanchikov
     m_FormatR16F.CheckSupport(DXGI_FORMAT_R16_FLOAT, "R16F");
     m_FormatR32F.CheckSupport(DXGI_FORMAT_R32_FLOAT, "R32F");
     m_FormatR8G8.CheckSupport(DXGI_FORMAT_R8G8_UNORM, "R8G8");
@@ -2280,10 +2392,24 @@ void SPixFormatSupport::CheckFormatSupport()
     m_FormatR9G9B9E5.CheckSupport(DXGI_FORMAT_R9G9B9E5_SHAREDEXP, "R9G9B9E5");
 
     // Depth formats
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DSYSTEM_CPP_SECTION_10
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DSystem_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DSystem_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DSystem_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#else
     m_FormatD32FS8.CheckSupport(DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS, "R32FX8T");
     m_FormatD32F.CheckSupport(DXGI_FORMAT_R32_TYPELESS, "R32T");
     m_FormatD24S8.CheckSupport(DXGI_FORMAT_R24G8_TYPELESS, "R24G8T");
     m_FormatD16.CheckSupport(DXGI_FORMAT_R16_TYPELESS, "R16T");
+#endif
 
     m_FormatB5G6R5.CheckSupport(DXGI_FORMAT_B5G6R5_UNORM, "B5G6R5");
     m_FormatB5G5R5.CheckSupport(DXGI_FORMAT_B5G5R5A1_UNORM, "B5G5R5");
@@ -2299,7 +2425,6 @@ void SPixFormatSupport::CheckFormatSupport()
     m_FormatETC2A.CheckSupport(DXGI_FORMAT_ETC2A_UNORM, "ETC2A");
 #endif //defined(OPENGL)
 
-    //  Confetti BEGIN: Igor Lobanchikov (copied from CD3D9Renderer::OnD3D11CreateDevice by bosnichd)
 #ifdef CRY_USE_METAL
     m_FormatPVRTC2.CheckSupport(DXGI_FORMAT_PVRTC2_UNORM, "PVRTC2");
     m_FormatPVRTC4.CheckSupport(DXGI_FORMAT_PVRTC4_UNORM, "PVRTC4");
@@ -2320,7 +2445,6 @@ void SPixFormatSupport::CheckFormatSupport()
     m_FormatASTC_12x10.CheckSupport(DXGI_FORMAT_ASTC_12x10_UNORM, "ASTC_12x10");
     m_FormatASTC_12x12.CheckSupport(DXGI_FORMAT_ASTC_12x12_UNORM, "ASTC_12x12");
 #endif
-    //  Confetti End: Igor Lobanchikov (copied from CD3D9Renderer::OnD3D11CreateDevice by bosnichd)
 }
 
 void CD3D9Renderer::GetVideoMemoryUsageStats(size_t& vidMemUsedThisFrame, size_t& vidMemUsedRecently, bool bGetPoolsSizes)
@@ -2373,6 +2497,8 @@ HRESULT CALLBACK CD3D9Renderer::OnD3D11CreateDevice(D3DDevice* pd3dDevice)
     {
         const DXGI_ADAPTER_DESC1& adapterDesc = rd->m_devInfo.AdapterDesc();
 
+        rd->m_adapterDescription = AZStd::string::format("%ls", adapterDesc.Description);
+
         if (adapterDesc.VendorId == RenderCapabilities::s_gpuVendorIdAMD)
         {
             rd->m_Features |= RFT_HW_ATI;
@@ -2395,19 +2521,15 @@ HRESULT CALLBACK CD3D9Renderer::OnD3D11CreateDevice(D3DDevice* pd3dDevice)
             rd->m_Features |= RFT_HW_INTEL;
             iLog->Log ("D3D Detected: intel video card");
         }
-        //  Confetti BEGIN: Igor Lobanchikov
         else if (rd->m_devInfo.AdapterDesc().VendorId == RenderCapabilities::s_gpuVendorIdARM)
         {
             rd->m_Features |= RFT_HW_ARM_MALI;
             iLog->Log ("D3D Detected: ARM (MALI) video card");
         }
-        //  Confetti End: Igor Lobanchikov
 
-        //  Confetti BEGIN: Igor Lobanchikov
 #if defined(OPENGL) && !defined(CRY_USE_METAL)
         DXGLInitializeIHVSpecifix();
 #endif
-        //  Confetti End: Igor Lobanchikov
     }
 
     rd->m_nGPUs = min(rd->m_nGPUs, (uint32)MAX_GPU_NUM);
@@ -2415,9 +2537,23 @@ HRESULT CALLBACK CD3D9Renderer::OnD3D11CreateDevice(D3DDevice* pd3dDevice)
 
     CryLogAlways("Active GPUs: %i", rd->m_nGPUs);
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DSYSTEM_CPP_SECTION_11
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DSystem_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DSystem_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DSystem_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#else
     rd->m_NumResourceSlots = D3D11_COMMONSHADER_INPUT_RESOURCE_REGISTER_COUNT;
     rd->m_NumSamplerSlots = D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT;
     rd->m_MaxAnisotropyLevel = min(D3D11_REQ_MAXANISOTROPY, CRenderer::CV_r_texmaxanisotropy);
+#endif
 
 #if defined(WIN32) || defined(WIN64)
     HWND hWndDesktop = GetDesktopWindow();
@@ -2436,7 +2572,16 @@ HRESULT CALLBACK CD3D9Renderer::OnD3D11CreateDevice(D3DDevice* pd3dDevice)
 #else
     rd->m_MaxTextureMemory = 256 * 1024 * 1024;
 
-#if   defined(IOS)
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DSYSTEM_CPP_SECTION_12
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DSystem_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DSystem_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DSystem_cpp_salem.inl"
+    #endif
+#elif defined(IOS)
     rd->m_MaxTextureMemory = 1024 * 1024 * 1024;
 #endif
 #endif
@@ -2445,18 +2590,31 @@ HRESULT CALLBACK CD3D9Renderer::OnD3D11CreateDevice(D3DDevice* pd3dDevice)
         CRenderer::CV_r_TexturesStreamPoolSize = (int)(rd->m_MaxTextureMemory / 1024.0f / 1024.0f * 0.75f);
     }
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DSYSTEM_CPP_SECTION_13
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DSystem_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DSystem_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DSystem_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#else
     rd->m_MaxTextureSize = D3D11_REQ_FILTERING_HW_ADDRESSABLE_RESOURCE_DIMENSION;
     rd->m_bDeviceSupportsInstancing = true;
+#endif
 
     if (rd->m_bDeviceSupportsVertexTexture = (rd->m_Features & RFT_HW_SM30) != 0)
     {
         rd->m_Features |= RFT_HW_VERTEXTEXTURES;
     }
 
-    //  Confetti BEGIN: Igor Lobanchikov
 #if defined(CRY_USE_METAL) || (defined(OPENGL_ES))
-    // Igor: METAL Supports R32 RTs but it doesn't support blending for it. Cryengine uses blending to fix up depth.
-    // Igor: Disable R32 RT for metal for now.
+    // METAL Supports R32 RTs but it doesn't support blending for it. Cryengine uses blending to fix up depth.
+    // Disable R32 RT for metal for now.
     // Qualcomm's OpenGL ES 3.0 driver does not support R32F render targets.  Disabling for all OpenGL ES 3.0 versions for the time being.
     // When bound as a render target, we get this error:
     // W/Adreno-ES20(12623): <validate_render_targets:444>: GL_INVALID_OPERATION
@@ -2494,7 +2652,6 @@ HRESULT CALLBACK CD3D9Renderer::OnD3D11CreateDevice(D3DDevice* pd3dDevice)
 #else
     rd->m_bDeviceSupportsTessellation = false;
 #endif
-    //  Confetti End: Igor Lobanchikov
 
     rd->m_Features |= RFT_OCCLUSIONTEST;
 
@@ -2513,7 +2670,6 @@ HRESULT CALLBACK CD3D9Renderer::OnD3D11CreateDevice(D3DDevice* pd3dDevice)
         rd->m_bDeviceSupportsFP16Separate = false;
         rd->m_bDeviceSupportsFP16Filter = true;
 
-        //  Confetti BEGIN: Igor Lobanchikov
 #ifdef CRY_USE_METAL
         rd->m_FormatPVRTC2.CheckSupport(DXGI_FORMAT_PVRTC2_UNORM, "PVRTC2");
         rd->m_FormatPVRTC4.CheckSupport(DXGI_FORMAT_PVRTC4_UNORM, "PVRTC4");
@@ -2534,7 +2690,6 @@ HRESULT CALLBACK CD3D9Renderer::OnD3D11CreateDevice(D3DDevice* pd3dDevice)
         rd->m_FormatASTC_12x10.CheckSupport(DXGI_FORMAT_ASTC_12x10_UNORM, "ASTC_12x10");
         rd->m_FormatASTC_12x12.CheckSupport(DXGI_FORMAT_ASTC_12x12_UNORM, "ASTC_12x12");
 #endif
-        //  Confetti End: Igor Lobanchikov
 
         if (rd->m_hwTexFormatSupport.m_FormatBC1.IsValid() || rd->m_hwTexFormatSupport.m_FormatBC2.IsValid() || rd->m_hwTexFormatSupport.m_FormatBC3.IsValid())
         {
@@ -2549,7 +2704,7 @@ HRESULT CALLBACK CD3D9Renderer::OnD3D11CreateDevice(D3DDevice* pd3dDevice)
     rd->m_FullResRect.right = rd->m_width;
     rd->m_FullResRect.bottom = rd->m_height;
 
-#if defined(WIN32) || defined(WIN64) || defined(APPLE) || defined(LINUX)
+#if defined(WIN32) || defined(WIN64) || defined(APPLE) || defined(LINUX) || defined(CREATE_DEVICE_ON_MAIN_THREAD)
     rd->m_pRT->RC_SetViewport(0, 0, rd->m_width, rd->m_height);
 #else
     rd->RT_SetViewport(0, 0, rd->m_width, rd->m_height);
@@ -2594,6 +2749,15 @@ HRESULT CALLBACK CD3D9Renderer::OnD3D11PostCreateDevice(D3DDevice* pd3dDevice)
     rd->m_d3dsdBackBuffer.Format = backBufferSurfaceDesc.Format;
     rd->m_d3dsdBackBuffer.SampleDesc = backBufferSurfaceDesc.SampleDesc;
     rd->m_ZFormat = rd->m_devInfo.AutoDepthStencilFmt();
+#elif defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DSYSTEM_CPP_SECTION_14
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DSystem_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DSystem_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DSystem_cpp_salem.inl"
+    #endif
 #endif
     SAFE_RELEASE(pBackBuffer);
 
@@ -2614,7 +2778,21 @@ HRESULT CALLBACK CD3D9Renderer::OnD3D11PostCreateDevice(D3DDevice* pd3dDevice)
     dsTextureDesc.MiscFlags = 0;
     D3D11_DEPTH_STENCIL_VIEW_DESC dsViewDesc;
     dsViewDesc.Format = CTexture::ConvertToDepthStencilFmt(dsTextureDesc.Format);
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DSYSTEM_CPP_SECTION_15
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DSystem_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DSystem_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DSystem_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#else
     dsViewDesc.Flags = 0;
+#endif
     dsViewDesc.ViewDimension = dsTextureDesc.SampleDesc.Count > 1 ? D3D11_DSV_DIMENSION_TEXTURE2DMS : D3D11_DSV_DIMENSION_TEXTURE2D;
     dsViewDesc.Texture2D.MipSlice = 0;
 
@@ -2630,9 +2808,29 @@ HRESULT CALLBACK CD3D9Renderer::OnD3D11PostCreateDevice(D3DDevice* pd3dDevice)
     SAFE_RELEASE(rd->m_pZBuffer);
     dsTextureDesc.Width  = nDepthBufferWidth;
     dsTextureDesc.Height = nDepthBufferHeight;
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DSYSTEM_CPP_SECTION_16
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DSystem_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DSystem_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DSystem_cpp_salem.inl"
+    #endif
+#endif
     hr = rd->m_DevMan.CreateD3D11Texture2D(&dsTextureDesc, clearValues, NULL, &rd->m_pZTexture, "DepthBuffer");
     if (FAILED(hr))
     {
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DSYSTEM_CPP_SECTION_17
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DSystem_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DSystem_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DSystem_cpp_salem.inl"
+    #endif
+#endif
         return hr;
     }
     hr = rd->GetDevice().CreateDepthStencilView(rd->m_pZTexture, &dsViewDesc, &rd->m_pZBuffer);
@@ -2649,6 +2847,16 @@ HRESULT CALLBACK CD3D9Renderer::OnD3D11PostCreateDevice(D3DDevice* pd3dDevice)
     {
         dsTextureDesc.Width  = gcpRendD3D->GetOverlayWidth();
         dsTextureDesc.Height = gcpRendD3D->GetOverlayHeight();
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DSYSTEM_CPP_SECTION_18
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DSystem_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DSystem_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DSystem_cpp_salem.inl"
+    #endif
+#endif
         hr = rd->m_DevMan.CreateD3D11Texture2D(&dsTextureDesc, clearValues, NULL, &rd->m_pNativeZTexture, "DepthBuffer");
         if (FAILED(hr))
         {
@@ -2671,12 +2879,17 @@ HRESULT CALLBACK CD3D9Renderer::OnD3D11PostCreateDevice(D3DDevice* pd3dDevice)
     rd->m_DepthBufferOrig.pTex = nullptr;
     rd->m_DepthBufferOrig.pTarget = rd->m_pZTexture;
     rd->m_DepthBufferOrig.pSurf = rd->m_pZBuffer;
+    rd->m_pZBuffer->AddRef();
+    
     rd->m_DepthBufferOrigMSAA.pTex = nullptr;
     rd->m_DepthBufferOrigMSAA.pTarget = rd->m_pZTexture;
     rd->m_DepthBufferOrigMSAA.pSurf = rd->m_pZBuffer;
+    rd->m_pZBuffer->AddRef();
+    
     rd->m_DepthBufferNative.pTex = nullptr;
     rd->m_DepthBufferNative.pTarget = rd->m_pNativeZTexture;
     rd->m_DepthBufferNative.pSurf = rd->m_pNativeZBuffer;
+    rd->m_pNativeZBuffer->AddRef();
 
     rd->m_nRTStackLevel[0] = 0;
     if (rd->m_d3dsdBackBuffer.Width == rd->m_nativeWidth && rd->m_d3dsdBackBuffer.Height == rd->m_nativeHeight)
@@ -2692,7 +2905,21 @@ HRESULT CALLBACK CD3D9Renderer::OnD3D11PostCreateDevice(D3DDevice* pd3dDevice)
     rd->m_RTStack[0][0].m_pTarget = rd->m_pBackBuffer;
     rd->m_RTStack[0][0].m_Width = rd->m_d3dsdBackBuffer.Width;
     rd->m_RTStack[0][0].m_Height = rd->m_d3dsdBackBuffer.Height;
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DSYSTEM_CPP_SECTION_19
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DSystem_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DSystem_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DSystem_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#else
     rd->m_RTStack[0][0].m_bScreenVP = false;
+#endif
     rd->m_RTStack[0][0].m_bWasSetRT = false;
     rd->m_RTStack[0][0].m_bWasSetD = false;
     rd->m_nMaxRT2Commit = 0;
@@ -2705,19 +2932,16 @@ HRESULT CALLBACK CD3D9Renderer::OnD3D11PostCreateDevice(D3DDevice* pd3dDevice)
         rd->m_pCurTarget[i] = rd->m_pNewTarget[0]->m_pTex;
     }
 
-    rd->m_pZBuffer->AddRef();
     rd->m_DepthBufferOrig.nWidth = nDepthBufferWidth;
     rd->m_DepthBufferOrig.nHeight = nDepthBufferHeight;
     rd->m_DepthBufferOrig.bBusy = true;
     rd->m_DepthBufferOrig.nFrameAccess = -2;
 
-    rd->m_pZBuffer->AddRef();
     rd->m_DepthBufferOrigMSAA.nWidth = nDepthBufferWidth;
     rd->m_DepthBufferOrigMSAA.nHeight = nDepthBufferHeight;
     rd->m_DepthBufferOrigMSAA.bBusy = true;
     rd->m_DepthBufferOrigMSAA.nFrameAccess = -2;
 
-    rd->m_pNativeZBuffer->AddRef();
     rd->m_DepthBufferNative.nWidth = rd->m_nativeWidth;
     rd->m_DepthBufferNative.nHeight = rd->m_nativeHeight;
     rd->m_DepthBufferNative.bBusy = true;
@@ -2771,7 +2995,22 @@ HRESULT CALLBACK CD3D9Renderer::OnD3D11PostCreateDevice(D3DDevice* pd3dDevice)
         assert(SUCCEEDED(hr));
     }
 
-#if !defined(_RELEASE) && (defined(WIN32) || AZ_ENABLE_GNM_PA_DEBUG)
+#if !defined(_RELEASE)
+#if defined(WIN32)
+#define D3DSYSTEM_CPP_USE_PRIVATEDATA
+#elif defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DSYSTEM_CPP_SECTION_20
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DSystem_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DSystem_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DSystem_cpp_salem.inl"
+    #endif
+#endif
+#endif
+
+#if defined(D3DSYSTEM_CPP_USE_PRIVATEDATA)
     if (rd->m_pZTexture)
     {
         AZStd::string dsvName("$MainDepthStencil");
@@ -2806,6 +3045,19 @@ HRESULT CALLBACK CD3D9Renderer::OnD3D11PostCreateDevice(D3DDevice* pd3dDevice)
     rd->ReleaseAuxiliaryMeshes();
     rd->CreateAuxiliaryMeshes();
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DSYSTEM_CPP_SECTION_21
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DSystem_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DSystem_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DSystem_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#else
     D3D11_QUERY_DESC QDesc;
     QDesc.Query = D3D11_QUERY_EVENT;
     QDesc.MiscFlags = 0;
@@ -2815,6 +3067,7 @@ HRESULT CALLBACK CD3D9Renderer::OnD3D11PostCreateDevice(D3DDevice* pd3dDevice)
         assert(hr == S_OK && rd->m_pQuery[i]);
         rd->GetDeviceContext().End(rd->m_pQuery[i]);
     }
+#endif
     rd->EF_Restore();
 
     rd->m_bDeviceLost = 0;
@@ -2840,10 +3093,14 @@ HRESULT CALLBACK CD3D9Renderer::OnD3D11PostCreateDevice(D3DDevice* pd3dDevice)
     {
         LOADING_TIME_PROFILE_SECTION_NAMED("CD3D9Renderer::OnD3D10PostCreateDevice(): m_OcclQueries");
         rd->m_OcclQueries.Reserve(MAX_OCCL_QUERIES);
+        // Lazy initialization on Android due to limited number of queries that we can create.
+        // TODO Linux - This was crashing on Ubuntu, investigate
+#if !defined(AZ_PLATFORM_ANDROID) && !defined(AZ_PLATFORM_LINUX)
         for (int a = 0; a < MAX_OCCL_QUERIES; a++)
         {
             rd->m_OcclQueries[a].Create();
         }
+#endif
     }
 
 

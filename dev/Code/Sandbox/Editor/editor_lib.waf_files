@@ -3,13 +3,12 @@
         "Root": [
             "StdAfx.cpp"
         ],
-        "EditTools/ManipulatorShim":[
-            "ManipulatorShim.h",
-            "ManipulatorShim.cpp"
+        "EditTools/NullEditTool":[
+            "NullEditTool.h",
+            "NullEditTool.cpp"
         ],
         "Translations": [
             "Translations/editor_en-us.ts",
-            "Translations/flowgraph_en-us.ts",
             "Translations/assetbrowser_en-us.ts"
         ],
         "Resource Files": [
@@ -122,19 +121,12 @@
             "res/file_browse.ico",
             "res/filesimage.bmp",
             "res/filestatus.bmp",
-            "res/flowgraph_debugger.bmp",
-            "res/flowgraph_toolbar.bmp",
             "res/folder.ico",
             "res/fopen_back.ico",
             "res/fopen_up.ico",
             "res/grid.ico",
             "res/handDrag.cur",
             "res/hit.cur",
-            "res/hypergraph.ico",
-            "res/hypergraph_components.bmp",
-            "res/hypergraph_delete.ico",
-            "res/hypergraphgripper.ico",
-            "res/hypergraphtree.bmp",
             "res/ico00001.ico",
             "res/ico00002.ico",
             "res/icon1.ico",
@@ -263,6 +255,10 @@
             "res/MannFileManagerImageList.bmp"
         ],
         "Core": [
+            "EditorLoadDependencies.h",
+            "ErrorDialog.cpp",
+            "ErrorDialog.h",
+            "ErrorDialog.ui",
             "Plugin.cpp",
             "Plugin.h",
             "PluginManager.cpp",
@@ -272,6 +268,9 @@
             "IEditorImpl.h",
             "CryEdit.cpp",
             "CryEdit.h",
+            "EditorToolsApplication.cpp",
+            "EditorToolsApplication.h",
+            "EditorToolsApplicationAPI.h",
             "Core/EditorMetricsPlainTextNameRegistration.cpp",
             "Core/EditorMetricsPlainTextNameRegistration.h",
             "MainWindow.cpp",
@@ -281,7 +280,9 @@
             "Core/QtEditorApplication.h",
             "Core/EditorFilePathManager.h",
             "Core/LevelEditorMenuHandler.cpp",
-            "Core/LevelEditorMenuHandler.h"
+            "Core/LevelEditorMenuHandler.h",
+            "StartupTraceHandler.cpp",
+            "StartupTraceHandler.h"
         ],
         "Crates": [
             "Crates/Crates.cpp",
@@ -290,28 +291,6 @@
         "Dialogs": [
             "LevelTreeModel.cpp",
             "LevelTreeModel.h"
-        ],
-        "HyperGraph": [
-            "HyperGraph/HyperGraphDialog.qrc",
-            "HyperGraph/HyperGraphDialog.cpp",
-            "HyperGraph/HyperGraphWidget.cpp"
-        ],
-        "HyperGraph/FlowGraph": [
-            "HyperGraph/FlowGraphModuleManager.cpp",
-            "HyperGraph/FlowGraphSearchCtrl.cpp",
-            "HyperGraph/FlowGraphSearchCtrl.ui",
-            "HyperGraph/FlowGraphSearchCtrl.h"
-        ],
-        "HyperGraph/Node Painter": [
-            "HyperGraph/QHyperNodePainter_CommentBox.cpp",
-            "HyperGraph/QHyperNodePainter_CommentBox.h",
-            "HyperGraph/QHyperNodePainter_Default.cpp",
-            "HyperGraph/QHyperNodePainter_Default.h",
-            "HyperGraph/QHyperNodePainter_QuickSearch.cpp",
-            "HyperGraph/QHyperNodePainter_QuickSearch.h",
-            "HyperGraph/QHyperGraphComponentsPanel.ui",
-            "HyperGraph/QHyperGraphTaskPanel.ui",
-            "HyperGraph/QuickSearchNode.cpp"
         ],
         "Panels": [
             "ObjectPanel.cpp",
@@ -340,7 +319,6 @@
             "Include/IAnimationCompressionManager.h",
             "Include/IAssetItem.h",
             "Include/IAssetItemDatabase.h",
-            "Include/IAssetTagging.h",
             "Include/IAssetViewer.h",
             "Include/IBackgroundScheduleManager.h",
             "Include/IBackgroundTaskManager.h",
@@ -355,8 +333,10 @@
             "Include/IExportManager.h",
             "Include/IGizmoManager.h",
             "Include/IIconManager.h",
+            "Include/ILogFile.h",
             "Include/IKeyTimeSet.h",
             "Include/IObjectManager.h",
+            "Include/IMissingAssetResolver.h",
             "Include/IPlugin.h",
             "Include/IPreferencesPage.h",
             "Include/IRenderListener.h",
@@ -367,11 +347,6 @@
             "Include/ITransformManipulator.h",
             "Include/IViewPane.h",
             "Include/ObjectEvent.h"
-        ],
-        "TerrainTools/TexturePainter": [
-            "TerrainPainterPanel.cpp",
-            "TerrainPainterPanel.h",
-            "TerrainPainterPanel.ui"
         ],
         "Util": [
             "Util/AffineParts.cpp"
@@ -527,6 +502,13 @@
             "AI/NavDataGeneration/PolygonSetOps/Polygon2d.h",
             "AI/NavDataGeneration/PolygonSetOps/Utils.h"
         ],
+        "Alembic": [
+            "Alembic/AlembicCompileDialog.cpp",
+            "Alembic/AlembicCompileDialog.h",
+            "Alembic/AlembicCompileDialog.ui",
+            "Alembic/AlembicCompiler.h",
+            "Alembic/AlembicCompiler.cpp"
+        ],
         "Amazon": [
             "Amazon/Login.qrc",
             "Amazon/Login.cpp",
@@ -537,9 +519,7 @@
             "Animation/AnimationBipedBoneNames.cpp",
             "Animation/AnimationBipedBoneNames.h",
             "AnimationContext.cpp",
-            "AnimationContext.h",
-            "AnimationSerializer.cpp",
-            "AnimationSerializer.h"
+            "AnimationContext.h"
         ],
         "Asset Browser": [
             "AssetBrowser/AssetBrowser.qrc",
@@ -555,9 +535,6 @@
             "AssetBrowser/AssetBrowserFiltersDlg.h",
             "AssetBrowser/AssetBrowserManager.cpp",
             "AssetBrowser/AssetBrowserManager.h",
-            "AssetBrowser/AssetBrowserMetaTaggingDlg.cpp",
-            "AssetBrowser/AssetBrowserMetaTaggingDlg.h",
-            "AssetBrowser/AssetBrowserMetaTaggingDlg.ui",
             "AssetBrowser/AssetBrowserPreviewDlg.cpp",
             "AssetBrowser/AssetBrowserPreviewDlg.h",
             "AssetBrowser/AssetBrowserPreviewDlg.ui",
@@ -581,15 +558,12 @@
             "AzAssetBrowser/AzAssetBrowserWindow.h",
             "AzAssetBrowser/AzAssetBrowserWindow.ui"
         ],
-        "AzAssetBrowser/Dialog": [
-            "AzAssetBrowser/AzAssetBrowserDialog.cpp",
-            "AzAssetBrowser/AzAssetBrowserDialog.h",
-            "AzAssetBrowser/AzAssetBrowserDialog.ui"
-        ],        
         "AzAssetBrowser/Preview": [
-            "AzAssetBrowser/Preview/PreviewWidget.cpp",
-            "AzAssetBrowser/Preview/PreviewWidget.h",
-            "AzAssetBrowser/Preview/PreviewWidget.ui"
+            "AzAssetBrowser/Preview/LegacyPreviewer.cpp",
+            "AzAssetBrowser/Preview/LegacyPreviewer.h",
+            "AzAssetBrowser/Preview/LegacyPreviewer.ui",
+            "AzAssetBrowser/Preview/LegacyPreviewerFactory.cpp",
+            "AzAssetBrowser/Preview/LegacyPreviewerFactory.h"
         ],
         "Thumbnails": [
             "Thumbnails/MaterialThumbnailRenderer.cpp",
@@ -728,8 +702,6 @@
         "Controls": [
             "Controls/BitmapToolTip.cpp",
             "Controls/BitmapToolTip.h",
-            "Controls/BreakPointsCtrl.cpp",
-            "Controls/BreakPointsCtrl.h",
             "Controls/ColorGradientCtrl.cpp",
             "Controls/ColorGradientCtrl.h",
             "Controls/ConsoleSCB.cpp",
@@ -786,6 +758,8 @@
             "Controls/ReflectedPropertyControl/PropertyGenericCtrl.h",
             "Controls/ReflectedPropertyControl/PropertyMiscCtrl.cpp",
             "Controls/ReflectedPropertyControl/PropertyMiscCtrl.h",
+            "Controls/ReflectedPropertyControl/PropertyMotionCtrl.cpp",
+            "Controls/ReflectedPropertyControl/PropertyMotionCtrl.h",
             "Controls/ReflectedPropertyControl/PropertyResourceCtrl.cpp",
             "Controls/ReflectedPropertyControl/PropertyResourceCtrl.h",
             "Controls/ReflectedPropertyControl/PropertyCtrl.cpp",
@@ -821,13 +795,6 @@
             "ShortcutDispatcher.cpp",
             "ShortcutDispatcher.h"
         ],
-        "CustomActions": [
-            "CustomActions/CustomActionsEditorManager.cpp",
-            "CustomActions/CustomActionDialog.cpp",
-            "CustomActions/CustomActionDialog.ui",
-            "CustomActions/CustomActionsEditorManager.h",
-            "CustomActions/CustomActionDialog.h"
-        ],
         "DataBase": [
             "BaseLibraryDialog.cpp",
             "BaseLibraryManager.cpp",
@@ -847,17 +814,6 @@
             "EntityPrototypeLibrary.h",
             "EntityPrototypeManager.h"
         ],
-        "DataBase/GameTokens": [
-            "GameTokens/GameTokenDialog.cpp",
-            "GameTokens/GameTokenItem.cpp",
-            "GameTokens/GameTokenLibrary.cpp",
-            "GameTokens/GameTokenManager.cpp",
-            "GameTokens/GameTokenDialog.h",
-            "GameTokens/GameTokenDialog.ui",
-            "GameTokens/GameTokenItem.h",
-            "GameTokens/GameTokenLibrary.h",
-            "GameTokens/GameTokenManager.h"
-        ],
         "DataBase/ParticlesEditor": [
             "Particles/ParticleDialog.cpp",
             "Particles/ParticleDialog.ui",
@@ -875,12 +831,10 @@
             "Prefabs/PrefabItem.cpp",
             "Prefabs/PrefabLibrary.cpp",
             "Prefabs/PrefabManager.cpp",
-            "Prefabs/PrefabEvents.cpp",
             "Prefabs/PrefabDialog.h",
             "Prefabs/PrefabItem.h",
             "Prefabs/PrefabLibrary.h",
-            "Prefabs/PrefabManager.h",
-            "Prefabs/PrefabEvents.h"
+            "Prefabs/PrefabManager.h"
         ],
         "Dialog Editor": [
             "DialogEditor/DialogEditor.qrc",
@@ -894,9 +848,6 @@
             "DialogEditor/ComboBoxItemDelegate.h"
         ],
         "Dialogs": [
-            "Alembic/AlembicCompileDialog.cpp",
-            "Alembic/AlembicCompileDialog.h",
-            "Alembic/AlembicCompileDialog.ui",
             "CheckOutDialog.cpp",
             "CheckOutDialog.h",
             "CheckOutDialog.ui",
@@ -967,9 +918,6 @@
             "SelectEntityClsDialog.cpp",
             "SelectEntityClsDialog.h",
             "SelectEntityClsDialog.ui",
-            "SelectGameTokenDialog.cpp",
-            "SelectGameTokenDialog.h",
-            "SelectGameTokenDialog.ui",
             "SelectLightAnimationDialog.cpp",
             "SelectLightAnimationDialog.h",
             "SelectMissionObjectiveDialog.cpp",
@@ -985,10 +933,6 @@
             "ShadersDialog.cpp",
             "ShadersDialog.h",
             "ShadersDialog.ui",
-            "SkyDialog.cpp",
-            "SkyDialog.h",
-            "SkyDialog.qrc",
-            "SkyDialog.ui",
             "StartupLogoDialog.cpp",
             "StartupLogoDialog.h",
             "StartupLogoDialog.ui",
@@ -1026,16 +970,10 @@
             "NewLevelDialog.cpp",
             "NewLevelDialog.h",
             "NewLevelDialog.ui",
-            "NewTerrainDialog.cpp",
-            "NewTerrainDialog.h",
-            "NewTerrainDialog.ui",
             "Dialogs/PythonScriptsDialog.cpp",
             "Dialogs/PythonScriptsDialog.h",
             "Dialogs/PythonScriptsDialog.ui",
-            "ScriptTermDialog.ui",
-            "TerrainTextureExport.cpp",
-            "TerrainTextureExport.h",
-            "TerrainTextureExport.ui"
+            "ScriptTermDialog.ui"
         ],
         "Dialogs/Generic/Overwrite": [
             "Dialogs/Generic/UserOptions.cpp",
@@ -1132,7 +1070,6 @@
         "Header Files": [
             "AboutDialog.h",
             "AboutDialog.ui",
-            "Alembic/AlembicCompiler.h",
             "AnimUtils.h",
             "DatabaseFrameWnd.h",
             "DatabaseFrameWnd.ui",
@@ -1159,7 +1096,6 @@
             "SurfaceInfoPicker.h",
             "ToolBox.h",
             "TrackViewNewSequenceDialog.h",
-            "UndoCVar.h",
             "UndoConfigSpec.h",
             "UndoViewPosition.h",
             "UndoViewRotation.h",
@@ -1170,73 +1106,6 @@
             "WipFeaturesDlg.h",
             "WipFeaturesDlg.ui",
             "WipFeaturesDlg.qrc"
-        ],
-        "HyperGraph": [
-            "HyperGraph/HyperGraph.cpp",
-            "HyperGraph/HyperGraphManager.cpp",
-            "HyperGraph/HyperGraphNode.cpp",
-            "HyperGraph/HyperGraph.h",
-            "HyperGraph/HyperGraphDialog.h",
-            "HyperGraph/HyperGraphManager.h",
-            "HyperGraph/HyperGraphNode.h",
-            "HyperGraph/HyperGraphWidget.h",
-            "HyperGraph/IHyperGraph.h",
-            "HyperGraph/LyFlowGraphNotification.h",
-            "HyperGraph/LyFlowGraphNotification.cpp"
-        ],
-        "HyperGraph/FlowGraph": [
-            "HyperGraph/FlowFilters.cpp",
-            "HyperGraph/FlowFilters.h",
-            "HyperGraph/FlowGraph.cpp",
-            "HyperGraph/FlowGraph.h",
-            "HyperGraph/FlowGraphHelpers.cpp",
-            "HyperGraph/FlowGraphHelpers.h",
-            "HyperGraph/FlowGraphManager.cpp",
-            "HyperGraph/FlowGraphManager.h",
-            "HyperGraph/FlowGraphMigrationHelper.cpp",
-            "HyperGraph/FlowGraphMigrationHelper.h",
-            "HyperGraph/FlowGraphNode.cpp",
-            "HyperGraph/FlowGraphNode.h",
-            "HyperGraph/FlowGraphProperties.ui",
-            "HyperGraph/FlowGraphVariables.cpp",
-            "HyperGraph/FlowGraphDebuggerEditor.cpp",
-            "HyperGraph/FlowGraphTokensDlg.ui",
-            "HyperGraph/FlowGraphTokens.cpp",
-            "HyperGraph/FlowGraphEditModuleDlg.ui",
-            "HyperGraph/FlowGraphNewDlg.ui",
-            "HyperGraph/FlowGraphNewModuleInputDlg.ui",
-            "HyperGraph/FlowGraphModuleDlgs.cpp",
-            "HyperGraph/FlowGraphProperties.cpp",
-            "HyperGraph/FlowGraphVariables.h",
-            "HyperGraph/FlowGraphDebuggerEditor.h",
-            "HyperGraph/FlowGraphModuleManager.h",
-            "HyperGraph/FlowGraphNewTokenDlg.ui",
-            "HyperGraph/FlowGraphTokens.h",
-            "HyperGraph/FlowGraphModuleDlgs.h",
-            "HyperGraph/FlowGraphProperties.h"
-        ],
-        "HyperGraph/Node Painter": [
-            "HyperGraph/QHyperNodePainterBase.cpp",
-            "HyperGraph/QHyperNodePainterBase.h",
-            "HyperGraph/QHyperNodePainter_BlackBox.cpp",
-            "HyperGraph/QHyperNodePainter_BlackBox.h",
-            "HyperGraph/QHyperNodePainter_Comment.cpp",
-            "HyperGraph/QHyperNodePainter_Comment.h",
-            "HyperGraph/IQHyperNodePainter.h",
-            "HyperGraph/QDisplayList.h"
-        ],
-        "HyperGraph/Nodes": [
-            "HyperGraph/MissingNode.cpp",
-            "HyperGraph/TrackEventNode.cpp",
-            "HyperGraph/CommentNode.cpp",
-            "HyperGraph/CommentBoxNode.cpp",
-            "HyperGraph/MissingNode.h",
-            "HyperGraph/QuickSearchNode.h",
-            "HyperGraph/TrackEventNode.h",
-            "HyperGraph/CommentNode.h",
-            "HyperGraph/CommentBoxNode.h",
-            "HyperGraph/BlackBoxNode.cpp",
-            "HyperGraph/BlackBoxNode.h"
         ],
         "LevelIndependentFiles/LevelIndependentFiles": [
             "LevelIndependentFileMan.cpp",
@@ -1401,8 +1270,6 @@
             "Material/MaterialBrowserSearchFilters.h",
             "Material/MaterialBrowserFilterModel.cpp",
             "Material/MaterialBrowserFilterModel.h",
-            "Material/MaterialFXGraphMan.cpp",
-            "Material/MaterialFXGraphMan.h",
             "Material/MaterialImageListCtrl.cpp",
             "Material/MaterialImageListCtrl.h",
             "Material/MaterialLibrary.cpp",
@@ -1413,6 +1280,7 @@
             "Material/MaterialPickTool.h",
             "MaterialSender.h",
             "MaterialSender.cpp",
+            "Material/MaterialPythonFuncs.h",
             "Material/MaterialPythonFuncs.cpp"
         ],
         "Mission": [
@@ -1463,16 +1331,13 @@
             "Objects/CloudGroup.h",
             "Objects/CloudObject.cpp",
             "Objects/CloudObject.h",
+            "Objects/IEntityObjectListener.h",
             "Objects/ParticleEffectObject.cpp",
             "Objects/RefPicture.cpp",
             "Objects/TagComment.cpp",
             "Objects/TagComment.h",
             "Objects/TagPoint.cpp",
             "Objects/TagPoint.h",
-            "Objects/UndoEntityParam.cpp",
-            "Objects/UndoEntityParam.h",
-            "Objects/UndoEntityProperty.cpp",
-            "Objects/UndoEntityProperty.h",
             "Objects/VisAreaShapeObject.cpp",
             "Objects/VisAreaShapeObject.h",
             "Objects/Volume.cpp",
@@ -1507,6 +1372,8 @@
             "Objects/ObjectLoader.h",
             "Objects/ObjectManager.cpp",
             "Objects/ObjectManager.h",
+            "Objects/ObjectManagerLegacyUndo.cpp",
+            "Objects/ObjectManagerLegacyUndo.h",
             "Objects/ObjectPhysicsManager.cpp",
             "Objects/ObjectPhysicsManager.h",
             "Objects/ParticleEffectObject.h",
@@ -1608,9 +1475,8 @@
             "TerrainPanel.h"
         ],
         "Python": [
-            "Util/BoostPythonHelpers.cpp",
-            "Util/BoostPythonHelpers.h",
-            "PythonEditorFuncs.cpp"
+            "PythonEditorFuncs.cpp",
+            "PythonEditorFuncs.h"
         ],
         "QtUI": [
             "QtUI/QCollapsibleGroupBox.h",
@@ -1668,10 +1534,6 @@
             "EditorPreferencesPageMannequinGeneral.cpp",
             "EditorPreferencesPageExperimentalLighting.h",
             "EditorPreferencesPageExperimentalLighting.cpp",
-            "EditorPreferencesPageFlowGraphGeneral.h",
-            "EditorPreferencesPageFlowGraphGeneral.cpp",
-            "EditorPreferencesPageFlowGraphColors.h",
-            "EditorPreferencesPageFlowGraphColors.cpp",
             "EditorPreferencesDialog.h",
             "EditorPreferencesDialog.cpp",
             "EditorPreferencesDialog.ui",
@@ -1686,8 +1548,6 @@
             "graphicssettingsdialog.ui"
         ],
         "SmartObjects": [
-            "SmartObjectActionDialog.cpp",
-            "SmartObjectActionDialog.h",
             "SmartObjectActionDialog.ui",
             "SmartObjectClassDialog.cpp",
             "SmartObjectClassDialog.h",
@@ -1711,7 +1571,6 @@
         ],
         "Source Files": [
             "AboutDialog.cpp",
-            "Alembic/AlembicCompiler.cpp",
             "DatabaseFrameWnd.cpp",
             "Dialogs/DuplicatedObjectsHandlerDlg.cpp",
             "Dialogs/DuplicatedObjectsHandlerDlg.ui",
@@ -1736,7 +1595,6 @@
             "ToolBox.cpp",
             "TrackViewNewSequenceDialog.cpp",
             "TrackViewNewSequenceDialog.ui",
-            "UndoCVar.cpp",
             "UndoConfigSpec.cpp",
             "UndoViewPosition.cpp",
             "UndoViewRotation.cpp",
@@ -1750,6 +1608,8 @@
             "Dialogs/ErrorsDlg.ui",
             "DisplaySettings.cpp",
             "DisplaySettings.h",
+            "DisplaySettingsPythonFuncs.h",
+            "DisplaySettingsPythonFuncs.cpp",
             "ErrorReport.cpp",
             "ErrorReport.h",
             "IconManager.cpp",
@@ -1767,52 +1627,9 @@
             "SurfaceTypeValidator.h"
         ],
         "Terrain": [
-            "Terrain/Clouds.cpp",
-            "Terrain/GenerationParam.cpp",
-            "Terrain/GenerationParam.ui",
-            "Terrain/Heightmap.cpp",
-            "Terrain/Layer.cpp",
-            "Terrain/Noise.cpp",
-            "Terrain/RGBLayer.cpp",
-            "Terrain/SurfaceType.cpp",
-            "Terrain/TerrainConverter.cpp",
-            "Terrain/TerrainGrid.cpp",
-            "Terrain/TerrainLayerTexGen.cpp",
-            "Terrain/TerrainLightGen.cpp",
-            "Terrain/TerrainManager.cpp",
-            "Terrain/TerrainTexGen.cpp",
-            "Terrain/TextureCompression.cpp",
-            "Terrain/MacroTextureExporter.cpp",
-            "Terrain/Clouds.h",
-            "Terrain/GenerationParam.h",
-            "Terrain/Heightmap.h",
-            "Terrain/Layer.h",
-            "Terrain/LayerWeight.h",
-            "Terrain/Noise.h",
-            "Terrain/RGBLayer.h",
-            "Terrain/SurfaceType.h",
-            "Terrain/TerrainConverter.h",
-            "Terrain/TerrainGrid.h",
-            "Terrain/TerrainLayerTexGen.h",
-            "Terrain/TerrainLightGen.h",
-            "Terrain/TerrainManager.h",
-            "Terrain/TerrainTexGen.h",
-            "Terrain/LayerWeight.cpp",
-            "Terrain/TextureCompression.h",
-            "Terrain/MacroTextureExporter.h",
-            "TerrainDialog.cpp",
-            "TerrainDialog.h",
-            "TerrainDialog.ui",
             "TerrainLighting.cpp",
             "TerrainLighting.h",
-            "TerrainLighting.ui",
-            "TerrainTexture.cpp",
-            "TerrainTexture.h",
-            "TerrainTexture.ui"
-        ],
-        "Terrain/Sky Accessiblity": [
-            "Terrain/Sky Accessibility/HeightmapAccessibility.h",
-            "Terrain/Sky Accessibility/HorizonTracker.h"
+            "TerrainLighting.ui"
         ],
         "TerrainTools/Environment": [
             "EnvironmentPanel.cpp",
@@ -1821,42 +1638,15 @@
             "EnvironmentPanel.ui",
             "EnvironmentTool.h"
         ],
-        "TerrainTools/Hole": [
-            "TerrainHolePanel.cpp",
-            "TerrainHoleTool.cpp",
-            "TerrainHolePanel.h",
-            "TerrainHolePanel.ui",
-            "TerrainHoleTool.h"
-        ],
-        "TerrainTools/MiniMap": [
-            "TerrainMiniMapTool.cpp",
-            "TerrainMiniMapTool.h",
-            "TerrainMiniMapPanel.ui"
-        ],
-        "TerrainTools/Modify": [
-            "TerrainModifyPanel.cpp",
-            "TerrainModifyPanel.h",
-            "TerrainModifyPanel.ui",
-            "TerrainModifyTool.cpp",
-            "TerrainModifyTool.h"
-        ],
-        "TerrainTools/MoveTool": [
-            "TerrainMoveTool.cpp",
-            "TerrainMoveToolPanel.cpp",
-            "TerrainMoveTool.h",
-            "TerrainMoveToolPanel.h",
-            "TerrainMoveToolPanel.ui"
-        ],
-        "TerrainTools/TexturePainter": [
-            "TerrainTexturePainter.cpp",
-            "TerrainTexturePainter.h"
-        ],
         "TrackView": [
             "TrackView/TrackViewDialog.qrc",
             "TrackView/TrackViewDialog.cpp",
             "TrackView/TrackViewDialog.h",
             "TrackView/TrackViewDopeSheetBase.cpp",
             "TrackView/TrackViewDopeSheetBase.h",
+            "TrackView/TrackViewDoubleSpinBox.cpp",
+            "TrackView/TrackViewDoubleSpinBox.h",
+            "TrackView/TrackViewPythonFuncs.h",
             "TrackView/TrackViewPythonFuncs.cpp",
             "TrackView/TrackViewSequenceManager.cpp",
             "TrackView/TrackViewSequenceManager.h",
@@ -1902,6 +1692,7 @@
         ],
         "TrackView/Dialog/Key Dialogs": [
             "TrackView/2DBezierKeyUIControls.cpp",
+            "TrackView/AssetBlendKeyUIControls.cpp",
             "TrackView/CaptureKeyUIControls.cpp",
             "TrackView/CharacterKeyUIControls.cpp",
             "TrackView/ConsoleKeyUIControls.cpp",
@@ -2021,7 +1812,9 @@
             "Util/ColumnGroupItemDelegate.h",
             "Util/ColumnGroupItemDelegate.cpp",
             "Util/ColumnGroupTreeView.h",
-            "Util/ColumnGroupTreeView.cpp"
+            "Util/ColumnGroupTreeView.cpp",
+            "Util/ModalWindowDismisser.h",
+            "Util/ModalWindowDismisser.cpp"
         ],
         "Util/3DConnexion": [
             "Util/3DConnexionDriver.cpp",
@@ -2042,8 +1835,6 @@
             "Util/Image_DXTC.h",
             "Util/ImageGif.cpp",
             "Util/ImageGif.h",
-            "Util/ImagePainter.cpp",
-            "Util/ImagePainter.h",
             "Util/ImageTIF.cpp",
             "Util/ImageTIF.h"
         ],

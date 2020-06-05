@@ -32,13 +32,15 @@
             "../../../CryEngine/Cry3DEngine/MeshCompiler/TangentSpaceCalculation.cpp",
             "../../../CryEngine/Cry3DEngine/MeshCompiler/PVRTTriStrip/PVRTTriStrip.h",
             "../../../CryEngine/Cry3DEngine/MeshCompiler/PVRTTriStrip/PVRTTriStrip.cpp",
-            "../../../SDKs/TangentBasisComputation/mikkelsen/mikktspace.cpp"
+            "@3P:mikkt@/mikkelsen/mikktspace_stdafx.cpp",
+            "@3P:mikkt@/mikkelsen/mikktspace.h"
         ],
         "Source Files":
         [
             "ResourceCompilerABC.cpp",
             "../ResourceCompiler/IConfig.cpp",
-            "stdafx.h"
+            "PCH/StdAfx.cpp",
+            "PCH/StdAfx.h"
         ],
         "Utils":
         [

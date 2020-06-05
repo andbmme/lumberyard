@@ -11,14 +11,14 @@
 */
 // Original file Copyright Crytek GMBH or its affiliates, used under license.
 
-#include "stdafx.h"
+#include "StdAfx.h"
 #include "ToolsConfigPage.h"
 #include <ui_ToolsConfigPage.h>
 #include <ui_IconListDialog.h>
 #include "ToolBox.h"
 #include "MainWindow.h"
 #include "KeyboardCustomizationSettings.h"
-#include "Util/BoostPythonHelpers.h"
+#include <AzToolsFramework/API/EditorPythonConsoleBus.h>
 
 #include <QCompleter>
 #include <QDialogButtonBox>
@@ -254,11 +254,17 @@ public:
     MacroModel(QObject* parent = nullptr)
         : QAbstractListModel(parent)
         , m_hasEmptyRow(false)
+        , m_currentlyRemovingRows(false)
     {
     }
 
     bool moveRow(int row, bool up)
     {
+        if (m_hasEmptyRow)
+        {
+            return false;
+        }
+
         const int targetRow = up ? row - 1 : row + 1;
         if (row < 0 || row >= rowCount() || targetRow < 0 || targetRow >= rowCount())
         {
@@ -330,15 +336,18 @@ public:
         // check null data input
         if (data.toString().isEmpty())
         {
-            QMessageBox::critical(parentWidget, QString(), tr("Please enter a valid name!"));
-
-            // If this is a newly added empty row, then just delete it
-            // Otherwise if the user was renaming an existing row, the previous
-            // value will be restored
-            if (isEmptyRow(index))
+            if (!m_currentlyRemovingRows)
             {
-                removeRow(index.row());
-                assert(!m_hasEmptyRow);
+                QMessageBox::critical(parentWidget, QString(), tr("Please enter a valid name!"));
+
+                // If this is a newly added empty row, then just delete it
+                // Otherwise if the user was renaming an existing row, the previous
+                // value will be restored
+                if (isEmptyRow(index))
+                {
+                    removeRow(index.row());
+                    assert(!m_hasEmptyRow);
+                }
             }
 
             return false;
@@ -396,6 +405,7 @@ public:
             return false;
         }
 
+        m_currentlyRemovingRows = true;
         beginRemoveRows(QModelIndex(), row, row + count - 1);
 
         auto tools = GetIEditor()->GetToolBoxManager();
@@ -412,11 +422,13 @@ public:
         }
 
         endRemoveRows();
+        m_currentlyRemovingRows = false;
         return true;
     }
 
 private:
     bool m_hasEmptyRow;
+    bool m_currentlyRemovingRows;
 
     // Empty row is the last row in the list if the proper flag is set
     bool isEmptyRow(const QModelIndex& index) const
@@ -468,7 +480,7 @@ CToolsConfigPage::CToolsConfigPage(QWidget* parent)
 
     m_ui->m_macroCmd->setCompleter(new QCompleter(m_completionModel));
 
-    connect(m_ui->m_macroShortcutKey, &QKeySequenceEdit::keySequenceChanged, [&](const QKeySequence &keySequence) {
+    connect(m_ui->m_macroShortcutKey, &QKeySequenceEdit::keySequenceChanged, this, [&](const QKeySequence &keySequence) {
         int numOfShortcuts = m_ui->m_macroShortcutKey->keySequence().count() - 1;
         if (numOfShortcuts >= 1)
         {
@@ -809,25 +821,21 @@ void CToolsConfigPage::FillConsoleCmds()
 //////////////////////////////////////////////////////////////////////////
 void CToolsConfigPage::FillScriptCmds()
 {
-    QStringList commands;
     // Add module names to the auto-completion list.
-    const CAutoRegisterPythonModuleHelper::ModuleList modules
-        = CAutoRegisterPythonModuleHelper::s_modules;
-    for (size_t i = 0; i < modules.size(); ++i)
+    QStringList commands;
+
+    using namespace AzToolsFramework;
+    EditorPythonConsoleInterface* editorPythonConsoleInterface = AZ::Interface<EditorPythonConsoleInterface>::Get();
+    if (editorPythonConsoleInterface)
     {
-        commands.push_back(modules[i].name.c_str());
-    }
-
-    // Add full command names to the auto-completion list.
-    CAutoRegisterPythonCommandHelper* pCurrent = CAutoRegisterPythonCommandHelper::s_pFirst;
-    while (pCurrent)
-    {
-        const QString command = pCurrent->m_name;
-        const QString fullCmd = QString("%1.%2()").arg(CAutoRegisterPythonModuleHelper::s_modules[pCurrent->m_moduleIndex].name.c_str()).arg(command);
-
-        commands.push_back(fullCmd);
-
-        pCurrent = pCurrent->m_pNext;
+        EditorPythonConsoleInterface::GlobalFunctionCollection globalFunctionCollection;
+        editorPythonConsoleInterface->GetGlobalFunctionList(globalFunctionCollection);
+        commands.reserve(globalFunctionCollection.size());
+        for (const EditorPythonConsoleInterface::GlobalFunction& globalFunction : globalFunctionCollection)
+        {
+            const QString fullCmd = QString("%1.%2()").arg(globalFunction.m_moduleName.data()).arg(globalFunction.m_functionName.data());
+            commands.push_back(fullCmd);
+        }
     }
 
     m_completionModel->setStringList(commands);

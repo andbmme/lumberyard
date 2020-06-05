@@ -681,6 +681,15 @@ void CRemoteCommandServer::Run()
 
     CryThreadSetName(-1, "RemoteCommandThread");
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/RemoteCommandServer_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/RemoteCommandServer_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/RemoteCommandServer_cpp_salem.inl"
+    #endif
+#endif
 
     while (!m_bCloseThread)
     {

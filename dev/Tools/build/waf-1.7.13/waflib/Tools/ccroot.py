@@ -25,10 +25,10 @@ USELIB_VARS = Utils.defaultdict(set)
 Mapping for features to :py:class:`waflib.ConfigSet.ConfigSet` variables. See :py:func:`waflib.Tools.ccroot.propagate_uselib_vars`.
 """
 
-USELIB_VARS['c']        = set(['INCLUDES', 'FRAMEWORKPATH', 'DEFINES', 'CPPFLAGS', 'CCDEPS', 'CFLAGS', 'ARCH'])
-USELIB_VARS['cxx']      = set(['INCLUDES', 'FRAMEWORKPATH', 'DEFINES', 'CPPFLAGS', 'CXXDEPS', 'CXXFLAGS', 'ARCH'])
-USELIB_VARS['d']        = set(['INCLUDES', 'DFLAGS'])
-USELIB_VARS['includes'] = set(['INCLUDES', 'FRAMEWORKPATH', 'ARCH'])
+USELIB_VARS['c']        = set(['INCLUDES', 'SYSTEM_INCLUDES', 'FRAMEWORKPATH', 'DEFINES', 'CPPFLAGS', 'CCDEPS', 'CFLAGS', 'ARCH'])
+USELIB_VARS['cxx']      = set(['INCLUDES', 'SYSTEM_INCLUDES', 'FRAMEWORKPATH', 'DEFINES', 'CPPFLAGS', 'CXXDEPS', 'CXXFLAGS', 'ARCH'])
+USELIB_VARS['d']        = set(['INCLUDES', 'SYSTEM_INCLUDES', 'DFLAGS'])
+USELIB_VARS['includes'] = set(['INCLUDES', 'SYSTEM_INCLUDES', 'FRAMEWORKPATH', 'ARCH'])
 
 USELIB_VARS['cprogram'] = USELIB_VARS['cxxprogram'] = set(['LIB', 'STLIB', 'LIBPATH', 'STLIBPATH', 'LINKFLAGS', 'RPATH', 'LINKDEPS', 'FRAMEWORK', 'FRAMEWORKPATH', 'ARCH'])
 USELIB_VARS['cshlib']   = USELIB_VARS['cxxshlib']   = set(['LIB', 'STLIB', 'LIBPATH', 'STLIBPATH', 'LINKFLAGS', 'RPATH', 'LINKDEPS', 'FRAMEWORK', 'FRAMEWORKPATH', 'ARCH'])
@@ -55,10 +55,11 @@ def create_compiled_task(self, name, node):
 	:return: The task created
 	:rtype: :py:class:`waflib.Task.Task`
 	"""
+	index = self.target_uid
 	if self.env['CC_NAME'] == 'msvc':
-		out = '%s.%d.obj' % (node.name, self.idx)
+		out = '%s.%d.obj' % (node.name, index)
 	else:
-		out = '%s.%d.o' % (node.name, self.idx)	
+		out = '%s.%d.o' % (node.name, index)
 	
 	task = self.create_task(name, node, node.parent.find_or_declare(out))
 	
@@ -138,6 +139,27 @@ def apply_incpaths(self):
 
 	self.includes_nodes = unique_lst
 	self.env['INCPATHS'] = [x.abspath() for x in unique_lst]
+
+@feature('c', 'cxx', 'd', 'asm', 'fc', 'includes')
+@before_method('apply_incpaths')
+def apply_system_incpaths(self):
+	"""
+	Processes 3rdParty system_include paths values and adds to to a SYSTEM_INCPATHS value
+	System includes will use the -isystem switch for clang and /external:I switch for msvc
+	This allows compilers warnings to be controlled separately from project source files
+	"""
+
+	lst = self.to_incnodes(self.to_list(getattr(self, 'system_includes', [])) + self.env['SYSTEM_INCLUDES'])
+	abspath_set = set()
+	unique_lst = []
+	for node in lst:
+		abs_path = node.abspath()
+		if abs_path not in abspath_set:
+			abspath_set.add(abs_path)
+			unique_lst.append(node)
+
+	self.includes_nodes = unique_lst
+	self.env['SYSTEM_INCPATHS'] = [x.abspath() for x in unique_lst]
 
 class link_task(Task.Task):
 	"""
@@ -224,7 +246,15 @@ def apply_link(self):
 	self.link_task = self.create_task(link, objs)
 
 	self.link_task.add_target(self.output_file_name)
-
+	
+	# Check if there are any stubs that are generated from the link task and if stub outputs are supported
+	if 'STUB_ST' in self.env and hasattr(self, 'output_stub_name'):
+		output_stub_filename = self.env['STUB_ST'] % getattr(self, 'output_stub_name')
+		self.link_task.add_target(output_stub_filename)
+	if 'ALT_STUB_ST' in self.env and hasattr(self, 'output_stub_name'):
+		alt_output_stub_filename = self.env['ALT_STUB_ST'] % getattr(self, 'output_stub_name')
+		self.link_task.add_target(alt_output_stub_filename)
+	
 	# remember that the install paths are given by the task generators
 	try:
 		inst_to = self.install_path
@@ -303,6 +333,7 @@ def process_use(self):
 	use_prec = self.tmp_use_prec = {}
 	self.uselib = self.to_list(getattr(self, 'uselib', []))
 	self.includes = self.to_list(getattr(self, 'includes', []))
+	self.system_includes = self.to_list(getattr(self, 'system_includes', []))
 	names = self.to_list(getattr(self, 'use', []))
 
 	for x in names:
@@ -316,7 +347,7 @@ def process_use(self):
 	out = []
 	tmp = []
 	for x in self.tmp_use_seen:
-		for k in use_prec.values():
+		for k in list(use_prec.values()):
 			if x in k:
 				break
 		else:
@@ -347,18 +378,27 @@ def process_use(self):
 		var = y.tmp_use_var
 		if var and link_task:
 			if var == 'LIB' or y.tmp_use_stlib or x in names:
-
-				if getattr(y, 'output_file_name', None):
-					# Use the output file name if that override is set
-					libname = y.output_file_name
+				
+				output_stub_name = getattr(y, 'output_stub_name', None)
+				output_file_name = getattr(y, 'output_file_name', y.output_file_name)
+				
+				if output_stub_name:
+					# If we have a stub name attribute, link against that stub instead of the name of the output/target
+					libname = output_stub_name
+					self.env.append_value('STUB', [libname[libname.rfind(os.sep) + 1:]])
+					self.link_task.dep_nodes.extend(y.link_task.outputs)
+					
+				elif output_file_name:
+					# By default, link against the output filename (or target name)
+					libname = output_file_name
+					
+					self.env.append_value(var, [libname[libname.rfind(os.sep) + 1:]])
+					self.link_task.dep_nodes.extend(y.link_task.outputs)
+					tmp_path = y.link_task.outputs[0].parent.abspath()
+					self.env.append_unique(var + 'PATH', [tmp_path])
 				else:
-					# Use the target as the libname
-					libname = y.target
+					raise Errors.WafError("Unable to determine link file for tg '{}'".format(x))
 
-				self.env.append_value(var, [libname[libname.rfind(os.sep) + 1:]])
-				self.link_task.dep_nodes.extend(y.link_task.outputs)
-				tmp_path = y.link_task.outputs[0].parent.path_from(self.bld.bldnode)
-				self.env.append_unique(var + 'PATH', [tmp_path])
 		else:
 			if y.tmp_use_objects:
 				self.add_objects_from_tgen(y)
@@ -368,7 +408,6 @@ def process_use(self):
 
 		if getattr(y, 'export_defines', None):
 			self.env.append_unique('DEFINES', self.to_list(y.export_defines))
-
 
 	# and finally, add the uselib variables (no recursion needed)
 	for x in names:

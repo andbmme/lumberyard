@@ -11,8 +11,25 @@
 */
 // Original file Copyright Crytek GMBH or its affiliates, used under license.
 
-#ifndef CRYINCLUDE_CRYENGINE_RENDERDLL_XRENDERD3D9_DEVICEMANAGER_DEVICEMANAGER_H
-#define CRYINCLUDE_CRYENGINE_RENDERDLL_XRENDERD3D9_DEVICEMANAGER_DEVICEMANAGER_H
+
+#if defined(AZ_RESTRICTED_PLATFORM)
+#undef AZ_RESTRICTED_SECTION
+#define DEVICEMANAGER_H_SECTION_1 1
+#define DEVICEMANAGER_H_SECTION_2 2
+#define DEVICEMANAGER_H_SECTION_3 3
+#define DEVICEMANAGER_H_SECTION_4 4
+#define DEVICEMANAGER_H_SECTION_5 5
+#define DEVICEMANAGER_H_SECTION_6 6
+#define DEVICEMANAGER_H_SECTION_7 7
+#define DEVICEMANAGER_H_SECTION_8 8
+#define DEVICEMANAGER_H_SECTION_9 9
+#define DEVICEMANAGER_H_SECTION_10 10
+#define DEVICEMANAGER_H_SECTION_11 11
+#define DEVICEMANAGER_H_SECTION_12 12
+#define DEVICEMANAGER_H_SECTION_13 13
+#define DEVICEMANAGER_H_SECTION_14 14
+#endif
+
 #pragma once
 
 #if !defined(NULL_RENDERER)
@@ -22,13 +39,37 @@
 #include "Enums.h"
 #include <AzCore/PlatformDef.h>
 #ifndef CRY_USE_DX12
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DEVICEMANAGER_H_SECTION_1
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DeviceManager_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DeviceManager_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DeviceManager_h_salem.inl"
+    #endif
+#  endif
 
 #  if defined(USE_NV_API)
 #    include "DeviceManager_D3D11_NVAPI.h"
 #  endif
 #endif
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DEVICEMANAGER_H_SECTION_2
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DeviceManager_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DeviceManager_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DeviceManager_h_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#else
 #define DEVICE_MANAGER_IMMEDIATE_STATE_WRITE 0
+#endif
 
 class CDeviceTexture;
 namespace AzRHI 
@@ -60,6 +101,16 @@ struct STextureInfo
     }
 };
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DEVICEMANAGER_H_SECTION_3
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DeviceManager_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DeviceManager_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DeviceManager_h_salem.inl"
+    #endif
+#endif
 
 //===============================================================================================================
 
@@ -84,6 +135,16 @@ private:
     friend class CD3DRenderer;
     friend class CDeviceTexture;
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DEVICEMANAGER_H_SECTION_4
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DeviceManager_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DeviceManager_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DeviceManager_h_salem.inl"
+    #endif
+# endif
 
 private:
 
@@ -207,6 +268,16 @@ private:
         bool operator!= (const SBufferInvalidation& other) const
         {
             return buffer != other.buffer
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DEVICEMANAGER_H_SECTION_5
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DeviceManager_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DeviceManager_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DeviceManager_h_salem.inl"
+    #endif
+# endif
             ;
         }
     };
@@ -249,7 +320,8 @@ public:
         USAGE_DIRECT_ACCESS              = BIT(0),
         USAGE_DIRECT_ACCESS_CPU_COHERENT = BIT(1),
         USAGE_DIRECT_ACCESS_GPU_COHERENT = BIT(2),
-        USAGE_TRANSIENT                  = BIT(5), //  Igor: this forces Metal runtime to create a special mode buffer. Mapped data is valid during a single frame only and until next map.
+        USAGE_TRANSIENT                  = BIT(5), //This forces Metal runtime to create a special mode buffer. Mapped data is valid during a single frame only and until next map.
+        USAGE_MEMORYLESS                 = BIT(16), //Used to tag memoryless textures on ios
         USAGE_DEPTH_STENCIL              = BIT(17),
         USAGE_RENDER_TARGET              = BIT(18),
         USAGE_DYNAMIC                    = BIT(19),
@@ -335,6 +407,7 @@ public:
 
     // Unbind a constant buffer if it is bound to an active Constant buffer slot in hardware
     void UnbindConstantBuffer(AzRHI::ConstantBuffer* constantBuffer);
+    void UnbindSRV(D3DShaderResourceView* shaderResourceView);
 
     inline void BindSRV(EHWShaderClass type, D3DShaderResourceView* SRV, uint32 slot);
     inline void BindSRV(EHWShaderClass type, D3DShaderResourceView** SRV, uint32 start_slot, uint32 count);
@@ -360,7 +433,17 @@ public:
     void Dispatch(uint32, uint32, uint32);
     void DispatchIndirect(D3DBuffer*, uint32);
 
-    uint32 GetNumInvalidDrawcalls()
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DEVICEMANAGER_H_SECTION_6
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DeviceManager_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DeviceManager_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DeviceManager_h_salem.inl"
+    #endif
+#endif
+    uint32 GetNumInvalidDrawcalls() const
     {
         return m_numInvalidDrawcalls;
     }
@@ -371,6 +454,18 @@ public:
     static void* GetBackingStorage(D3DBuffer* buffer);
     static void FreebackingStorage(void* base_ptr);
 
+    void DisplayMemoryUsage();
+
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DEVICEMANAGER_H_SECTION_7
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DeviceManager_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DeviceManager_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DeviceManager_h_salem.inl"
+    #endif
+#endif
 #endif
 
 #if defined(DEVMAN_USE_STAGING_POOL)
@@ -390,13 +485,23 @@ private:
         }
     };
 
-    typedef std::vector<StagingTextureDef, stl::STLGlobalAllocator<StagingTextureDef> > StagingPoolVec;
+    typedef std::vector<StagingTextureDef> StagingPoolVec;
 
 private:
     StagingPoolVec m_stagingPool;
 #endif
 #endif
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DEVICEMANAGER_H_SECTION_8
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DeviceManager_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DeviceManager_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DeviceManager_h_salem.inl"
+    #endif
+#endif
 };
 
 class CDeviceTexture
@@ -408,19 +513,35 @@ class CDeviceTexture
     // for native hand-made textures
     size_t m_nBaseAllocatedSize;
 #endif
+    // Keep track of the number of subresources we have, for validation purposes and because
+    // it can affect our allocation flags (whether or not we need to support partial writes).
+    uint32 m_numSubResources;
     bool m_bNoDelete;
     bool m_bCube;
+    bool m_isTracked = false;
 #ifdef DEVMAN_USE_STAGING_POOL
-    D3DResource* m_pStagingResource[2];
-    void* m_pStagingMemory[2];
+    bool m_bStagingTextureAllocedOnLock;
+    D3DResource* m_pStagingResourceDownload;
+    void* m_pStagingMemoryDownload;
+    // For uploads, we use a ring buffer so that we can write new resources without blocking the GPU.
+    static constexpr int NUM_UPLOAD_STAGING_RES = 3;
+    D3DResource* m_pStagingResourceUpload[NUM_UPLOAD_STAGING_RES];
+    void* m_pStagingMemoryUpload[NUM_UPLOAD_STAGING_RES];
 #endif
 
 #if defined(USE_NV_API)
     void* m_handleMGPU;
 #endif
 
-#ifdef DEVMAN_USE_STAGING_POOL
-    bool                        m_bStagingTextureAllocedOnLock;
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DEVICEMANAGER_H_SECTION_9
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DeviceManager_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DeviceManager_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DeviceManager_h_salem.inl"
+    #endif
 #endif
 
 public:
@@ -465,13 +586,29 @@ public:
         , m_nBaseAllocatedSize(0)
         , m_bNoDelete(false)
         , m_bCube(false)
+        , m_numSubResources(0)
 #if defined(USE_NV_API)
         , m_handleMGPU(NULL)
 #endif
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DEVICEMANAGER_H_SECTION_10
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DeviceManager_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DeviceManager_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DeviceManager_h_salem.inl"
+    #endif
+#endif
     {
 #ifdef DEVMAN_USE_STAGING_POOL
-        m_pStagingResource[0] = m_pStagingResource[1] = nullptr;
-        m_pStagingMemory[0] = m_pStagingMemory[1] = nullptr;
+        m_pStagingResourceDownload = nullptr;
+        m_pStagingMemoryDownload = nullptr;
+        for (int i = 0; i < NUM_UPLOAD_STAGING_RES; i++)
+        {
+            m_pStagingResourceUpload[i] = nullptr;
+            m_pStagingMemoryUpload[i] = nullptr;
+        }
 #endif
     }
     CDeviceTexture (D3DBaseTexture* pBaseTexture)
@@ -479,13 +616,29 @@ public:
         , m_nBaseAllocatedSize(0)
         , m_bNoDelete(false)
         , m_bCube(false)
+        , m_numSubResources(0)
 #if defined(USE_NV_API)
         , m_handleMGPU(NULL)
 #endif
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DEVICEMANAGER_H_SECTION_11
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DeviceManager_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DeviceManager_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DeviceManager_h_salem.inl"
+    #endif
+#endif
     {
 #ifdef DEVMAN_USE_STAGING_POOL
-        m_pStagingResource[0] = m_pStagingResource[1] = nullptr;
-        m_pStagingMemory[0] = m_pStagingMemory[1] = nullptr;
+        m_pStagingResourceDownload = nullptr;
+        m_pStagingMemoryDownload = nullptr;
+        for (int i = 0; i < NUM_UPLOAD_STAGING_RES; i++)
+        {
+            m_pStagingResourceUpload[i] = nullptr;
+            m_pStagingMemoryUpload[i] = nullptr;
+        }
 #endif
     }
     CDeviceTexture (D3DCubeTexture* pBaseTexture)
@@ -493,13 +646,29 @@ public:
         , m_nBaseAllocatedSize(0)
         , m_bNoDelete(false)
         , m_bCube(true)
+        , m_numSubResources(0)
 #if defined(USE_NV_API)
         , m_handleMGPU(NULL)
 #endif
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DEVICEMANAGER_H_SECTION_12
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DeviceManager_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DeviceManager_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DeviceManager_h_salem.inl"
+    #endif
+#endif
     {
 #ifdef DEVMAN_USE_STAGING_POOL
-        m_pStagingResource[0] = m_pStagingResource[1] = nullptr;
-        m_pStagingMemory[0] = m_pStagingMemory[1] = nullptr;
+        m_pStagingResourceDownload = nullptr;
+        m_pStagingMemoryDownload = nullptr;
+        for (int i = 0; i < NUM_UPLOAD_STAGING_RES; i++)
+        {
+            m_pStagingResourceUpload[i] = nullptr;
+            m_pStagingMemoryUpload[i] = nullptr;
+        }
 #endif
     }
 
@@ -508,8 +677,10 @@ public:
     using StagingHook = ITexture::StagingHook;
     void DownloadToStagingResource(uint32 nSubRes, StagingHook cbTransfer);
     void DownloadToStagingResource(uint32 nSubRes);
+    void DownloadToStagingResource();
     void UploadFromStagingResource(uint32 nSubRes, StagingHook cbTransfer);
     void UploadFromStagingResource(uint32 nSubRes);
+    void UploadFromStagingResource();
     void AccessCurrStagingResource(uint32 nSubRes, bool forUpload, StagingHook cbTransfer);
 
     size_t GetDeviceSize() const
@@ -522,8 +693,32 @@ public:
 
 #endif
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DEVICEMANAGER_H_SECTION_13
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DeviceManager_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DeviceManager_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DeviceManager_h_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#else
     static uint32 TextureDataSize(uint32 nWidth, uint32 nHeight, uint32 nDepth, uint32 nMips, uint32 nSlices, const ETEX_Format eTF);
+#endif
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DEVICEMANAGER_H_SECTION_14
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DeviceManager_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DeviceManager_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DeviceManager_h_salem.inl"
+    #endif
+#endif
 
     void GetMemoryUsage(ICrySizer* pSizer) const
     {
@@ -536,12 +731,28 @@ public:
         m_bNoDelete = noDelete;
     }
 
+    void TrackTextureMemory(uint32 usageFlags, const char* name);
+    void RemoveFromTextureMemoryTracking();
+
 private:
     CDeviceTexture(const CDeviceTexture&);
     CDeviceTexture& operator = (const CDeviceTexture&);
-
-private:
     int Cleanup();
-};
 
-#endif  // _DeviceManager_H_
+#ifdef DEVMAN_USE_STAGING_POOL
+    D3DResource* GetCurrUploadStagingResource();
+    D3DResource* GetCurrDownloadStagingResource();
+    D3DResource* GetCurrStagingResource(bool forUpload)
+    {
+        return forUpload ? GetCurrUploadStagingResource() : GetCurrDownloadStagingResource();
+    }
+
+    void** GetCurrUploadStagingMemoryPtr();
+    void** GetCurrDownloadStagingMemoryPtr();
+    void** GetCurrStagingMemoryPtr(bool forUpload)
+    {
+        return forUpload ? GetCurrUploadStagingMemoryPtr() : GetCurrDownloadStagingMemoryPtr();
+    }
+#endif
+
+};

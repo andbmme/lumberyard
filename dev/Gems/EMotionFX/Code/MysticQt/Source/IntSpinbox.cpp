@@ -14,6 +14,7 @@
 #include "IntSpinbox.h"
 #include "MysticQtManager.h"
 #include <MCore/Source/LogManager.h>
+#include <MCore/Source/StringConversions.h>
 #include <QtGui/QMouseEvent>
 #include <QtWidgets/QHBoxLayout>
 #include <QtWidgets/QVBoxLayout>
@@ -22,6 +23,7 @@
 #include <QtGui/QDoubleValidator>
 #include <QApplication>
 
+#include <AzCore/Casting/numeric_cast.h>
 
 namespace MysticQt
 {
@@ -121,7 +123,7 @@ namespace MysticQt
                     double fracPart, intPart;
                     fracPart = modf (mMouseMoveDeltaValue, &intPart);
                     MCORE_UNUSED(fracPart);
-                    int deltaValue = intPart;
+                    int deltaValue = aznumeric_cast<int>(intPart);
 
                     if (deltaValue != 0)
                     {
@@ -178,7 +180,7 @@ namespace MysticQt
 
             // this is needed because when using QCursor::setPos() a mouse move event will be fired by Qt
             int compensateDelta = newGlobalPos.y() - event->globalPos().y();
-            int compensatedValue = mSpinbox->value() + compensateDelta * mSpinbox->singleStep() * 0.1;
+            int compensatedValue = aznumeric_cast<int>(mSpinbox->value() + compensateDelta * mSpinbox->singleStep() * 0.1);
 
             mSpinbox->setValue(compensatedValue, false, false);
 
@@ -390,9 +392,9 @@ namespace MysticQt
     void IntSpinboxLineEdit::focusOutEvent(QFocusEvent* event)
     {
         FromQtString(text(), &mTemp);
-        mTemp.Trim();
+        AzFramework::StringFunc::TrimWhiteSpace(mTemp, true, true);
 
-        if (mTemp.GetIsEmpty())
+        if (mTemp.empty())
         {
             mSpinbox->Update();
         }
@@ -431,9 +433,9 @@ namespace MysticQt
         mLineEdit->setValidator(new QRegExpValidator(QRegExp("-?[0-9]?[0-9]{,}"), this));
         mLineEdit->setObjectName("SpinBoxLineEdit");
 
-        connect(mLineEdit, SIGNAL(editingFinished()), this, SLOT(OnEditingFinished()));
-        connect(mLineEdit, SIGNAL(returnPressed()), this, SLOT(OnEditingFinished()));
-        connect(mLineEdit, SIGNAL(textEdited(const QString&)), this, SLOT(OnTextEdited(const QString&)));
+        connect(mLineEdit, &QLineEdit::editingFinished, this, &MysticQt::IntSpinBox::OnEditingFinished);
+        connect(mLineEdit, &QLineEdit::returnPressed, this, &MysticQt::IntSpinBox::OnEditingFinished);
+        connect(mLineEdit, &QLineEdit::textEdited, this, &MysticQt::IntSpinBox::OnTextEdited);
 
         // create the up and down spin buttons
         mUpButton   = new IntSpinboxButton(this, this, false);
@@ -510,14 +512,12 @@ namespace MysticQt
     {
         // get the value string from the line edit
         FromQtString(newText, &mTemp);
-        mTemp.Trim();
+        AzFramework::StringFunc::TrimWhiteSpace(mTemp, true, true);
 
         // check if the text is a valid value
-        if (mTemp.CheckIfIsValidInt())
+        int newValue;
+        if (AzFramework::StringFunc::LooksLikeInt(mTemp.c_str(), &newValue))
         {
-            // interpret the text and convert it to a value
-            const int newValue = mTemp.ToInt();
-
             // check if the value is in range
             if (newValue >= mMinimum && newValue <= mMaximum)
             {
@@ -540,19 +540,17 @@ namespace MysticQt
     {
         // get the value string from the line edit
         FromQtString(mLineEdit->text(), &mTemp);
-        mTemp.Trim();
+        AzFramework::StringFunc::TrimWhiteSpace(mTemp, true, true);
 
         // check if the text is an invalid value
-        if (mTemp.CheckIfIsValidInt() == false)
+        int newValue;
+        if (!AzFramework::StringFunc::LooksLikeInt(mTemp.c_str(), &newValue))
         {
             // reset the value to the last valid and used one
             setValue(mValue);
             emit valueChanged(mValue);
             return;
         }
-
-        // interpret the text and convert it to a new value
-        int newValue = mTemp.ToInt();
 
         // in case the new value is out of range, use the last valid value
         if (newValue > mMaximum || newValue < mMinimum)

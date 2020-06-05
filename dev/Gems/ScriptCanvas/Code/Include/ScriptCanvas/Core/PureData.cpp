@@ -10,27 +10,67 @@
 *
 */
 
-#include "precompiled.h"
-
 #include "PureData.h"
 
 namespace ScriptCanvas
 {
     const char* PureData::k_getThis("Get");
     const char* PureData::k_setThis("Set");
+
+    PureData::~PureData()
+    {
+
+    }
     
+    const AZStd::unordered_map<AZStd::string, AZStd::pair<SlotId, SlotId>>& PureData::GetPropertyNameSlotMap() const
+    {
+        return m_propertyAccount.m_getterSetterIdPairs;
+    }
+
     void PureData::AddInputAndOutputTypeSlot(const Data::Type& type, const void* source)
     {
-        const Data::Type copy(type);
-        AddInputDatumSlot(k_setThis, "", AZStd::move(Data::Type(type)), source, Datum::eOriginality::Original);
-        AddOutputTypeSlot(k_getThis, "", AZStd::move(Data::Type(copy)), OutputStorage::Optional);
+        {
+            DataSlotConfiguration slotConfiguration;
+
+            slotConfiguration.m_name = k_setThis;
+            slotConfiguration.SetConnectionType(ConnectionType::Input);
+            slotConfiguration.ConfigureDatum(AZStd::move(Datum(type, Datum::eOriginality::Original, source, AZ::Uuid::CreateNull())));
+
+            AddSlot(slotConfiguration);
+        }
+
+        {
+            DataSlotConfiguration slotConfiguration;
+
+            slotConfiguration.m_name = k_getThis;
+            slotConfiguration.SetConnectionType(ConnectionType::Output);            
+            slotConfiguration.SetType(type);
+
+            AddSlot(slotConfiguration);
+        }
     }
 
     void PureData::AddInputTypeAndOutputTypeSlot(const Data::Type& type)
     {
-        const Data::Type copy(type);
-        AddInputTypeSlot(k_setThis, "", AZStd::move(Data::Type(type)), InputTypeContract::DatumType);
-        AddOutputTypeSlot(k_getThis, "", AZStd::move(Data::Type(copy)), OutputStorage::Optional);
+        {
+            DataSlotConfiguration slotConfiguration;
+
+            slotConfiguration.m_name = k_setThis;
+            slotConfiguration.SetConnectionType(ConnectionType::Input);
+            slotConfiguration.SetType(type);
+
+            AddSlot(slotConfiguration);
+        }
+
+        {
+            DataSlotConfiguration slotConfiguration;
+
+            slotConfiguration.m_name = k_getThis;
+            slotConfiguration.SetConnectionType(ConnectionType::Output);
+            slotConfiguration.SetType(type);
+
+            AddSlot(slotConfiguration);
+        }
     }
 
     void PureData::OnActivate()
@@ -46,7 +86,10 @@ namespace ScriptCanvas
 
     void PureData::OnInputChanged(const Datum& input, const SlotId& id) 
     {
-        OnOutputChanged(input);
+        if (IsActivated())
+        {
+            OnOutputChanged(input);
+        }
     }
 
     AZStd::string_view PureData::GetInputDataName() const
@@ -69,7 +112,7 @@ namespace ScriptCanvas
 
             if (!outputNodes.empty())
             {
-                auto getterOutcome = getterFuncIt->second.m_getterFunction(m_inputData[k_thisDatumIndex]);
+                auto getterOutcome = getterFuncIt->second.m_getterFunction((*FindDatum(GetSlotId(k_setThis))));
                 if (!getterOutcome)
                 {
                     SCRIPTCANVAS_REPORT_ERROR((*this), getterOutcome.GetError().data());
@@ -90,7 +133,7 @@ namespace ScriptCanvas
 
     void PureData::SetInput(const Datum& input, const SlotId& id)
     {
-        if (IsSetThisSlot(id))
+        if (id == FindSlotIdForDescriptor(GetInputDataName(), SlotDescriptors::DataIn()))
         {
             // push this value, as usual
             Node::SetInput(input, id);
@@ -108,6 +151,29 @@ namespace ScriptCanvas
         }
     }
 
+    void PureData::SetInput(Datum&& input, const SlotId& id)
+    {
+        if (id == FindSlotIdForDescriptor(GetInputDataName(), SlotDescriptors::DataIn()))
+        {
+            // push this value, as usual
+            Node::SetInput(AZStd::move(input), id);
+
+            if (IsActivated())
+            {
+                // now, call every getter, as every property has (presumably) been changed
+                for (const auto& propertyNameSlotIdsPair : m_propertyAccount.m_getterSetterIdPairs)
+                {
+                    const SlotId& getterSlotId = propertyNameSlotIdsPair.second.first;
+                    CallGetter(getterSlotId);
+                }
+            }
+        }
+        else
+        {
+            SetProperty(AZStd::move(input), id);
+        }
+    }
+
     void PureData::SetProperty(const Datum& input, const SlotId& setterId)
     {
         auto methodBySlotIter = m_propertyAccount.m_settersByInputSlot.find(setterId);
@@ -121,12 +187,22 @@ namespace ScriptCanvas
             AZ_Error("Script Canvas", false, "BehaviorContextObject setter is not invocable for SlotId %s is nullptr", setterId.m_id.ToString<AZStd::string>().data());
             return;
         }
-        auto setterOutcome = methodBySlotIter->second.m_setterFunction(m_inputData[k_thisDatumIndex], input);
+
+        ModifiableDatumView datumView;
+        FindModifiableDatumView(GetSlotId(k_setThis), datumView);
+
+        Datum* datum = datumView.ModifyDatum();
+
+        auto setterOutcome = methodBySlotIter->second.m_setterFunction((*datum), input);
+
         if (!setterOutcome)
         {
             SCRIPTCANVAS_REPORT_ERROR((*this), setterOutcome.TakeError().data());
             return;
         }
+
+        datumView.SignalModification();
+
         PushThis();
 
         auto getterSetterIt = m_propertyAccount.m_getterSetterIdPairs.find(methodBySlotIter->second.m_propertyName);
@@ -152,7 +228,6 @@ namespace ScriptCanvas
             {
                 editContext->Class<PureData>("PureData", "")
                     ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
-                        ->Attribute(AZ::Edit::Attributes::Visibility, AZ::Edit::PropertyVisibility::ShowChildrenOnly)
                     ;
             }
         }

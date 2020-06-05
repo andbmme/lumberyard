@@ -10,13 +10,21 @@
 *
 */
 
+#include <AzCore/PlatformDef.h>
+AZ_PUSH_DISABLE_WARNING(4244 4251, "-Wunknown-warning-option")
 #include <QtGui>
 #include <QtWidgets/QMenu>
+#include <QtNetwork/QHostInfo>
+AZ_POP_DISABLE_WARNING
 
+#ifdef AZ_PLATFORM_WINDOWS
 // windows include must be first so we get the full version (AZCore bring the trimmed one)
 #include <Windows.h>
+#else
+#include <signal.h>
+#endif
 
-#include "GridHub.hxx"
+#include "gridhub.hxx"
 #include <GridHub/gridhub.moc>
 
 #include <AzCore/Component/ComponentApplication.h>
@@ -26,7 +34,7 @@
 #include <GridMate/Carrier/Utils.h>
 #include <GridMate/Session/LANSession.h>
 
-#include <time.h>		// for output timestamp
+#include <time.h>   // for output timestamp
 
 //////////////////////////////////////////////////////////////////////////
 
@@ -63,7 +71,7 @@ GridHub::GridHub(AZ::ComponentApplication* componentApp, GridHubComponent* hubCo
     m_trayIcon->setToolTip(QString("Amazon Debug Connection Hub - GridHub"));
     m_trayIcon->setIcon(QIcon(":/GridHub/Resources/Disconnected.png"));
     
-    connect(m_trayIcon, SIGNAL(activated(QSystemTrayIcon::ActivationReason)),	this, SLOT(iconActivated(QSystemTrayIcon::ActivationReason)));
+    connect(m_trayIcon, SIGNAL(activated(QSystemTrayIcon::ActivationReason)),   this, SLOT(iconActivated(QSystemTrayIcon::ActivationReason)));
 
     m_trayIcon->show();
     
@@ -129,7 +137,7 @@ void GridHub::SystemTick()
 void GridHub::closeEvent(QCloseEvent *event)
 {
     if (m_trayIcon->isVisible()) {
-/*		QMessageBox::information(this, tr("GridHub - Amazon Debug Connection Hub"),
+/*      QMessageBox::information(this, tr("GridHub - Amazon Debug Connection Hub"),
             tr("The program will keep running in the "
             "system tray. To terminate the program, "
             "choose <b>Quit</b> in the context menu "
@@ -176,7 +184,7 @@ void GridHub::timerEvent(QTimerEvent *event)
 // [5/24/2011]
 //=========================================================================
 void GridHub::UpdateOutput()
-{	
+{
     if( m_output.empty() ) return;
     m_outputMutex.lock();
     QString msg(m_output.c_str());
@@ -215,7 +223,7 @@ void GridHub::UpdateMembers()
             GridMate::GridMember* member = session->GetMemberByIndex(i);
             ui.members->setItem(i,0,new QTableWidgetItem(member->GetId().ToString().c_str()));
             ui.members->setItem(i,1,new QTableWidgetItem(member->GetName().c_str()));
-            ui.members->setItem(i,2,new QTableWidgetItem(member->GetConnectionId()==GridMate::InvalidConnectionID ? "--" : tr("%1").arg(reinterpret_cast<unsigned int>(member->GetConnectionId()))));
+            ui.members->setItem(i,2,new QTableWidgetItem(member->GetConnectionId()==GridMate::InvalidConnectionID ? "--" : QString::number((size_t)member->GetConnectionId())));
             ui.members->setItem(i,3,new QTableWidgetItem(member->IsHost()?"Yes":"No"));
             ui.members->setItem(i,4,new QTableWidgetItem(member->IsLocal()?"Yes":"No"));
             ui.members->setItem(i,5,new QTableWidgetItem(member->IsReady()?"Yes":"No"));
@@ -229,19 +237,12 @@ void GridHub::UpdateMembers()
 //=========================================================================
 bool GridHub::OnOutput(const char* window, const char* message)
 {
-    time_t rawtime;
-    time ( &rawtime );
-
-    struct tm timeinfo;
-    localtime_s(&timeinfo, &rawtime);
-
-    char buffer [128];
-    strftime (buffer,AZ_ARRAY_SIZE(buffer),"%H:%M:%S|", &timeinfo);
+    const QString time = QDateTime::currentDateTime().toString("HH:mm:ss|");
 
     {
         // This function will be called from multiple threads
-        AZStd::lock_guard<AZStd::mutex> l(m_outputMutex);
-        m_output += buffer;
+        const AZStd::lock_guard<AZStd::mutex> l(m_outputMutex);
+        m_output += time.toUtf8().data();
         m_output += window;
         m_output += " : ";
         m_output += message;
@@ -358,7 +359,7 @@ GridHubComponent::GridHubComponent()
     {
 #ifdef _UNICODE
         char c[MAX_COMPUTERNAME_LENGTH + 1];
-        wcstombs(c, name, AZ_ARRAY_SIZE(c));	
+        wcstombs(c, name, AZ_ARRAY_SIZE(c));
         m_hubName = c;
 #else
         m_hubName = name;
@@ -366,7 +367,7 @@ GridHubComponent::GridHubComponent()
     }
     else
 #endif
-        m_hubName = "MyComputer";
+        m_hubName = QHostInfo::localHostName().toUtf8().data();
 }
 
 //=========================================================================
@@ -447,6 +448,7 @@ void GridHubComponent::OnSystemTick()
                     for(size_t i = 0; i < m_monitored.size(); ++i)
                     {
                         ExternalProcessMonitor& mi =  m_monitored[i];
+#ifdef AZ_PLATFORM_WINDOWS
                         if( mi.m_localProcess != INVALID_HANDLE_VALUE )
                         {
                             DWORD exitCode = 0;
@@ -457,6 +459,16 @@ void GridHubComponent::OnSystemTick()
                                 break;
                             }
                         }
+#else
+                        if (mi.m_localProcess != 0)
+                        {
+                            if (kill(mi.m_localProcess, 0) != 0)
+                            {
+                                memberToKick = &mi;
+                                break;
+                            }
+                        }
+#endif
                     }
 
                     if( memberToKick )
@@ -495,12 +507,6 @@ bool GridHubComponent::OnOutput(const char* window, const char* message)
 {
     if( m_isLogToFile )
     {
-        time_t rawtime;
-        time(&rawtime);
-
-        struct tm timeinfo;
-        localtime_s(&timeinfo, &rawtime );
-
         if( !m_logFile.IsOpen() )
         {
             const char* logFileName = "GridHubEvents.log"; // we can make this user configurable
@@ -512,9 +518,8 @@ bool GridHubComponent::OnOutput(const char* window, const char* message)
 
         if( m_logFile.IsOpen() )
         {
-            char buffer [128];
-            strftime (buffer,AZ_ARRAY_SIZE(buffer),"%m:%d:%y-%H:%M:%S|", &timeinfo);
-            m_logFile.Write(buffer,strlen(buffer));
+            const QByteArray time = QDateTime::currentDateTime().toString("MM:dd:yy-HH:mm:ss|").toUtf8();
+            m_logFile.Write(time.data(),time.size());
             m_logFile.Write(window,strlen(window));
             m_logFile.Write(" : ", 3);
             m_logFile.Write(message,strlen(message));
@@ -538,15 +543,21 @@ GridHubComponent::OnMemberJoined(GridMate::GridSession* session, GridMate::GridM
     {
     case AZ::PLATFORM_WINDOWS_32:
     case AZ::PLATFORM_WINDOWS_64:
+    case AZ::PLATFORM_APPLE_OSX:
         {
             GridMate::string localMachineName = GridMate::Utils::GetMachineAddress();
             if( member->GetMachineName() == localMachineName )
             {
                 ExternalProcessMonitor mi;
                 mi.m_memberId = id;
+#ifdef AZ_PLATFORM_WINDOWS
                 mi.m_localProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION,TRUE,member->GetProcessId());
                 if( mi.m_localProcess != INVALID_HANDLE_VALUE )
                     m_monitored.push_back(mi);
+#else
+                mi.m_localProcess = member->GetProcessId();
+                m_monitored.push_back(mi);
+#endif
             }
         }break;
     }
@@ -565,12 +576,14 @@ GridHubComponent::OnMemberLeaving(GridMate::GridSession* session, GridMate::Grid
         ExternalProcessMonitor& mi =  m_monitored[i];
         if( mi.m_memberId == id )
         {
+#ifdef AZ_PLATFORM_WINDOWS
             if( mi.m_localProcess != INVALID_HANDLE_VALUE )
                 CloseHandle(mi.m_localProcess);
+#endif
 
             m_monitored.erase(m_monitored.begin()+i);
             break;
-        }		
+        }
     }
 }
 
@@ -621,7 +634,7 @@ bool GridHubComponent::StartSession(bool isRestarting)
     GridMate::string machineIP = GridMate::Utils::GetMachineAddress();
     if( machineIP == "127.0.0.1" || machineIP.compare(0,4,"169.") == 0 )
     {
-        AZ_Warning("GridHub","\nCurrent IP %s might be invalid.\n",machineIP.c_str());
+        AZ_Warning("GridHub", false, "\nCurrent IP %s might be invalid.\n",machineIP.c_str());
     }
     
     GridMate::CarrierDesc carrierDesc;

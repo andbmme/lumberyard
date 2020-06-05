@@ -9,25 +9,28 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
-#include "precompiled.h"
+
 #include "ConnectionLimitContract.h"
 #include <ScriptCanvas/Core/ContractBus.h>
 #include <ScriptCanvas/Core/GraphBus.h>
 #include <ScriptCanvas/Core/NodeBus.h>
 #include <ScriptCanvas/Core/Endpoint.h>
 #include <ScriptCanvas/Core/Slot.h>
+#include <ScriptCanvas/Core/Node.h>
+#include <ScriptCanvas/Core/Graph.h>
 
 namespace ScriptCanvas
 {
     AZ::Outcome<void, AZStd::string> ConnectionLimitContract::OnEvaluate(const Slot& sourceSlot, const Slot& targetSlot) const
     {
-        AZ::EntityId graphId;
-        NodeRequestBus::EventResult(graphId, sourceSlot.GetNodeId(), &NodeRequests::GetGraphId);
-        
-        AZStd::vector<Endpoint> connectedEndpoints;
-        GraphRequestBus::EventResult(connectedEndpoints, graphId, &GraphRequests::GetConnectedEndpoints, Endpoint{ sourceSlot.GetNodeId(), sourceSlot.GetId() });
+        if (m_limit < 0)
+        {
+            return AZ::Success();
+        }
 
-        if (m_limit < 0 || connectedEndpoints.size() < static_cast<AZ::u32>(m_limit))
+        AZStd::vector<Endpoint> connectedEndpoints = sourceSlot.GetNode()->GetGraph()->GetConnectedEndpoints(sourceSlot.GetEndpoint());
+
+        if (connectedEndpoints.size() < static_cast<AZ::u32>(m_limit))
         {
             return AZ::Success();
         }
@@ -42,6 +45,15 @@ namespace ScriptCanvas
 
             return AZ::Failure(errorMessage);
         }
+    }
+
+    ConnectionLimitContract::ConnectionLimitContract(AZ::s32 limit) 
+        : m_limit(AZStd::GetMax(-1, limit)) 
+    {}
+
+    void ConnectionLimitContract::SetLimit(AZ::s32 limit) 
+    { 
+        m_limit = AZStd::GetMax(-1, limit); 
     }
 
     void ConnectionLimitContract::Reflect(AZ::ReflectContext* reflection)

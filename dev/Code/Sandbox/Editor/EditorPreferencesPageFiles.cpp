@@ -9,18 +9,21 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
-#include "stdafx.h"
+#include "StdAfx.h"
 #include "EditorPreferencesPageFiles.h"
+#include <AzToolsFramework/Slice/SliceUtilities.h>
 
 
 void CEditorPreferencesPage_Files::Reflect(AZ::SerializeContext& serialize)
 {
     serialize.Class<Files>()
-        ->Version(1)
+        ->Version(2)
+        ->Field("AutoNumberSlices", &Files::m_autoNumberSlices)
         ->Field("BackupOnSave", &Files::m_backupOnSave)
         ->Field("BackupOnSaveMaxCount", &Files::m_backupOnSaveMaxCount)
         ->Field("TempDirectory", &Files::m_standardTempDirectory)
-        ->Field("AutoSaveTagPoints", &Files::m_autoSaveTagPoints);
+        ->Field("AutoSaveTagPoints", &Files::m_autoSaveTagPoints)
+        ->Field("SliceSaveLocation", &Files::m_saveLocation);
 
     serialize.Class<ExternalEditors>()
         ->Version(1)
@@ -48,12 +51,14 @@ void CEditorPreferencesPage_Files::Reflect(AZ::SerializeContext& serialize)
     if (editContext)
     {
         editContext->Class<Files>("Files", "File Preferences")
+            ->DataElement(AZ::Edit::UIHandlers::CheckBox, &Files::m_autoNumberSlices, "Append numeric value to slices", "Should the name of the slice file be automatically numbered. e.g SliceName_001.slice vs. SliceName.slice")
             ->DataElement(AZ::Edit::UIHandlers::CheckBox, &Files::m_backupOnSave, "Backup on Save", "Backup on Save")
             ->DataElement(AZ::Edit::UIHandlers::SpinBox, &Files::m_backupOnSaveMaxCount, "Maximum Save Backups", "Maximum Save Backups")
             ->Attribute(AZ::Edit::Attributes::Min, 1)
             ->Attribute(AZ::Edit::Attributes::Max, 100)
             ->DataElement(AZ::Edit::UIHandlers::LineEdit, &Files::m_standardTempDirectory, "Standard Temporary Directory", "Standard Temporary Directory")
-            ->DataElement(AZ::Edit::UIHandlers::CheckBox, &Files::m_autoSaveTagPoints, "Auto Save Camera Tag Points", "Instantly Save Changed Camera Tag Points");
+            ->DataElement(AZ::Edit::UIHandlers::CheckBox, &Files::m_autoSaveTagPoints, "Auto Save Camera Tag Points", "Instantly Save Changed Camera Tag Points")
+            ->DataElement(AZ::Edit::UIHandlers::LineEdit, &Files::m_saveLocation, "Slice Save location", "Specify the default location to save new slices");
 
         editContext->Class<ExternalEditors>("External Editors", "External Editors")
             ->DataElement(AZ::Edit::UIHandlers::LineEdit, &ExternalEditors::m_scripts, "Scripts Editor", "Scripts Text Editor")
@@ -89,6 +94,11 @@ CEditorPreferencesPage_Files::CEditorPreferencesPage_Files()
 
 void CEditorPreferencesPage_Files::OnApply()
 {
+    using namespace AzToolsFramework::SliceUtilities;
+    auto sliceSettings = AZ::UserSettings::CreateFind<SliceUserSettings>(AZ_CRC("SliceUserSettings", 0x055b32eb), AZ::UserSettings::CT_LOCAL);
+    sliceSettings->m_autoNumber = m_files.m_autoNumberSlices;
+    sliceSettings->m_saveLocation = m_files.m_saveLocation;
+
     gSettings.bBackupOnSave = m_files.m_backupOnSave;
     gSettings.backupOnSaveMaxCount = m_files.m_backupOnSaveMaxCount;
     gSettings.bAutoSaveTagPoints = m_files.m_autoSaveTagPoints;
@@ -108,6 +118,11 @@ void CEditorPreferencesPage_Files::OnApply()
 
 void CEditorPreferencesPage_Files::InitializeSettings()
 {
+    using namespace AzToolsFramework::SliceUtilities;
+    auto sliceSettings = AZ::UserSettings::CreateFind<SliceUserSettings>(AZ_CRC("SliceUserSettings", 0x055b32eb), AZ::UserSettings::CT_LOCAL);
+
+    m_files.m_autoNumberSlices = sliceSettings->m_autoNumber;
+    m_files.m_saveLocation = sliceSettings->m_saveLocation;
     m_files.m_backupOnSave = gSettings.bBackupOnSave;
     m_files.m_backupOnSaveMaxCount = gSettings.backupOnSaveMaxCount;
     m_files.m_autoSaveTagPoints = gSettings.bAutoSaveTagPoints;

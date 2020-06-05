@@ -11,8 +11,6 @@
 */
 #include "precompiled.h"
 
-#include <tools.h>
-
 #include <QPainter>
 #include <QGraphicsLayout>
 #include <QGraphicsSceneEvent>
@@ -20,7 +18,8 @@
 #include <Components/Nodes/NodeFrameGraphicsWidget.h>
 
 #include <GraphCanvas/Components/GridBus.h>
-#include <Styling/StyleHelper.h>
+#include <GraphCanvas/tools.h>
+#include <GraphCanvas/Styling/StyleHelper.h>
 
 namespace GraphCanvas
 {
@@ -29,12 +28,14 @@ namespace GraphCanvas
     ////////////////////////////
 
     NodeFrameGraphicsWidget::NodeFrameGraphicsWidget(const AZ::EntityId& entityKey)
-        : RootVisualNotificationsHelper(entityKey)
-        , m_isWrapped(false)
+        : RootGraphicsItem(entityKey)
+        , m_displayState(NodeFrameDisplayState::None)
     {
         setFlags(ItemIsSelectable | ItemIsFocusable | ItemIsMovable | ItemSendsScenePositionChanges);
         setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::MinimumExpanding);
         setData(GraphicsItemName, QStringLiteral("DefaultNodeVisual/%1").arg(static_cast<AZ::u64>(GetEntityId()), 16, 16, QChar('0')));
+
+        setCacheMode(QGraphicsItem::CacheMode::DeviceCoordinateCache);
     }
 
     void NodeFrameGraphicsWidget::Activate()
@@ -59,6 +60,11 @@ namespace GraphCanvas
         SceneMemberUIRequestBus::Handler::BusDisconnect();
     }
 
+    QRectF NodeFrameGraphicsWidget::GetBoundingRect() const
+    {
+        return boundingRect();
+    }
+
     QGraphicsItem* NodeFrameGraphicsWidget::GetRootGraphicsItem()
     {
         return this;
@@ -79,6 +85,16 @@ namespace GraphCanvas
         return isSelected();
     }
 
+    void NodeFrameGraphicsWidget::SetZValue(qreal zValue)
+    {
+        setZValue(zValue);
+    }
+
+    qreal NodeFrameGraphicsWidget::GetZValue() const
+    {
+        return aznumeric_cast<int>(zValue());
+    }
+
     void NodeFrameGraphicsWidget::OnPositionChanged(const AZ::EntityId& entityId, const AZ::Vector2& position)
     {
         setPos(QPointF(position.GetX(), position.GetY()));
@@ -88,40 +104,17 @@ namespace GraphCanvas
     {
         m_style.SetStyle(GetEntityId());
 
-        setZValue(m_style.GetAttribute(Styling::Attribute::ZValue, 0));
+        setOpacity(m_style.GetAttribute(Styling::Attribute::Opacity, 1.0f));
 
         OnRefreshStyle();
-    }
-
-    void NodeFrameGraphicsWidget::contextMenuEvent(QGraphicsSceneContextMenuEvent* contextMenuEvent)
-    {
-        contextMenuEvent->ignore();
-
-        AZ::EntityId sceneId;
-        SceneMemberRequestBus::EventResult(sceneId, GetEntityId(), &SceneMemberRequests::GetScene);
-
-        bool isCurrentIdAlreadySelected = IsSelected();
-        bool shouldAppendSelection = contextMenuEvent->modifiers().testFlag(Qt::ControlModifier);
-
-        // clear the current selection if you are not multi selecting and clicking on an unselected node
-        if (!isCurrentIdAlreadySelected && !shouldAppendSelection)
-        {
-            GraphCanvas::SceneRequestBus::Event(sceneId, &GraphCanvas::SceneRequests::ClearSelection);
-        }
-
-        if (!isCurrentIdAlreadySelected)
-        {
-            SetSelected(true);
-        }
-
-        SceneUIRequestBus::Event(sceneId, &SceneUIRequests::OnNodeContextMenuEvent, GetEntityId(), contextMenuEvent);
+        update();
     }
 
     QSizeF NodeFrameGraphicsWidget::sizeHint(Qt::SizeHint which, const QSizeF& constraint) const
     {
         QSizeF retVal = QGraphicsWidget::sizeHint(which, constraint);
 
-        if (IsResizedToGrid() && (!m_isWrapped))
+        if (IsResizedToGrid())
         {
             int width = static_cast<int>(retVal.width());
             int height = static_cast<int>(retVal.height());
@@ -135,6 +128,21 @@ namespace GraphCanvas
         return retVal;
     }
 
+    void NodeFrameGraphicsWidget::resizeEvent(QGraphicsSceneResizeEvent* resizeEvent)
+    {
+        QGraphicsWidget::resizeEvent(resizeEvent);
+
+        GeometryRequestBus::Event(GetEntityId(), &GeometryRequests::SignalBoundsChanged);
+    }
+    
+    void NodeFrameGraphicsWidget::OnDeleteItem()
+    {
+        AZ::EntityId graphId;
+        SceneMemberRequestBus::EventResult(graphId, GetEntityId(), &SceneMemberRequests::GetScene);
+
+        SceneRequestBus::Event(graphId, &SceneRequests::DeleteNodeAndStitchConnections, GetEntityId());
+    }
+
     QGraphicsItem* NodeFrameGraphicsWidget::AsGraphicsItem()
     {
         return this;
@@ -146,7 +154,21 @@ namespace GraphCanvas
         return boundingRect().contains(local);
     }
 
+    void NodeFrameGraphicsWidget::SetVisible(bool visible)
+    {
+        setVisible(visible);
+    }
+
+    bool NodeFrameGraphicsWidget::IsVisible() const
+    {
+        return isVisible();
+    }
+
     void NodeFrameGraphicsWidget::OnNodeActivated()
+    {
+    }
+
+    void NodeFrameGraphicsWidget::OnAddedToScene(const AZ::EntityId&)
     {
         AZStd::string tooltip;
         NodeRequestBus::EventResult(tooltip, GetEntityId(), &NodeRequests::GetTooltip);
@@ -155,15 +177,13 @@ namespace GraphCanvas
 
         AZ::Vector2 position;
         GeometryRequestBus::EventResult(position, GetEntityId(), &GeometryRequests::GetPosition);
-        setPos(QPointF(position.GetX(), position.GetY()));
+        setPos(ConversionUtils::AZToQPoint(position));
     }
 
-    void NodeFrameGraphicsWidget::OnNodeWrapped(const AZ::EntityId&)
+    void NodeFrameGraphicsWidget::OnNodeWrapped(const AZ::EntityId& wrappingNode)
     {
         GeometryNotificationBus::Handler::BusDisconnect();
         setFlag(QGraphicsItem::ItemIsMovable, false);
-        adjustSize();
-        m_isWrapped = true;
 
         SetSnapToGridEnabled(false);
         SetResizeToGridEnabled(false);
@@ -171,12 +191,14 @@ namespace GraphCanvas
 
     void NodeFrameGraphicsWidget::AdjustSize()
     {
+        QRectF originalSize = boundingRect();
         adjustSize();
-    }
+        QRectF newSize = boundingRect();
 
-    bool NodeFrameGraphicsWidget::IsWrapped() const
-    {
-        return m_isWrapped;
+        if (originalSize != newSize)
+        {
+            GeometryRequestBus::Event(GetEntityId(), &GeometryRequests::SignalBoundsChanged);
+        }
     }
 
     void NodeFrameGraphicsWidget::SetSnapToGrid(bool snapToGrid)
@@ -204,7 +226,7 @@ namespace GraphCanvas
 
     int NodeFrameGraphicsWidget::GrowToNextStep(int value, int step) const
     {
-        int delta = value % step;
+        int delta = value % step;        
 
         if (delta == 0)
         {
@@ -212,7 +234,7 @@ namespace GraphCanvas
         }
         else
         {
-            return value + (step - (value % step));
+            return value + (step - delta);
         }
     }
 
@@ -231,7 +253,14 @@ namespace GraphCanvas
 
     int NodeFrameGraphicsWidget::ShrinkToPreviousStep(int value, int step) const
     {
-        return value - (value % step);
+        int absValue = (value%step);
+
+        if (absValue < 0)
+        {
+            absValue = step + absValue;
+        }
+
+        return value - absValue;
     }
 
     void NodeFrameGraphicsWidget::OnActivated()

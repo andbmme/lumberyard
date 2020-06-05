@@ -11,22 +11,24 @@
 */
 #pragma once
 
+AZ_PUSH_DISABLE_WARNING(4251 4800, "-Wunknown-warning-option")
 #include <QGraphicsWidget>
+AZ_POP_DISABLE_WARNING
 
 #include <GraphCanvas/Components/GeometryBus.h>
 #include <GraphCanvas/Components/Nodes/NodeBus.h>
 #include <GraphCanvas/Components/Nodes/NodeLayoutBus.h>
 #include <GraphCanvas/Components/Nodes/NodeUIBus.h>
 #include <GraphCanvas/Components/VisualBus.h>
-#include <Styling/StyleHelper.h>
-#include <Ui/RootVisualNotificationsHelper.h>
+#include <GraphCanvas/Widgets/RootGraphicsItem.h>
+#include <GraphCanvas/Styling/StyleHelper.h>
 
 namespace GraphCanvas
 {
     //! Base class to handle a bunch of the weird quirky stuff that the NodeFrames need to manage.
     //! Will not paint anything.
     class NodeFrameGraphicsWidget
-        : public RootVisualNotificationsHelper<QGraphicsWidget>
+        : public RootGraphicsItem<QGraphicsWidget>
         , public SceneMemberUIRequestBus::Handler
         , public GeometryNotificationBus::Handler
         , public VisualRequestBus::Handler
@@ -34,6 +36,14 @@ namespace GraphCanvas
         , public NodeUIRequestBus::Handler
         , public StyleNotificationBus::Handler
     {
+    private:
+        enum NodeFrameDisplayState
+        {
+            None,
+            Inspection,
+            Deletion
+        };
+
     public:
         AZ_TYPE_INFO(NodeFrameGraphicsWidget, "{33B9DFFB-9E40-4D55-82A7-85468F7E7790}");
         AZ_CLASS_ALLOCATOR(NodeFrameGraphicsWidget, AZ::SystemAllocator, 0);
@@ -47,12 +57,19 @@ namespace GraphCanvas
         void Activate();
         void Deactivate();
 
+        // RootVisualNotificationsHelper
+        QRectF GetBoundingRect() const override;
+        ////
+
         // SceneMemberUIRequestBus
         QGraphicsItem* GetRootGraphicsItem() override;
         QGraphicsLayoutItem* GetRootGraphicsLayoutItem() override;
 
         void SetSelected(bool selected) override;
         bool IsSelected() const override;
+
+        void SetZValue(qreal zValue) override;
+        qreal GetZValue() const override;
         ////
 
         // GeometryNotificationBus
@@ -64,18 +81,26 @@ namespace GraphCanvas
         ////
 
         // QGraphicsItem
-        void contextMenuEvent(QGraphicsSceneContextMenuEvent* contextMenuEvent) override;
         QSizeF sizeHint(Qt::SizeHint which, const QSizeF& constraint = QSizeF()) const override;
+        void resizeEvent(QGraphicsSceneResizeEvent *) override;
+        ////
+
+        // RootGraphicsItem
+        void OnDeleteItem() override;
         ////
 
         // VisualRequestBus
         QGraphicsItem* AsGraphicsItem() override;
 
         bool Contains(const AZ::Vector2& position) const override;
+
+        void SetVisible(bool visible) override;
+        bool IsVisible() const override;
         ////
 
         // NodeNotificationBus
         void OnNodeActivated() override;
+        void OnAddedToScene(const AZ::EntityId& graphId) override;
 
         void OnNodeWrapped(const AZ::EntityId& wrappingNode) override;
         ////
@@ -88,11 +113,12 @@ namespace GraphCanvas
         void SetGrid(AZ::EntityId gridId) override;
 
         qreal GetCornerRadius() const override;
-
-        bool IsWrapped() const override;
         ////
 
     protected:
+
+        void SetDisplayState(NodeFrameDisplayState displayState);
+        void UpdateDisplayState(NodeFrameDisplayState displayState, bool enabled);
 
         int GrowToNextStep(int value, int step) const;
         int RoundToClosestStep(int value, int step) const;
@@ -106,7 +132,6 @@ namespace GraphCanvas
         NodeFrameGraphicsWidget(const NodeFrameGraphicsWidget&) = delete;
 
         Styling::StyleHelper m_style;
-
-        bool m_isWrapped;
+        NodeFrameDisplayState m_displayState;
     };
 }

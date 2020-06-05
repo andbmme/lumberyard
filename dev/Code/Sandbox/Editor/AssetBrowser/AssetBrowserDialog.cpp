@@ -11,14 +11,13 @@
 */
 // Original file Copyright Crytek GMBH or its affiliates, used under license.
 
-#include "stdafx.h"
+#include "StdAfx.h"
 #include "AssetBrowserDialog.h"
 #include "AssetBrowserCachingOptionsDlg.h"
 #include "AssetTypes/Model/AssetModelItem.h"
 #include "AssetTypes/Character/AssetCharacterItem.h"
 #include "Include/IAssetItemDatabase.h"
 #include "Include/IAssetItem.h"
-#include "AssetBrowser/AssetBrowserMetaTaggingDlg.h"
 #include "Objects/EntityObject.h"
 #include "AssetBrowserManager.h"
 #include "Util/IndexedFiles.h"
@@ -46,7 +45,7 @@
 
 #define ASSET_BROWSER_BYTES_TO_MBYTES(nBytes) ((float)nBytes / 1024.0f / 1024.0f)
 
-namespace AssetBrowser
+namespace AssetBrowserDialogInternal
 {
     const QColor kListViewOddRowColor = QColor(235, 235, 235);
     const QColor kListViewSelectedRowColor = QColor(215, 215, 0);
@@ -298,7 +297,7 @@ CAssetBrowserDialog::CAssetBrowserDialog(QWidget* parent)
     , m_ui(new Ui::AssetBrowserDialog)
 {
     m_ui->setupUi(this);
-    m_ui->m_searchDlg->setFixedHeight(AssetBrowser::kSearchEditDialogHeight);
+    m_ui->m_searchDlg->setFixedHeight(AssetBrowserDialogInternal::kSearchEditDialogHeight);
 
     m_bSelectAssetsFromListView = false;
     s_pCurrentInstance = this;
@@ -606,9 +605,9 @@ void CAssetBrowserDialog::OnChangeStatusBarInfo(UINT nSelectedItems, UINT nVisib
         QString strTotal;
 
         // if under a megabyte
-        if (fTotalSize < AssetBrowser::kOneMegaByte)
+        if (fTotalSize < AssetBrowserDialogInternal::kOneMegaByte)
         {
-            strTotal = tr("%1 KB").arg(fTotalSize / AssetBrowser::kOneKiloByte, 1, 'f');
+            strTotal = tr("%1 KB").arg(fTotalSize / AssetBrowserDialogInternal::kOneKiloByte, 1, 'f');
         }
         else
         {
@@ -640,37 +639,6 @@ void CAssetBrowserDialog::OnSelectionChanged()
     {
         // ok, got it, set to false, we did not sent any select operation to the list
         m_bSelectAssetsFromListView = false;
-    }
-
-    CAssetBrowserManager::StrVector allTags;
-
-    for (TAssetItems::iterator item = items.begin(), end = items.end(); item != end; ++item)
-    {
-        const QString filename = (*item)->GetRelativePath() + (*item)->GetFilename();
-
-        QString description;
-        CAssetBrowserManager::Instance()->GetAssetDescription(filename, description);
-        allTags.push_back(description);
-
-        CAssetBrowserManager::StrVector tags;
-        int tagCount = CAssetBrowserManager::Instance()->GetTagsForAsset(tags, filename);
-
-        if (tagCount > 0)
-        {
-            allTags.append(tags);
-        }
-    }
-
-    QString tagString;
-
-    for (auto item = allTags.begin(), end = allTags.end(); item != end; ++item)
-    {
-        if (!tagString.isEmpty())
-        {
-            tagString.append(QStringLiteral(" "));
-        }
-
-        tagString.append((*item));
     }
 }
 
@@ -796,21 +764,6 @@ void CAssetBrowserDialog::OnUpdateAssetBrowserShowPreview()
 void CAssetBrowserDialog::OnUpdateAssetBrowserShowFilters()
 {
     m_ui->actionShowFilters->setChecked(m_pDockPaneFilters->isVisible());
-}
-
-void CAssetBrowserDialog::OnUpdateAssetBrowserEditTags()
-{
-    TAssetItems items;
-    m_ui->m_assetViewer->GetSelectedItems(items);
-
-    if (items.size() != 1)
-    {
-        return;
-    }
-
-    CAssetBrowserMetaTaggingDlg taggingDialog(&items);
-    taggingDialog.exec();
-    OnSelectionChanged();
 }
 
 void CAssetBrowserDialog::ApplyAllFiltering()

@@ -26,19 +26,18 @@ namespace EMStudio
 
 
     // constructor
-    GraphNode::GraphNode(const char* name, uint32 numInputs, uint32 numOutputs)
+    GraphNode::GraphNode(const QModelIndex& modelIndex, const char* name, uint32 numInputs, uint32 numOutputs)
+        : m_modelIndex(modelIndex)
     {
         mConnections.SetMemoryCategory(MEMCATEGORY_STANDARDPLUGINS_ANIMGRAPH);
         mInputPorts.SetMemoryCategory(MEMCATEGORY_STANDARDPLUGINS_ANIMGRAPH);
         mOutputPorts.SetMemoryCategory(MEMCATEGORY_STANDARDPLUGINS_ANIMGRAPH);
 
-        mID                     = MCORE_INVALIDINDEX32;
-        mRect                   = QRect(0, 0, 200, 110);
+        mRect                   = QRect(0, 0, 200, 128);
         mBaseColor              = QColor(74, 63, 238);
         mVisualizeColor         = QColor(0, 255, 0);
         mOpacity                = 1.0f;
         mFinalRect              = mRect;
-        mIsSelected             = false;
         mIsDeletable            = true;
         mIsHighlighted          = false;
         mConFromOutputOnly      = false;
@@ -167,7 +166,7 @@ namespace EMStudio
 
             // setup colors
             QColor textColor;
-            if (mIsSelected == false)
+            if (!GetIsSelected())
             {
                 if (mIsEnabled)
                     textColor = Qt::white;
@@ -285,10 +284,10 @@ namespace EMStudio
     }
 
 
-    void GraphNode::SetNodeInfo(const char* info)
+    void GraphNode::SetNodeInfo(const AZStd::string& info)
     {
         mNodeInfo = info;
-        mElidedNodeInfo = mInfoFontMetrics->elidedText(info, Qt::ElideMiddle, MAX_NODEWIDTH - mMaxInputWidth - mMaxOutputWidth);
+        mElidedNodeInfo = mInfoFontMetrics->elidedText(mNodeInfo.c_str(), Qt::ElideMiddle, MAX_NODEWIDTH - mMaxInputWidth - mMaxOutputWidth);
 
         UpdateNameAndPorts();
         UpdateRects();
@@ -336,7 +335,7 @@ namespace EMStudio
         }
 
         // set the arrow rect
-        mArrowRect.setCoords(mRect.left() + 3, mRect.top() + 6, mRect.left() + 15, mRect.top() + 17);
+        mArrowRect.setCoords(mRect.left() + 5, mRect.top() + 9, mRect.left() + 17, mRect.top() + 20);
 
         // set the visualize rect
         mVisualizeRect.setCoords(mRect.right() - 13, mRect.top() + 6, mRect.right() - 5, mRect.top() + 14);
@@ -410,7 +409,13 @@ namespace EMStudio
                 }
             }
         }
-        //}
+        
+        // Update the connections
+        const uint32 numConnections = GetNumConnections();
+        for (uint32 c = 0; c < numConnections; ++c)
+        {
+            GetConnection(c)->Update(visibleRect, mousePos);
+        }
     }
 
 
@@ -447,7 +452,9 @@ namespace EMStudio
         // border color
         QColor borderColor;
         pen->setWidth(1);
-        if (mIsSelected)
+        const bool isSelected = GetIsSelected();
+
+        if (isSelected)
         {
             borderColor.setRgb(255, 128, 0);
 
@@ -468,7 +475,7 @@ namespace EMStudio
 
         // background and header colors
         QColor bgColor;
-        if (mIsSelected)
+        if (isSelected)
         {
             bgColor.setRgbF(0.93f, 0.547f, 0.0f, 1.0f); //  rgb(72, 63, 238)
         }
@@ -491,7 +498,7 @@ namespace EMStudio
 
         // text color
         QColor textColor;
-        if (mIsSelected == false)
+        if (!isSelected)
         {
             if (mIsEnabled)
             {
@@ -664,7 +671,7 @@ namespace EMStudio
         if (mParentGraph->GetScale() > 0.3f)
         {
             // draw the collapse triangle
-            if (mIsSelected)
+            if (isSelected)
             {
                 painter.setBrush(textColor);
                 painter.setPen(headerBgColor);
@@ -725,13 +732,13 @@ namespace EMStudio
         if (mCanHaveChildren || mHasVisualGraph)
         {
             const int indicatorSize = 13;
-            QRect childIndicatorRect(mRect.right() - indicatorSize - 2 * BORDER_RADIUS, mRect.top(), indicatorSize + 2 * BORDER_RADIUS + 1, indicatorSize + 2 * BORDER_RADIUS);
+            QRect childIndicatorRect(aznumeric_cast<int>(mRect.right() - indicatorSize - 2 * BORDER_RADIUS), mRect.top(), aznumeric_cast<int>(indicatorSize + 2 * BORDER_RADIUS + 1), aznumeric_cast<int>(indicatorSize + 2 * BORDER_RADIUS));
 
             // set the border color to the same one as the node border
             painter.setPen(borderColor);
 
             // set the background color for the indicator
-            if (mIsSelected)
+            if (GetIsSelected())
             {
                 painter.setBrush(bgColor);
             }
@@ -764,7 +771,7 @@ namespace EMStudio
     // get the border and background color for a node port
     void GraphNode::GetNodePortColors(NodePort* nodePort, const QColor& borderColor, const QColor& headerBgColor, QColor* outBrushColor, QColor* outPenColor)
     {
-        if (mIsSelected)
+        if (GetIsSelected())
         {
             *outPenColor    = borderColor;
             *outBrushColor  = headerBgColor;
@@ -818,22 +825,8 @@ namespace EMStudio
     }
 
 
-    // render connections
-    void GraphNode::RenderConnections(GraphNode* node, QPainter& painter, QPen* pen, QBrush* brush, const QRect& invMappedVisibleRect, int32 stepSize)
-    {
-        if (node->GetIsCollapsed() == false)
-        {
-            node->RenderConnections(painter, pen, brush, invMappedVisibleRect, stepSize);
-        }
-        else
-        {
-            node->RenderConnectionsCollapsed(painter, pen, brush, invMappedVisibleRect, stepSize);
-        }
-    }
-
-
     // render all connections of this node
-    void GraphNode::RenderConnections(QPainter& painter, QPen* pen, QBrush* brush, const QRect& invMappedVisibleRect, int32 stepSize)
+    void GraphNode::RenderConnections(const QItemSelectionModel& selectionModel, QPainter& painter, QPen* pen, QBrush* brush, const QRect& invMappedVisibleRect, int32 stepSize)
     {
         const bool alwaysColor = GetAlwaysColor();
 
@@ -841,65 +834,28 @@ namespace EMStudio
         const uint32 numConnections = mConnections.GetLength();
         for (uint32 c = 0; c < numConnections; ++c)
         {
-            if (mConnections[c]->GetIsVisible() == false)
+            NodeConnection* nodeConnection = mConnections[c];
+            if (nodeConnection->GetIsVisible())
             {
-                continue;
+                float opacity = 1.0f;
+                if (!mIsEnabled)
+                {
+                    opacity = 0.25f;
+                }
+                GraphNode* source = nodeConnection->GetSourceNode();
+                if (source)
+                {
+                    if (!source->GetIsEnabled())
+                    {
+                        opacity = 0.25f;
+                    }
+                    if (source->GetOpacity() < 0.35f)
+                    {
+                        opacity = 0.15f;
+                    }
+                }
+                nodeConnection->Render(selectionModel, painter, pen, brush, stepSize, invMappedVisibleRect, opacity, alwaysColor);
             }
-
-            GraphNode* target = mConnections[c]->GetTargetNode();
-            float opacity;
-            if (mIsEnabled == false || target->GetIsEnabled() == false)
-            {
-                opacity = 0.25f;
-            }
-            else
-            {
-                opacity = 1.0f;
-            }
-
-            if (target->GetOpacity() < 0.35f)
-            {
-                opacity = 0.15f;
-            }
-
-            mConnections[c]->Render(painter, pen, brush, stepSize, invMappedVisibleRect, opacity, alwaysColor);
-        }
-
-        painter.setOpacity(1.0f);
-    }
-
-
-    // render the connections for the node in a collapsed state
-    void GraphNode::RenderConnectionsCollapsed(QPainter& painter, QPen* pen, QBrush* brush, const QRect& invMappedVisibleRect, int32 stepSize)
-    {
-        const bool alwaysColor = GetAlwaysColor();
-
-        // for all connections
-        const uint32 numConnections = mConnections.GetLength();
-        for (uint32 c = 0; c < numConnections; ++c)
-        {
-            if (mConnections[c]->GetIsVisible() == false)
-            {
-                continue;
-            }
-
-            GraphNode* target = mConnections[c]->GetTargetNode();
-            float opacity;
-            if (mIsEnabled == false || target->GetIsEnabled() == false)
-            {
-                opacity = 0.25f;
-            }
-            else
-            {
-                opacity = 1.0f;
-            }
-
-            if (target->GetOpacity() < 0.35f)
-            {
-                opacity = 0.15f;
-            }
-
-            mConnections[c]->Render(painter, pen, brush, stepSize, invMappedVisibleRect, opacity, alwaysColor);
         }
 
         painter.setOpacity(1.0f);
@@ -921,7 +877,7 @@ namespace EMStudio
         }
 
         painter.setPen(mVisualizeHighlighted ? QColor(255, 128, 0) : vizBorder);
-        if (mIsSelected == false)
+        if (!GetIsSelected())
         {
             painter.setBrush(mVisualize ? mVisualizeColor : vizBackGround);
         }
@@ -941,34 +897,10 @@ namespace EMStudio
     }
 
 
-    // change selected flag
-    void GraphNode::SetIsSelected(bool selected)
-    {
-        mIsSelected = selected;
-        UpdateTextPixmap();
-    }
-
-
     // check if we are selected
     bool GraphNode::GetIsSelected() const
     {
-        return mIsSelected;
-    }
-
-
-    // toggle the selected flag
-    bool GraphNode::ToggleSelected()
-    {
-        if (mIsSelected)
-        {
-            SetIsSelected(false);
-        }
-        else
-        {
-            SetIsSelected(true);
-        }
-
-        return mIsSelected;
+        return mParentGraph->GetAnimGraphModel().GetSelectionModel().isSelected(m_modelIndex);
     }
 
 
@@ -995,7 +927,7 @@ namespace EMStudio
         if (mIsCollapsed == false)
         {
             uint32 numPorts = MCore::Max<uint32>(mInputPorts.GetLength(), mOutputPorts.GetLength());
-            uint32 result = (numPorts * 15) + 30;
+            uint32 result = (numPorts * 15) + 34;
             return MCore::Math::Align(result, 10);
         }
         else
@@ -1071,14 +1003,14 @@ namespace EMStudio
     // get the rect for a given input port
     QRect GraphNode::CalcInputPortRect(uint32 portNr)
     {
-        return QRect(mRect.left() - 5, mRect.top() + 30 + portNr * 15, 8, 8);
+        return QRect(mRect.left() - 5, mRect.top() + 35 + portNr * 15, 8, 8);
     }
 
 
     // get the rect for a given output port
     QRect GraphNode::CalcOutputPortRect(uint32 portNr)
     {
-        return QRect(mRect.right() - 5, mRect.top() + 30 + portNr * 15, 8, 8);
+        return QRect(mRect.right() - 5, mRect.top() + 35 + portNr * 15, 8, 8);
     }
 
 
@@ -1233,87 +1165,44 @@ namespace EMStudio
         return nullptr;
     }
 
-
-    // find a given connection
-    NodeConnection* GraphNode::FindConnection(uint32 targetPortNr, GraphNode* sourceNode, uint32 sourcePortNr)
-    {
-        const uint32 numConnections = mConnections.GetLength();
-        for (uint32 i = 0; i < numConnections; ++i)
-        {
-            // if this is the connection we're searching for
-            if (mConnections[i]->GetSourceNode() == sourceNode &&
-                mConnections[i]->GetOutputPortNr() == sourcePortNr &&
-                mConnections[i]->GetInputPortNr() == targetPortNr)
-            {
-                return mConnections[i];
-            }
-        }
-
-        return nullptr;
-    }
-
-
-    // find a connection by its id
-    NodeConnection* GraphNode::FindConnectionByID(uint32 connectionID)
-    {
-        // get the number of connections and iterate through them
-        const uint32 numConnections = mConnections.GetLength();
-        for (uint32 i = 0; i < numConnections; ++i)
-        {
-            // compare the identification numbers and return in case they are equal
-            if (mConnections[i]->GetID() == connectionID)
-            {
-                return mConnections[i];
-            }
-        }
-
-        // failure, the connection with the given id has not been found
-        return nullptr;
-    }
-
-
     // remove a given connection
-    bool GraphNode::RemoveConnection(uint32 targetPortNr, GraphNode* sourceNode, uint32 sourcePortNr, uint32 connectionID)
+    bool GraphNode::RemoveConnection(const void* connection, bool removeFromMemory)
     {
-        MCORE_UNUSED(connectionID);
-
         const uint32 numConnections = mConnections.GetLength();
         for (uint32 i = 0; i < numConnections; ++i)
         {
             // if this is the connection we're searching for
-            if (mConnections[i]->GetSourceNode() == sourceNode &&
-                mConnections[i]->GetOutputPortNr() == sourcePortNr &&
-                mConnections[i]->GetInputPortNr() == targetPortNr)
+            if (mConnections[i]->GetModelIndex().data(AnimGraphModel::ROLE_POINTER).value<void*>() == connection)
             {
-                delete mConnections[i];
+                if (removeFromMemory)
+                {
+                    delete mConnections[i];
+                }
                 mConnections.Remove(i);
                 return true;
             }
         }
-
         return false;
     }
 
-
-    // remove a given connection
-    bool GraphNode::RemoveConnection(NodeConnection* connection, bool delFromMem)
+    
+    // Remove a given connection by model index
+    bool GraphNode::RemoveConnection(const QModelIndex& modelIndex, bool removeFromMemory)
     {
         const uint32 numConnections = mConnections.GetLength();
         for (uint32 i = 0; i < numConnections; ++i)
         {
             // if this is the connection we're searching for
-            if (mConnections[i] == connection)
+            if (mConnections[i]->GetModelIndex() == modelIndex)
             {
-                if (delFromMem)
+                if (removeFromMemory)
                 {
-                    delete connection;
+                    delete mConnections[i];
                 }
-
                 mConnections.Remove(i);
                 return true;
             }
         }
-
         return false;
     }
 
@@ -1339,13 +1228,13 @@ namespace EMStudio
         painter.setPen(Qt::NoPen);
         painter.setBrush(textColor);
 
-        const float textWidth       = fontMetrics.width(text);
-        const float halfTextWidth   = textWidth * 0.5 + 0.5;
-        const float halfTextHeight  = fontMetrics.height() * 0.5 + 0.5;
+        const float textWidth       = aznumeric_cast<float>(fontMetrics.width(text));
+        const float halfTextWidth   = aznumeric_cast<float>(textWidth * 0.5 + 0.5);
+        const float halfTextHeight  = aznumeric_cast<float>(fontMetrics.height() * 0.5 + 0.5);
         const QPoint rectCenter     = rect.center();
 
         QPoint textPos;
-        textPos.setY(rectCenter.y() + halfTextHeight - 1);
+        textPos.setY(aznumeric_cast<int>(rectCenter.y() + halfTextHeight - 1));
 
         switch (textAlignment)
         {
@@ -1357,13 +1246,13 @@ namespace EMStudio
 
         case Qt::AlignRight:
         {
-            textPos.setX(rect.right() - textWidth + 1);
+            textPos.setX(aznumeric_cast<int>(rect.right() - textWidth + 1));
             break;
         }
 
         default:
         {
-            textPos.setX(rectCenter.x() - halfTextWidth + 1);
+            textPos.setX(aznumeric_cast<int>(rectCenter.x() - halfTextWidth + 1));
         }
         }
 
@@ -1372,5 +1261,3 @@ namespace EMStudio
         painter.drawPath(path);
     }
 }   // namespace EMotionFX
-
-#include <EMotionFX/Tools/EMotionStudio/Plugins/StandardPlugins/Source/AnimGraph/GraphNode.moc>

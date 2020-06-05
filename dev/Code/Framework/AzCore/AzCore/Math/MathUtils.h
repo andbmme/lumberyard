@@ -32,20 +32,20 @@ namespace AZ
      */
     namespace Constants
     {
-        static const float Pi       = 3.14159265358979323846f;
-        static const float TwoPi    = 6.28318530717958623200f;
-        static const float HalfPi   = 1.57079632679489655800f;
-        static const float MaxFloatBeforePrecisionLoss  = 100000.f;
-    };
+        static constexpr float Pi = 3.14159265358979323846f;
+        static constexpr float TwoPi = 6.28318530717958647692f;
+        static constexpr float HalfPi = 1.57079632679489661923f;
+        static constexpr float QuarterPi = 0.78539816339744830962f;
+        static constexpr float MaxFloatBeforePrecisionLoss  = 100000.f;
+    }
 
     /**
      * Degrees/radians conversion
      */
     /*@{*/
-    AZ_MATH_FORCE_INLINE float RadToDeg(float rad)      { return rad * 180.0f / Constants::Pi; }
-    AZ_MATH_FORCE_INLINE float DegToRad(float deg)      { return deg * Constants::Pi / 180.0f; }
+    constexpr float RadToDeg(float rad)      { return rad * 180.0f / Constants::Pi; }
+    constexpr float DegToRad(float deg)      { return deg * Constants::Pi / 180.0f; }
     /*@}*/
-
 
     AZ_MATH_FORCE_INLINE bool IsClose(float a, float b, float tolerance) { return (fabsf(a - b) <= tolerance); }
     AZ_MATH_FORCE_INLINE bool IsClose(double a, double b, double tolerance) { return (fabs(a - b) <= tolerance); }
@@ -68,7 +68,7 @@ namespace AZ
      * Return the clamped value.
      */
     template<typename T>
-    AZ_MATH_FORCE_INLINE T GetClamp(T value, T min, T max)
+    constexpr T GetClamp(T value, T min, T max)
      {
         if (value < min)
         {
@@ -89,32 +89,32 @@ namespace AZ
      * \note we don't use names like clamp, min and max because many implementations define it as a macro.
      */
     template<typename T>
-    AZ_MATH_FORCE_INLINE T GetMin(T a, T b)     { return a < b ? a : b; }
+    constexpr T GetMin(T a, T b)     { return a < b ? a : b; }
 
     /**
      * Return the bigger of the 2 values.
      * \note we don't use names like clamp, min and max because many implementations define it as a macro.
      */
     template<typename T>
-    AZ_MATH_FORCE_INLINE T GetMax(T a, T b)     { return a > b ? a : b; }
+    constexpr T GetMax(T a, T b)     { return a > b ? a : b; }
     
     /**
      * Return a linear interpolation between 2 values.
      */
-    AZ_MATH_FORCE_INLINE float  Lerp( float a,  float b,  float t) { return a + (b - a) * t; }
-    AZ_MATH_FORCE_INLINE double Lerp(double a, double b, double t) { return a + (b - a) * t; }
+    constexpr float  Lerp( float a,  float b,  float t) { return a + (b - a) * t; }
+    constexpr double Lerp(double a, double b, double t) { return a + (b - a) * t; }
 
     /**
      * Return a value t where Lerp(a,b,t)==value (or 0 if a==b)
      */
-    AZ_MATH_FORCE_INLINE  float LerpInverse( float a,  float b,  float value) { return IsClose(a, b, std::numeric_limits< float>::epsilon()) ? 0 : (value - a) / (b - a); }
-    AZ_MATH_FORCE_INLINE double LerpInverse(double a, double b, double value) { return IsClose(a, b, std::numeric_limits<double>::epsilon()) ? 0 : (value - a) / (b - a); }
+    inline float LerpInverse( float a,  float b,  float value) { return IsClose(a, b, std::numeric_limits< float>::epsilon()) ? 0 : (value - a) / (b - a); }
+    inline double LerpInverse(double a, double b, double value) { return IsClose(a, b, std::numeric_limits<double>::epsilon()) ? 0 : (value - a) / (b - a); }
 
     /**
     * Return true if the number provided is even
     */
     template<typename T>
-    AZ_MATH_FORCE_INLINE AZStd::enable_if_t<AZStd::is_integral<T>::value, bool> IsEven(T a)
+    constexpr AZStd::enable_if_t<AZStd::is_integral<T>::value, bool> IsEven(T a)
     {
         return a % 2 == 0;
     }
@@ -123,10 +123,13 @@ namespace AZ
     * Return false if the number provided is odd
     */
     template<typename T>
-    AZ_MATH_FORCE_INLINE AZStd::enable_if_t<AZStd::is_integral<T>::value, bool> IsOdd(T a)
+    constexpr AZStd::enable_if_t<AZStd::is_integral<T>::value, bool> IsOdd(T a)
     {
         return a % 2 != 0;
     }
+
+    AZ_MATH_FORCE_INLINE float GetAbs(float a) { return std::fabs(a); }
+    AZ_MATH_FORCE_INLINE double GetAbs(double a) { return std::abs(a); }
 
     AZ_MATH_FORCE_INLINE float GetMod(float a, float b) { return fmod(a, b); }
     AZ_MATH_FORCE_INLINE double GetMod(double a, double b) { return fmod(a, b); }
@@ -146,7 +149,7 @@ namespace AZ
     template<typename T>
     AZ_MATH_FORCE_INLINE bool IsCloseMag(T x, T y, T epsilonValue = std::numeric_limits<T>::epsilon())
     {
-        return (std::fabs(x - y) <= epsilonValue * GetMax(GetMax(T(1.0), std::fabs(x)), std::fabs(y)));
+        return (std::fabs(x - y) <= epsilonValue * GetMax<T>(GetMax<T>(T(1.0), std::fabs(x)), std::fabs(y)));
     }
 
     //! ClampIfCloseMag(x, y, epsilon) returns y when x and y are within epsilon of each other (taking magnitude into account).  Otherwise returns x.

@@ -25,7 +25,7 @@ ViewportIcon::~ViewportIcon()
 
 AZ::Vector2 ViewportIcon::GetTextureSize() const
 {
-    return AZ::Vector2(m_texture->GetWidth(), m_texture->GetHeight());
+    return AZ::Vector2(aznumeric_cast<float>(m_texture->GetWidth()), aznumeric_cast<float>(m_texture->GetHeight()));
 }
 
 void ViewportIcon::DrawImageAligned(Draw2dHelper& draw2d, AZ::Vector2& pivot, float opacity)
@@ -86,8 +86,8 @@ void ViewportIcon::DrawAxisAlignedBoundingBox(Draw2dHelper& draw2d, AZ::Vector2 
     {
         verts[0].position = AZ::Vector2(bound0.GetX(), bound0.GetY());
         verts[1].position = AZ::Vector2(bound0.GetX(), bound1.GetY());
-        verts[0].uv = AZ::Vector2(0.5f, 0.0f);
-        verts[1].uv = AZ::Vector2(0.5f, endTexCoordV);
+        verts[0].uv = AZ::Vector2(0.0f, 0.5f);
+        verts[1].uv = AZ::Vector2(endTexCoordV, 0.5f);
 
         draw2d.DrawLineTextured(m_texture->GetTextureID(), verts);
     }
@@ -118,8 +118,8 @@ void ViewportIcon::DrawAxisAlignedBoundingBox(Draw2dHelper& draw2d, AZ::Vector2 
     {
         verts[0].position = AZ::Vector2(bound1.GetX(), bound0.GetY());
         verts[1].position = AZ::Vector2(bound1.GetX(), bound1.GetY());
-        verts[0].uv = AZ::Vector2(0.5f, 0.0f);
-        verts[1].uv = AZ::Vector2(0.5f, endTexCoordV);
+        verts[0].uv = AZ::Vector2(0.0f, 0.5f);
+        verts[1].uv = AZ::Vector2(endTexCoordV, 0.5f);
 
         draw2d.DrawLineTextured(m_texture->GetTextureID(), verts);
     }
@@ -283,7 +283,7 @@ void ViewportIcon::DrawDistanceLine(Draw2dHelper& draw2d, AZ::Vector2 start, AZ:
 
     const size_t bufSize = 32;
     char textBuf[bufSize];
-    _snprintf(textBuf, bufSize, "%.2f%s", displayDistance, suffix ? suffix : "");
+    azsnprintf(textBuf, bufSize, "%.2f%s", displayDistance, suffix ? suffix : "");
 
     draw2d.SetTextAlignment(IDraw2d::HAlign::Center, IDraw2d::VAlign::Bottom);
     draw2d.SetTextRotation(rotation);

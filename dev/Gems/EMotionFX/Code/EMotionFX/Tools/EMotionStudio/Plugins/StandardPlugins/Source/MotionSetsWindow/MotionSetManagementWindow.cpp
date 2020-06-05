@@ -10,29 +10,27 @@
 *
 */
 
-#include "MotionSetManagementWindow.h"
-#include <AzCore/std/string/conversions.h>
-#include <AzFramework/StringFunc/StringFunc.h>
-#include "MotionSetsWindowPlugin.h"
-#include <QPushButton>
-#include <QLabel>
-#include <QWidget>
+#include <AzQtComponents/Components/FilteredSearchWidget.h>
+#include <EMotionFX/Source/MotionManager.h>
+#include <EMotionStudio/EMStudioSDK/Source/EMStudioCore.h>
+#include <EMotionStudio/EMStudioSDK/Source/EMStudioManager.h>
+#include <EMotionStudio/EMStudioSDK/Source/FileManager.h>
+#include <EMotionStudio/EMStudioSDK/Source/MainWindow.h>
+#include <EMotionStudio/EMStudioSDK/Source/SaveChangedFilesManager.h>
+#include <EMotionStudio/Plugins/StandardPlugins/Source/MotionSetsWindow/MotionSetManagementWindow.h>
+#include <EMotionStudio/Plugins/StandardPlugins/Source/MotionSetsWindow/MotionSetsWindowPlugin.h>
+#include <EMotionStudio/Plugins/StandardPlugins/Source/MotionWindow/MotionListWindow.h>
+#include <MCore/Source/FileSystem.h>
+#include <MCore/Source/IDGenerator.h>
+#include <MCore/Source/LogManager.h>
+#include <MysticQt/Source/ButtonGroup.h>
+#include <QContextMenuEvent>
 #include <QHeaderView>
-#include <QFileDialog>
+#include <QLabel>
 #include <QMenu>
 #include <QMessageBox>
-#include <QContextMenuEvent>
+#include <QPushButton>
 #include <QTableWidget>
-#include "../../../../EMStudioSDK/Source/EMStudioCore.h"
-#include <MysticQt/Source/ButtonGroup.h>
-#include "../../../../EMStudioSDK/Source/FileManager.h"
-#include <MCore/Source/LogManager.h>
-#include <MCore/Source/IDGenerator.h>
-#include <MCore/Source/FileSystem.h>
-#include <EMotionFX/Source/MotionManager.h>
-#include "../../../../EMStudioSDK/Source/EMStudioManager.h"
-#include "../../../../EMStudioSDK/Source/MainWindow.h"
-#include "../MotionWindow/MotionListWindow.h"
 
 
 namespace EMStudio
@@ -107,7 +105,7 @@ namespace EMStudio
 
         // add the button to close the window
         QPushButton* okButton = new QPushButton("OK");
-        connect(okButton, SIGNAL(clicked()), this, SLOT(accept()));
+        connect(okButton, &QPushButton::clicked, this, &MotionSetManagementRemoveMotionsFailedWindow::accept);
         QHBoxLayout* buttonLayout = new QHBoxLayout();
         buttonLayout->setAlignment(Qt::AlignRight);
         buttonLayout->addWidget(okButton);
@@ -135,7 +133,7 @@ namespace EMStudio
 
         // add the line edit
         mLineEdit = new QLineEdit();
-        connect(mLineEdit, SIGNAL(textEdited(const QString&)), this, SLOT(TextEdited(const QString&)));
+        connect(mLineEdit, &QLineEdit::textEdited, this, &MotionSetManagementRenameWindow::TextEdited);
         layout->addWidget(mLineEdit);
 
         // set the current name and select all
@@ -160,8 +158,8 @@ namespace EMStudio
         mOKButton->setDefault(true);
 
         // connect the buttons
-        connect(mOKButton, SIGNAL(clicked()), this, SLOT(Accepted()));
-        connect(cancelButton, SIGNAL(clicked()), this, SLOT(reject()));
+        connect(mOKButton, &QPushButton::clicked, this, &MotionSetManagementRenameWindow::Accepted);
+        connect(cancelButton, &QPushButton::clicked, this, &MotionSetManagementRenameWindow::reject);
 
         // set the new layout
         layout->addLayout(buttonLayout);
@@ -265,7 +263,7 @@ namespace EMStudio
         mMotionSetsTree->setExpandsOnDoubleClick(true);
         mMotionSetsTree->setAnimated(true);
 
-        connect(mMotionSetsTree, SIGNAL(itemSelectionChanged()), this, SLOT(OnSelectionChanged()));
+        connect(mMotionSetsTree, &QTreeWidget::itemSelectionChanged, this, &MotionSetManagementWindow::OnSelectionChanged);
 
         QStringList headerList;
         headerList.append("Name");
@@ -306,22 +304,17 @@ namespace EMStudio
         spacerWidget->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Fixed);
         buttonLayout->addWidget(spacerWidget);
 
-        mFindWidget = new MysticQt::SearchButton(this, MysticQt::GetMysticQt()->FindIcon("Images/Icons/SearchClearButton.png"));
-        connect(mFindWidget->GetSearchEdit(), SIGNAL(textChanged(const QString&)), this, SLOT(SearchStringChanged(const QString&)));
+        m_searchWidget = new AzQtComponents::FilteredSearchWidget(this);
+        connect(m_searchWidget, &AzQtComponents::FilteredSearchWidget::TextFilterChanged, this, &MotionSetManagementWindow::OnTextFilterChanged);
+        
+        buttonLayout->addWidget(m_searchWidget);
 
-        QHBoxLayout* searchLayout = new QHBoxLayout();
-        searchLayout->addWidget(new QLabel("Find:"), 0, Qt::AlignRight);
-        searchLayout->addWidget(mFindWidget);
-        searchLayout->setSpacing(6);
-
-        buttonLayout->addLayout(searchLayout);
-
-        connect(mClearSetsButton, SIGNAL(clicked()), this, SLOT(OnClearMotionSets()));
-        connect(mRemoveSetsButton, SIGNAL(clicked()), this, SLOT(OnRemoveSelectedMotionSets()));
-        connect(mAddSetButton, SIGNAL(clicked()), this, SLOT(OnCreateMotionSet()));
-        connect(mOpenSetButton, SIGNAL(clicked()), this, SLOT(OnOpen()));
-        connect(mSaveSetButton, SIGNAL(clicked()), this, SLOT(OnSave()));
-        connect(mSaveAsSetButton, SIGNAL(clicked()), this, SLOT(OnSaveAs()));
+        connect(mClearSetsButton, &QPushButton::clicked, this, &MotionSetManagementWindow::OnClearMotionSets);
+        connect(mRemoveSetsButton, &QPushButton::clicked, this, &MotionSetManagementWindow::OnRemoveSelectedMotionSets);
+        connect(mAddSetButton, &QPushButton::clicked, this, &MotionSetManagementWindow::OnCreateMotionSet);
+        connect(mOpenSetButton, &QPushButton::clicked, this, &MotionSetManagementWindow::OnOpen);
+        connect(mSaveSetButton, &QPushButton::clicked, this, &MotionSetManagementWindow::OnSave);
+        connect(mSaveAsSetButton, &QPushButton::clicked, this, &MotionSetManagementWindow::OnSaveAs);
 
         layout->addWidget(mMotionSetsTree);
 
@@ -337,6 +330,7 @@ namespace EMStudio
         // Add the given motion set to the tree widget.
         QTreeWidgetItem* item = new QTreeWidgetItem(parent);
         item->setText(0, motionSet->GetName());
+        item->setData(0, Qt::UserRole, motionSet->GetID());
 
         // Store the motion set id in the tree widget itm.
         AZStd::string idString;
@@ -353,7 +347,7 @@ namespace EMStudio
         }
 
         // Hide in case the search field text is not part of the motion set name.
-        if (item->text(0).contains(mFindWidget->GetSearchEdit()->text(), Qt::CaseInsensitive))
+        if (item->text(0).contains(m_searchWidgetText.c_str(), Qt::CaseInsensitive))
         {
             item->setHidden(false);
 
@@ -422,11 +416,12 @@ namespace EMStudio
             // add the top level item
             QTreeWidgetItem* item = new QTreeWidgetItem(mMotionSetsTree);
             item->setText(0, motionSet->GetName());
+            item->setData(0, Qt::UserRole, motionSet->GetID());
             item->setExpanded(true);
 
             AZStd::to_string(tempString, motionSet->GetID());
             item->setWhatsThis(0, tempString.c_str());
-            
+
             mMotionSetsTree->addTopLevelItem(item);
 
             // Should the motion set be selected?
@@ -436,7 +431,7 @@ namespace EMStudio
             }
 
             // check if the current item contains the find text
-            if (item->text(0).contains(mFindWidget->GetSearchEdit()->text(), Qt::CaseInsensitive))
+            if (item->text(0).contains(m_searchWidgetText.c_str(), Qt::CaseInsensitive))
             {
                 // set the item not hidden
                 item->setHidden(false);
@@ -485,8 +480,8 @@ namespace EMStudio
         }
         else
         {
-            const AZStd::string     selectedSetName = selectedItems[0]->text(0).toUtf8().data();
-            EMotionFX::MotionSet*   selectedSet     = EMotionFX::GetMotionManager().FindMotionSetByName(selectedSetName.c_str());
+            const uint32 motionSetId = selectedItems[0]->data(0, Qt::UserRole).toUInt();
+            EMotionFX::MotionSet* selectedSet = EMotionFX::GetMotionManager().FindMotionSetByID(motionSetId);
 
             if (selectedSet)
             {
@@ -504,7 +499,7 @@ namespace EMStudio
         // add motion set is always enabled
         QAction* addAction = menu.addAction("Add Motion Set");
         addAction->setIcon(MysticQt::GetMysticQt()->FindIcon("Images/Icons/Plus.png"));
-        connect(addAction, SIGNAL(triggered()), this, SLOT(OnCreateMotionSet()));
+        connect(addAction, &QAction::triggered, this, &MotionSetManagementWindow::OnCreateMotionSet);
 
         // get the selected items
         const QList<QTreeWidgetItem*> selectedItems = mMotionSetsTree->selectedItems();
@@ -515,14 +510,14 @@ namespace EMStudio
         {
             QAction* removeAction = menu.addAction("Remove Selected Motion Sets");
             removeAction->setIcon(MysticQt::GetMysticQt()->FindIcon("Images/Icons/Minus.png"));
-            connect(removeAction, SIGNAL(triggered()), this, SLOT(OnRemoveSelectedMotionSets()));
+            connect(removeAction, &QAction::triggered, this, &MotionSetManagementWindow::OnRemoveSelectedMotionSets);
         }
 
         // add rename if only one item selected
         if (numSelectedItems == 1)
         {
             QAction* renameAction = menu.addAction("Rename Selected Motion Set");
-            connect(renameAction, SIGNAL(triggered()), this, SLOT(OnRenameSelectedMotionSet()));
+            connect(renameAction, &QAction::triggered, this, &MotionSetManagementWindow::OnRenameSelectedMotionSet);
         }
 
         // add the save menu if at least one item selected
@@ -533,7 +528,7 @@ namespace EMStudio
             // add the save menu
             QAction* saveAction = menu.addAction("Save Selected Root Motion Set");
             saveAction->setIcon(MysticQt::GetMysticQt()->FindIcon("/Images/Menu/FileSave.png"));
-            connect(saveAction, SIGNAL(triggered()), this, SLOT(OnSave()));
+            connect(saveAction, &QAction::triggered, this, &MotionSetManagementWindow::OnSave);
         }
 
         // show the menu at the given position
@@ -551,14 +546,14 @@ namespace EMStudio
         if (numSelectedItems == 0)
         {
             // generate the unique name
-            MCore::String uniqueMotionSetName;
-            uniqueMotionSetName.GenerateUniqueString("MotionSet",   [&](const MCore::String& value)
+            const AZStd::string uniqueMotionSetName = MCore::GenerateUniqueString("MotionSet",   
+                [&](const AZStd::string& value)
                 {
-                    return (EMotionFX::GetMotionManager().FindMotionSetIndexByName(value.AsChar()) == MCORE_INVALIDINDEX32);
+                    return (EMotionFX::GetMotionManager().FindMotionSetIndexByName(value.c_str()) == MCORE_INVALIDINDEX32);
                 });
 
             // Construct the command string.
-            const AZStd::string commandString = AZStd::string::format("CreateMotionSet -name \"%s\"", uniqueMotionSetName.AsChar());
+            const AZStd::string commandString = AZStd::string::format("CreateMotionSet -name \"%s\"", uniqueMotionSetName.c_str());
 
             // Execute the command.
             AZStd::string result;
@@ -569,7 +564,13 @@ namespace EMStudio
 
             // select the new motion set
             mMotionSetsTree->clearSelection();
-            SelectItemsByName(uniqueMotionSetName.AsChar());
+
+            // Result contains the motionSet Id
+            int32 motionSetId;
+            if (AzFramework::StringFunc::LooksLikeInt(uniqueMotionSetName.c_str(), &motionSetId))
+            {
+                SelectItemsById(motionSetId);
+            }
         }
         else
         {
@@ -577,29 +578,33 @@ namespace EMStudio
             MCore::CommandGroup commandGroup("Create motion sets");
 
             // add each command
-            AZStd::string commandString, selectedSetName;
-            AZStd::vector<AZStd::string> names;
-            MCore::String uniqueMotionSetName;
+            AZStd::string commandString;
+            AZStd::unordered_map<AZStd::string, EMotionFX::MotionSet*> parentMotionSetByName;
+            AZStd::string uniqueMotionSetName;
+            uint32 selectedMotionSetId = MCORE_INVALIDINDEX32;
+            uint32 firstMotionSetId = MCORE_INVALIDINDEX32;
+
             for (int i = 0; i < numSelectedItems; ++i)
             {
                 // generate the unique name
-                uniqueMotionSetName.GenerateUniqueString("MotionSet",   [&](const MCore::String& value)
+                uniqueMotionSetName = MCore::GenerateUniqueString("MotionSet",   
+                    [&](const AZStd::string& value)
                     {
-                        return (EMotionFX::GetMotionManager().FindMotionSetIndexByName(value.AsChar()) == MCORE_INVALIDINDEX32) &&
-                            (AZStd::find(names.begin(), names.end(), value.AsChar()) == names.end());
+                        return (EMotionFX::GetMotionManager().FindMotionSetIndexByName(value.c_str()) == MCORE_INVALIDINDEX32) &&
+                            (parentMotionSetByName.find(value) == parentMotionSetByName.end());
                     });
 
                 // Find the selected motion set.
-                selectedSetName = selectedItems[i]->text(0).toUtf8().data();
-                const EMotionFX::MotionSet* selectedSet = EMotionFX::GetMotionManager().FindMotionSetByName(selectedSetName.c_str());
+                selectedMotionSetId = selectedItems[i]->data(0, Qt::UserRole).toUInt();
+                EMotionFX::MotionSet* selectedSet = EMotionFX::GetMotionManager().FindMotionSetByID(selectedMotionSetId);
                 if (selectedSet)
                 {
-                    commandString = AZStd::string::format("CreateMotionSet -name \"%s\" -parentSetID %i", uniqueMotionSetName.AsChar(), selectedSet->GetID());
+                    commandString = AZStd::string::format("CreateMotionSet -name \"%s\" -parentSetID %i", uniqueMotionSetName.c_str(), selectedSet->GetID());
                     commandGroup.AddCommandString(commandString);
 
                     // Add the name in the array.
-                    // It's needed to generate the unique name and to select added motion sets at the end.
-                    names.push_back(uniqueMotionSetName.AsChar());
+                    // It's needed to generate the unique name
+                    parentMotionSetByName.emplace(AZStd::move(uniqueMotionSetName), selectedSet);
                 }
             }
 
@@ -611,25 +616,39 @@ namespace EMStudio
 
             // Select the new motion sets.
             mMotionSetsTree->clearSelection();
-            const size_t numNames = names.size();
-            for (size_t i = 0; i < numNames; ++i)
+            for (const AZStd::pair<AZStd::string, EMotionFX::MotionSet*> nameAndParentMotionSet : parentMotionSetByName)
             {
-                SelectItemsByName(names[i].c_str());
+                EMotionFX::MotionSet* motionSet = nameAndParentMotionSet.second->RecursiveFindMotionSetByName(nameAndParentMotionSet.first);
+                SelectItemsById(motionSet->GetID());
             }
         }
     }
 
 
-    void MotionSetManagementWindow::SelectItemsByName(const char* name)
+    void MotionSetManagementWindow::SelectItemsById(uint32 motionSetId)
     {
-        const QList<QTreeWidgetItem*> items = mMotionSetsTree->findItems(name, Qt::MatchExactly | Qt::MatchRecursive);
-        const uint32 numItems = items.length();
-        for (uint32 i = 0; i < numItems; ++i)
+        bool selectionChanged = false;
+        disconnect(mMotionSetsTree, &QTreeWidget::itemSelectionChanged, this, &MotionSetManagementWindow::OnSelectionChanged);
+        QTreeWidgetItemIterator it(mMotionSetsTree);
+        while (*it)
         {
-            items[i]->setSelected(true);
+            if ((*it)->data(0, Qt::UserRole).toUInt() == motionSetId)
+            {
+                if (!(*it)->isSelected())
+                {
+                    selectionChanged = true;
+                }
+                (*it)->setSelected(true);
+                break;
+            }
+            ++it;
+        }
+        connect(mMotionSetsTree, &QTreeWidget::itemSelectionChanged, this, &MotionSetManagementWindow::OnSelectionChanged);
+        if (selectionChanged)
+        {
+            OnSelectionChanged(); 
         }
     }
-
 
     void MotionSetManagementWindow::GetSelectedMotionSets(AZStd::vector<EMotionFX::MotionSet*>& outSelectedMotionSets) const
     {
@@ -651,7 +670,7 @@ namespace EMStudio
     void MotionSetManagementWindow::RecursiveIncreaseMotionsReferenceCount(EMotionFX::MotionSet* motionSet)
     {
         // Increase the reference counter if needed for each motion.
-        const EMotionFX::MotionSet::EntryMap& motionEntries = motionSet->GetMotionEntries();
+        const EMotionFX::MotionSet::MotionEntries& motionEntries = motionSet->GetMotionEntries();
         for (const auto& item : motionEntries)
         {
             const EMotionFX::MotionSet::MotionEntry* motionEntry = item.second;
@@ -688,7 +707,7 @@ namespace EMStudio
 
         // Iterate through the entries and add the corresponding remove motion command to the command group.
         AZStd::string motionFilename, commandString;
-        const EMotionFX::MotionSet::EntryMap& motionEntries = motionSet->GetMotionEntries();
+        const EMotionFX::MotionSet::MotionEntries& motionEntries = motionSet->GetMotionEntries();
         for (const auto& item : motionEntries)
         {
             // Get the motion entry and check if the assigned motion is loaded.
@@ -735,7 +754,7 @@ namespace EMStudio
         for (int32 i = numSelected - 1; i >= 0; --i)
         {
             // get the motion set ID
-            const uint32 motionSetID = FromQtString(selectedItems[i]->whatsThis(0)).ToInt();
+            const uint32 motionSetID = AzFramework::StringFunc::ToInt(FromQtString(selectedItems[i]->whatsThis(0)).c_str());
 
             // get the current motion set and only process the root sets
             EMotionFX::MotionSet* motionSet = EMotionFX::GetMotionManager().FindMotionSetByID(motionSetID);
@@ -813,7 +832,7 @@ namespace EMStudio
                 continue;
             }
 
-            const EMotionFX::MotionSet::EntryMap& motionEntries = motionSet->GetMotionEntries();
+            const EMotionFX::MotionSet::MotionEntries& motionEntries = motionSet->GetMotionEntries();
             for (const auto& item : motionEntries)
             {
                 const EMotionFX::MotionSet::MotionEntry* motionEntry = item.second;
@@ -845,7 +864,7 @@ namespace EMStudio
                     continue;
                 }
 
-                const EMotionFX::MotionSet::EntryMap& motionEntries = motionSet->GetMotionEntries();
+                const EMotionFX::MotionSet::MotionEntries& motionEntries = motionSet->GetMotionEntries();
                 for (const auto& item : motionEntries)
                 {
                     const EMotionFX::MotionSet::MotionEntry* motionEntry = item.second;
@@ -890,7 +909,7 @@ namespace EMStudio
                 rootItem = rootItem->parent();
             }
 
-            const uint32 motionSetID = FromQtString(rootItem->whatsThis(0)).ToInt();
+            const uint32 motionSetID = AzFramework::StringFunc::ToInt(FromQtString(rootItem->whatsThis(0)).c_str());
             EMotionFX::MotionSet* motionSet = EMotionFX::GetMotionManager().FindMotionSetByID(motionSetID);
             if (AZStd::find(selectedRootMotionSets.begin(), selectedRootMotionSets.end(), motionSet) == selectedRootMotionSets.end())
             {
@@ -911,6 +930,7 @@ namespace EMStudio
     void MotionSetManagementWindow::OnOpen()
     {
         AZStd::string filename = GetMainWindow()->GetFileManager()->LoadMotionSetFileDialog(this);
+        GetMainWindow()->activateWindow();
         mPlugin->LoadMotionSet(filename);
     }
 
@@ -940,7 +960,7 @@ namespace EMStudio
             }
 
             // Add the root motion set in the array if not already added.
-            const uint32 motionSetID = FromQtString(rootItem->whatsThis(0)).ToInt();
+            const uint32 motionSetID = AzFramework::StringFunc::ToInt(FromQtString(rootItem->whatsThis(0)).c_str());
             EMotionFX::MotionSet* motionSet = EMotionFX::GetMotionManager().FindMotionSetByID(motionSetID);
             if (AZStd::find(selectedRootMotionSets.begin(), selectedRootMotionSets.end(), motionSet) == selectedRootMotionSets.end())
             {
@@ -980,12 +1000,13 @@ namespace EMStudio
             AZStd::string result;
             if (!GetCommandManager()->ExecuteCommandGroup(commandGroup, result))
             {
-                AZ_Error("EMotionFX", false, result.c_str());
-                GetNotificationWindowManager()->CreateNotificationWindow(NotificationWindow::TYPE_ERROR, "MotionSet <font color=red>failed</font> to save");
+                GetNotificationWindowManager()->CreateNotificationWindow(NotificationWindow::TYPE_ERROR, 
+                    AZStd::string::format("MotionSet <font color=red>failed</font> to save<br/><br/>%s", result.c_str()).c_str());
             }
             else
             {
-                GetNotificationWindowManager()->CreateNotificationWindow(NotificationWindow::TYPE_SUCCESS, "MotionSet <font color=green>successfully</font> saved");
+                GetNotificationWindowManager()->CreateNotificationWindow(NotificationWindow::TYPE_SUCCESS, 
+                    "MotionSet <font color=green>successfully</font> saved");
             }
         }
     }
@@ -1010,7 +1031,7 @@ namespace EMStudio
             }
 
             // Add the root motion set in the array if not already added.
-            const uint32 motionSetID = FromQtString(rootItem->whatsThis(0)).ToInt();
+            const uint32 motionSetID = AzFramework::StringFunc::ToInt(FromQtString(rootItem->whatsThis(0)).c_str());
             EMotionFX::MotionSet* motionSet = EMotionFX::GetMotionManager().FindMotionSetByID(motionSetID);
             if (AZStd::find(selectedRootMotionSets.begin(), selectedRootMotionSets.end(), motionSet) == selectedRootMotionSets.end())
             {
@@ -1036,9 +1057,9 @@ namespace EMStudio
     }
 
 
-    void MotionSetManagementWindow::SearchStringChanged(const QString& text)
+    void MotionSetManagementWindow::OnTextFilterChanged(const QString& text)
     {
-        MCORE_UNUSED(text);
+        FromQtString(text, &m_searchWidgetText);
         ReInit();
     }
 

@@ -28,17 +28,14 @@
 #include <AzFramework/Asset/SimpleAsset.h>
 #include <AzFramework/TargetManagement/TargetManagementComponent.h>
 
-#include <SystemComponent.h>
-
-#include <Core/GraphAssetHandler.h>
-#include <Core/GraphAsset.h>
-#include <Core/Graph.h>
+#include <ScriptCanvas/Asset/RuntimeAssetHandler.h>
+#include <ScriptCanvas/Asset/RuntimeAsset.h>
+#include <ScriptCanvas/Core/Graph.h>
 #include <ScriptCanvas/Data/DataRegistry.h>
-
-#include <Builder/BuilderSystemComponent.h>
 
 #include <Debugger/Debugger.h>
 
+#include <Editor/ReflectComponent.h>
 #include <Editor/SystemComponent.h>
 #include <Editor/Metrics.h>
 
@@ -49,19 +46,29 @@
 #include <Editor/Nodes/EditorLibrary.h>
 
 #include <ScriptCanvas/Components/EditorGraph.h>
+#include <ScriptCanvas/Components/EditorGraphVariableManagerComponent.h>
 #include <ScriptCanvas/Components/EditorScriptCanvasComponent.h>
 
-#include <Builder/CoreBuilderSystemComponent.h>
-#include <Editor/GraphCanvas/Components/ClassMethodNodeDescriptorComponent.h>
-#include <Editor/GraphCanvas/Components/EBusHandlerNodeDescriptorComponent.h>
-#include <Editor/GraphCanvas/Components/EBusHandlerEventNodeDescriptorComponent.h>
-#include <Editor/GraphCanvas/Components/EBusSenderNodeDescriptorComponent.h>
-#include <Editor/GraphCanvas/Components/EntityRefNodeDescriptorComponent.h>
-#include <Editor/GraphCanvas/Components/GetVariableNodeDescriptorComponent.h>
-#include <Editor/GraphCanvas/Components/NodeDescriptorComponent.h>
-#include <Editor/GraphCanvas/Components/SetVariableNodeDescriptorComponent.h>
-#include <Editor/GraphCanvas/Components/UserDefinedNodeDescriptorComponent.h>
-#include <Editor/GraphCanvas/Components/VariableNodeDescriptorComponent.h>
+#include <Asset/EditorAssetSystemComponent.h>
+#include <Builder/ScriptCanvasBuilderComponent.h>
+#include <Editor/GraphCanvas/Components/DynamicOrderingDynamicSlotComponent.h>
+#include <Editor/GraphCanvas/Components/DynamicSlotComponent.h>
+#include <Editor/GraphCanvas/Components/NodeDescriptors/ClassMethodNodeDescriptorComponent.h>
+#include <Editor/GraphCanvas/Components/NodeDescriptors/EBusHandlerNodeDescriptorComponent.h>
+#include <Editor/GraphCanvas/Components/NodeDescriptors/EBusHandlerEventNodeDescriptorComponent.h>
+#include <Editor/GraphCanvas/Components/NodeDescriptors/ScriptEventReceiverEventNodeDescriptorComponent.h>
+#include <Editor/GraphCanvas/Components/NodeDescriptors/ScriptEventReceiverNodeDescriptorComponent.h>
+#include <Editor/GraphCanvas/Components/NodeDescriptors/ScriptEventSenderNodeDescriptorComponent.h>
+#include <Editor/GraphCanvas/Components/NodeDescriptors/EBusSenderNodeDescriptorComponent.h>
+#include <Editor/GraphCanvas/Components/NodeDescriptors/EntityRefNodeDescriptorComponent.h>
+#include <Editor/GraphCanvas/Components/NodeDescriptors/GetVariableNodeDescriptorComponent.h>
+#include <Editor/GraphCanvas/Components/NodeDescriptors/NodeDescriptorComponent.h>
+#include <Editor/GraphCanvas/Components/NodeDescriptors/SetVariableNodeDescriptorComponent.h>
+#include <Editor/GraphCanvas/Components/NodeDescriptors/UserDefinedNodeDescriptorComponent.h>
+#include <Editor/GraphCanvas/Components/NodeDescriptors/VariableNodeDescriptorComponent.h>
+#include <Editor/GraphCanvas/Components/MappingComponent.h>
+
+#include <Editor/View/Widgets/VariablePanel/VariableDockWidget.h>
 
 namespace ScriptCanvas
 {
@@ -76,15 +83,24 @@ namespace ScriptCanvas
         : ScriptCanvasModuleCommon()
     {
         m_descriptors.insert(m_descriptors.end(), {
-            ScriptCanvasBuilder::BuilderSystemComponent::CreateDescriptor(),
+            ScriptCanvasBuilder::PluginComponent::CreateDescriptor(),
+            ScriptCanvasEditor::EditorAssetSystemComponent::CreateDescriptor(),
             ScriptCanvasEditor::EditorScriptCanvasComponent::CreateDescriptor(),
             ScriptCanvasEditor::EntityMimeDataHandler::CreateDescriptor(),
             ScriptCanvasEditor::Graph::CreateDescriptor(),
             ScriptCanvasEditor::IconComponent::CreateDescriptor(),
             ScriptCanvasEditor::Metrics::SystemComponent::CreateDescriptor(),
+            ScriptCanvasEditor::ReflectComponent::CreateDescriptor(),
             ScriptCanvasEditor::SystemComponent::CreateDescriptor(),
+            ScriptCanvasEditor::EditorGraphVariableManagerComponent::CreateDescriptor(),
+            ScriptCanvasEditor::VariablePropertiesComponent::CreateDescriptor(),
+            ScriptCanvasEditor::SlotMappingComponent::CreateDescriptor(),
+            ScriptCanvasEditor::SceneMemberMappingComponent::CreateDescriptor(),
 
             // GraphCanvas additions
+            ScriptCanvasEditor::DynamicSlotComponent::CreateDescriptor(),
+            ScriptCanvasEditor::DynamicOrderingDynamicSlotComponent::CreateDescriptor(),
+
             // Base Descriptor
             ScriptCanvasEditor::NodeDescriptorComponent::CreateDescriptor(),
 
@@ -92,21 +108,20 @@ namespace ScriptCanvas
             ScriptCanvasEditor::ClassMethodNodeDescriptorComponent::CreateDescriptor(),
             ScriptCanvasEditor::EBusHandlerNodeDescriptorComponent::CreateDescriptor(),
             ScriptCanvasEditor::EBusHandlerEventNodeDescriptorComponent::CreateDescriptor(),
+            ScriptCanvasEditor::ScriptEventReceiverEventNodeDescriptorComponent::CreateDescriptor(),
+            ScriptCanvasEditor::ScriptEventReceiverNodeDescriptorComponent::CreateDescriptor(),
+            ScriptCanvasEditor::ScriptEventSenderNodeDescriptorComponent::CreateDescriptor(),
             ScriptCanvasEditor::EBusSenderNodeDescriptorComponent::CreateDescriptor(),
             ScriptCanvasEditor::EntityRefNodeDescriptorComponent::CreateDescriptor(),
+            ScriptCanvasEditor::VariableNodeDescriptorComponent::CreateDescriptor(),
             ScriptCanvasEditor::GetVariableNodeDescriptorComponent::CreateDescriptor(),
             ScriptCanvasEditor::SetVariableNodeDescriptorComponent::CreateDescriptor(),
             ScriptCanvasEditor::UserDefinedNodeDescriptorComponent::CreateDescriptor(),
-            ScriptCanvasEditor::VariableNodeDescriptorComponent::CreateDescriptor()
-        });
-      
+            });
+
         auto libraryDescriptors = ScriptCanvasEditor::GetLibraryDescriptors();
         m_descriptors.insert(m_descriptors.end(), libraryDescriptors.begin(), libraryDescriptors.end());
         ScriptCanvasEditor::Library::Editor::InitNodeRegistry(GetNodeRegistry().Get());
-    }
-
-    ScriptCanvasModule::~ScriptCanvasModule()
-    {
     }
 
     AZ::ComponentTypeList ScriptCanvasModule::GetRequiredSystemComponents() const
@@ -114,7 +129,8 @@ namespace ScriptCanvas
         AZ::ComponentTypeList components = GetCommonSystemComponents();
 
         components.insert(components.end(), std::initializer_list<AZ::Uuid> {
-                azrtti_typeid<ScriptCanvasBuilder::BuilderSystemComponent>(),
+                azrtti_typeid<ScriptCanvasEditor::EditorAssetSystemComponent>(),
+                azrtti_typeid<ScriptCanvasEditor::ReflectComponent>(),
                 azrtti_typeid<ScriptCanvasEditor::SystemComponent>(),
                 azrtti_typeid<ScriptCanvasEditor::Metrics::SystemComponent>()
         });

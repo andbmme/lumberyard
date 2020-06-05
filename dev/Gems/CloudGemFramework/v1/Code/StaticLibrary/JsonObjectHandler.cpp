@@ -12,6 +12,7 @@
 #include "CloudGemFramework_precompiled.h"
 
 #include <CloudGemFramework/JsonObjectHandler.h>
+#include <AzCore/Casting/numeric_cast.h>
 #include <AzCore/JSON/error/error.h>
 
 namespace CloudGemFramework
@@ -120,10 +121,15 @@ namespace CloudGemFramework
             else
             {
                 // Doesn't support embedded \0, which rapidjson allows.
-                *m_targetString = str;
+                *m_targetString = AZStd::string::format("%.*s", length, str);
                 return true;
             }
 
+        }
+
+        bool RawNumber(const Ch* str, rapidjson::SizeType length, bool copy)
+        {
+            return String(str, length, copy);
         }
 
         bool Null()
@@ -223,7 +229,7 @@ namespace CloudGemFramework
             }
             if (m_expecting == Expecting::DOUBLE)
             {
-                *m_targetDouble = i;
+                *m_targetDouble = aznumeric_caster(i);
                 return true;
             }
             return UnexpectedContent(Expecting::INT64);
@@ -247,7 +253,7 @@ namespace CloudGemFramework
             }
             if (m_expecting == Expecting::DOUBLE)
             {
-                *m_targetDouble = i;
+                *m_targetDouble = aznumeric_caster(i);
                 return true;
             }
             return UnexpectedContent(Expecting::UINT64);
@@ -438,7 +444,10 @@ namespace CloudGemFramework
                 start = 0;
             }
             AZStd::string snippet = stream.GetContent().substr(start, length);
-            snippet.insert(offset, " <--- ");
+            if (offset >= 0 && offset <= snippet.size())
+            {
+                snippet.insert(offset, " <--- ");
+            }
 
             msg += snippet;
 
@@ -502,9 +511,16 @@ namespace CloudGemFramework
 
         bool UnexpectedContent(const char* actual)
         {
+            bool result = false;
+
             if (m_expecting == Expecting::NOTHING)
             {
-                return true;
+                result = true;
+            }
+            else if (m_expecting == Expecting::STRING && !strcmp(actual, "null"))
+            {
+                // We are allowing null values to parse as empty strings as a workaround for optional fields not always being handled correctly.
+                result = true;
             }
             else
             {
@@ -512,8 +528,9 @@ namespace CloudGemFramework
                     actual,
                     ExpectingToString(m_expecting)
                 );
-                return false;
             }
+
+            return result;
         }
 
         static const char* ExpectingToString(Expecting expecting)

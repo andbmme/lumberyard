@@ -34,6 +34,8 @@ namespace GridMate
     class Float16Marshaler
     {
     public:
+        AZ_TYPE_INFO(Float16Marshaler, "{CEC3001A-3DE2-42A7-BCCB-38F61477237D}");
+
         typedef float DataType;
 
         static const AZStd::size_t MarshalSize = sizeof(AZ::u16);
@@ -58,6 +60,8 @@ namespace GridMate
     class HalfMarshaler
     {
     public:
+        AZ_TYPE_INFO(HalfMarshaler, "{A11F3B68-423A-472D-8D8C-6A2923ECB155}");
+
         typedef float DataType;
 
         static const AZStd::size_t MarshalSize = sizeof(AZ::u16);
@@ -67,22 +71,24 @@ namespace GridMate
     };
 
     /**
-	* Writes a compressed Vector2.
-	* Values are compressed with \ref HalfMarshaler.
-	* Uses 4 bytes.
-	*/
-	class Vec2CompMarshaler
-	{
-	public:
-		typedef AZ::Vector2 DataType;
+    * Writes a compressed Vector2.
+    * Values are compressed with \ref HalfMarshaler.
+    * Uses 4 bytes.
+    */
+    class Vec2CompMarshaler
+    {
+    public:
+        AZ_TYPE_INFO(Vec2CompMarshaler, "{7BB471FB-1A1F-47BD-A599-C23417FEEDE0}");
 
-		static const AZStd::size_t MarshalSize = HalfMarshaler::MarshalSize * 2;
+        typedef AZ::Vector2 DataType;
 
-		void Marshal(WriteBuffer& wb, const AZ::Vector2& vec) const;
-		void Unmarshal(AZ::Vector2& vec, ReadBuffer& rb) const;
-	};
+        static const AZStd::size_t MarshalSize = HalfMarshaler::MarshalSize * 2;
 
-	/**
+        void Marshal(WriteBuffer& wb, const AZ::Vector2& vec) const;
+        void Unmarshal(AZ::Vector2& vec, ReadBuffer& rb) const;
+    };
+
+    /**
     * Writes a compressed vector.
     * Values are compressed with \ref HalfMarshaler.
     * Uses 6 bytes.
@@ -90,6 +96,8 @@ namespace GridMate
     class Vec3CompMarshaler
     {
     public:
+        AZ_TYPE_INFO(Vec3CompMarshaler, "{F20132F4-CA69-4F6F-A379-0BCF990E6672}");
+
         typedef AZ::Vector3 DataType;
 
         static const AZStd::size_t MarshalSize = HalfMarshaler::MarshalSize * 3;
@@ -114,6 +122,8 @@ namespace GridMate
             Z_ONE = (1 << 4)
         };
     public:
+        AZ_TYPE_INFO(Vec3CompNormMarshaler, "{80A7F05E-2F24-4CF4-AC91-C1C683D7CB2B}");
+
         typedef AZ::Vector3 DataType;
 
         void Marshal(WriteBuffer& wb, const AZ::Vector3& norVec) const;
@@ -128,6 +138,8 @@ namespace GridMate
     class QuatCompMarshaler
     {
     public:
+        AZ_TYPE_INFO(QuatCompMarshaler, "{21C83ED8-5E0E-4A5E-862D-9F1EBBD0CF4C}");
+
         typedef AZ::Quaternion DataType;
 
         static const AZStd::size_t MarshalSize = HalfMarshaler::MarshalSize * 4;
@@ -153,6 +165,38 @@ namespace GridMate
             W_NEG = (1 << 6),
         };
     public:
+        AZ_TYPE_INFO(QuatCompNormMarshaler, "{8C39D143-F64E-45A8-B135-E10A06923CD2}");
+
+        typedef AZ::Quaternion DataType;
+
+        void Marshal(WriteBuffer& wb, const AZ::Quaternion& norQuat) const;
+        void Unmarshal(AZ::Quaternion& quat, ReadBuffer& rb) const;
+    };
+
+    /**
+    * Compressed normalized Quaternion Marshaler uses 1-4 bytes by converting to Euler angles.
+    * Angles are quantized to angle * (360/255) and stored in a single byte.
+    * A leading byte is used to indicate when are 0, or 1 and do not need to be sent in the data.
+    */
+    // quantized into a single byte so 360 degrees -> 256 different values
+    static const float kDegreesPerQuantizedValue = 1.40625;
+
+    class QuatCompNormQuantizedMarshaler
+    {
+        enum Flags
+        {
+            X_ZERO = (1 << 0),
+            Y_ZERO = (1 << 1),
+            Z_ZERO = (1 << 2),
+
+            X_ONE = (1 << 3),
+            Y_ONE = (1 << 4),
+            Z_ONE = (1 << 5),
+        };
+
+    public:
+        AZ_TYPE_INFO(QuatCompNormQuantizedMarshaler, "{D4318C51-839B-40BE-9850-417177AC9B22}");
+
         typedef AZ::Quaternion DataType;
 
         void Marshal(WriteBuffer& wb, const AZ::Quaternion& norQuat) const;
@@ -170,6 +214,8 @@ namespace GridMate
     class TransformCompressor
     {
     public:
+        AZ_TYPE_INFO(TransformCompressor, "{30E9BADC-2CC3-46AF-B472-5A97E1FEC7EE}");
+
         typedef AZ::Transform DataType;
 
         enum Flags
@@ -275,6 +321,8 @@ namespace GridMate
     class VlqU32Marshaler
     {
     public:
+        AZ_TYPE_INFO(VlqU32Marshaler, "{BD9A38BB-713E-44FD-A517-8B3B782BDAAF}");
+
         void Marshal(WriteBuffer& wb, AZ::u32 v)
         {
             AZ::u8 data[5];
@@ -361,12 +409,12 @@ namespace GridMate
     class VlqU64Marshaler
     {
     public:
+        AZ_TYPE_INFO(VlqU64Marshaler, "{F1141AF7-499D-4A75-A35E-8325B2EB182B}");
+
         static const AZ::u32 MaxEncodingBytes = 9;
 
         /*
          * Used as a mask to grab the next byte out of an integer
-         *
-         * Using a template instead of constexpr due to VS2013 not supporting constexpr at the moment
          */
         template <AZ::u32 bits_shift>
         struct GetMask

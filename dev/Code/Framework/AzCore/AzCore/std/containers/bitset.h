@@ -28,6 +28,7 @@ namespace AZStd
         typedef unsigned int            word_t;         // base type for a storage word
         typedef word_t*                 pointer;
         typedef const word_t*           const_pointer;
+        typedef AZStd::size_t           size_type;
 
         // bit reference
         class reference
@@ -77,13 +78,13 @@ namespace AZStd
             set_word();
         }
 
-        inline bitset(unsigned long value)
-        {   // construct from bits in unsigned long
+        inline bitset(unsigned long long value)
+        {   // construct from bits in unsigned long long
             set_word();
             for (int wpos = 0;; )
             {   // store to one or more words
                 m_bits[wpos] = static_cast<word_t>(value);
-                if ((int)(sizeof (unsigned long) / sizeof (word_t)) <= ++wpos || NumWords < wpos)
+                if ((int)(sizeof (unsigned long long) / sizeof (word_t)) <= ++wpos || NumWords < wpos)
                 {
                     break;
                 }
@@ -248,7 +249,7 @@ namespace AZStd
 
         inline unsigned long to_ulong() const
         {   // convert bitset to unsigned long
-            AZ_STATIC_ASSERT((sizeof (unsigned long) % sizeof (word_t) == 0), "unsigned long and word_t have uncompatible sizes");
+            static_assert((sizeof (unsigned long) % sizeof (word_t) == 0), "unsigned long and word_t have uncompatible sizes");
 
             int wpos = NumWords;
             for (; (int)(sizeof (unsigned long) / sizeof (word_t)) <= wpos; --wpos)
@@ -265,7 +266,7 @@ namespace AZStd
 
         inline AZ::u64 to_ullong() const
         {   // convert bitset to AZ::u64
-            AZ_STATIC_ASSERT((sizeof(AZ::u64) % sizeof(word_t) == 0), "AZ::u64 and word_t have incompatible sizes");
+            static_assert((sizeof(AZ::u64) % sizeof(word_t) == 0), "AZ::u64 and word_t have incompatible sizes");
 
             int wpos = NumWords;
             for (; static_cast<int>(sizeof(AZ::u64) / sizeof(word_t)) <= wpos; --wpos)
@@ -333,7 +334,10 @@ namespace AZStd
             return value;
         }
 
-        AZ_FORCE_INLINE AZStd::size_t size()                    {   return NumBits; }
+        constexpr AZStd::size_t size() const
+        {
+            return NumBits;
+        }
 
         AZ_FORCE_INLINE bool operator==(const this_type& rhs) const
         {
@@ -427,6 +431,7 @@ namespace AZStd
         AZ_FORCE_INLINE void trim()
         {
 #ifdef AZ_COMPILER_MSVC
+        #pragma warning(push)
         #pragma warning(disable: 4127)
 #endif
             // clear any trailing bits in last word
@@ -436,6 +441,8 @@ namespace AZStd
             }
 #ifdef AZ_COMPILER_MSVC
         #pragma warning(default: 4127)
+        #pragma warning( pop )
+
 #endif
         }
 

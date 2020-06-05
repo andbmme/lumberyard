@@ -13,7 +13,6 @@
 #pragma once
 
 #include <AzCore/Math/Vector2.h>
-#include <AzCore/Math/Vector3.h>
 #include <AzCore/Math/VertexContainer.h>
 #include <AzCore/std/smart_ptr/shared_ptr.h>
 
@@ -50,25 +49,25 @@ namespace AZ
          * Override callbacks to be used when polygon prism changes/is modified (general).
          */
         void SetCallbacks(
-            const AZStd::function<void()>& OnChangeElement,
-            const AZStd::function<void()>& OnChangeContainer,
-            const AZStd::function<void()>& OnChangeHeight);
+            const VoidFunction& onChangeElement,
+            const VoidFunction& onChangeContainer,
+            const VoidFunction& onChangeHeight);
 
         /**
          * Override callbacks to be used when spline changes/is modified (specific).
          * (use if you need more fine grained control over modifications to the container)
          */
         void SetCallbacks(
-            const AZStd::function<void(size_t)>& OnAddVertex, const AZStd::function<void(size_t)>& OnRemoveVertex,
-            const AZStd::function<void()>& OnUpdateVertex, const AZStd::function<void()>& OnSetVertices,
-            const AZStd::function<void()>& OnClearVertices, const AZStd::function<void()>& OnChangeHeight);
+            const IndexFunction& onAddVertex, const IndexFunction& onRemoveVertex,
+            const IndexFunction& onUpdateVertex, const VoidFunction& onSetVertices,
+            const VoidFunction& onClearVertices, const VoidFunction& onChangeHeight);
 
         static void Reflect(ReflectContext* context);
 
         VertexContainer<Vector2> m_vertexContainer; ///< Reference to underlying vertex data.
 
     private:
-        AZStd::function<void()> m_onChangeHeightCallback = nullptr; ///< Callback for when height is changed.
+        VoidFunction m_onChangeHeightCallback = nullptr; ///< Callback for when height is changed.
         float m_height = 1.0f; ///< Height of polygon prism (about local Z) - default to 1m.
 
         /**
@@ -79,25 +78,4 @@ namespace AZ
 
     using PolygonPrismPtr = AZStd::shared_ptr<PolygonPrism>;
     using ConstPolygonPrismPtr = AZStd::shared_ptr<const PolygonPrism>;
-
-    /**
-     * Small set of util functions for polygon prism
-     */
-    namespace PolygonPrismUtil
-    {
-        /**
-         * Routine to calculate Aabb for orientated polygon prism shape
-         */
-        Aabb CalculateAabb(const PolygonPrism& polygonPrism, const Transform& transform);
-
-        /**
-         * Return if a point in world space is contained within a polygon prism shape
-         */
-        bool IsPointInside(const PolygonPrism& polygonPrism, const Vector3& point, const Transform& transform);
-
-        /**
-         * Return distance squared from point in world space from polygon prism shape
-         */
-        float DistanceSquaredFromPoint(const PolygonPrism& polygonPrism, const Vector3& point, const Transform& transform);
-    }
 }

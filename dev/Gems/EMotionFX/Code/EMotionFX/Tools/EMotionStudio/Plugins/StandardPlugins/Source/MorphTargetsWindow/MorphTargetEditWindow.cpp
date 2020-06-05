@@ -11,7 +11,6 @@
 */
 
 #include "MorphTargetEditWindow.h"
-#include <AzCore/std/string/string.h>
 #include "../../../../EMStudioSDK/Source/EMStudioManager.h"
 #include <MysticQt/Source/DoubleSpinbox.h>
 #include <QVBoxLayout>
@@ -52,7 +51,7 @@ namespace EMStudio
         mRangeMin->setSingleStep(0.1);
         mRangeMin->setRange(std::numeric_limits<int32>::lowest(), morphTargetRangeMax);
         mRangeMin->setValue(morphTargetRangeMin);
-        connect(mRangeMin, SIGNAL(valueChanged(double)), this, SLOT(MorphTargetRangeMinValueChanged(double)));
+        connect(mRangeMin, static_cast<void (MysticQt::DoubleSpinBox::*)(double)>(&MysticQt::DoubleSpinBox::valueChanged), this, &MorphTargetEditWindow::MorphTargetRangeMinValueChanged);
 
         // create the range max label
         QLabel* rangeMaxLabel = new QLabel("Range Max");
@@ -62,7 +61,7 @@ namespace EMStudio
         mRangeMax->setSingleStep(0.1);
         mRangeMax->setRange(morphTargetRangeMin, std::numeric_limits<int32>::max());
         mRangeMax->setValue(morphTargetRangeMax);
-        connect(mRangeMax, SIGNAL(valueChanged(double)), this, SLOT(MorphTargetRangeMaxValueChanged(double)));
+        connect(mRangeMax, static_cast<void (MysticQt::DoubleSpinBox::*)(double)>(&MysticQt::DoubleSpinBox::valueChanged), this, &MorphTargetEditWindow::MorphTargetRangeMaxValueChanged);
 
         // create the grid layout
         QGridLayout* gridLayout = new QGridLayout();
@@ -71,21 +70,17 @@ namespace EMStudio
         gridLayout->addWidget(rangeMaxLabel, 1, 0);
         gridLayout->addWidget(mRangeMax, 1, 1);
 
-        // create the edit phonemes button
-        QPushButton* editPhonemes = new QPushButton("Setup Phonemes");
-        connect(editPhonemes, SIGNAL(clicked()), this, SLOT(EditPhonemeButtonClicked()));
-
         // create the buttons layout
         QHBoxLayout* buttonsLayout = new QHBoxLayout();
         buttonsLayout->setMargin(0);
 
         // create the OK button
         QPushButton* OKButton = new QPushButton("OK");
-        connect(OKButton, SIGNAL(clicked()), this, SLOT(Accepted()));
+        connect(OKButton, &QPushButton::clicked, this, &MorphTargetEditWindow::Accepted);
 
         // create the cancel button
         QPushButton* cancelButton = new QPushButton("Cancel");
-        connect(cancelButton, SIGNAL(clicked()), this, SLOT(reject()));
+        connect(cancelButton, &QPushButton::clicked, this, &MorphTargetEditWindow::reject);
 
         // add widgets in the buttons layout
         buttonsLayout->addWidget(OKButton);
@@ -93,7 +88,6 @@ namespace EMStudio
 
         // add widgets in the layout
         layout->addLayout(gridLayout);
-        layout->addWidget(editPhonemes);
         layout->addLayout(buttonsLayout);
 
         // set the layout
@@ -160,7 +154,7 @@ namespace EMStudio
         const float rangeMax = (float)mRangeMax->value();
 
         AZStd::string result;
-        AZStd::string command = AZStd::string::format("AdjustMorphTarget -actorInstanceID %i -lodLevel %i -name \"%s\" -rangeMin %f -rangeMax %f", mActorInstance->GetID(), mActorInstance->GetLODLevel(), mMorphTarget->GetNameString().AsChar(), rangeMin, rangeMax);
+        AZStd::string command = AZStd::string::format("AdjustMorphTarget -actorInstanceID %i -lodLevel %i -name \"%s\" -rangeMin %f -rangeMax %f", mActorInstance->GetID(), mActorInstance->GetLODLevel(), mMorphTarget->GetNameString().c_str(), rangeMin, rangeMax);
         if (EMStudio::GetCommandManager()->ExecuteCommand(command, result) == false)
         {
             AZ_Error("EMotionFX", false, result.c_str());

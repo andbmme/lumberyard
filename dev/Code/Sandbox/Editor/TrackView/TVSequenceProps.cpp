@@ -17,7 +17,6 @@
 #include "StdAfx.h"
 #include "TVSequenceProps.h"
 #include "IMovieSystem.h"
-#include "TrackViewUndo.h"
 #include "TrackViewSequence.h"
 #include "AnimationContext.h"
 
@@ -27,7 +26,7 @@
 #include "QtUtilWin.h"
 #include <TrackView/ui_TVSequenceProps.h>
 #include <QMessageBox>
-
+#include <Maestro/Types/SequenceType.h>
 
 CTVSequenceProps::CTVSequenceProps(CTrackViewSequence* pSequence, float fps, QWidget* pParent)
     : QDialog(pParent)
@@ -54,8 +53,7 @@ CTVSequenceProps::~CTVSequenceProps()
 // CTVSequenceProps message handlers
 BOOL CTVSequenceProps::OnInitDialog()
 {
-    QString name = QtUtil::ToQString(m_pSequence->GetName());
-    ui->NAME->setText(name);
+    ui->NAME->setText(m_pSequence->GetName());
     int seqFlags = m_pSequence->GetFlags();
 
     ui->ALWAYS_PLAY->setChecked((seqFlags & IAnimSequence::eSeqFlags_PlayOnReset));
@@ -117,23 +115,8 @@ void CTVSequenceProps::MoveScaleKeys()
     }
 }
 
-void CTVSequenceProps::OnOK()
+void CTVSequenceProps::UpdateSequenceProps(const QString& name)
 {
-    QString name = ui->NAME->text();
-    if (name.isEmpty())
-    {
-        QMessageBox::warning(this, "Sequence Properties", "A sequence name cannot be empty!");
-        return;
-    }
-    else if (name.contains('/'))
-    {
-        QMessageBox::warning(this, "Sequence Properties", "A sequence name cannot contain a '/' character!");
-        return;
-    }
-
-    CUndo undo("Change TrackView Sequence Settings");
-    CUndo::Record(new CUndoSequenceSettings(m_pSequence));
-
     if (ui->MOVE_SCALE_KEYS->isChecked())
     {
         MoveScaleKeys();
@@ -242,7 +225,35 @@ void CTVSequenceProps::OnOK()
         seqFlags &= (~IAnimSequence::eSeqFlags_EarlyMovieUpdate);
     }
 
-    m_pSequence->SetFlags((IAnimSequence::EAnimSequenceFlags)seqFlags);
+    if (static_cast<IAnimSequence::EAnimSequenceFlags>(seqFlags) != m_pSequence->GetFlags())
+    {
+        AzToolsFramework::ScopedUndoBatch undoBatch("Change TrackView Sequence Flags");
+        m_pSequence->SetFlags(static_cast<IAnimSequence::EAnimSequenceFlags>(seqFlags));
+        undoBatch.MarkEntityDirty(m_pSequence->GetSequenceComponentEntityId());
+    }
+}
+
+void CTVSequenceProps::OnOK()
+{
+    QString name = ui->NAME->text();
+    if (name.isEmpty())
+    {
+        QMessageBox::warning(this, "Sequence Properties", "A sequence name cannot be empty!");
+        return;
+    }
+    else if (name.contains('/'))
+    {
+        QMessageBox::warning(this, "Sequence Properties", "A sequence name cannot contain a '/' character!");
+        return;
+    }
+
+    if (m_pSequence != nullptr)
+    {
+        AzToolsFramework::ScopedUndoBatch undoBatch("Change TrackView Sequence Settings");
+        UpdateSequenceProps(name);
+        undoBatch.MarkEntityDirty(m_pSequence->GetSequenceComponentEntityId());
+    }
+
     accept();
 }
 

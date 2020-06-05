@@ -16,7 +16,9 @@
 #include "VisAreas.h"
 #include "ObjMan.h"
 #include "MatMan.h"
-#include "terrain.h"
+
+#include <AzFramework/Terrain/TerrainDataRequestBus.h>
+
 #include "Environment/OceanEnvironmentBus.h"
 
 int CDecalRenderNode::m_nFillBigDecalIndicesCounter = 0;
@@ -38,7 +40,7 @@ CDecalRenderNode::CDecalRenderNode()
 CDecalRenderNode::~CDecalRenderNode()
 {
     DeleteDecal();
-    Get3DEngine()->FreeRenderNodeState(this);
+    GetISystem()->GetI3DEngine()->FreeRenderNodeState(this);
 }
 
 
@@ -54,7 +56,7 @@ void CDecalRenderNode::DeleteDecal()
         delete m_decal;
         m_decal = nullptr;
     }
-    }
+}
 
 void CDecalRenderNode::SetCommonProperties(CryEngineDecalInfo& decalInfo)
 {
@@ -67,7 +69,7 @@ void CDecalRenderNode::SetCommonProperties(CryEngineDecalInfo& decalInfo)
     decalInfo.fLifeTime = 1.0f; // default life time for rendering, decal won't grow older as we don't update it
     decalInfo.fGrowTime = 0.0f;
     decalInfo.fAngle = 0.0f;
-	
+
     // We don't set decalInfo.szMaterialName here because that is handled in CDecalRenderNode::CreateDecal()
 }
 
@@ -90,7 +92,16 @@ void CDecalRenderNode::CreatePlanarDecal()
 
 void CDecalRenderNode::CreateDecalOnTerrain()
 {
-    float terrainHeight(GetTerrain()->GetBilinearZ(m_decalProperties.m_pos.x, m_decalProperties.m_pos.y));
+    bool terrainExists = false;
+    float terrainHeight = AZ_FLT_MAX;
+    AzFramework::Terrain::TerrainDataRequestBus::BroadcastResult(terrainHeight
+        , &AzFramework::Terrain::TerrainDataRequests::GetHeightFromFloats
+        , m_decalProperties.m_pos.x, m_decalProperties.m_pos.y, AzFramework::Terrain::TerrainDataRequests::Sampler::BILINEAR, &terrainExists);
+    if (!terrainExists)
+    {
+        //No terrain system available, or there's a hole at the given location.
+        return;
+    }
     float terrainDelta(m_decalProperties.m_pos.z - terrainHeight);
     if (terrainDelta < m_decalProperties.m_radius && terrainDelta > -0.5f)
     {
@@ -367,6 +378,7 @@ void CDecalRenderNode::Render(const SRendParams& rParam, const SRenderingPassInf
         }
         SDeferredDecal newItem;
         newItem.fAlpha = m_decalProperties.m_opacity;
+        newItem.angleAttenuation = m_decalProperties.m_angleAttenuation;
         newItem.pMaterial = m_pMaterial;
         newItem.projMatrix = m_Matrix;
         newItem.nSortOrder = m_decalProperties.m_sortPrio;

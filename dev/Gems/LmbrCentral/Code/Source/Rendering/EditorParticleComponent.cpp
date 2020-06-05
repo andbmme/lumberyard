@@ -15,6 +15,7 @@
 
 #include <AzCore/Asset/AssetManager.h>
 
+#include <AzToolsFramework/Entity/EditorEntityInfoBus.h>
 #include <AzToolsFramework/API/ToolsApplicationAPI.h>
 
 #include <Include/IEditorParticleManager.h>
@@ -50,7 +51,7 @@ namespace LmbrCentral
 
                     ClassElement(AZ::Edit::ClassElements::EditorData, "")->
                     Attribute(AZ::Edit::Attributes::Category, "Rendering")->
-                    Attribute(AZ::Edit::Attributes::Icon, "Editor/Icons/Components/Particle.png")->
+                    Attribute(AZ::Edit::Attributes::Icon, "Editor/Icons/Components/Particle.svg")->
                     Attribute(AZ::Edit::Attributes::PrimaryAssetType, AZ::AzTypeInfo<LmbrCentral::ParticleAsset>::Uuid())->
                     Attribute(AZ::Edit::Attributes::ViewportIcon, "Editor/Icons/Components/Viewport/Particle.png")->
                     Attribute(AZ::Edit::Attributes::AutoExpand, true)->
@@ -69,7 +70,7 @@ namespace LmbrCentral
                     DataElement(AZ::Edit::UIHandlers::ComboBox, &EditorParticleComponent::m_selectedEmitter, "Emitters", "List of emitters in this library.")->
                     Attribute(AZ::Edit::Attributes::ChangeNotify, &EditorParticleComponent::OnEmitterSelected)->
                     Attribute(AZ::Edit::Attributes::StringList, &EditorParticleComponent::GetEmitterNames)->
-                    
+
                     DataElement(0, &EditorParticleComponent::m_settings, "Spawn Settings", "")->
                     Attribute(AZ::Edit::Attributes::AutoExpand, false)->
                     Attribute(AZ::Edit::Attributes::ChangeNotify, &EditorParticleComponent::OnSpawnParamChanged)->
@@ -84,7 +85,7 @@ namespace LmbrCentral
                 ;
 
                 editContext->Class<ParticleEmitterSettings>("ParticleSettings", "")->
-                    
+
                     DataElement(AZ::Edit::UIHandlers::CheckBox, &ParticleEmitterSettings::m_prime, "Pre-Roll", "(CPU Only) Set emitter as though it's been running indefinitely.")->
 
                     DataElement(AZ::Edit::UIHandlers::Color, &ParticleEmitterSettings::m_color, "Color tint", "Particle color tint")->
@@ -107,7 +108,7 @@ namespace LmbrCentral
                     Attribute(AZ::Edit::Attributes::Max, ParticleEmitterSettings::MaxSpeedScale)->
                     Attribute(AZ::Edit::Attributes::Step, 0.1f)->
 
-                    DataElement(AZ::Edit::UIHandlers::Slider, &ParticleEmitterSettings::m_strength, "Strength Curve Time", 
+                    DataElement(AZ::Edit::UIHandlers::Slider, &ParticleEmitterSettings::m_strength, "Strength Curve Time",
                         "Controls all \"Strength Over Emitter Life\" curves.\n\
 The curves will use this Strength Curve Time instead of the actual Emitter life time.\n\
 Negative values will be ignored.\n")->
@@ -127,6 +128,11 @@ Negative values will be ignored.\n")->
                     Attribute(AZ::Edit::Attributes::Step, 0.1f)->
 
                     DataElement(0, &ParticleEmitterSettings::m_particleSizeScaleY, "Particle size scale y", "Particle size scale y")->
+                    Attribute(AZ::Edit::Attributes::Min, 0.f)->
+                    Attribute(AZ::Edit::Attributes::Max, ParticleEmitterSettings::MaxSizeScale)->
+                    Attribute(AZ::Edit::Attributes::Step, 0.1f)->
+
+                    DataElement(0, &ParticleEmitterSettings::m_particleSizeScaleZ, "Particle size scale z", "Particle size scale z for geometry particle")->
                     Attribute(AZ::Edit::Attributes::Min, 0.f)->
                     Attribute(AZ::Edit::Attributes::Max, ParticleEmitterSettings::MaxSizeScale)->
                     Attribute(AZ::Edit::Attributes::Step, 0.1f)->
@@ -185,6 +191,9 @@ Negative values will be ignored.\n")->
                 ->Event("SetParticleSizeScaleY", &EditorParticleComponentRequestBus::Events::SetParticleSizeScaleY)
                 ->Event("GetParticleSizeScaleY", &EditorParticleComponentRequestBus::Events::GetParticleSizeScaleY)
                 ->VirtualProperty("ParticleSizeScaleY", "GetParticleSizeScaleY", "SetParticleSizeScaleY")
+                ->Event("SetParticleSizeScaleZ", &EditorParticleComponentRequestBus::Events::SetParticleSizeScaleZ)
+                ->Event("GetParticleSizeScaleZ", &EditorParticleComponentRequestBus::Events::GetParticleSizeScaleZ)
+                ->VirtualProperty("ParticleSizeScaleZ", "GetParticleSizeScaleZ", "SetParticleSizeScaleZ")
                 ;
         }
     }
@@ -200,7 +209,7 @@ Negative values will be ignored.\n")->
     EditorParticleComponent::~EditorParticleComponent()
     {
     }
-    
+
     void EditorParticleComponent::Init()
     {
         EditorComponentBase::Init();
@@ -223,16 +232,15 @@ Negative values will be ignored.\n")->
         }
         else if (m_librarySource == LibrarySource::Level)
         {
-            //Populates level's emitter list and showing selected 
+            //Populates level's emitter list and showing selected
             ResolveLevelEmitter();
         }
 
         SetDirty();
-                
+
         RenderNodeRequestBus::Handler::BusConnect(m_entity->GetId());
 
         AzToolsFramework::EditorVisibilityNotificationBus::Handler::BusConnect(GetEntityId());
-        AzFramework::EntityDebugDisplayEventBus::Handler::BusConnect(GetEntityId());
         EditorParticleComponentRequestBus::Handler::BusConnect(m_entity->GetId());
     }
 
@@ -240,8 +248,8 @@ Negative values will be ignored.\n")->
     {
         EditorParticleComponentRequestBus::Handler::BusDisconnect();
         AzToolsFramework::EditorVisibilityNotificationBus::Handler::BusDisconnect();
-        AzFramework::EntityDebugDisplayEventBus::Handler::BusDisconnect();
         RenderNodeRequestBus::Handler::BusDisconnect();
+        AZ::Data::AssetBus::Handler::BusDisconnect();
 
         if (!m_libNameToLoad.empty())
         {
@@ -265,15 +273,6 @@ Negative values will be ignored.\n")->
         return ParticleComponent::s_renderNodeRequestBusOrder;
     }
 
-    void EditorParticleComponent::DisplayEntity(bool& handled)
-    {
-        // Don't draw extra visualization unless selected and there is not an emitter
-        if (!IsSelected() || m_emitter.IsCreated())
-        {
-            handled = true;
-        }
-    }
-
     void EditorParticleComponent::BuildGameEntity(AZ::Entity* gameEntity)
     {
         ParticleComponent* component = gameEntity->CreateComponent<ParticleComponent>();
@@ -282,6 +281,7 @@ Negative values will be ignored.\n")->
         {
             // Copy the editor-side settings to the game entity to be exported.
             component->m_settings = m_settings;
+            component->m_settings.m_asset = m_asset;
         }
     }
 
@@ -352,7 +352,7 @@ Negative values will be ignored.\n")->
                     m_emitterFullNameToSelect.clear();
                 }
             }
-            
+
             //refresh the selected emitter UI
             EBUS_EVENT(AzToolsFramework::ToolsApplicationEvents::Bus, InvalidatePropertyDisplay, AzToolsFramework::Refresh_AttributesAndValues);
         }
@@ -360,7 +360,7 @@ Negative values will be ignored.\n")->
 
     void EditorParticleComponent::SelectEmitter(const AZStd::string& emitterFullName)
     {
-        //format the emitter name. 
+        //format the emitter name.
         AZStd::string selEmitterName = emitterFullName;
         AZStd::string libName;
         int pos = emitterFullName.find_first_of('.');
@@ -446,7 +446,6 @@ Negative values will be ignored.\n")->
         {
             m_emitterFullNameToSelect.clear();
             m_settings.m_selectedEmitter.clear();
-            SetDirty();
         }
 
         EBUS_EVENT(AzToolsFramework::ToolsApplicationEvents::Bus, InvalidatePropertyDisplay, AzToolsFramework::Refresh_AttributesAndValues);
@@ -458,7 +457,7 @@ Negative values will be ignored.\n")->
         EBUS_EVENT(AzToolsFramework::ToolsApplicationRequests::Bus, AddDirtyEntity, GetEntityId());
         OnAssetChanged();
     }
-    
+
     void EditorParticleComponent::ResolveLevelEmitter()
     {
         if (m_librarySource == LibrarySource::Level)
@@ -514,26 +513,27 @@ Negative values will be ignored.\n")->
 
         return AZ::Edit::PropertyRefreshLevels::ValuesOnly;
     }
-    
+
     ParticleEmitterSettings EditorParticleComponent::GetSettingsForEmitter() const
     {
         ParticleEmitterSettings settingsForEmitter = m_settings;
 
         // take the entity's visibility into account
-        bool entityVisibility = true;
-        AzToolsFramework::EditorVisibilityRequestBus::EventResult(entityVisibility, GetEntityId(), &AzToolsFramework::EditorVisibilityRequestBus::Events::GetCurrentVisibility);
-        settingsForEmitter.m_visible &= entityVisibility;
-
+        bool visible = false;
+        AzToolsFramework::EditorEntityInfoRequestBus::EventResult(
+            visible, GetEntityId(), &AzToolsFramework::EditorEntityInfoRequestBus::Events::IsVisible);
+        settingsForEmitter.m_visible = settingsForEmitter.m_visible && visible;
+        settingsForEmitter.m_asset = m_asset;
         return settingsForEmitter;
     }
 
     void EditorParticleComponent::SetEmitter(const AZStd::string& emitterFullName, const AZStd::string& libPath)
-    {      
+    {
         m_librarySource = LibrarySource::File;
 
         //set selected emitter
-        m_emitterFullNameToSelect = emitterFullName;        
-        
+        m_emitterFullNameToSelect = emitterFullName;
+
         //find the asset
         AZ::Data::AssetId cmAssetId;
         EBUS_EVENT_RESULT(cmAssetId, AZ::Data::AssetCatalogRequestBus, GetAssetIdByPath, libPath.c_str(), azrtti_typeid<ParticleAsset>(), false);
@@ -655,6 +655,18 @@ Negative values will be ignored.\n")->
         m_emitter.ApplyEmitterSetting(m_settings);
     }
 
+    void EditorParticleComponent::SetParticleSizeScaleZ(float scale)
+    {
+        if (ParticleEmitterSettings::MaxSizeScale < scale || scale < 0)
+        {
+            return;
+        }
+
+        m_settings.m_particleSizeScaleZ = scale;
+        m_emitter.ApplyEmitterSetting(m_settings);
+    }
+
+
     bool EditorParticleComponent::GetEnable()
     {
         return m_settings.m_enable;
@@ -695,4 +707,8 @@ Negative values will be ignored.\n")->
         return m_settings.m_particleSizeScaleY;
     }
 
+    float EditorParticleComponent::GetParticleSizeScaleZ()
+    {
+        return m_settings.m_particleSizeScaleZ;
+    }
 } // namespace LmbrCentral

@@ -10,11 +10,16 @@
 *
 */
 
+#include <AzCore/PlatformDef.h>
+
 #include <AzToolsFramework/Thumbnails/ThumbnailWidget.h>
 #include <AzToolsFramework/Thumbnails/ThumbnailerBus.h>
 
-#include <QWidget>
+AZ_PUSH_DISABLE_WARNING(4127 4800 4251, "-Wunknown-warning-option") // 4127: conditional expression is constant
+                                                                    // 4800 'uint': forcing value to bool 'true' or 'false' (performance warning)
+                                                                    // 4251: 'QPainter::d_ptr': class 'QScopedPointer<QPainterPrivate,QScopedPointerDeleter<T>>' needs to have dll-interface to be used by clients of class 'QPainter'
 #include <QPainter>
+AZ_POP_DISABLE_WARNING
 #include <QPixmap>
 
 namespace AzToolsFramework
@@ -30,11 +35,11 @@ namespace AzToolsFramework
         {
             if (m_key)
             {
-                disconnect(m_key.data(), &ThumbnailKey::Updated, this, &ThumbnailWidget::KeyUpdatedSlot);
+                disconnect(m_key.data(), &ThumbnailKey::ThumbnailUpdatedSignal, this, &ThumbnailWidget::KeyUpdatedSlot);
             }
             m_key = key;
             m_contextName = contextName;
-            connect(m_key.data(), &ThumbnailKey::Updated, this, &ThumbnailWidget::KeyUpdatedSlot);
+            connect(m_key.data(), &ThumbnailKey::ThumbnailUpdatedSignal, this, &ThumbnailWidget::KeyUpdatedSlot);
             repaint();
         }
 

@@ -34,7 +34,7 @@ namespace LmbrCentral
         , public EditorGeometryCacheComponentRequestBus::Handler
     {
     public:
-        AZ_TYPE_INFO(EditorGeometryCacheCommon, "{ACE31D8E-F7BC-48B9-950E-AE191E50A80F}", GeometryCacheCommon);
+        AZ_TYPE_INFO_LEGACY(EditorGeometryCacheCommon, "{ACE31D8E-F7BC-48B9-950E-AE191E50A80F}", GeometryCacheCommon);
         AZ_CLASS_ALLOCATOR(EditorGeometryCacheCommon, AZ::SystemAllocator, 0);
 
         static void Reflect(AZ::ReflectContext* context);
@@ -62,7 +62,7 @@ namespace LmbrCentral
 
         void SetUseVisAreas(bool useVisAreas) override;
         bool GetUseVisAreas() override { return m_useVisAreas; }
-
+        void SetMaterial(_smart_ptr<IMaterial> material) override;
     private:
 
         //We want the playOnStart param to reflect playing immediately in the editor
@@ -114,13 +114,15 @@ namespace LmbrCentral
 
         void BuildGameEntity(AZ::Entity* gameEntity) override;
 
-        // AzFramework::EntityDebugDisplayEventBus interface implementation
-        void DisplayEntity(bool& handled) override;
-
-        // Transform notification bus handler
-        void OnTransformChanged(const AZ::Transform& /*local*/, const AZ::Transform& world) override;
-
     private:
+        // AzFramework::EntityDebugDisplayEventBus
+        void DisplayEntityViewport(
+            const AzFramework::ViewportInfo& viewportInfo,
+            AzFramework::DebugDisplayRequests& debugDisplay) override;
+
+        // AZ::TransformNotificationBus
+        void OnTransformChanged(const AZ::Transform& local, const AZ::Transform& world) override;
+
         //Reflected members
         EditorGeometryCacheCommon m_common;
 

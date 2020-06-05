@@ -75,15 +75,15 @@ namespace CharacterTool
 
     enum ProjectionSelection3
     {
-        PS3_NoProjection, // ACCEPTED_USE
-        PS3_ShortvecTranslation, // ACCEPTED_USE
+        PS3_NoProjection,
+        PS3_ShortvecTranslation,
     };
 
     enum ProjectionSelection4
     {
-        PS4_NoProjection, // ACCEPTED_USE
-        PS4_ShortvecTranslation, // ACCEPTED_USE
-        PS4_DirectedTranslation // ACCEPTED_USE
+        PS4_NoProjection,
+        PS4_ShortvecTranslation,
+        PS4_DirectedTranslation
     };
 
     SERIALIZATION_ENUM_BEGIN(ProjectionSelection1, "projectionType")
@@ -98,14 +98,14 @@ namespace CharacterTool
     SERIALIZATION_ENUM_END()
 
     SERIALIZATION_ENUM_BEGIN(ProjectionSelection3, "projectionType")
-    SERIALIZATION_ENUM(PS3_NoProjection,        "no_projection",        "No Projection") // ACCEPTED_USE
-    SERIALIZATION_ENUM(PS3_ShortvecTranslation, "shortvec_translation", "Shortvec Translation") // ACCEPTED_USE
+    SERIALIZATION_ENUM(PS3_NoProjection,        "no_projection",        "No Projection")
+    SERIALIZATION_ENUM(PS3_ShortvecTranslation, "shortvec_translation", "Shortvec Translation")
     SERIALIZATION_ENUM_END()
 
     SERIALIZATION_ENUM_BEGIN(ProjectionSelection4, "projectionType")
-    SERIALIZATION_ENUM(PS4_NoProjection,        "no_projection",        "No Projection") // ACCEPTED_USE
-    SERIALIZATION_ENUM(PS4_ShortvecTranslation, "shortvec_translation", "Shortvec Translation") // ACCEPTED_USE
-    SERIALIZATION_ENUM(PS4_DirectedTranslation, "directed_translation", "Directed Translation") // ACCEPTED_USE
+    SERIALIZATION_ENUM(PS4_NoProjection,        "no_projection",        "No Projection")
+    SERIALIZATION_ENUM(PS4_ShortvecTranslation, "shortvec_translation", "Shortvec Translation")
+    SERIALIZATION_ENUM(PS4_DirectedTranslation, "directed_translation", "Directed Translation")
     SERIALIZATION_ENUM_END()
 
     SERIALIZATION_ENUM_BEGIN_NESTED(CharacterAttachment, TransformSpace, "Position Space")
@@ -154,8 +154,7 @@ namespace CharacterTool
                 }
 
                 uint32 numProxyNames = allProxyNames.size();
-                DynArray<bool> arrUsedProxies(numProxyNames, false);
-
+                DynArray<bool> arrUsedProxies;
                 arrUsedProxies.resize(numProxyNames);
                 uint32 numNames = set.names.size();
                 for (uint32 crcIndex = 0; crcIndex < numNames; crcIndex++)
@@ -325,7 +324,7 @@ namespace CharacterTool
                     ar((ProjectionSelection3&)p.m_nProjectionType, "projectionType", "Projection Type");
                     if (p.m_nProjectionType)
                     {
-                        if (p.m_nProjectionType == ProjectionSelection3::PS3_ShortvecTranslation) // ACCEPTED_USE
+                        if (p.m_nProjectionType == ProjectionSelection3::PS3_ShortvecTranslation)
                         {
                             ar(p.m_vCapsule.y,         "radius",         "Radius");
                             p.m_vCapsule.x = 0;
@@ -353,7 +352,7 @@ namespace CharacterTool
                 ar((ProjectionSelection4&)p.m_nProjectionType, "projectionType", "Projection Type");
                 if (p.m_nProjectionType)
                 {
-                    if (p.m_nProjectionType == ProjectionSelection4::PS4_ShortvecTranslation) // ACCEPTED_USE
+                    if (p.m_nProjectionType == ProjectionSelection4::PS4_ShortvecTranslation)
                     {
                         ar(p.m_vCapsule.y,         "radius",         "Radius");
                         p.m_vCapsule.x = clamp_tpl(p.m_vCapsule.x, 0.0f, 2.0f);
@@ -651,7 +650,7 @@ namespace CharacterTool
                 ar((ProjectionSelection4&)m_rowSimulationParams.m_nProjectionType, "projectionType", "Projection Type");
                 if (m_rowSimulationParams.m_nProjectionType)
                 {
-                    if (m_rowSimulationParams.m_nProjectionType == ProjectionSelection4::PS4_ShortvecTranslation) // ACCEPTED_USE
+                    if (m_rowSimulationParams.m_nProjectionType == ProjectionSelection4::PS4_ShortvecTranslation)
                     {
                         ar(m_rowSimulationParams.m_vCapsule.y,         "radius",         "Radius");
                         m_rowSimulationParams.m_vCapsule.x = 0;
@@ -983,7 +982,7 @@ namespace CharacterTool
                         nodeAttach->getAttr("PA_CapsuleX",        attach.m_simulationParams.m_vCapsule.x);
                         nodeAttach->getAttr("PA_CapsuleY",        attach.m_simulationParams.m_vCapsule.y);
                         attach.m_simulationParams.m_strDirTransJoint = nodeAttach->getAttr("PA_DirTransJointName");
-                        uint32 IsIdentical = stricmp(attach.m_simulationParams.m_strDirTransJoint.c_str(), attach.m_strJointName.c_str()) == 0;
+                        uint32 IsIdentical = azstricmp(attach.m_simulationParams.m_strDirTransJoint.c_str(), attach.m_strJointName.c_str()) == 0;
                         if (attach.m_simulationParams.m_strDirTransJoint.length() && IsIdentical)
                         {
                             attach.m_simulationParams.m_strDirTransJoint.reset();
@@ -1051,7 +1050,7 @@ namespace CharacterTool
                         nodeAttach->getAttr("P_ProjectionType",  attach.m_simulationParams.m_nProjectionType);
 
                         attach.m_simulationParams.m_strDirTransJoint = nodeAttach->getAttr("P_DirTransJointName");
-                        uint32 IsIdentical = stricmp(attach.m_simulationParams.m_strDirTransJoint.c_str(), attach.m_strJointName.c_str()) == 0;
+                        uint32 IsIdentical = azstricmp(attach.m_simulationParams.m_strDirTransJoint.c_str(), attach.m_strJointName.c_str()) == 0;
                         if (attach.m_simulationParams.m_strDirTransJoint.length() && IsIdentical)
                         {
                             attach.m_simulationParams.m_strDirTransJoint.reset();
@@ -1277,7 +1276,7 @@ namespace CharacterTool
                 for (uint32 a = 0; a < numAttachmentsInList; a++)
                 {
                     const char* strSocketName = attachments[a].m_strSocketName.c_str();
-                    if (attachments[a].m_attachmentType == CA_PROX && stricmp(strSocketName, strProxyName) == 0)
+                    if (attachments[a].m_attachmentType == CA_PROX && azstricmp(strSocketName, strProxyName) == 0)
                     {
                         arrProxies[a] = 1;
                         break;
@@ -1300,7 +1299,7 @@ namespace CharacterTool
                 for (uint32 a = 0; a < numAttachmentsInList; a++)
                 {
                     const char* strSocketName = attachments[a].m_strSocketName.c_str();
-                    if (attachments[a].m_attachmentType == CA_PROX && stricmp(strSocketName, strProxyName) == 0)
+                    if (attachments[a].m_attachmentType == CA_PROX && azstricmp(strSocketName, strProxyName) == 0)
                     {
                         arrProxies[a] = 1;
                         break;
@@ -1604,9 +1603,9 @@ namespace CharacterTool
             {
                 nodeAttach->setAttr("ROW_ProjectionType", attach.m_rowSimulationParams.m_nProjectionType);
             }
-            if (attach.m_rowSimulationParams.m_nProjectionType == ProjectionSelection4::PS4_DirectedTranslation) // ACCEPTED_USE
+            if (attach.m_rowSimulationParams.m_nProjectionType == ProjectionSelection4::PS4_DirectedTranslation)
             {
-                uint32 IsIdentical = stricmp(attach.m_rowSimulationParams.m_strDirTransJoint.c_str(), attach.m_strJointName.c_str()) == 0;
+                uint32 IsIdentical = azstricmp(attach.m_rowSimulationParams.m_strDirTransJoint.c_str(), attach.m_strJointName.c_str()) == 0;
                 if (attach.m_rowSimulationParams.m_strDirTransJoint.length() && IsIdentical == 0)
                 {
                     nodeAttach->setAttr("ROW_DirTransJointName", attach.m_rowSimulationParams.m_strDirTransJoint.c_str());
@@ -1625,7 +1624,7 @@ namespace CharacterTool
                     nodeAttach->setAttr("ROW_CapsuleY", attach.m_rowSimulationParams.m_vCapsule.y);
                 }
             }
-            if (attach.m_rowSimulationParams.m_nProjectionType == ProjectionSelection4::PS4_ShortvecTranslation) // ACCEPTED_USE
+            if (attach.m_rowSimulationParams.m_nProjectionType == ProjectionSelection4::PS4_ShortvecTranslation)
             {
                 if (attach.m_rowSimulationParams.m_vCapsule.y)
                 {
@@ -1844,7 +1843,7 @@ namespace CharacterTool
 
                 if (attach.m_simulationParams.m_nProjectionType == 3)
                 {
-                    uint32 IsIdentical = stricmp(attach.m_simulationParams.m_strDirTransJoint.c_str(), attach.m_strJointName.c_str()) == 0;
+                    uint32 IsIdentical = azstricmp(attach.m_simulationParams.m_strDirTransJoint.c_str(), attach.m_strJointName.c_str()) == 0;
                     if (attach.m_simulationParams.m_strDirTransJoint.length() && IsIdentical == 0)
                     {
                         nodeAttach->setAttr("PA_DirTransJointName", attach.m_simulationParams.m_strDirTransJoint.c_str());
@@ -1954,9 +1953,9 @@ namespace CharacterTool
                 {
                     nodeAttach->setAttr("P_ProjectionType", attach.m_simulationParams.m_nProjectionType);
                 }
-                if (attach.m_simulationParams.m_nProjectionType == ProjectionSelection4::PS4_DirectedTranslation) // ACCEPTED_USE
+                if (attach.m_simulationParams.m_nProjectionType == ProjectionSelection4::PS4_DirectedTranslation)
                 {
-                    uint32 IsIdentical = stricmp(attach.m_simulationParams.m_strDirTransJoint.c_str(), attach.m_strJointName.c_str()) == 0;
+                    uint32 IsIdentical = azstricmp(attach.m_simulationParams.m_strDirTransJoint.c_str(), attach.m_strJointName.c_str()) == 0;
                     if (attach.m_simulationParams.m_strDirTransJoint.length() && IsIdentical == 0)
                     {
                         nodeAttach->setAttr("P_DirTransJointName", attach.m_simulationParams.m_strDirTransJoint.c_str());
@@ -1966,7 +1965,7 @@ namespace CharacterTool
                         nodeAttach->setAttr("P_TranslationAxis", attach.m_simulationParams.m_vSimulationAxis);
                     }
                 }
-                if (attach.m_simulationParams.m_nProjectionType == ProjectionSelection4::PS4_DirectedTranslation) // ACCEPTED_USE
+                if (attach.m_simulationParams.m_nProjectionType == ProjectionSelection4::PS4_DirectedTranslation)
                 {
                     if (attach.m_simulationParams.m_vCapsule.x)
                     {
@@ -2312,16 +2311,16 @@ namespace CharacterTool
                 }
             }
 
-            if (stricmp(existingBindingFilename.c_str(), desc.m_strGeometryFilepath.c_str()) != 0)
+            if (azstricmp(existingBindingFilename.c_str(), desc.m_strGeometryFilepath.c_str()) != 0)
             {
                 if (!desc.m_strGeometryFilepath.empty())
                 {
                     string fileExt = PathUtil::GetExt(desc.m_strGeometryFilepath.c_str());
 
-                    bool IsCDF = (0 == stricmp(fileExt, "cdf"));
-                    bool IsCHR = (0 == stricmp(fileExt, "chr"));
-                    bool IsCGA = (0 == stricmp(fileExt, "cga"));
-                    bool IsCGF = (0 == stricmp(fileExt, "cgf"));
+                    bool IsCDF = (0 == azstricmp(fileExt, "cdf"));
+                    bool IsCHR = (0 == azstricmp(fileExt, "chr"));
+                    bool IsCGA = (0 == azstricmp(fileExt, "cga"));
+                    bool IsCGF = (0 == azstricmp(fileExt, "cgf"));
                     if (IsCDF || IsCHR || IsCGA)
                     {
                         ICharacterInstance* pIChildCharacter = characterManager->CreateInstance(desc.m_strGeometryFilepath.c_str(), CA_CharEditModel);
@@ -2422,7 +2421,7 @@ namespace CharacterTool
                 ap.m_vSimulationAxis  = desc.m_simulationParams.m_vSimulationAxis;
 
                 ap.m_vCapsule         = desc.m_simulationParams.m_vCapsule;
-                if (ap.m_nProjectionType == ProjectionSelection4::PS4_ShortvecTranslation) // ACCEPTED_USE
+                if (ap.m_nProjectionType == ProjectionSelection4::PS4_ShortvecTranslation)
                 {
                     ap.m_vCapsule.x = 0;
                 }
@@ -2474,16 +2473,16 @@ namespace CharacterTool
                 }
             }
 
-            if (stricmp(existingBindingFilename.c_str(), desc.m_strGeometryFilepath.c_str()) != 0)
+            if (azstricmp(existingBindingFilename.c_str(), desc.m_strGeometryFilepath.c_str()) != 0)
             {
                 if (!desc.m_strGeometryFilepath.empty())
                 {
                     string fileExt = PathUtil::GetExt(desc.m_strGeometryFilepath.c_str());
 
-                    bool IsCDF = (0 == stricmp(fileExt, "cdf"));
-                    bool IsCHR = (0 == stricmp(fileExt, "chr"));
-                    bool IsCGA = (0 == stricmp(fileExt, "cga"));
-                    bool IsCGF = (0 == stricmp(fileExt, "cgf"));
+                    bool IsCDF = (0 == azstricmp(fileExt, "cdf"));
+                    bool IsCHR = (0 == azstricmp(fileExt, "chr"));
+                    bool IsCGA = (0 == azstricmp(fileExt, "cga"));
+                    bool IsCGF = (0 == azstricmp(fileExt, "cgf"));
                     if (IsCDF || IsCHR || IsCGA)
                     {
                         ICharacterInstance* pIChildCharacter = characterManager->CreateInstance(desc.m_strGeometryFilepath.c_str(), CA_CharEditModel);
@@ -2623,7 +2622,7 @@ namespace CharacterTool
             }
             else
             {
-                bool isSkin = stricmp(fileExt, CRY_SKIN_FILE_EXT) == 0;
+                bool isSkin = azstricmp(fileExt, CRY_SKIN_FILE_EXT) == 0;
                 if (isSkin)
                 {
                     pISkin = characterManager->LoadModelSKINAutoRef(desc.m_strGeometryFilepath.c_str(), CA_CharEditModel);

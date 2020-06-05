@@ -9,11 +9,45 @@
             "native/FileServer/fileServer.h"
         ],
         
-        
+        "style": [
+            "native/ui/style/AssetProcessor.qrc",
+            "native/ui/style/AssetProcessor.qss",
+            "native/ui/style/AssetProcessorConfig.ini",
+            "native/ui/style/AssetsTab.qss",
+            "native/ui/style/LogsTab.qss"
+        ],
+
         "ui": [
+            "native/ui/AssetDetailsPanel.h",
+            "native/ui/AssetDetailsPanel.cpp",
+            "native/ui/AssetTreeFilterModel.h",
+            "native/ui/AssetTreeFilterModel.cpp",
+            "native/ui/AssetTreeModel.h",
+            "native/ui/AssetTreeModel.cpp",
+            "native/ui/AssetTreeItem.h",
+            "native/ui/AssetTreeItem.cpp",
+            "native/ui/ConnectionEditDialog.h",
+            "native/ui/ConnectionEditDialog.cpp",
+            "native/ui/GoToButton.h",
+            "native/ui/GoToButton.cpp",
+            "native/ui/GoToButton.ui",
             "native/ui/MainWindow.h",
             "native/ui/MainWindow.cpp",
-            "native/ui/MainWindow.ui"
+            "native/ui/MainWindow.ui",
+            "native/ui/ProductAssetDetailsPanel.h",
+            "native/ui/ProductAssetDetailsPanel.cpp",
+            "native/ui/ProductAssetDetailsPanel.ui",
+            "native/ui/ProductAssetTreeItemData.h",
+            "native/ui/ProductAssetTreeItemData.cpp",
+            "native/ui/ProductAssetTreeModel.h",
+            "native/ui/ProductAssetTreeModel.cpp",
+            "native/ui/SourceAssetDetailsPanel.h",
+            "native/ui/SourceAssetDetailsPanel.cpp",
+            "native/ui/SourceAssetDetailsPanel.ui",
+            "native/ui/SourceAssetTreeItemData.h",
+            "native/ui/SourceAssetTreeItemData.cpp",
+            "native/ui/SourceAssetTreeModel.h",
+            "native/ui/SourceAssetTreeModel.cpp"
         ],
 
         "utilities": [
@@ -21,7 +55,7 @@
             "native/utilities/GUIApplicationManager.h",
             "native/utilities/windowscreen.cpp",
             "native/utilities/windowscreen.h",
-            "native/utilities/assetUtilEBusHelper.h",
+            "native/utilities/AssetUtilEBusHelper.h",
             "native/utilities/LogPanel.h",
             "native/utilities/LogPanel.cpp"
         ]

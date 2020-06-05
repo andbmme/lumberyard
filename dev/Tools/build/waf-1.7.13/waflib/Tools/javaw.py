@@ -128,8 +128,9 @@ def use_javac_files(self):
 			self.uselib.append(x)
 		else:
 			y.post()
-			lst.append(y.jar_task.outputs[0].abspath())
-			self.javac_task.set_run_after(y.jar_task)
+			if hasattr(y, 'jar_task'): 
+			    lst.append(y.jar_task.outputs[0].abspath())
+			    self.javac_task.set_run_after(y.jar_task)
 
 	if lst:
 		self.env.append_value('CLASSPATH', lst)
@@ -363,7 +364,7 @@ class javac(Task.Task):
 					output_file.write('{}\n'.format(class_node.path_from(output_parent)))
 					class_node.sig = Utils.h_file(class_node.abspath()) # careful with this
 		except:
-			self.bld.fatal('[ERROR] Unable to write output log for javac task')
+			self.generator.bld.fatal('[ERROR] Unable to write output log for javac task.  File: {}'.format(output_log.abspath()))
 
 		self.generator.bld.task_sigs[self.uid()] = self.cache_sig
 

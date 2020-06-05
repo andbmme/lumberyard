@@ -208,6 +208,8 @@ void CVegetationDataBasePage::OnDistribute()
         else
         {
             CVegetationTool* pTool = new CVegetationTool;
+            
+            pTool->AddRef();
             pTool->Distribute();
             pTool->Release();
         }
@@ -230,6 +232,7 @@ void CVegetationDataBasePage::OnClear()
         else
         {
             CVegetationTool* pTool = new CVegetationTool;
+            pTool->AddRef();
             pTool->Clear();
             pTool->Release();
         }
@@ -246,6 +249,13 @@ void CVegetationDataBasePage::OnBnClickedScale()
     if (pTool && qobject_cast<CVegetationTool*>(pTool))
     {
         ((CVegetationTool*)pTool)->ScaleObjects();
+    }
+    else
+    {
+        CVegetationTool* pTempTool = new CVegetationTool;
+        pTempTool->AddRef();
+        pTempTool->ScaleObjects();
+        pTempTool->Release();
     }
 }
 
@@ -922,6 +932,11 @@ void CVegetationDataBasePage::OnSelectionChange()
 //////////////////////////////////////////////////////////////////////////
 void CVegetationDataBasePage::AddLayerVars(CVarBlock* pVarBlock, CVegetationObject* pObject)
 {
+    if (!GetIEditor() || !GetIEditor()->GetTerrainManager())
+    {
+        return;
+    }
+
     IVariable* pTable = new CVariableArray();
     pTable->SetName("Use On Terrain Layers");
     pVarBlock->AddVariable(pTable);

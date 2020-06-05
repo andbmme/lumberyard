@@ -36,7 +36,7 @@ namespace AZ
         /// like "*.bat" or "blah??.pak" or "test*.exe" and such.
         bool NameMatchesFilter(const char* name, const char* filter);
 
-        typedef AZ::u32 HandleType; // typedef to be compatible with VS2012
+        using HandleType = AZ::u32;
         static const HandleType InvalidHandle = 0;
         static const size_t MaxPathLength = 1024U;
 
@@ -58,7 +58,8 @@ namespace AZ
             ModeAppend = (1 << 2),
             ModeBinary = (1 << 3),
             ModeText = (1 << 4),
-            ModeUpdate = (1 << 5)
+            ModeUpdate = (1 << 5),
+            ModeCreatePath = (1 << 6),
         };
 
         inline bool AnyFlag(OpenMode a)
@@ -249,6 +250,11 @@ namespace AZ
 
             /// Divulge the filname used to originally open that handle.
             virtual bool GetFilename(HandleType fileHandle, char* filename, AZ::u64 filenameSize) const = 0;
+
+            virtual bool IsRemoteIOEnabled()
+            {
+                return false;
+            }
         };
 
         /**

@@ -25,11 +25,12 @@
 #include "Terrain/Heightmap.h"
 #include "VegetationMap.h"
 #include "Objects/DisplayContext.h"
-#include "Util/BoostPythonHelpers.h"
 #include "QtUtilWin.h"
 #include "MainWindow.h"
-#include <ITerrain.h>
+#include <Terrain/Bus/LegacyTerrainBus.h>
 #include <QVBoxLayout>
+
+#include <AzCore/RTTI/BehaviorContext.h>
 
 #ifdef LoadCursor
 #undef LoadCursor
@@ -45,21 +46,67 @@ enum EPaintMode
     ePaintMode_InProgress,
 };
 
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(CTerrainModifyTool::Command_Flatten, terrain, set_tool_flatten,
-    "Sets the terrain flatten tool.",
-    "terrain.set_tool_flatten()");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(CTerrainModifyTool::Command_Smooth, terrain, set_tool_smooth,
-    "Sets the terrain smooth tool.",
-    "terrain.set_tool_smooth()");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(CTerrainModifyTool::Command_RiseLower, terrain, set_tool_riselower,
-    "Sets the terrain rise/lower tool.",
-    "terrain.set_tool_riselower()");
+namespace AzToolsFramework
+{
+    void TerrainModifyPythonFuncsHandler::Reflect(AZ::ReflectContext* context)
+    {
+        if (auto behaviorContext = azrtti_cast<AZ::BehaviorContext*>(context))
+        {
+            //NOTE: "BrushType type" is not exposed,
+            //      use Command_Flatten(), Command_Smooth(), Command_RiseLower for such purposes.
+            //Example Code to create a dip in the terrain:
+            //
+            // import azlmbr.legacy.general as general
+            // import azlmbr.legacy.terrain as terrain_tool
+            //
+            // terrain_tool.set_tool_riselower()
+            // tool_params = terrain_tool.get_current_tool_params()
+            // tool_params.height = -1.0
+            // tool_params.outsideRadius = 10.0
+            // terrain_tool.set_current_tool_params(tool_params)
+            // for i in range(30) :
+            //     terrain_tool.paint_at_world_xy(256.0, 270.0)
+            //     general.idle_wait(0.1)
+            behaviorContext->Class<CTerrainBrush>("TerrainToolParams")
+                ->Attribute(AZ::Script::Attributes::Scope, AZ::Script::Attributes::ScopeFlags::Automation)
+                ->Attribute(AZ::Script::Attributes::Category, "Legacy/Terrain")
+                ->Attribute(AZ::Script::Attributes::Module, "legacy.terrain")
+                ->Property("outsideRadius", BehaviorValueProperty(&CTerrainBrush::radius))
+                ->Property("insideRadius", BehaviorValueProperty(&CTerrainBrush::radiusInside))
+                ->Property("height", BehaviorValueProperty(&CTerrainBrush::height))
+                ->Property("heightRangeMin", [](CTerrainBrush* that) { return that->heightRange.x; }, [](CTerrainBrush* that, float value) { that->heightRange.x = value; })
+                ->Property("heightRangeMax", [](CTerrainBrush* that) { return that->heightRange.y; }, [](CTerrainBrush* that, float value) { that->heightRange.y = value; })
+                ->Property("hardness", BehaviorValueProperty(&CTerrainBrush::hardness))
+                ->Property("hasNoise", BehaviorValueProperty(&CTerrainBrush::bNoise))
+                ->Property("noiseScale", BehaviorValueProperty(&CTerrainBrush::noiseScale))
+                ->Property("noiseFrequency", BehaviorValueProperty(&CTerrainBrush::noiseFreq))
+                ->Property("shouldRepositionObjects", BehaviorValueProperty(&CTerrainBrush::bRepositionObjects))
+                ->Property("shouldRepositionVegetation", BehaviorValueProperty(&CTerrainBrush::bRepositionVegetation))
+                ;
+
+            // this will put these methods into the 'azlmbr.legacy.terrain' module
+            auto addLegacyTerrain = [](AZ::BehaviorContext::GlobalMethodBuilder methodBuilder)
+            {
+                methodBuilder->Attribute(AZ::Script::Attributes::Scope, AZ::Script::Attributes::ScopeFlags::Automation)
+                    ->Attribute(AZ::Script::Attributes::Category, "Legacy/Terrain")
+                    ->Attribute(AZ::Script::Attributes::Module, "legacy.terrain");
+            };
+            addLegacyTerrain(behaviorContext->Method("set_tool_flatten", CTerrainModifyTool::Command_Flatten, nullptr, "Sets the terrain flatten tool."));
+            addLegacyTerrain(behaviorContext->Method("set_tool_smooth", CTerrainModifyTool::Command_Smooth, nullptr, "Sets the terrain smooth tool."));
+            addLegacyTerrain(behaviorContext->Method("set_tool_riselower", CTerrainModifyTool::Command_RiseLower, nullptr, "Sets the terrain rise/lower tool."));
+            addLegacyTerrain(behaviorContext->Method("get_current_tool_id", CTerrainModifyTool::Debug_GetCurrentBrushType, nullptr, "Gets the current tool Id."));
+            addLegacyTerrain(behaviorContext->Method("paint_at_world_xy", CTerrainModifyTool::Command_PaintAtWorldXY, nullptr, "Paints with the current tool at the given (x, y) world location."));
+            addLegacyTerrain(behaviorContext->Method("get_current_tool_params", CTerrainModifyTool::Command_GetTerrainBrushParams, nullptr, "Gets the current tool brush params."));
+            addLegacyTerrain(behaviorContext->Method("set_current_tool_params", CTerrainModifyTool::Command_SetTerrainBrushParams, nullptr, "Sets the current tool brush params."));
+        }
+    }
+}
 
 //////////////////////////////////////////////////////////////////////////
 
 CTerrainBrush CTerrainModifyTool::m_brush[eBrushTypeLast];
-BrushType           CTerrainModifyTool::m_currentBrushType = eBrushFlatten;
-bool                    CTerrainModifyTool::m_bSyncBrushRadiuses = false;
+BrushType     CTerrainModifyTool::m_currentBrushType = eBrushFlatten;
+bool          CTerrainModifyTool::m_bSyncBrushRadiuses = false;
 
 //////////////////////////////////////////////////////////////////////////
 CTerrainModifyTool::CTerrainModifyTool()
@@ -74,6 +121,8 @@ CTerrainModifyTool::CTerrainModifyTool()
     m_bSmoothOverride = false;
     m_bQueryHeightMode = false;
     m_nPaintingMode = ePaintMode_None;
+
+    m_isSmoothing = false;
 
     m_isCtrlPressed = false;
     m_isAltPressed = false;
@@ -160,6 +209,19 @@ bool CTerrainModifyTool::MouseCallback(CViewport* view, EMouseEvent event, QPoin
     if (m_nPaintingMode == ePaintMode_InProgress)
     {
         m_nPaintingMode = ePaintMode_Ready;
+
+        // Defers terrain refreshing when the smoothing tool is used to
+        // prevent hammering the CPU.
+        if (event == eMouseLUp && m_isSmoothing)
+        {
+            m_isSmoothing = false;
+
+            CHeightmap* heightmap = GetIEditor()->GetHeightmap();
+            if (heightmap)
+            {
+                heightmap->RefreshTerrain();
+            }
+        }
     }
 
     m_bQueryHeightMode = false;
@@ -192,9 +254,13 @@ bool CTerrainModifyTool::MouseCallback(CViewport* view, EMouseEvent event, QPoin
     }
     else if (event == eMouseLDown && bCollideWithTerrain)
     {
-        if (!GetIEditor()->IsUndoRecording())
+        AzToolsFramework::UndoSystem::URSequencePoint* undoOperation = nullptr;
+        AzToolsFramework::ToolsApplicationRequests::Bus::BroadcastResult(
+            undoOperation, &AzToolsFramework::ToolsApplicationRequests::GetCurrentUndoBatch);
+        if (!undoOperation)
         {
-            GetIEditor()->BeginUndo();
+            AzToolsFramework::ToolsApplicationRequests::Bus::BroadcastResult(
+                undoOperation, &AzToolsFramework::ToolsApplicationRequests::BeginUndoBatch, "Modify Terrain");
         }
         Paint();
         m_nPaintingMode = ePaintMode_InProgress;
@@ -229,13 +295,15 @@ bool CTerrainModifyTool::MouseCallback(CViewport* view, EMouseEvent event, QPoin
     }
 
     // Don't invalidate the paint mode on mouse move, since they could be
-    // painting and accidentally go outside the terrain boundry but then
+    // painting and accidentally go outside the terrain boundary but then
     // come back without releasing the mouse
     if ((m_nPaintingMode == ePaintMode_Ready && event != eMouseMove) || event == eMouseLUp)
     {
-        if (GetIEditor()->IsUndoRecording())
+        AzToolsFramework::UndoSystem::URSequencePoint* undoOperation = nullptr;
+        AzToolsFramework::ToolsApplicationRequests::Bus::BroadcastResult(undoOperation, &AzToolsFramework::ToolsApplicationRequests::GetCurrentUndoBatch);
+        if (undoOperation)
         {
-            GetIEditor()->AcceptUndo("Terrain Modify");
+            AzToolsFramework::ToolsApplicationRequests::Bus::Broadcast(&AzToolsFramework::ToolsApplicationRequests::EndUndoBatch);
         }
         m_nPaintingMode = ePaintMode_None;
     }
@@ -243,11 +311,19 @@ bool CTerrainModifyTool::MouseCallback(CViewport* view, EMouseEvent event, QPoin
     // Show status help.
     if (m_pBrush->type == eBrushRiseLower)
     {
+#if AZ_TRAIT_OS_PLATFORM_APPLE
+        GetIEditor()->SetStatusText("⌘:Inverse Height  ⌥:Smooth  LMB:Rise/Lower/Smooth  [ ]:Change Brush Radius  <, >.:Change Height");
+#else
         GetIEditor()->SetStatusText("CTRL:Inverse Height  ALT:Smooth  LMB:Rise/Lower/Smooth  [ ]:Change Brush Radius  <, >.:Change Height");
+#endif
     }
     else
     {
+#if AZ_TRAIT_OS_PLATFORM_APPLE
+        GetIEditor()->SetStatusText("⌘:Query Height  ⌥:Smooth  LMB:Flatten/Smooth  [ ]:Change Brush Radius  <, >.:Change Height/Hardness");
+#else
         GetIEditor()->SetStatusText("CTRL:Query Height  ALT:Smooth  LMB:Flatten/Smooth  [ ]:Change Brush Radius  <, >.:Change Height/Hardness");
+#endif
     }
 
     return true;
@@ -496,7 +572,13 @@ void CTerrainModifyTool::UpdateUI()
 //////////////////////////////////////////////////////////////////////////
 void CTerrainModifyTool::Paint()
 {
-    if (!GetIEditor()->Get3DEngine()->GetITerrain())
+    PaintAtWorldXY(m_pointerPos.x, m_pointerPos.y);
+}
+
+void CTerrainModifyTool::PaintAtWorldXY(float worldX, float worldY)
+{
+    const bool isLegacyTerrainActive = LegacyTerrain::LegacyTerrainDataRequestBus::HasHandlers();
+    if (!isLegacyTerrainActive)
     {
         return;
     }
@@ -511,9 +593,8 @@ void CTerrainModifyTool::Paint()
 
     int unitSize = pHeightmap->GetUnitSize();
 
-    //dc.renderer->SetMaterialColor( 1,1,0,1 );
-    int tx = RoundFloatToInt(m_pointerPos.y / unitSize);
-    int ty = RoundFloatToInt(m_pointerPos.x / unitSize);
+    int tx = RoundFloatToInt(worldY / unitSize);
+    int ty = RoundFloatToInt(worldX / unitSize);
 
     float fInsideRadius = (pBrush->radiusInside / unitSize);
     int tsize = (pBrush->radius / unitSize);
@@ -535,14 +616,15 @@ void CTerrainModifyTool::Paint()
     }
     else if (pBrush->type == eBrushSmooth || m_bSmoothOverride)
     {
-        pHeightmap->SmoothSpot(tx, ty, tsize, pBrush->height, pBrush->hardness);//,m_pBrush->noiseFreq/10.0f,m_pBrush->noiseScale/10.0f );
+        m_isSmoothing = true;
+        pHeightmap->SmoothSpot(tx, ty, tsize, pBrush->height, pBrush->hardness, false);
     }
     pHeightmap->UpdateEngineTerrain(x1, y1, tsize2, tsize2, true, false);
     AABB box;
-    box.min = m_pointerPos - Vec3(pBrush->radius, pBrush->radius, 0);
-    box.max = m_pointerPos + Vec3(pBrush->radius, pBrush->radius, 0);
-    box.min.z -= 10000;
-    box.max.z += 10000;
+    const Vec3 worldLocation(worldX, worldY, 0);
+    const Vec3 radiusVec(pBrush->radius, pBrush->radius, 10000);
+    box.min = worldLocation - radiusVec;
+    box.max = worldLocation + radiusVec;
 
     GetIEditor()->UpdateViews(eUpdateHeightmap, &box);
 
@@ -658,6 +740,56 @@ void CTerrainModifyTool::Command_RiseLower()
         CTerrainModifyTool* pModTool = (CTerrainModifyTool*)pTool;
         pModTool->SetCurBrushType(eBrushRiseLower);
     }
+}
+
+//////////////////////////////////////////////////////////////////////////
+void CTerrainModifyTool::Command_PaintAtWorldXY(float worldX, float worldY)
+{
+    Command_Activate();
+    CEditTool* pTool = GetIEditor()->GetEditTool();
+    if (pTool && qobject_cast<CTerrainModifyTool*>(pTool))
+    {
+        CTerrainModifyTool* pModTool = (CTerrainModifyTool*)pTool;
+        pModTool->PaintAtWorldXY(worldX, worldY);
+    }
+}
+
+CTerrainBrush CTerrainModifyTool::Command_GetTerrainBrushParams()
+{
+    Command_Activate();
+    CEditTool* pTool = GetIEditor()->GetEditTool();
+    CTerrainBrush retBrush;
+    if (pTool && qobject_cast<CTerrainModifyTool*>(pTool))
+    {
+        CTerrainModifyTool* pModTool = (CTerrainModifyTool*)pTool;
+        pModTool->GetCurBrushParams(retBrush);
+    }
+    return retBrush;
+}
+
+void CTerrainModifyTool::Command_SetTerrainBrushParams(const CTerrainBrush& brush)
+{
+    Command_Activate();
+    CEditTool* pTool = GetIEditor()->GetEditTool();
+    CTerrainBrush retBrush;
+    if (pTool && qobject_cast<CTerrainModifyTool*>(pTool))
+    {
+        CTerrainModifyTool* pModTool = (CTerrainModifyTool*)pTool;
+        pModTool->SetCurBrushParams(brush);
+    }
+}
+
+int CTerrainModifyTool::Debug_GetCurrentBrushType()
+{
+    Command_Activate();
+    CEditTool* pTool = GetIEditor()->GetEditTool();
+    if (pTool && qobject_cast<CTerrainModifyTool*>(pTool))
+    {
+        CTerrainModifyTool* pModTool = (CTerrainModifyTool*)pTool;
+        return static_cast<int>(pModTool->GetCurBrushType());
+    }
+
+    return 0;
 }
 
 const GUID& CTerrainModifyTool::GetClassID()

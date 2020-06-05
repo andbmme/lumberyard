@@ -1,0 +1,16 @@
+{
+    "AzCore_uber_test.cpp": 
+    {
+        "UnitTest": 
+        [
+            "UnitTest/MockComponentApplication.h",
+            "UnitTest/MockComponentApplication.cpp",
+            "UnitTest/UnitTest.h",
+            "UnitTest/TestTypes.h"
+        ],
+        "UnitTest/Mocks": 
+        [
+            "UnitTest/Mocks/MockFileIOBase.h"
+        ]
+    }
+}

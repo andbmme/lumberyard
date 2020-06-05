@@ -38,13 +38,15 @@ namespace AZ
             {
                 class NodeTreeSelectionWidget;
             }
-            class NodeTreeSelectionWidget : public QWidget
+
+            class SCENE_UI_API NodeTreeSelectionWidget : public QWidget
             {
                 Q_OBJECT
             public:
                 AZ_CLASS_ALLOCATOR_DECL
 
                 explicit NodeTreeSelectionWidget(QWidget* parent);
+                ~NodeTreeSelectionWidget() override;
 
                 void SetList(const DataTypes::ISceneNodeSelectionList& list);
                 void CopyListTo(DataTypes::ISceneNodeSelectionList& target);
@@ -55,6 +57,7 @@ namespace AZ
                 void AddFilterType(const Uuid& idProperty);
                 void AddFilterVirtualType(Crc32 name);
                 void UseNarrowSelection(bool enable);
+                void UpdateSelectionLabel();
 
             signals:
                 void valueChanged();
@@ -63,17 +66,18 @@ namespace AZ
                 void SelectButtonClicked();
                 void ListChangesAccepted();
                 void ListChangesCanceled();
-                void UpdateSelectionLabel();
-
+                virtual void ResetNewTreeWidget(const Containers::Scene& scene);
                 size_t CalculateSelectedCount();
                 size_t CalculateTotalCount();
 
+                AZ_PUSH_DISABLE_DLL_EXPORT_MEMBER_WARNING
                 AZStd::set<Uuid> m_filterTypes;
                 AZStd::set<Crc32> m_filterVirtualTypes;
                 AZStd::string m_filterName;
                 QScopedPointer<Ui::NodeTreeSelectionWidget> ui;
                 AZStd::unique_ptr<SceneGraphWidget> m_treeWidget;
                 AZStd::unique_ptr<DataTypes::ISceneNodeSelectionList> m_list;
+                AZ_POP_DISABLE_DLL_EXPORT_MEMBER_WARNING
                 bool m_narrowSelection;
             };
         } // UI

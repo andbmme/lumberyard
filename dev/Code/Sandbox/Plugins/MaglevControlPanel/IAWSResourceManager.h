@@ -53,7 +53,7 @@ public:
 
     virtual void ImportResource(const QString& resourceGroup, const QString& resourceName, const QString& resourceArn) = 0;
     virtual void ListImportableResources(QString region) = 0;
-    
+
 signals:
 
     void ImporterOutput(const QVariant& output, const char* outputType);
@@ -465,6 +465,10 @@ public:
 
     virtual QSharedPointer<ICloudFormationTemplateModel> GetTemplateModel() = 0;
 
+    virtual QString GetEnableButtonText() const = 0;
+    virtual QString GetEnableButtonToolTip() const = 0;
+    virtual bool EnableResourceGroup() = 0;
+
 signals:
 
     void ActiveDeploymentChanged(const QString& activeDeploymentName);
@@ -586,7 +590,7 @@ class IAWSProjectModel
     Q_OBJECT
 
 public:
-    
+
     enum Roles
     {
         PathRole = Qt::UserRole    // QString: file/directory path for file/directory types
@@ -600,8 +604,9 @@ public:
     virtual QModelIndex DeploymentListIndex() const = 0;
     virtual QModelIndex ProjectStackIndex() const = 0;
 
-    virtual void AddResourceGroup(const QString& resourceGroupName, bool includeExampleResources, AsyncOperationCallback callback) = 0;
-    virtual void RemoveResourceGroup(const QString& resourceGroupName, AsyncOperationCallback callback) = 0;
+    virtual void CreateCloudGem(const QString& name, const QString& initialContent, AsyncOperationCallback callback) = 0;
+    virtual void DisableResourceGroup(const QString& resourceGroupName, AsyncOperationCallback callback) = 0;
+    virtual void EnableResourceGroup(const QString& resourceGroupName, AsyncOperationCallback callback) = 0;
 
     virtual void AddServiceApi(const QString& resourceGroupName, AsyncOperationCallback callback) = 0;
 
@@ -625,7 +630,7 @@ public:
         GAME,
         BASE
     };
-    // 
+
     virtual QJsonValue GetResourceGroupSetting(const QString& resourceGroupName, const QString& settingName, ResourceGroupSettingPriority settingPriority = ResourceGroupSettingPriority::GAME_OR_BASE) const = 0;
 
     virtual QVector<QString> GetWritableFilesforUploadResources() const = 0;
@@ -678,11 +683,13 @@ public:
     virtual void RetryLoading() = 0;
 
     virtual void GetRegionList() = 0;
-    virtual bool InitializeProject(const QString& region, const QString& stackName, const QString& accessKey = "", const QString& secretKey = "") = 0;
+    virtual bool InitializeProject(const QString& region, const QString& stackName, const QString& accessKey = "", const QString& secretKey = "", bool createAdminRoles=false) = 0;
 
     virtual void RequestEditProjectSettings() = 0;
     virtual void RequestEditDeploymentTemplate() = 0;
     virtual void RequestEditGemsFile() = 0;
+    virtual void RequestAddFile(const QString& path) = 0;
+    virtual void RequestDeleteFile(const QString& path) = 0;
 
     virtual bool ProjectSettingsNeedsCheckout() const = 0;
     virtual bool DeploymentTemplateNeedsCheckout() const = 0;

@@ -16,130 +16,125 @@
 #include "ActorInstance.h"
 #include "Node.h"
 #include "TransformData.h"
-
+#include <EMotionFX/Source/Allocators.h>
+#include <EMotionFX/Source/MorphSetup.h>
+#include <EMotionFX/Source/MorphSetupInstance.h>
 
 namespace EMotionFX
 {
-    // constructor for a skin attachment
+    AZ_CLASS_ALLOCATOR_IMPL(AttachmentSkin, AttachmentAllocator, 0)
+
     AttachmentSkin::AttachmentSkin(ActorInstance* attachToActorInstance, ActorInstance* attachment)
         : Attachment(attachToActorInstance, attachment)
     {
-        InitNodeMap();
+        InitJointMap();
+        InitMorphMap();
     }
 
-
-    // destructor
     AttachmentSkin::~AttachmentSkin()
     {
     }
 
-
-    // create a skin attachment
     AttachmentSkin* AttachmentSkin::Create(ActorInstance* attachToActorInstance, ActorInstance* attachment)
     {
-        return new AttachmentSkin(attachToActorInstance, attachment);
+        return aznew AttachmentSkin(attachToActorInstance, attachment);
     }
 
-
-    // initialize the node map that links nodes in this attachment to the parent actor where it is attached to
-    void AttachmentSkin::InitNodeMap()
+    void AttachmentSkin::InitMorphMap()
     {
-        if (mAttachment == nullptr)
+        m_morphMap.clear();
+        if (!m_attachment || !m_actorInstance)
         {
             return;
         }
 
-        Skeleton* attachmentSkeleton    = mAttachment->GetActor()->GetSkeleton();
-        Skeleton* skeleton              = mActorInstance->GetActor()->GetSkeleton();
+        // Get the morph setups from the first LOD (highest detail level).
+        const MorphSetup* sourceMorphSetup = m_actorInstance->GetActor()->GetMorphSetup(0);
+        const MorphSetup* targetMorphSetup = m_attachment->GetActor()->GetMorphSetup(0);
+        if (!sourceMorphSetup || !targetMorphSetup)
+        {
+            return;
+        }
 
-        // precalculate for each node in the attachment, the node where
-        // to get the transformation from inside the actor where it will be attached to
-        // so if the "upper arm" bone of the main/parent actor rotates, the node with the same name
-        // inside the attachment will also be rotated the same way
+        // Iterate over the morph targets inside the attachment, and try to locate them inside the actor instance we are attaching to.
+        const AZ::u32 numTargetMorphs = targetMorphSetup->GetNumMorphTargets();
+        m_morphMap.reserve(static_cast<size_t>(numTargetMorphs));
+        for (AZ::u32 i = 0; i < numTargetMorphs; ++i)
+        {
+            const AZ::u32 sourceMorphIndex = sourceMorphSetup->FindMorphTargetNumberByID(targetMorphSetup->GetMorphTarget(i)->GetID());
+            if (sourceMorphIndex == MCORE_INVALIDINDEX32)
+            {
+                continue;
+            }
+
+            MorphMapping mapping;
+            mapping.m_sourceMorphIndex = sourceMorphIndex;
+            mapping.m_targetMorphIndex = i;
+            m_morphMap.emplace_back(mapping);
+        }
+        m_morphMap.shrink_to_fit();
+    }
+
+    void AttachmentSkin::InitJointMap()
+    {
+        m_jointMap.clear();
+        if (!m_attachment || !m_actorInstance)
+        {
+            return;
+        }
+
+        Skeleton* attachmentSkeleton = m_attachment->GetActor()->GetSkeleton();
+        Skeleton* skeleton = m_actorInstance->GetActor()->GetSkeleton();
+
         const uint32 numNodes = attachmentSkeleton->GetNumNodes();
-        mNodeMap.Resize(numNodes);
+        m_jointMap.reserve(numNodes);
         for (uint32 i = 0; i < numNodes; ++i)
         {
-            // get the node inside the attachment
             Node* attachmentNode = attachmentSkeleton->GetNode(i);
 
-            // try to find the same node in the actor where we attach to
+            // Try to find the same joint in the actor where we attach to.
             Node* sourceNode = skeleton->FindNodeByID(attachmentNode->GetID());
-            mNodeMap[i].mSourceNode = sourceNode; // NOTE: this can also be nullptr!
-
-            // init the global matrices on identity
-            mNodeMap[i].mLocalMatrix.Identity();
-            mNodeMap[i].mGlobalMatrix.Identity();
-            mNodeMap[i].mLocalTransform.Identity();
-        }
-    }
-
-
-    // update the node transformations
-    void AttachmentSkin::UpdateNodeTransforms()
-    {
-        // when we have no nodes to update, there is nothing to do
-        if (mNodeMap.GetLength() == 0)
-        {
-            return;
-        }
-
-        // get the number of nodes in this attachment (and so also in the map)
-        const uint32 numNodes = mNodeMap.GetLength();
-        MCORE_ASSERT(numNodes == mAttachment->GetActor()->GetNumNodes());
-
-        // update all the node matrices
-        TransformData* attachmentTransformData  = mAttachment->GetTransformData();
-        MCore::Matrix* localMatrices            = attachmentTransformData->GetLocalMatrices();
-        MCore::Matrix* globalMatrices           = attachmentTransformData->GetGlobalInclusiveMatrices();
-        Pose* attachmentPose                    = attachmentTransformData->GetCurrentPose();
-        for (uint32 i = 0; i < numNodes; ++i)
-        {
-            // skip nodes that don't exist inside the actor where we are attached to
-            if (mNodeMap[i].mSourceNode == nullptr)
+            if (sourceNode)
             {
-                continue;
+                JointMapping mapping;
+                mapping.m_sourceJoint = sourceNode->GetNodeIndex();
+                mapping.m_targetJoint = i;
+                m_jointMap.emplace_back(mapping);
             }
-
-            // copy the matrix
-            localMatrices[i]    = mNodeMap[i].mLocalMatrix;
-            globalMatrices[i]   = mNodeMap[i].mGlobalMatrix;
-            attachmentPose->SetLocalTransform(i, mNodeMap[i].mLocalTransform);
         }
+        m_jointMap.shrink_to_fit();
     }
 
-
-    // default attachment update
     void AttachmentSkin::Update()
     {
-        if (mAttachment == nullptr || mNodeMap.GetLength() == 0)
+        if (!m_attachment)
         {
             return;
         }
 
-        const Transform& globalTransform = mActorInstance->GetGlobalTransform();
-        mAttachment->SetParentGlobalTransform(globalTransform);
+        // Pass the parent's world space transform into the attachment.
+        const Transform worldTransform = m_actorInstance->GetWorldSpaceTransform();
+        m_attachment->SetParentWorldSpaceTransform(worldTransform);
+    }
 
-        const TransformData* transformData = mActorInstance->GetTransformData();
-
-        // set all transform matrices in the attachment
-        const MCore::Matrix* localMatrices  = transformData->GetLocalMatrices();
-        const MCore::Matrix* globalMatrices = transformData->GetGlobalInclusiveMatrices();
-        const Pose* currentPose             = transformData->GetCurrentPose();
-        const uint32 numAttachmentNodes     = GetAttachmentActorInstance()->GetActor()->GetNumNodes();
-        for (uint32 a = 0; a < numAttachmentNodes; ++a)
+    void AttachmentSkin::UpdateJointTransforms(Pose& outPose)
+    {
+        if (!m_attachment || !m_actorInstance)
         {
-            NodeMapping& nodeMap = mNodeMap[a];
-            Node* sourceNode = nodeMap.mSourceNode;
-            if (sourceNode == nullptr) // skip nodes that aren't used
-            {
-                continue;
-            }
+            return;
+        }
 
-            const uint32 nodeIndex = sourceNode->GetNodeIndex();
-            nodeMap.mLocalMatrix    = localMatrices[nodeIndex];
-            nodeMap.mGlobalMatrix   = globalMatrices[nodeIndex];
-            nodeMap.mLocalTransform = currentPose->GetLocalTransform(nodeIndex);
+        const Pose* actorInstancePose = m_actorInstance->GetTransformData()->GetCurrentPose();
+        for (const JointMapping& mapping : m_jointMap)
+        {
+            outPose.SetModelSpaceTransform(mapping.m_targetJoint, actorInstancePose->GetModelSpaceTransform(mapping.m_sourceJoint));
+        }
+
+        // Update the morph target weights.
+        for (const MorphMapping& mapping : m_morphMap)
+        {
+            const float morphWeight = actorInstancePose->GetMorphWeight(mapping.m_sourceMorphIndex);
+            outPose.SetMorphWeight(mapping.m_targetMorphIndex, morphWeight);
         }
     }
-}   // namespace EMotionFX
+} // namespace EMotionFX

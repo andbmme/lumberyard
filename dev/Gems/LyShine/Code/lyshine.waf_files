@@ -9,6 +9,11 @@
             "Source/LyShineDebug.h",
             "Source/LyShine_precompiled.cpp",
             "Source/LyShine_precompiled.h",
+            "Source/StringUtfUtils.h",
+            "Source/UiImageComponent.cpp",
+            "Source/UiImageComponent.h",
+            "Source/UiImageSequenceComponent.cpp",
+            "Source/UiImageSequenceComponent.h",
             "Source/UiRenderer.cpp",
             "Source/UiRenderer.h",
             "Source/resource.h"
@@ -19,9 +24,16 @@
             "Include/LyShine/LyShineBus.h"
         ],
         "Source": [
+            "Source/EditorPropertyTypes.cpp",
+            "Source/EditorPropertyTypes.h",
+            "Source/LyShineLoadScreen.cpp",
+            "Source/LyShineLoadScreen.h",
             "Source/LyShineModule.cpp",
+            "Source/LyShineModule.h",
             "Source/LyShineSystemComponent.cpp",
             "Source/LyShineSystemComponent.h",
+            "Source/RenderGraph.cpp",
+            "Source/RenderGraph.h",
             "Source/TextMarkup.cpp",
             "Source/TextMarkup.h",
             "Source/UiButtonComponent.cpp",
@@ -54,8 +66,6 @@
             "Source/UiFlipbookAnimationComponent.h",
             "Source/UiGameEntityContext.cpp",
             "Source/UiGameEntityContext.h",
-            "Source/UiImageComponent.cpp",
-            "Source/UiImageComponent.h",
             "Source/UiInteractableComponent.cpp",
             "Source/UiInteractableComponent.h",
             "Source/UiInteractableState.cpp",
@@ -74,12 +84,16 @@
             "Source/UiLayoutManager.h",
             "Source/UiLayoutRowComponent.cpp",
             "Source/UiLayoutRowComponent.h",
+            "Source/UiMarkupButtonComponent.cpp",
+            "Source/UiMarkupButtonComponent.h",
             "Source/UiMaskComponent.cpp",
             "Source/UiMaskComponent.h",
             "Source/UiNavigationHelpers.cpp",
             "Source/UiNavigationHelpers.h",
             "Source/UiNavigationSettings.cpp",
             "Source/UiNavigationSettings.h",
+            "Source/UiParticleEmitterComponent.cpp",
+            "Source/UiParticleEmitterComponent.h",
             "Source/UiRadioButtonComponent.cpp",
             "Source/UiRadioButtonComponent.h",
             "Source/UiRadioButtonGroupComponent.cpp",
@@ -107,8 +121,9 @@
             "Source/UiTooltipDisplayComponent.cpp",
             "Source/UiTooltipDisplayComponent.h",
             "Source/UiTransform2dComponent.cpp",
-            "Source/UiTransform2dComponent.h"
-		],
+            "Source/UiTransform2dComponent.h",
+            "Source/UiClipboard.h"
+        ],
         "Source/Sprite Support":
         [
             "Source/Sprite.cpp",
@@ -136,6 +151,11 @@
             "Source/Animation/UiAnimationSystem.h",
             "Source/Animation/UiAnimSerialize.cpp",
             "Source/Animation/UiAnimSerialize.h"
+        ],
+        "Source/Particle":
+        [
+            "Source/Particle/UiParticle.cpp",
+            "Source/Particle/UiParticle.h"
         ],
         "Source/Script":
         [

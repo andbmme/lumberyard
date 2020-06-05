@@ -14,9 +14,13 @@
 #include "StdAfx.h"
 #include "VegetationPanel.h"
 #include "VegetationTool.h"
+
+#ifdef LY_TERRAIN_EDITOR
 #include "Terrain/SurfaceType.h"
 #include "Terrain/TerrainManager.h"
 #include "Terrain/Layer.h"
+#endif //LY_TERRAIN_EDITOR
+
 #include "VegetationMap.h"
 #include "VegetationObject.h"
 #include "StringDlg.h"
@@ -43,6 +47,8 @@
 #include <AzToolsFramework/AssetBrowser/AssetSelectionModel.h>
 #include <AzToolsFramework/AssetBrowser/AssetBrowserEntry.h>
 #include <AzToolsFramework/AssetBrowser/Search/Filter.h>
+
+#include <LmbrCentral/Rendering/MeshAsset.h>
 
 #include <ui_VegetationPanel.h>
 
@@ -757,7 +763,11 @@ void CVegetationPanel::UpdateUI()
     if (bPainting)
     {
         m_ui->paintObjectsButton->setChecked(true);
+#if AZ_TRAIT_OS_PLATFORM_APPLE
+        GetIEditor()->SetStatusText(tr("Hold ⌘ to Remove Vegetation"));
+#else
         GetIEditor()->SetStatusText(tr("Hold Ctrl to Remove Vegetation"));
+#endif
     }
     else
     {
@@ -927,7 +937,9 @@ void CVegetationPanel::OnRemoveCategory()
 
     m_model->RemoveCategory(category);
 
+#ifdef LY_TERRAIN_EDITOR
     GetIEditor()->GetTerrainManager()->ReloadSurfaceTypes();
+#endif //#ifdef LY_TERRAIN_EDITOR
 
     m_bIgnoreSelChange = false;
 
@@ -1186,7 +1198,7 @@ void CVegetationPanel::OnAdd()
     ////////////////////////////////////////////////////////////////////////
     // Add another static object to the list
     ////////////////////////////////////////////////////////////////////////
-    AssetSelectionModel selection = AssetSelectionModel::AssetGroupSelection("Geometry", true);
+    AssetSelectionModel selection = AssetSelectionModel::AssetTypeSelection(azrtti_typeid<LmbrCentral::MeshAsset>(), true);
     AzToolsFramework::EditorRequests::Bus::Broadcast(&AzToolsFramework::EditorRequests::BrowseForAssets, selection);
     if (!selection.IsValid())
     {
@@ -1209,7 +1221,6 @@ void CVegetationPanel::OnAdd()
         selectionResults->GetChildrenRecursively<ProductAssetBrowserEntry>(products);
         for (const ProductAssetBrowserEntry*  product : products)
         {
-           
             // Create a new static object settings class
             CVegetationObject* obj = m_vegetationMap->CreateObject();
             if (!obj)
@@ -1347,7 +1358,11 @@ void CVegetationPanel::OnRemove()
         m_model->RemoveObject(object);
         m_vegetationMap->RemoveObject(object);
     }
+
+#ifdef LY_TERRAIN_EDITOR
     GetIEditor()->GetTerrainManager()->ReloadSurfaceTypes();
+#endif //#ifdef LY_TERRAIN_EDITOR
+
     m_bIgnoreSelChange = false;
 
     SendToControls();
@@ -1516,6 +1531,7 @@ void CVegetationPanel::SendToControls()
 //////////////////////////////////////////////////////////////////////////
 void CVegetationPanel::AddLayerVars(CVarBlock* pVarBlock, CVegetationObject* pObject)
 {
+#ifdef LY_TERRAIN_EDITOR
     IVariable* pTable = new CVariableArray();
     pTable->SetName(tr("Use On Terrain Layers"));
     pVarBlock->AddVariable(pTable);
@@ -1550,6 +1566,7 @@ void CVegetationPanel::AddLayerVars(CVarBlock* pVarBlock, CVegetationObject* pOb
 
         pTable->AddVariable(pBoolVar);
     }
+#endif //#ifdef LY_TERRAIN_EDITOR
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -1590,7 +1607,9 @@ void CVegetationPanel::OnLayerVarChange(IVariable* pVar)
         }
     }
 
+#ifdef LY_TERRAIN_EDITOR
     GetIEditor()->GetTerrainManager()->ReloadSurfaceTypes();
+#endif //#ifdef LY_TERRAIN_EDITOR
 
     for (int i = 0; i < objects.size(); i++)
     {
@@ -1617,6 +1636,7 @@ void CVegetationPanel::SendTextureLayersToControls()
 //////////////////////////////////////////////////////////////////////////
 bool CVegetationPanel::GetTerrainLayerNames(QStringList& layerNames)
 {
+#ifdef LY_TERRAIN_EDITOR
     CTerrainManager* pTerrainManager = GetIEditor()->GetTerrainManager();
     const int nLayers = pTerrainManager->GetLayerCount();
 
@@ -1636,11 +1656,15 @@ bool CVegetationPanel::GetTerrainLayerNames(QStringList& layerNames)
         }
     }
     return nLayers != 0;
+#else
+    return false;
+#endif //#ifdef LY_TERRAIN_EDITOR
 }
 
 //////////////////////////////////////////////////////////////////////////
 void CVegetationPanel::OnGetSettingFromTerrainLayer(int layerId)
 {
+#ifdef LY_TERRAIN_EDITOR
     if (!m_varBlock)
     {
         return;
@@ -1689,6 +1713,7 @@ void CVegetationPanel::OnGetSettingFromTerrainLayer(int layerId)
             }
         }
     }
+#endif //#ifdef LY_TERRAIN_EDITOR
 }
 
 void CVegetationPanel::CreateObjectsContextMenu()

@@ -13,13 +13,14 @@
 // include required headers
 #include "MotionInstancePool.h"
 #include "MotionInstance.h"
+#include <EMotionFX/Source/Allocators.h>
+#include <MCore/Source/LogManager.h>
 
 
 namespace EMotionFX
 {
-    //--------------------------------------------------------------------------------------------------
-    // class MotionInstancePool::SubPool
-    //--------------------------------------------------------------------------------------------------
+    AZ_CLASS_ALLOCATOR_IMPL(MotionInstancePool, MotionAllocator, 0)
+
 
     // constructor
     MotionInstancePool::SubPool::SubPool()
@@ -114,7 +115,7 @@ namespace EMotionFX
     // create
     MotionInstancePool* MotionInstancePool::Create()
     {
-        return new MotionInstancePool();
+        return aznew MotionInstancePool();
     }
 
 

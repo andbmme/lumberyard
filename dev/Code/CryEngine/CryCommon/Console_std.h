@@ -9,8 +9,7 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
-#ifndef CRYINCLUDE_CRYCOMMON_CONSOLE_STD_H
-#define CRYINCLUDE_CRYCOMMON_CONSOLE_STD_H
+
 #pragma once
 
 
@@ -18,6 +17,13 @@
 
 namespace std
 {
+#if defined(AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/Console_std_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/Console_std_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/Console_std_h_salem.inl"
+    #endif
+#endif
 }
-
-#endif//CRYINCLUDE_CRYCOMMON_CONSOLE_STD_H

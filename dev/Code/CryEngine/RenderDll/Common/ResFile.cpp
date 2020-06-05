@@ -18,8 +18,8 @@
 #include "ResFile.h"
 
 
-CResFile CResFile::m_Root("Root");
-CResFile CResFile::m_RootStream("RootStream");
+CResFile CResFile::m_Root(nullptr);
+CResFile CResFile::m_RootStream(nullptr);
 int CResFile::m_nNumOpenResources = 0;
 uint32 CResFile::m_nSizeComprDir;
 uint32 CResFile::m_nMaxOpenResFiles = MAX_OPEN_RESFILES;
@@ -132,7 +132,7 @@ bool CResFile::mfActivate(bool bFirstTime)
             if (!bFirstTime && m_szAccess[0] == 'w')
             {
                 char szAcc[16];
-                strcpy(szAcc, m_szAccess);
+                azstrcpy(szAcc, AZ_ARRAY_SIZE(szAcc), m_szAccess);
                 szAcc[0] = 'r';
                 m_fileHandle = gEnv->pCryPak->FOpen(m_name.c_str(), szAcc, nFlags | ICryPak::FOPEN_HINT_DIRECT_OPERATION);
             }
@@ -185,8 +185,12 @@ CResFile::CResFile(const char* name)
     m_bDirCompressed = false;
     m_nOffset = OFFSET_BIG_POSITIVE;
 
-    if (!m_Root.m_Next)
+    // If the root hasn't been set up before and this isn't a statically created
+    // CResFile (like the root/root stream), then lazy init the resource list
+    if (!m_Root.m_Next && name)
     {
+        m_Root.m_name = "Root";
+        m_RootStream.m_name = "RootStream";
         m_Root.m_Next = &m_Root;
         m_Root.m_Prev = &m_Root;
         m_RootStream.m_NextStream = &m_RootStream;
@@ -211,7 +215,7 @@ void CResFile::mfSetError(const char* er, ...)
     char buffer[1024];
     va_list args;
     va_start(args, er);
-    if (vsnprintf(buffer, sizeof(buffer), er, args) == -1)
+    if (azvsnprintf(buffer, sizeof(buffer), er, args) == -1)
     {
         buffer[sizeof(buffer) - 1] = 0;
     }
@@ -836,7 +840,7 @@ SDirEntryOpen* CResFile::mfGetOpenEntry(SDirEntry* de)
     }
     return NULL;
 }
-SDirEntryOpen* CResFile::mfOpenEntry(SDirEntry* de)
+SDirEntryOpen* CResFile::mfOpenEntry(SDirEntry* de, bool readingIntoEntryData)
 {
     SDirEntryOpen* pOE = NULL;
     ResDirOpenIt it = std::lower_bound(m_DirOpen.begin(), m_DirOpen.end(), de->Name, ResDirOpenSortByName());
@@ -853,7 +857,7 @@ SDirEntryOpen* CResFile::mfOpenEntry(SDirEntry* de)
     }
     pOE = &(*it);
     pOE->curOffset = 0;
-    //assert(pOE->pData);
+    assert(pOE->pData || !readingIntoEntryData);
     //SAFE_DELETE_ARRAY(pOE->pData);
 
     return pOE;
@@ -1293,8 +1297,6 @@ byte* CResFile::mfFileReadCompressed(SDirEntry* de, uint32& nSizeDecomp, uint32&
         return NULL;
     }
 
-    MEMSTAT_CONTEXT(EMemStatContextTypes::MSC_Shader, 0, "Shaders File Read Compressed");
-
     if (m_fileHandle == AZ::IO::InvalidHandle)
     {
         mfSetError("FileReadCompressed - Invalid file handle");
@@ -1456,7 +1458,7 @@ void CResFile::mfFileRead2(SDirEntry* de, int size, void* buf)
         mfSetError("FileRead - Wrong data");
         return;
     }
-    SDirEntryOpen* pOE = mfOpenEntry(de);
+    SDirEntryOpen* pOE = mfOpenEntry(de, false);
 
     if (pOE->pData)
     {
@@ -1535,7 +1537,7 @@ int CResFile::mfFileSeek(SDirEntry* de, int ofs, int type)
 
     AUTO_LOCK(g_cResLock); // Not thread safe without this
 
-    SDirEntryOpen* pOE = mfOpenEntry(de);
+    SDirEntryOpen* pOE = mfOpenEntry(de, false);
 
     switch (type)
     {
@@ -1826,7 +1828,6 @@ int CResFile::mfFlush(bool bOptimise)
         SDirEntry* de = &m_Dir[i];
         if (de->offset < 0)
         {
-            //assert(bOptimise);
             assert(de->flags & RF_NOTSAVED);
             bool bFound = false;
             for (j = 0; j < m_Dir.size(); j++)
@@ -1867,7 +1868,7 @@ int CResFile::mfFlush(bool bOptimise)
     for (i = 0; i < nFiles; i++)
     {
         SDirEntry* de = &m_Dir[i];
-        //assert(de->offset >= 0);
+        assert(de->offset >= 0);
         if (de->flags & RF_NOTSAVED)
         {
             SDirEntryOpen* pOE = mfGetOpenEntry(de);
@@ -2162,7 +2163,7 @@ void fpAddExtension(char* path, const char* extension, size_t bytes)
     }
 
     assert(bytes > strlen(path) + strlen(extension)); // if this hits, bad buffer was passed in
-    strcat(path, extension);
+    azstrcat(path, bytes, extension);
 }
 
 void fpConvertDOSToUnixName(char* dst, const char* src, size_t bytes)
@@ -2212,25 +2213,25 @@ void fpUsePath(const char* name, const char* path, char* dst, size_t bytes)
     if (!path)
     {
         assert(bytes > strlen(name)); // if this hits, bad buffer was passed in
-        strcpy(dst, name);
+        azstrcpy(dst, bytes, name);
         return;
     }
 
     assert(bytes > strlen(path)); // if this hits, bad buffer was passed in
-    strcpy(dst, path);
+    azstrcpy(dst, bytes, path);
 
     assert(*path); // if this hits, path underflow
     char c = path[strlen(path) - 1];
     if (c != '/' && c != '\\')
     {
         assert(bytes > strlen(path) + strlen(name) + 1); // it this hits, bad buffer was passed in
-        strcat(dst, "/");
+        azstrcat(dst, bytes, "/");
     }
     else
     {
         assert(bytes > strlen(path) + strlen(name)); // it this hits, bad buffer was passed in
     }
-    strcat(dst, name);
+    azstrcat(dst, bytes, name);
 }
 
 #include "TypeInfo_impl.h"

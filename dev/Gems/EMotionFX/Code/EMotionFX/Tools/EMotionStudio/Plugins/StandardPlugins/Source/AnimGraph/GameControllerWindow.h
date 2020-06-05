@@ -19,14 +19,15 @@
 #include <MCore/Source/StandardHeaders.h>
 #include <MCore/Source/Array.h>
 #include <AzCore/Debug/Timer.h>
-#include <MCore/Source/UnicodeString.h>
+#include <MysticQt/Source/ComboBox.h>
+#include <MysticQt/Source/Slider.h>
 #include <MysticQt/Source/DialogStack.h>
 #include <EMotionFX/Source/AnimGraph.h>
 #include <EMotionFX/Source/AnimGraphGameControllerSettings.h>
 
 #include "AttributesWindow.h"
 
-#ifdef HAS_GAME_CONTROLLER
+#if AZ_TRAIT_EMOTIONFX_HAS_GAME_CONTROLLER
 #include "GameController.h"
 #endif
 
@@ -44,6 +45,7 @@
 #define NO_GAMECONTROLLER_NAME "None"
 
 QT_FORWARD_DECLARE_CLASS(QCheckBox)
+QT_FORWARD_DECLARE_CLASS(QLabel)
 
 namespace EMStudio
 {
@@ -66,7 +68,7 @@ namespace EMStudio
 
         MCORE_INLINE bool GetIsGameControllerValid() const
         {
-            #ifdef HAS_GAME_CONTROLLER
+            #if AZ_TRAIT_EMOTIONFX_HAS_GAME_CONTROLLER
             if (mGameController == nullptr)
             {
                 return false;
@@ -119,7 +121,7 @@ namespace EMStudio
         {
             MCORE_MEMORYOBJECTCATEGORY(GameControllerWindow::ParameterInfo, EMFX_DEFAULT_ALIGNMENT, MEMCATEGORY_STANDARDPLUGINS_ANIMGRAPH);
 
-            MCore::AttributeSettings*           mAttributeSettings;
+            const EMotionFX::Parameter*         mParameter;
             MysticQt::ComboBox*                 mAxis;
             MysticQt::ComboBox*                 mMode;
             QCheckBox*                          mInvert;
@@ -142,14 +144,14 @@ namespace EMStudio
         ParameterInfo* FindParamInfoByModeComboBox(MysticQt::ComboBox* comboBox);
         ParameterInfo* FindParamInfoByAxisComboBox(MysticQt::ComboBox* comboBox);
         ParameterInfo* FindParamInfoByCheckBox(QCheckBox* checkBox);
-        ParameterInfo* FindButtonInfoByAttributeInfo(MCore::AttributeSettings* attributeSettings);
+        ParameterInfo* FindButtonInfoByAttributeInfo(const EMotionFX::Parameter* parameter);
         ButtonInfo* FindButtonInfo(QWidget* widget);
 
         void ReInitButtonInterface(uint32 buttonIndex);
         void UpdateParameterInterface(ParameterInfo* parameterInfo);
         void UpdateGameControllerComboBox();
 
-        AnimGraphPlugin*               mPlugin;
+        AnimGraphPlugin*                mPlugin;
         MCore::Array<QLabel*>           mPreviewLabels;
         MCore::Array<ParameterInfo>     mParameterInfos;
         MCore::Array<ButtonInfo>        mButtonInfos;
@@ -159,7 +161,7 @@ namespace EMStudio
         int                             mInterfaceTimerID;
         int                             mGameControllerTimerID;
 
-        #ifdef HAS_GAME_CONTROLLER
+        #if AZ_TRAIT_EMOTIONFX_HAS_GAME_CONTROLLER
         GameController*             mGameController;
         #endif
         EMotionFX::AnimGraph*          mAnimGraph;
@@ -179,7 +181,7 @@ namespace EMStudio
         QPushButton*                    mAddPresetButton;
         QPushButton*                    mRemovePresetButton;
 
-        MCore::String                   mString;
+        AZStd::string                   mString;
 
         void timerEvent(QTimerEvent* event);
         void InitGameController();

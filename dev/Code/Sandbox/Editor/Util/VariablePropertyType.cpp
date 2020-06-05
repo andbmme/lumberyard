@@ -43,6 +43,7 @@ namespace Prop
         { IVariable::DT_FILE, "File", ePropertyFile, 7 },
         { IVariable::DT_TEXTURE, "Texture", ePropertyTexture, 4 },
         { IVariable::DT_ANIMATION, "Animation", ePropertyAnimation, -1 },
+        { IVariable::DT_MOTION, "Motion", ePropertyMotion, -1 },
         { IVariable::DT_OBJECT, "Model", ePropertyModel, 5 },
         { IVariable::DT_SIMPLE, "Selection", ePropertySelection, -1 },
         { IVariable::DT_SIMPLE, "List", ePropertyList, -1 },
@@ -69,7 +70,7 @@ namespace Prop
         { IVariable::DT_SOANIMHELPER, "Smart Object Animation Helper", ePropertySOAnimHelper, 8 },
         { IVariable::DT_SOEVENT, "Smart Object Event", ePropertySOEvent, 8 },
         { IVariable::DT_SOTEMPLATE, "Smart Object Template", ePropertySOTemplate, 8 },
-        { IVariable::DT_CUSTOMACTION, "Custom Action", ePropertyCustomAction, 7 },
+        { IVariable::DT_DEPRECATED0, "Custom Action", ePropertyDeprecated0, 7 },
         { IVariable::DT_VEEDHELPER, "Vehicle Helper", ePropertySelection, -1 },
         { IVariable::DT_VEEDPART, "Vehicle Part", ePropertySelection, -1 },
         { IVariable::DT_VEEDCOMP, "Vehicle Component", ePropertySelection, -1 },
@@ -266,7 +267,7 @@ namespace Prop
 
         for (int i = 0; i < NumPropertyTypes; i++)
         {
-            if (stricmp(type, s_propertyTypeNames[i].name) == 0)
+            if (azstricmp(type, s_propertyTypeNames[i].name) == 0)
             {
                 return s_propertyTypeNames[i].type;
             }
@@ -321,7 +322,7 @@ namespace Prop
 
         for (int i = 0; i < NumPropertyTypes; i++)
         {
-            if (stricmp(type, s_propertyTypeNames[i].name) == 0)
+            if (azstricmp(type, s_propertyTypeNames[i].name) == 0)
             {
                 return s_propertyTypeNames[i].image;
             }

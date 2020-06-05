@@ -11,8 +11,6 @@
 */
 // Original file Copyright Crytek GMBH or its affiliates, used under license.
 
-#ifndef CRYINCLUDE_CRYCOMMON_CRYTHREADIMPL_WINDOWS_H
-#define CRYINCLUDE_CRYCOMMON_CRYTHREADIMPL_WINDOWS_H
 #pragma once
 
 //#include <IThreadTask.h>
@@ -416,7 +414,20 @@ CrySimpleThreadSelf::~CrySimpleThreadSelf()
 
 void CrySimpleThreadSelf::StartThread(unsigned (__stdcall * func)(void*), void* argList)
 {
+#if defined(AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/CryThreadImpl_windows_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/CryThreadImpl_windows_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/CryThreadImpl_windows_h_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#else
     m_thread = (void*)_beginthreadex(NULL, 0, func, argList, CREATE_SUSPENDED, &m_threadId);
+#endif
     assert(m_thread);
     PREFAST_ASSUME(m_thread);
     ResumeThread((HANDLE)m_thread);
@@ -600,5 +611,3 @@ namespace CryMT {
         }
     } // namespace detail
 } // namespace CryMT
-
-#endif // CRYINCLUDE_CRYCOMMON_CRYTHREADIMPL_WINDOWS_H

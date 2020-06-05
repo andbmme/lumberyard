@@ -1,4 +1,15 @@
-#include "stdafx.h"
+/*
+* All or portions of this file Copyright (c) Amazon.com, Inc. or its affiliates, or 
+* a third party where indicated.
+*
+* For complete copyright and license terms please see the LICENSE at the root of this
+* distribution (the "License"). All use of this software is governed by the License,  
+* or, if provided, by the license below or the license accompanying this file. Do not
+* remove or modify any license notices. This file is distributed on an "AS IS" BASIS,
+* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  
+*
+*/
+#include "StdAfx.h"
 
 #include "ReflectedVarWrapper.h"
 #include "ReflectedPropertyCtrl.h"
@@ -630,4 +641,37 @@ void ReflectedVarSplineAdapter::SyncIVarToReflectedVar(IVariable* pVariable)
     m_bDontSendToControl = false;
 
     m_parentItem->SendOnItemChange();
+}
+
+void ReflectedVarMotionAdapter::SetVariable(IVariable *pVariable)
+{
+    // Create new reflected var
+    m_reflectedVar.reset(new CReflectedVarMotion(pVariable->GetHumanName().toLatin1().data()));
+    m_reflectedVar->m_description = pVariable->GetDescription().toLatin1().data();
+
+    // Set the asset id
+    AZStd::string stringGuid = pVariable->GetDisplayValue().toLatin1().data();
+    AZ::Uuid guid(stringGuid.c_str(), stringGuid.length());
+    AZ::u32 subId = pVariable->GetUserData().value<AZ::u32>();
+    m_reflectedVar->m_assetId = AZ::Data::AssetId(guid, subId);
+
+    // Lookup Filename by assetId and get the filename part of the description
+    EBUS_EVENT_RESULT(m_reflectedVar->m_motion, AZ::Data::AssetCatalogRequestBus, GetAssetPathById, m_reflectedVar->m_assetId);
+}
+
+void ReflectedVarMotionAdapter::SyncReflectedVarToIVar(IVariable *pVariable)
+{
+    AZStd::string stringGuid = pVariable->GetDisplayValue().toLatin1().data();
+    AZ::Uuid guid(stringGuid.c_str(), stringGuid.length());
+    AZ::u32 subId = pVariable->GetUserData().value<AZ::u32>();
+    m_reflectedVar->m_assetId = AZ::Data::AssetId(guid, subId);
+
+    // Lookup Filename by assetId and get the filename part of the description
+    EBUS_EVENT_RESULT(m_reflectedVar->m_motion, AZ::Data::AssetCatalogRequestBus, GetAssetPathById, m_reflectedVar->m_assetId);
+}
+
+void ReflectedVarMotionAdapter::SyncIVarToReflectedVar(IVariable *pVariable)
+{
+    pVariable->SetUserData(m_reflectedVar->m_assetId.m_subId);
+    pVariable->SetDisplayValue(m_reflectedVar->m_assetId.m_guid.ToString<AZStd::string>().c_str());
 }

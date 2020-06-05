@@ -10,7 +10,6 @@
 *
 */
 
-#include "precompiled.h"
 #include "Assign.h"
 
 namespace ScriptCanvas
@@ -49,9 +48,9 @@ namespace ScriptCanvas
 
             void Assign::OnInputSignal(const SlotId&)
             {
-                if (auto input = GetInput(k_sourceInputIndex))
+                if (auto input = GetDatumByIndex(k_sourceInputIndex))
                 {
-                    PushOutput(*input, m_slotContainer.m_slots[k_targetSlotIndex]);
+                    PushOutput(*input, *GetSlotByIndex(k_targetSlotIndex));
                 }
 
                 SignalOutput(GetSlotId("Out"));
@@ -78,9 +77,8 @@ namespace ScriptCanvas
                     {
                         editContext->Class<Assign>("Assign", "")
                             ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
-                                ->Attribute(AZ::Script::Attributes::ExcludeFrom, AZ::Script::Attributes::ExcludeFlags::Preview)
+                                ->Attribute(AZ::Script::Attributes::ExcludeFrom, AZ::Script::Attributes::ExcludeFlags::All)
                                 ->Attribute(AZ::Edit::Attributes::Icon, "Editor/Icons/ScriptCanvas/Placeholder.png")
-                                ->Attribute(AZ::Edit::Attributes::Visibility, AZ::Edit::PropertyVisibility::ShowChildrenOnly)
                             ;
                     }
                 }

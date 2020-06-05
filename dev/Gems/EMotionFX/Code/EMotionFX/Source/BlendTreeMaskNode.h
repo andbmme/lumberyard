@@ -12,58 +12,31 @@
 
 #pragma once
 
-// include the required headers
-#include "EMotionFXConfig.h"
-#include "AnimGraphNode.h"
-
+#include <AzCore/std/optional.h>
+#include <EMotionFX/Source/ActorBus.h>
+#include <EMotionFX/Source/AnimGraphNode.h>
+#include <EMotionFX/Source/EMotionFXConfig.h>
 
 namespace EMotionFX
 {
-    /**
-     *
-     */
     class EMFX_API BlendTreeMaskNode
         : public AnimGraphNode
+        , public ActorNotificationBus::Handler
     {
-        MCORE_MEMORYOBJECTCATEGORY(BlendTreeMaskNode, EMFX_DEFAULT_ALIGNMENT, EMFX_MEMCATEGORY_ANIMGRAPH_BLENDTREENODES);
-
     public:
-        AZ_RTTI(BlendTreeMaskNode, "{24647B8B-05B4-4D5D-9161-F0AD0B456B09}", AnimGraphNode);
+        AZ_RTTI(BlendTreeMaskNode, "{EC50F91C-8BB1-4D49-B13E-F639D2505DB7}", AnimGraphNode)
+        AZ_CLASS_ALLOCATOR_DECL
 
         enum
         {
-            TYPE_ID = 0x00000016
-        };
-
-        //
-        enum
-        {
-            INPUTPORT_POSE_0    = 0,
-            INPUTPORT_POSE_1    = 1,
-            INPUTPORT_POSE_2    = 2,
-            INPUTPORT_POSE_3    = 3,
+            INPUTPORT_BASEPOSE  = 0,
+            INPUTPORT_START     = 1, //INPUTPORT_POSE1..N= INPUTPORT_START+i
             OUTPUTPORT_RESULT   = 0
         };
 
         enum
         {
-            PORTID_INPUT_POSE_0     = 0,
-            PORTID_INPUT_POSE_1     = 1,
-            PORTID_INPUT_POSE_2     = 2,
-            PORTID_INPUT_POSE_3     = 3,
             PORTID_OUTPUT_RESULT    = 0
-        };
-
-        enum
-        {
-            ATTRIB_MASK_0   = 0,
-            ATTRIB_MASK_1   = 1,
-            ATTRIB_MASK_2   = 2,
-            ATTRIB_MASK_3   = 3,
-            ATTRIB_EVENTS_0 = 4,
-            ATTRIB_EVENTS_1 = 5,
-            ATTRIB_EVENTS_2 = 6,
-            ATTRIB_EVENTS_3 = 7
         };
 
         class EMFX_API UniqueData
@@ -71,45 +44,81 @@ namespace EMotionFX
         {
             EMFX_ANIMGRAPHOBJECTDATA_IMPLEMENT_LOADSAVE
         public:
-            UniqueData(AnimGraphNode* node, AnimGraphInstance* animGraphInstance)
-                : AnimGraphNodeData(node, animGraphInstance)     { mMustUpdate = true; mMasks.SetMemoryCategory(EMFX_MEMCATEGORY_ANIMGRAPH_OBJECTUNIQUEDATA); }
-            ~UniqueData()   {}
+            AZ_CLASS_ALLOCATOR_DECL
 
-            uint32 GetClassSize() const override                                                                                        { return sizeof(UniqueData); }
-            AnimGraphObjectData* Clone(void* destMem, AnimGraphObject* object, AnimGraphInstance* animGraphInstance) override            { return new (destMem) UniqueData(static_cast<AnimGraphNode*>(object), animGraphInstance); }
+            UniqueData(AnimGraphNode* node, AnimGraphInstance* animGraphInstance)
+                : AnimGraphNodeData(node, animGraphInstance)
+                , mMustUpdate(true)
+            {
+            }
 
         public:
-            MCore::Array< MCore::Array<uint32> >    mMasks;
-            bool                                    mMustUpdate;
+            struct MaskInstance
+            {
+                AZ::u32 m_inputPortNr;
+                AZStd::vector<AZ::u32> m_jointIndices;
+            };
+
+            AZStd::vector<MaskInstance> m_maskInstances;
+            AZStd::optional<AZ::u32> m_motionExtractionInputPortNr;
+            bool mMustUpdate;
         };
 
-        static BlendTreeMaskNode* Create(AnimGraph* animGraph);
-
-        void Init(AnimGraphInstance* animGraphInstance) override;
-        void RegisterPorts() override;
-        void RegisterAttributes() override;
-        void OnUpdateUniqueData(AnimGraphInstance* animGraphInstance) override;
-        bool GetHasOutputPose() const override                      { return true; }
-        bool GetSupportsVisualization() const override              { return true; }
-        uint32 GetVisualColor() const override                      { return MCore::RGBA(50, 200, 50); }
-        AnimGraphPose* GetMainOutputPose(AnimGraphInstance* animGraphInstance) const override         { return GetOutputPose(animGraphInstance, OUTPUTPORT_RESULT)->GetValue(); }
-
-        const char* GetPaletteName() const override;
-        AnimGraphObject::ECategory GetPaletteCategory() const override;
-
-        const char* GetTypeString() const override;
-        AnimGraphObject* Clone(AnimGraph* animGraph) override;
-        AnimGraphObjectData* CreateObjectData() override;
-
-        void OnUpdateAttributes() override;
-
-    private:
-        BlendTreeMaskNode(AnimGraph* animGraph);
+        BlendTreeMaskNode();
         ~BlendTreeMaskNode();
 
+        void Reinit() override;
+        bool InitAfterLoading(AnimGraph* animGraph) override;
+
+        // ActorNotificationBus overrides
+        void OnMotionExtractionNodeChanged(Actor* actor, Node* newMotionExtractionNode) override;
+
+        void OnUpdateUniqueData(AnimGraphInstance* animGraphInstance) override;
+        bool GetHasOutputPose() const override { return true; }
+        bool GetSupportsVisualization() const override { return true; }
+        AZ::Color GetVisualColor() const override { return AZ::Color(0.2f, 0.78f, 0.2f, 1.0f); }
+        AnimGraphPose* GetMainOutputPose(AnimGraphInstance* animGraphInstance) const override         { return GetOutputPose(animGraphInstance, OUTPUTPORT_RESULT)->GetValue(); }
+
+        const char* GetPaletteName() const override { return "Pose Mask";}
+        AnimGraphObject::ECategory GetPaletteCategory() const override { return AnimGraphObject::CATEGORY_BLENDING; }
+
+        bool GetOutputEvents(size_t inputPortNr) const;
+
+        void SetMask(size_t maskIndex, const AZStd::vector<AZStd::string>& jointNames);
+        void SetOutputEvents(size_t maskIndex, bool outputEvents);
+
+        static void Reflect(AZ::ReflectContext* context);
+
+        class Mask
+        {
+        public:
+            AZ_RTTI(BlendTreeMaskNode::Mask, "{74750F38-24B3-465B-9CA1-740ACF947DC1}")
+            AZ_CLASS_ALLOCATOR_DECL
+
+            virtual ~Mask() = default;
+            
+            static void Reflect(AZ::ReflectContext* context);
+            void Reinit();
+            AZStd::string GetMaskName() const;
+            AZStd::string GetOutputEventsName() const;
+
+            AZStd::vector<AZStd::string> m_jointNames;
+            bool m_outputEvents = true;
+
+            AZ::u8 m_maskIndex = 0;
+            BlendTreeMaskNode* m_parent = nullptr;
+        };
+
+    private:
         void UpdateUniqueData(AnimGraphInstance* animGraphInstance, UniqueData* uniqueData);
         void Output(AnimGraphInstance* animGraphInstance) override;
         void Update(AnimGraphInstance* animGraphInstance, float timePassedInSeconds) override;
         void PostUpdate(AnimGraphInstance* animGraphInstance, float timePassedInSeconds) override;
+        size_t GetNumUsedMasks() const;
+
+        AZStd::string GetMaskJointName(size_t maskIndex, size_t jointIndex) const;
+
+        AZStd::vector<Mask> m_masks;
+        static const size_t s_numMasks;
     };
-}   // namespace EMotionFX
+} // namespace EMotionFX

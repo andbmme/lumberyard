@@ -55,7 +55,9 @@ public:
     void WriteList();
 
     static const int Max = 12;
+    AZ_PUSH_DISABLE_DLL_EXPORT_MEMBER_WARNING
     QStringList m_arrNames;
+    AZ_POP_DISABLE_DLL_EXPORT_MEMBER_WARNING
     QSettings m_settings;
 };
 
@@ -84,12 +86,13 @@ public:
 
 using EditorIdleProcessingBus = AZ::EBus<EditorIdleProcessing>;
 
-
+AZ_PUSH_DISABLE_DLL_EXPORT_BASECLASS_WARNING
 class SANDBOX_API CCryEditApp
     : public QObject
     , protected AzFramework::AssetSystemInfoBus::Handler
     , protected EditorIdleProcessingBus::Handler
 {
+AZ_POP_DISABLE_DLL_EXPORT_BASECLASS_WARNING
     friend MainWindow;
     Q_OBJECT
 public:
@@ -99,6 +102,35 @@ public:
         ECLR_ALREADY_EXISTS,
         ECLR_DIR_CREATION_FAILED,
         ECLR_MAX_PATH_EXCEEDED
+    };
+
+    enum class TerrainTextureExportTechnique
+    {
+        NoExport,
+        UseDefault,
+        PromptUser
+    };
+
+    struct TerrainTextureExportSettings
+    {
+        TerrainTextureExportSettings() = default;
+
+        static constexpr uint32 DefaultTextureResolution = 4096;
+
+        TerrainTextureExportSettings(TerrainTextureExportTechnique exportType) :
+            m_exportType(exportType)
+        {
+        }
+
+        TerrainTextureExportSettings(TerrainTextureExportTechnique exportType, uint32 resolution) :
+            m_exportType(exportType),
+            m_defaultResolution(resolution)
+        {
+        }
+
+        TerrainTextureExportTechnique m_exportType = TerrainTextureExportTechnique::PromptUser;
+        uint32 m_defaultResolution = DefaultTextureResolution;
+
     };
 
     CCryEditApp();
@@ -112,24 +144,24 @@ public:
     void LoadFile(QString fileName);
     void ForceNextIdleProcessing() { m_bForceProcessIdle = true; }
     void KeepEditorActive(bool bActive) { m_bKeepEditorActive = bActive; };
-    bool IsInTestMode() { return m_bTestMode; };
-    bool IsInPreviewMode() { return m_bPreviewMode; };
-    bool IsInExportMode() { return m_bExportMode; };
-    bool IsInConsoleMode() { return m_bConsoleMode; };
-    bool IsInLevelLoadTestMode() { return m_bLevelLoadTestMode; }
-    bool IsInSWBatchMode() { return m_bSWBatchMode; }
+    bool IsInTestMode() const { return m_bTestMode; };
+    bool IsInPreviewMode() const { return m_bPreviewMode; };
+    bool IsInExportMode() const { return m_bExportMode; };
+    bool IsExportingLegacyData() const { return m_bIsExportingLegacyData; }
+    bool IsInConsoleMode() const { return m_bConsoleMode; };
+    bool IsInAutotestMode() const { return m_bAutotestMode; };
+    bool IsInLevelLoadTestMode() const { return m_bLevelLoadTestMode; }
     bool IsInRegularEditorMode();
     bool IsExiting() const { return m_bExiting; }
     void EnableAccelerator(bool bEnable);
     void SaveAutoBackup();
     void SaveAutoRemind();
-    void ExportToGame(bool bShowText = false, bool bNoMsgBox = true);
+    void ExportToGame(const TerrainTextureExportSettings& terrainTextureSettings, bool bNoMsgBox = true);
     //! \param sTitleStr overwrites the default title - "Sandbox Editor 3 (tm)"
     void SetEditorWindowTitle(QString sTitleStr = QString(), QString sPreTitleStr = QString(), QString sPostTitleStr = QString());
-    BOOL RegDelnodeRecurse(HKEY hKeyRoot, LPTSTR lpSubKey);
     RecentFileList* GetRecentFileList();
     virtual void AddToRecentFileList(const QString& lpszPathName);
-    ECreateLevelResult CreateLevel(const QString& levelName, int resolution, int unitSize, bool bUseTerrain, QString& fullyQualifiedLevelName);
+    ECreateLevelResult CreateLevel(const QString& levelName, int resolution, int unitSize, bool bUseTerrain, QString& fullyQualifiedLevelName, const TerrainTextureExportSettings& terrainTextureSettings);
     void CloseCurrentLevel();
     static void InitDirectory();
     BOOL FirstInstance(bool bForceNewInstance = false);
@@ -140,7 +172,7 @@ public:
     void CreateSplashScreen();
     void InitPlugins();
     bool InitGame();
-    void InitLevel(CEditCommandLineInfo& cmdInfo);
+
     BOOL InitConsole();
     int IdleProcessing(bool bBackground);
     bool IsWindowInForeground();
@@ -154,16 +186,25 @@ public:
     // Check for credentials - if found call OpenAWSConsoleFederated using the provided link, otherwise open the signup page
     void OnAWSLaunchConsolePage(const QString& str);
 
+    bool IsProjectConfiguratorRunning() const;
+
     bool ToProjectConfigurator(const QString& msg, const QString& caption, const QString& location);
 
     bool ToExternalToolPrompt(const QString& msg, const QString& caption);
-    bool ToExternalToolSave();
     bool OpenProjectConfiguratorSwitchProject();
-    bool OpenProjectConfigurator(const QString& startPage) const;
+    bool OpenProjectConfigurator(const QString& startPage, bool restartEditor=true) const;
+
+    //! Launches a detached process
+    //! \param process The path to the process to start
+    //! \param args Space separated list of arguments to pass to the process on start.
+    void StartProcessDetached(const char* process, const char* args);
+
+    //! Launches the Lua Editor/Debugger (Woodpecker)
+    //! \param files A space separated list of aliased paths
+    void OpenLUAEditor(const char* files);
 
     bool OpenSetupAssistant() const;
     QString GetRootEnginePath() const;
-
     // Overrides
     // ClassWizard generated virtual function overrides
 public:
@@ -179,8 +220,9 @@ public:
     // Implementation
     void OnCreateLevel();
     void OnOpenLevel();
+    void OnCreateSlice();
+    void OnOpenSlice();
     void OnAppAbout();
-    void OnOnlineDocumentation();
     void OnDocumentationTutorials();
     void OnDocumentationGlossary();
     void OnDocumentationLumberyard();
@@ -200,6 +242,7 @@ public:
     void OnAWSGameliftGetStarted();
     void OnAWSGameliftTrialWizard();
     void OnAWSCognitoConsole();
+    void OnAWSDeviceFarmConsole();
     void OnAWSDynamoDBConsole();
     void OnAWSS3Console();
     void OnAWSLambdaConsole();
@@ -209,38 +252,31 @@ public:
     void OnLearnAboutGameLift();
     void OnCommercePublish();
     void OnCommerceMerch();
-    void OnContactSupportBug();
     void ToolTerrain();
     // Confetti Begin: Jurecka
     void OnOpenParticleEditor();
     // Confetti End: Jurecka
-    void ProceduralCreation();
     void SaveTagLocations();
     void MeasurementSystemTool();
-    void ToolSky();
     void ToolLighting();
     void TerrainTextureExport();
     void RefineTerrainTextureTiles();
     void ToolTexture();
-    void GenerateTerrainTexture();
+    void GenerateTerrainTextureWithPrompts();
+    void GenerateTerrainTexture(const TerrainTextureExportSettings& exportSettings);
     void OnUpdateGenerateTerrainTexture(QAction* action);
     void GenerateTerrain();
     void OnUpdateGenerateTerrain(QAction* action);
-    void SelectExportPlatform();
-    void OnRealtimeAutoSync();
-    void OnRealtimeAutoSyncUpdateUI(/*CCmdUI* pCmdUI*/);
     void OnExportSelectedObjects();
     void OnExportTerrainArea();
     void OnExportTerrainAreaWithObjects();
     void OnUpdateExportTerrainArea(QAction* action);
     void OnEditHold();
     void OnEditFetch();
-    void OnCancelMode();
     void OnGeneratorsStaticobjects();
-    void OnFileCreateopenlevel();
     void OnFileExportToGameNoSurfaceTexture();
-    void OnEditInsertObject();
     void OnViewSwitchToGame();
+    void OnViewDeploy();
     void OnEditSelectAll();
     void OnEditSelectNone();
     void OnEditDelete();
@@ -317,6 +353,7 @@ public:
     void OnLockSelection();
     void OnEditLevelData();
     void OnFileEditLogFile();
+    void OnFileResaveSlices();
     void OnFileEditEditorini();
     void OnSelectAxisTerrain();
     void OnSelectAxisSnapToAll();
@@ -367,13 +404,6 @@ public:
     void OnToolsUpdateProcVegetation();
     void OnDummyCommand() {};
     void OnShowHelpers();
-    void OnStartStop();
-    void OnNextKey();
-    void OnPrevKey();
-    void OnNextFrame();
-    void OnPrevFrame();
-    void OnSelectAll();
-    void OnKeyAll();
     void OnToggleMultiplayer();
     void OnToggleMultiplayerUpdate(QAction* action);
     void OnTerrainResizeterrain();
@@ -382,8 +412,11 @@ public:
     void OnFileSaveExternalLayers();
     void OnFileConvertLegacyEntities();
     void OnUpdateDocumentReady(QAction* action);
+    void OnUpdateFileOpen(QAction* action);
     void OnUpdateCurrentLayer(QAction* action);
     void OnUpdateNonGameMode(QAction* action);
+    void OnUpdateNewLevel(QAction* action);
+    void OnUpdatePlayGame(QAction* action);
 
     void OnOpenProjectConfiguratorGems();
     void OnOpenProjectConfiguratorSwitchProject();
@@ -399,22 +432,48 @@ protected:
     // -------------------------------------------
 
 private:
+    void InitLevel(const CEditCommandLineInfo& cmdInfo);
+
     CMainFrame* GetMainFrame() const;
-    void InitAccelManager();
     void WriteConfig();
     void TagLocation(int index);
     void GotoTagLocation(int index);
     void LoadTagLocations();
-    bool UserExportToGame(bool bExportTexture, bool bReloadTerrain, bool bShowText = false, bool bNoMsgBox = true);
-    static UINT LogoThread(LPVOID pParam);
+    bool UserExportToGame(const TerrainTextureExportSettings& terrainTextureSettings, bool bReloadTerrain, bool bNoMsgBox = true);
     static void ShowSplashScreen(CCryEditApp* app);
     static void CloseSplashScreen();
     static void OutputStartupMessage(QString str);
     bool HasAWSCredentials();
     void ConvertLegacyEntities(bool closeOnCancel = true);
+    bool ShowEnableDisableGemDialog(const QString& title, const QString& message, bool restartEditor=true);
     bool ShowEnableDisableCryEntityRemovalDialog();
 
+    //! Background Info:
+    //! Starting with Lumberyard 1.24, the Legacy Terrain system (ITerrain & friends) is now optional
+    //! and has been encapsulated within the new Legacy Terrain Gem. The user can now enable/disable
+    //! the legacy terrain system by adding the Legacy Terrain level component to the level via
+    //! the Level Inspector.
+    //! The purpose of this helper method is to figure out if the level that is opening was originally
+    //! designed with Cry Terrain (aka Legacy Terrain). If so, it will attempt to automatically
+    //! add the Legacy Terrain Level Component to the level, and notify the user accordingly.
+    //! If it fails to add the Legacy Terrain level component, it will assume the Legacy Terrain Gem
+    //! was not enabled. The option to close the Editor and opening the ProjectConfigurator will be offered
+    //! to the user. If the user agrees to open the ProjectConfigurator then the [out] parameter "editorWillClose"
+    //! will be set to true, so other deferred operations get skipped and the editor will close gracefully.
+    //! REMARK: This method should be called post-level being loaded, for example triggered by
+    //! QTimer::singleShot.
+    void AddLegacyTerrainLevelComponentIfNecessary(bool& editorWillClose);
+
+
     void OpenAWSConsoleFederated(const QString& str);
+
+    bool FixDanglingSharedMemory(const QString& sharedMemName) const;
+
+    //! Displays level load errors after a certain number of idle frames have been processed.
+    //! Due to the asyncrhonous nature of loading assets any errors that are reported by components
+    //! can happen after the level is loaded. This method will wait for a few idle updates and then
+    //! display the load errors to ensure all errors are displayed properly.
+    void DisplayLevelLoadErrors();
 
 #if AZ_TESTS_ENABLED
     //! Runs tests in the plugin specified as the file argument to the command line,
@@ -424,62 +483,89 @@ private:
     int RunPluginUnitTests(CEditCommandLineInfo& cmdInfo);
 #endif
 
-    class CEditorImpl* m_pEditor;
+    //! Helper method that should be called to add the Legacy Terrain Level Component
+    //! to the Level Entity when CreateLevel() is called with bUseTerrain set to true.
+    bool AddLegacyTerrainLevelComponent();
+
+    class CEditorImpl* m_pEditor = nullptr;
+    static CCryEditApp* s_currentInstance;
     //! True if editor is in test mode.
     //! Test mode is a special mode enabled when Editor ran with /test command line.
     //! In this mode editor starts up, but exit immediately after all initialization.
-    bool m_bTestMode;
-    bool m_bPrecacheShaderList;
-    bool m_bPrecacheShaders;
-    bool m_bPrecacheShadersLevels;
-    bool m_bMergeShaders;
-    bool m_bStatsShaderList;
-    bool m_bStatsShaders;
+    bool m_bTestMode = false;
+    bool m_bPrecacheShaderList = false;
+    bool m_bPrecacheShaders = false;
+    bool m_bPrecacheShadersLevels = false;
+    bool m_bMergeShaders = false;
+    bool m_bStatsShaderList = false;
+    bool m_bStatsShaders = false;
     //! In this mode editor will load specified cry file, export t, and then close.
-    bool m_bExportMode;
+    bool m_bExportMode = false;
     QString m_exportFile;
+    //! This flag is set to true every time any of the "Export" commands is being executed.
+    //! Once exporting is finished the flag is set back to false.
+    //! UI events like "New Level" or "Open Level", should not be allowed while m_bIsExportingLegacyData==true.
+    //! Otherwise it could trigger crashes trying to export while exporting.
+    bool m_bIsExportingLegacyData = false;
     //! If application exiting.
-    bool m_bExiting;
+    bool m_bExiting = false;
     //! True if editor is in preview mode.
     //! In this mode only very limited functionality is available and only for fast preview of models.
-    bool m_bPreviewMode;
+    bool m_bPreviewMode = false;
     // Only console window is created.
-    bool m_bConsoleMode;
+    bool m_bConsoleMode = false;
+    // Skip showing the WelcomeScreenDialog
+    bool m_bSkipWelcomeScreenDialog = false;
     // Level load test mode
-    bool m_bLevelLoadTestMode;
+    bool m_bLevelLoadTestMode = false;
     //! Current file in preview mode.
     char m_sPreviewFile[_MAX_PATH];
     //! True if "/runpython" was passed as a flag.
-    bool m_bRunPythonScript;
-    CMatEditMainDlg* m_pMatEditDlg;
-    CConsoleDialog* m_pConsoleDialog;
-    //! In this mode, editor will load world segments and process command for each batch
-    bool m_bSWBatchMode;
+    bool m_bRunPythonScript = false;
+    //! File to run on startup
+    QString m_execFile;
+    //! Command to run on startup
+    QString m_execLineCmd;
+    //! Autotest mode: Special mode meant for automated testing, things like blocking dialogs or error report windows won't appear
+    bool m_bAutotestMode = false;
+
+    CMatEditMainDlg* m_pMatEditDlg = nullptr;
+    CConsoleDialog* m_pConsoleDialog = nullptr;
+
+    AZ_PUSH_DISABLE_DLL_EXPORT_MEMBER_WARNING
     Vec3 m_tagLocations[12];
     Ang3 m_tagAngles[12];
-    float m_fastRotateAngle;
-    float m_moveSpeedStep;
+    AZ_POP_DISABLE_DLL_EXPORT_MEMBER_WARNING
+    float m_fastRotateAngle = 45.0f;
+    float m_moveSpeedStep = 0.1f;
 
     ULONG_PTR m_gdiplusToken;
     QSharedMemory* m_mutexApplication = nullptr;
     //! was the editor active in the previous frame ... needed to detect if the game lost focus and
     //! dispatch proper SystemEvent (needed to release input keys)
-    bool m_bPrevActive;
+    bool m_bPrevActive = false;
     // If this flag is set, the next OnIdle() will update, even if the app is in the background, and then
     // this flag will be reset.
-    bool m_bForceProcessIdle;
+    bool m_bForceProcessIdle = false;
     // Keep the editor alive, even if no focus is set
-    bool m_bKeepEditorActive;
+    bool m_bKeepEditorActive = false;
+    // Currently creating a new level
+    bool m_creatingNewLevel = false;
+    bool m_openingLevel = false;
+    bool m_savingLevel = false;
+    // Flag indicating if the errors for the currently loaded level have been displayed
+    bool m_levelErrorsHaveBeenDisplayed = false;
+    // Number of idle frames that have passed before displaying level errors
+    int m_numBeforeDisplayErrorFrames = 0;
 
     QString m_lastOpenLevelPath;
-    CQuickAccessBar* m_pQuickAccessBar;
-    int m_initSegmentsToOpen;
-    IEventLoopHook* m_pEventLoopHook;
+    CQuickAccessBar* m_pQuickAccessBar = nullptr;
+    IEventLoopHook* m_pEventLoopHook = nullptr;
     QString m_rootEnginePath;
 
-    class CMannequinChangeMonitor* m_pChangeMonitor;
+    class CMannequinChangeMonitor* m_pChangeMonitor = nullptr;
 
-    int m_disableIdleProcessingCounter; //!< Counts requests to disable idle processing. When non-zero, idle processing will be disabled.
+    int m_disableIdleProcessingCounter = 0; //!< Counts requests to disable idle processing. When non-zero, idle processing will be disabled.
 
 #if AZ_TESTS_ENABLED
     struct BootstrapTestInfo
@@ -493,7 +579,7 @@ private:
     } m_bootstrapTestInfo;
 #endif
 
-    CCryDocManager* m_pDocManager;
+    CCryDocManager* m_pDocManager = nullptr;
 
 private:
     void OnEditHide();
@@ -567,9 +653,6 @@ private:
     void OnMaterialAssigncurrent();
     void OnMaterialResettodefault();
     void OnMaterialGetmaterial();
-    void OnPhysicsGetState();
-    void OnPhysicsResetState();
-    void OnPhysicsSimulateObjects();
     void OnFileSavelevelresources();
     void OnClearRegistryData();
     void OnValidatelevel();
@@ -604,7 +687,6 @@ private:
     void OnOpenMannequinEditor();
     void OnOpenCharacterTool();
     void OnOpenDataBaseView();
-    void OnOpenFlowGraphView();
     void OnOpenAssetBrowserView();
     void OnOpenTrackView();
     void OnOpenAudioControlsEditor();
@@ -613,15 +695,9 @@ private:
     void OnOpenLayerEditor();
     void OnOpenTerrainEditor();
     void OnGotoViewportSearch();
-    void OnBrushMakehollow();
-    void OnBrushCsgcombine();
-    void OnBrushCsgsubstruct();
-    void OnBrushCsgintersect();
     void OnSubobjectmodeVertex();
     void OnSubobjectmodeEdge();
     void OnSubobjectmodeFace();
-    void OnSubobjectmodePivot();
-    void OnBrushCsgsubstruct2();
     void OnMaterialPicktool();
     void OnTimeOfDay();
     void OnResolveMissingObjects();
@@ -629,14 +705,6 @@ private:
     void SetGameSpecCheck(ESystemConfigSpec spec, ESystemConfigPlatform platform, int &nCheck, bool &enable);
     void OnUpdateGameSpec(QAction* action);
     void OnOpenQuickAccessBar();
-    void OnToolsEnableFileChangeMonitoring();
-    void OnUpdateToolsEnableFileChangeMonitoring(/*CCmdUI* pCmdUI*/);
-
-    ////////////////////////////////////////////////////////////////////////////
-    //CryGame
-    ////////////////////////////////////////////////////////////////////////////
-    void OnGameP1AutoGen();
-    ////////////////////////////////////////////////////////////////////////////
 
 public:
     void ExportLevel(bool bExportToGame, bool bExportTexture, bool bAutoExport);
@@ -644,23 +712,18 @@ public:
     static void SubObjectModeVertex();
     static void SubObjectModeEdge();
     static void SubObjectModeFace();
-    static void SubObjectModePivot();
 
     void OnFileExportOcclusionMesh();
 };
 
 //////////////////////////////////////////////////////////////////////////
-class CFrameWnd;
 class CCrySingleDocTemplate 
     : public QObject
 {
 private:
-    CCrySingleDocTemplate(UINT nIDResource, const QMetaObject* pDocClass, CRuntimeClass* pFrameClass)
+    explicit CCrySingleDocTemplate(const QMetaObject* pDocClass)
         : QObject()
         , m_documentClass(pDocClass)
-        , m_frameClass(pFrameClass)
-        , m_nIdResource(nIDResource)
-        , m_frame(nullptr)
     {
     }
 public:
@@ -675,29 +738,25 @@ public:
     };
 
     template<typename DOCUMENT>
-    static CCrySingleDocTemplate* create(UINT nIDResource, CRuntimeClass* pFrameClass)
+    static CCrySingleDocTemplate* create()
     {
-        return new CCrySingleDocTemplate(nIDResource, &DOCUMENT::staticMetaObject, pFrameClass);
+        return new CCrySingleDocTemplate(&DOCUMENT::staticMetaObject);
     }
     ~CCrySingleDocTemplate() {};
     // avoid creating another CMainFrame
-    virtual CFrameWnd* CreateNewFrame(CCryEditDoc* pDoc, CFrameWnd* pOther);
     // close other type docs before opening any things
     virtual CCryEditDoc* OpenDocumentFile(LPCTSTR lpszPathName, BOOL bAddToMRU, BOOL bMakeVisible);
     virtual CCryEditDoc* OpenDocumentFile(LPCTSTR lpszPathName, BOOL bMakeVisible = TRUE);
     virtual Confidence MatchDocType(LPCTSTR lpszPathName, CCryEditDoc*& rpDocMatch);
 
 private:
-    const QMetaObject* m_documentClass;
-    CRuntimeClass* m_frameClass;
-    CFrameWnd* m_frame;
-    UINT m_nIdResource;
+    const QMetaObject* m_documentClass = nullptr;
 };
 
 class CDocTemplate;
 class CCryDocManager
 {
-    CCrySingleDocTemplate* m_pDefTemplate;
+    CCrySingleDocTemplate* m_pDefTemplate = nullptr;
 public:
     CCryDocManager();
     CCrySingleDocTemplate* SetDefaultTemplate(CCrySingleDocTemplate* pNew);
@@ -710,5 +769,39 @@ public:
     QVector<CCrySingleDocTemplate*> m_templateList;
 };
 
+#include <AzCore/Component/Component.h>
+
+namespace AzToolsFramework
+{
+    //! A component to reflect scriptable commands for the Editor
+    class CryEditPythonHandler
+        : public AZ::Component
+    {
+    public:
+        AZ_COMPONENT(CryEditPythonHandler, "{D4B19973-54D9-44BD-9E70-6069462A0CDC}")
+        virtual ~CryEditPythonHandler() = default;
+
+        static void Reflect(AZ::ReflectContext* context);
+
+        // AZ::Component ...
+        void Activate() override {}
+        void Deactivate() override {}
+
+        class CryEditHandler
+        {
+        public:
+            AZ_RTTI(CryEditHandler, "{6C1FD05A-2F39-4094-80D4-CA526676F13E}")
+            virtual ~CryEditHandler() = default;
+        };
+
+        class CryEditCheckoutHandler
+        {
+        public:
+            AZ_RTTI(CryEditCheckoutHandler, "{C65EF439-6754-4ACD-AEA2-196F2DBA0AF3}")
+            virtual ~CryEditCheckoutHandler() = default;
+        };
+    };
+
+} // namespace AzToolsFramework
 
 #endif // CRYINCLUDE_EDITOR_CRYEDIT_H

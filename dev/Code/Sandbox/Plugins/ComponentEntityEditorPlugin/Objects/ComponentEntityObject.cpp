@@ -9,7 +9,8 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
-#include "StdAfx.h"
+
+#include "ComponentEntityEditorPlugin_precompiled.h"
 
 #include "ComponentEntityObject.h"
 #include "IIconManager.h"
@@ -20,12 +21,15 @@
 #include <AzCore/Serialization/Utils.h>
 #include <AzCore/std/string/string.h>
 #include <AzCore/Math/Transform.h>
-#include <AzCore/Math/Quaternion.h>
-#include <AzCore/Slice/SliceComponent.h>
 
-#include <AzFramework/Entity/EntityContextBus.h>
-
+#include <AzFramework/Viewport/DisplayContextRequestBus.h>
+#include <AzToolsFramework/API/ComponentEntitySelectionBus.h>
+#include <AzToolsFramework/Commands/PreemptiveUndoCache.h>
 #include <AzToolsFramework/Entity/EditorEntityContextBus.h>
+#include <AzToolsFramework/Entity/EditorEntityInfoBus.h>
+#include <AzToolsFramework/Entity/EditorEntityHelpers.h>
+#include <AzToolsFramework/Metrics/LyEditorMetricsBus.h>
+#include <AzToolsFramework/ToolsComponents/EditorLayerComponentBus.h>
 #include <AzToolsFramework/ToolsComponents/EditorLockComponent.h>
 #include <AzToolsFramework/ToolsComponents/EditorVisibilityComponent.h>
 #include <AzToolsFramework/ToolsComponents/SelectionComponent.h>
@@ -33,24 +37,19 @@
 #include <AzToolsFramework/ToolsComponents/GenericComponentWrapper.h>
 #include <AzToolsFramework/ToolsComponents/EditorSelectionAccentSystemComponent.h>
 #include <AzToolsFramework/ToolsComponents/EditorEntityIconComponentBus.h>
-
+#include <LmbrCentral/Physics/CryPhysicsComponentRequestBus.h>
 #include <LmbrCentral/Rendering/RenderNodeBus.h>
 #include <LmbrCentral/Rendering/MeshComponentBus.h>
 #include <LmbrCentral/Rendering/MaterialOwnerBus.h>
 
-#include <MathConversion.h>
-
-#include <TrackView/TrackViewSequenceManager.h>
-#include <TrackView/TrackViewAnimNode.h>
-
 #include <IDisplayViewport.h>
-#include <Viewport.h>
-
-#include <HyperGraph/FlowGraphHelpers.h>
 #include <Material/MaterialManager.h>
+#include <MathConversion.h>
 #include <Objects/ObjectLayer.h>
-
-#include <AzToolsFramework/Metrics/LyEditorMetricsBus.h>
+#include <Objects/StatObjValidator.h>
+#include <TrackView/TrackViewAnimNode.h>
+#include <ViewManager.h>
+#include <Viewport.h>
 
 /**
  * Scalars for icon drawing behavior.
@@ -91,6 +90,19 @@ bool CComponentEntityObject::Init(IEditor* ie, CBaseObject* copyFrom, const QStr
     return result;
 }
 
+void CComponentEntityObject::UpdatePreemptiveUndoCache()
+{
+    using namespace AzToolsFramework;
+
+    PreemptiveUndoCache* preemptiveUndoCache = nullptr;
+    ToolsApplicationRequests::Bus::BroadcastResult(preemptiveUndoCache, &ToolsApplicationRequests::GetUndoCache);
+
+    if (preemptiveUndoCache)
+    {
+        preemptiveUndoCache->UpdateCache(m_entityId);
+    }
+}
+
 void CComponentEntityObject::AssignEntity(AZ::Entity* entity, bool destroyOld)
 {
     const AZ::EntityId newEntityId = entity ? entity->GetId() : AZ::EntityId();
@@ -99,6 +111,7 @@ void CComponentEntityObject::AssignEntity(AZ::Entity* entity, bool destroyOld)
     {
         AzToolsFramework::EntitySelectionEvents::Bus::Handler::BusDisconnect();
         AZ::TransformNotificationBus::Handler::BusDisconnect();
+        LmbrCentral::RenderBoundsNotificationBus::Handler::BusDisconnect();
         LmbrCentral::MeshComponentNotificationBus::Handler::BusDisconnect();
         AzToolsFramework::ComponentEntityEditorRequestBus::Handler::BusDisconnect();
         AZ::EntityBus::Handler::BusDisconnect();
@@ -122,40 +135,33 @@ void CComponentEntityObject::AssignEntity(AZ::Entity* entity, bool destroyOld)
     {
         m_entityId = entity->GetId();
 
-        // Synchronize sandbox name to new entity's name.
+        // note: GetObjectManager() will always be valid during normal operation but
+        // will not exist when running unit tests
+        if (IObjectManager* objectManager = GetObjectManager())
         {
-            EditorActionScope nameChange(m_nameReentryGuard);
-            SetName(QString(entity->GetName().c_str()));
+            // Use the entity id to generate a GUID for this CEO because we need it to stay consistent for systems
+            // that register by GUID such as undo/redo since our own undo/redo system constantly recreates CEOs
+            GUID entityBasedGUID;
+            entityBasedGUID.Data1 = 0;
+            entityBasedGUID.Data2 = 0;
+            entityBasedGUID.Data3 = 0;
+            static_assert(sizeof(m_entityId) >= sizeof(entityBasedGUID.Data4), "The data contained in entity Id should fit inside Data4, if not switch to some other method of conversion to GUID");
+            memcpy(&entityBasedGUID.Data4, &m_entityId, sizeof(entityBasedGUID.Data4));
+
+            objectManager->ChangeObjectId(GetId(), entityBasedGUID);
+
+            // Synchronize sandbox name to new entity's name.
+            {
+                EditorActionScope nameChange(m_nameReentryGuard);
+                SetName(QString(entity->GetName().c_str()));
+            }
         }
 
         EBUS_EVENT(AzToolsFramework::EditorEntityContextRequestBus, AddRequiredComponents, *entity);
 
-        // OBJFLAG_FROZEN should match EditorLockComponent's Locked state.
-        bool locked = false;
-        AzToolsFramework::EditorLockComponentRequestBus::EventResult(locked, entity->GetId(), &AzToolsFramework::EditorLockComponentRequests::GetLocked);
-        if (locked)
-        {
-            SetFlags(OBJFLAG_FROZEN);
-        }
-        else
-        {
-            ClearFlags(OBJFLAG_FROZEN);
-        }
-
-        // OBJFLAG_HIDDEN should match EditorVisibilityComponent's VisibilityFlag.
-        bool visibilityFlag;
-        AzToolsFramework::EditorVisibilityRequestBus::EventResult(visibilityFlag, entity->GetId(), &AzToolsFramework::EditorVisibilityRequests::GetVisibilityFlag);
-        if (visibilityFlag)
-        {
-            ClearFlags(OBJFLAG_HIDDEN);
-        }
-        else
-        {
-            SetFlags(OBJFLAG_HIDDEN);
-        }
-
         AzToolsFramework::EntitySelectionEvents::Bus::Handler::BusConnect(m_entityId);
         AZ::TransformNotificationBus::Handler::BusConnect(m_entityId);
+        LmbrCentral::RenderBoundsNotificationBus::Handler::BusConnect(m_entityId);
         LmbrCentral::MeshComponentNotificationBus::Handler::BusConnect(m_entityId);
         AzToolsFramework::ComponentEntityEditorRequestBus::Handler::BusConnect(m_entityId);
         AZ::EntityBus::Handler::BusConnect(m_entityId);
@@ -173,6 +179,37 @@ void CComponentEntityObject::AssignEntity(AZ::Entity* entity, bool destroyOld)
             OnTransformChanged(transformComponent->GetLocalTM(), transformComponent->GetWorldTM());
         }
     }
+
+    RefreshVisibilityAndLock();
+}
+
+void CComponentEntityObject::RefreshVisibilityAndLock()
+{
+    using AzToolsFramework::EditorEntityInfoRequestBus;
+    using AzToolsFramework::EditorEntityLockComponentNotificationBus;
+    using AzToolsFramework::EditorEntityVisibilityNotificationBus;
+
+    // Lock state is tracked in 3 places:
+    // EditorLockComponent, EditorEntityModel, and ComponentEntityObject.
+    // Entities in layers have additional behavior in relation to lock state, if the layer is locked it supersedes the entity's lock state.
+    // The viewport controls for manipulating entities are disabled during lock state here in ComponentEntityObject using the OBJFLAG_FROZEN.
+    // In this case, the lock behavior should include the layer hierarchy as well, if the layer is locked this entity can't move.
+    // EditorEntityModel can report this information.
+    bool locked = false;
+    EditorEntityInfoRequestBus::EventResult(
+        locked, m_entityId, &EditorEntityInfoRequestBus::Events::IsLocked);
+
+    EditorEntityLockComponentNotificationBus::Event(
+        m_entityId, &EditorEntityLockComponentNotificationBus::Events::OnEntityLockChanged, locked);
+
+    // OBJFLAG_HIDDEN should match EditorVisibilityComponent's VisibilityFlag.
+    // Visibility state is similar to lock state in the number of areas it can be set / tracked. See the comment about the lock state above.
+    bool visibility = true;
+    EditorEntityInfoRequestBus::EventResult(
+        visibility, m_entityId, &EditorEntityInfoRequestBus::Events::IsVisible);
+
+    EditorEntityVisibilityNotificationBus::Event(
+        m_entityId, &EditorEntityVisibilityNotificationBus::Events::OnEntityVisibilityChanged, visibility);
 }
 
 void CComponentEntityObject::SetName(const QString& name)
@@ -218,12 +255,25 @@ void CComponentEntityObject::SetSelected(bool bSelect)
         // Pass the action to the tools application.
         if (bSelect)
         {
-            EBUS_EVENT(AzToolsFramework::ToolsApplicationRequests::Bus, MarkEntitySelected, m_entityId);
+            AzToolsFramework::ToolsApplicationRequestBus::Broadcast(&AzToolsFramework::ToolsApplicationRequests::MarkEntitySelected, m_entityId);
         }
         else
         {
-            EBUS_EVENT(AzToolsFramework::ToolsApplicationRequests::Bus, MarkEntityDeselected, m_entityId);
+            AzToolsFramework::ToolsApplicationRequestBus::Broadcast(&AzToolsFramework::ToolsApplicationRequests::MarkEntityDeselected, m_entityId);
         }
+    }
+
+    bool anySelected = false;
+    
+    AzToolsFramework::ToolsApplicationRequestBus::BroadcastResult(anySelected, &AzToolsFramework::ToolsApplicationRequests::AreAnyEntitiesSelected);
+
+    if (!anySelected)
+    {
+        GetIEditor()->Notify(eNotify_OnEntitiesDeselected);
+    }
+    else
+    {
+        GetIEditor()->Notify(eNotify_OnEntitiesSelected);
     }
 }
 
@@ -249,6 +299,22 @@ IRenderNode* CComponentEntityObject::GetEngineNode() const
     return nullptr;
 }
 
+IPhysicalEntity* CComponentEntityObject::GetCollisionEntity() const
+{
+    IPhysicalEntity* result = nullptr;
+
+    LmbrCentral::CryPhysicsComponentRequestBus::EventResult(
+        result,
+        m_entityId,
+        &LmbrCentral::CryPhysicsComponentRequestBus::Events::GetPhysicalEntity);
+
+    if (result == nullptr)
+    {
+        result = CEntityObject::GetCollisionEntity();
+    }
+    return result;
+}
+
 void CComponentEntityObject::OnEntityNameChanged(const AZStd::string& name)
 {
     if (m_nameReentryGuard)
@@ -263,26 +329,36 @@ void CComponentEntityObject::OnEntityNameChanged(const AZStd::string& name)
 
 void CComponentEntityObject::OnSelected()
 {
+    if (GetIEditor()->IsNewViewportInteractionModelEnabled())
+    {
+        return;
+    }
+
     if (m_selectionReentryGuard)
     {
         EditorActionScope selectionChange(m_selectionReentryGuard);
 
+        // Invoked when selected via tools application, so we notify sandbox.
+        const bool wasSelected = IsSelected();
+        GetIEditor()->GetObjectManager()->SelectObject(this);
+
         // If we get here and we're not already selected in sandbox land it means
         // the selection started in AZ land and we need to clear any edit tool
         // the user may have selected from the rollup bar
-        if (GetIEditor()->GetEditTool() && !IsSelected())
+        if (GetIEditor()->GetEditTool() && !wasSelected)
         {
-            GetIEditor()->SetEditTool(0);
+            GetIEditor()->SetEditTool(nullptr);
         }
-
-
-        // Invoked when selected via tools application, so we notify sandbox.
-        GetIEditor()->GetObjectManager()->SelectObject(this);
     }
 }
 
 void CComponentEntityObject::OnDeselected()
 {
+    if (GetIEditor()->IsNewViewportInteractionModelEnabled())
+    {
+        return;
+    }
+
     if (m_selectionReentryGuard)
     {
         EditorActionScope selectionChange(m_selectionReentryGuard);
@@ -348,59 +424,39 @@ bool CComponentEntityObject::IsFrozen() const
     return CheckFlags(OBJFLAG_FROZEN);
 }
 
-void CComponentEntityObject::SetFrozen(bool bFrozen)
+void CComponentEntityObject::SetFrozen(bool frozen)
 {
-    CEntityObject::SetFrozen(bFrozen);
-
-    // EditorLockComponent's locked state should match OBJFLAG_FROZEN.
     if (m_lockedReentryGuard)
     {
         EditorActionScope flagChange(m_lockedReentryGuard);
-        EBUS_EVENT_ID(m_entityId, AzToolsFramework::EditorLockComponentRequestBus, SetLocked, CheckFlags(OBJFLAG_FROZEN));
+        AzToolsFramework::SetEntityLockState(m_entityId, frozen);
     }
 }
 
 void CComponentEntityObject::OnEntityLockChanged(bool locked)
 {
-    if (m_lockedReentryGuard)
-    {
-        EditorActionScope flagChange(m_lockedReentryGuard);
-        SetFrozen(locked);
-    }
+    CEntityObject::SetFrozen(locked);
 }
 
-void CComponentEntityObject::SetHidden(bool bHidden, uint64 hiddenId/*=CBaseObject::s_invalidHiddenID*/, bool bAnimated/*=false*/)
-{
-    CEntityObject::SetHidden(bHidden, hiddenId, bAnimated);
-
-    // EditorVisibilityComponent's VisibilityFlag should match OBJFLAG_HIDDEN.
-    if (m_visibilityFlagReentryGuard)
-    {
-        EditorActionScope flagChange(m_visibilityFlagReentryGuard);
-        EBUS_EVENT_ID(m_entityId, AzToolsFramework::EditorVisibilityRequestBus, SetVisibilityFlag, !CheckFlags(OBJFLAG_HIDDEN));
-    }
-}
-
-void CComponentEntityObject::OnEntityVisibilityFlagChanged(bool visible)
+void CComponentEntityObject::SetHidden(
+    bool bHidden, uint64 hiddenId /*=CBaseObject::s_invalidHiddenID*/, bool bAnimated /*=false*/)
 {
     if (m_visibilityFlagReentryGuard)
     {
         EditorActionScope flagChange(m_visibilityFlagReentryGuard);
-        SetHidden(!visible);
+        AzToolsFramework::SetEntityVisibility(m_entityId, !bHidden);
     }
+}
+
+void CComponentEntityObject::OnEntityVisibilityChanged(bool visible)
+{
+    CEntityObject::SetHidden(!visible);
 }
 
 void CComponentEntityObject::OnEntityIconChanged(const AZ::Data::AssetId& entityIconAssetId)
 {
     (void)entityIconAssetId;
     SetupEntityIcon();
-}
-
-void CComponentEntityObject::UpdateVisibility(bool bVisible)
-{
-    CEntityObject::UpdateVisibility(bVisible);
-
-    AzToolsFramework::EditorVisibilityRequestBus::Event(m_entityId, &AzToolsFramework::EditorVisibilityRequests::SetCurrentVisibility, m_bVisible != 0);
 }
 
 void CComponentEntityObject::OnLayerChanged(CObjectLayer* layer)
@@ -454,10 +510,11 @@ void CComponentEntityObject::OnMeshCreated(const AZ::Data::Asset<AZ::Data::Asset
     (void)asset;
 
     // Need to recalculate bounds when the mesh changes.
-    OnBoundsReset();
+    OnRenderBoundsReset();
+    ValidateMeshStatObject();
 }
 
-void CComponentEntityObject::OnBoundsReset()
+void CComponentEntityObject::OnRenderBoundsReset()
 {
     CalcBBox();
     CEntityObject::InvalidateTM(0);
@@ -466,6 +523,8 @@ void CComponentEntityObject::OnBoundsReset()
 void CComponentEntityObject::SetSandboxObjectAccent(AzToolsFramework::EntityAccentType accent)
 {
     m_accentType = accent;
+    AzToolsFramework::EditorComponentSelectionNotificationsBus::Event(m_entityId,
+        &AzToolsFramework::EditorComponentSelectionNotificationsBus::Events::OnAccentTypeChanged, m_accentType);
 }
 
 void CComponentEntityObject::SetSandBoxObjectIsolated(bool isIsolated)
@@ -481,10 +540,20 @@ bool CComponentEntityObject::IsSandBoxObjectIsolated()
 
 bool CComponentEntityObject::SetPos(const Vec3& pos, int flags)
 {
+    bool isAzEditorTransformLocked = false;
+    AzToolsFramework::Components::TransformComponentMessages::Bus::EventResult(isAzEditorTransformLocked, m_entityId,
+        &AzToolsFramework::Components::TransformComponentMessages::IsTransformLocked);
+
+    bool lockTransformOnUserInput = isAzEditorTransformLocked && (flags & eObjectUpdateFlags_UserInput);
+
+    if (IsLayer() || lockTransformOnUserInput)
+    {
+        return false;
+    }
     if ((flags & eObjectUpdateFlags_MoveTool) || (flags & eObjectUpdateFlags_UserInput))
     {
         // If we have a parent also in the selection set, don't allow the move tool to manipulate our position.
-        if (IsAncestorSelected())
+        if (IsNonLayerAncestorSelected())
         {
             return false;
         }
@@ -495,10 +564,20 @@ bool CComponentEntityObject::SetPos(const Vec3& pos, int flags)
 
 bool CComponentEntityObject::SetRotation(const Quat& rotate, int flags)
 {
+    bool isAzEditorTransformLocked = false;
+    AzToolsFramework::Components::TransformComponentMessages::Bus::EventResult(isAzEditorTransformLocked, m_entityId,
+        &AzToolsFramework::Components::TransformComponentMessages::IsTransformLocked);
+
+    bool lockTransformOnUserInput = isAzEditorTransformLocked && (flags & eObjectUpdateFlags_UserInput);
+
+    if (IsLayer() || lockTransformOnUserInput)
+    {
+        return false;
+    }
     if (flags & eObjectUpdateFlags_UserInput)
     {
         // If we have a parent also in the selection set, don't allow the rotate tool to manipulate our position.
-        if (IsAncestorSelected())
+        if (IsNonLayerAncestorSelected())
         {
             return false;
         }
@@ -509,10 +588,20 @@ bool CComponentEntityObject::SetRotation(const Quat& rotate, int flags)
 
 bool CComponentEntityObject::SetScale(const Vec3& scale, int flags)
 {
+    bool isAzEditorTransformLocked = false;
+    AzToolsFramework::Components::TransformComponentMessages::Bus::EventResult(isAzEditorTransformLocked, m_entityId,
+        &AzToolsFramework::Components::TransformComponentMessages::IsTransformLocked);
+
+    bool lockTransformOnUserInput = isAzEditorTransformLocked && (flags & eObjectUpdateFlags_UserInput);
+
+    if (IsLayer() || lockTransformOnUserInput)
+    {
+        return false;
+    }
     if ((flags & eObjectUpdateFlags_ScaleTool) || (flags & eObjectUpdateFlags_UserInput))
     {
         // If we have a parent also in the selection set, don't allow the scale tool to manipulate our position.
-        if (IsAncestorSelected())
+        if (IsNonLayerAncestorSelected())
         {
             return false;
         }
@@ -521,7 +610,7 @@ bool CComponentEntityObject::SetScale(const Vec3& scale, int flags)
     return CEntityObject::SetScale(scale, flags);
 }
 
-bool CComponentEntityObject::IsAncestorSelected() const
+bool CComponentEntityObject::IsNonLayerAncestorSelected() const
 {
     AZ::EntityId parentId;
     AZ::TransformBus::EventResult(parentId, m_entityId, &AZ::TransformBus::Events::GetParentId);
@@ -530,7 +619,15 @@ bool CComponentEntityObject::IsAncestorSelected() const
         CComponentEntityObject* parentObject = CComponentEntityObject::FindObjectForEntity(parentId);
         if (parentObject && parentObject->IsSelected())
         {
-            return true;
+            bool isLayerEntity = false;
+            AzToolsFramework::Layers::EditorLayerComponentRequestBus::EventResult(
+                isLayerEntity,
+                parentObject->GetAssociatedEntityId(),
+                &AzToolsFramework::Layers::EditorLayerComponentRequestBus::Events::HasLayer);
+            if (!isLayerEntity)
+            {
+                return true;
+            }
         }
 
         AZ::EntityId currentParentId = parentId;
@@ -539,6 +636,16 @@ bool CComponentEntityObject::IsAncestorSelected() const
     }
 
     return false;
+}
+
+bool CComponentEntityObject::IsLayer() const
+{
+    bool isLayerEntity = false;
+    AzToolsFramework::Layers::EditorLayerComponentRequestBus::EventResult(
+        isLayerEntity,
+        m_entityId,
+        &AzToolsFramework::Layers::EditorLayerComponentRequestBus::Events::HasLayer);
+    return isLayerEntity;
 }
 
 bool CComponentEntityObject::IsAncestorIconDrawingAtSameLocation() const
@@ -707,6 +814,8 @@ bool CComponentEntityObject::HitHelperTest(HitContext& hc)
 
 bool CComponentEntityObject::HitTest(HitContext& hc)
 {
+    AZ_PROFILE_FUNCTION(AZ::Debug::ProfileCategory::Entity);
+
     if (m_iconOnlyHitTest)
     {
         return false;
@@ -722,35 +831,46 @@ bool CComponentEntityObject::HitTest(HitContext& hc)
             Vec3 hitPos;
             if (Intersect::Ray_AABB(Ray(hc.raySrc, hc.rayDir), bounds, hitPos))
             {
-                IStatObj* geometry = nullptr;
-                EBUS_EVENT_ID_RESULT(geometry, m_entityId, LmbrCentral::LegacyMeshComponentRequestBus, GetStatObj);
+                bool rayIntersection = false;
+                bool preciseSelectionRequired = false;
+                AZ::VectorFloat closestDistance = AZ::VectorFloat(FLT_MAX);
 
-                // If we have a mesh, raycast against it.
-                if (geometry)
+                const int viewportId = GetIEditor()->GetViewManager()->GetGameViewport()->GetViewportId();
+                AzToolsFramework::EditorComponentSelectionRequestsBus::EnumerateHandlersId(m_entityId,
+                    [&hc, &closestDistance, &rayIntersection, &preciseSelectionRequired, viewportId](
+                        AzToolsFramework::EditorComponentSelectionRequests* handler) -> bool
                 {
-                    const Matrix34 inverseTM = GetWorldTM().GetInverted();
-                    const Vec3 raySrcLocal = inverseTM.TransformPoint(hc.raySrc);
-                    const Vec3 rayDirLocal = inverseTM.TransformVector(hc.rayDir).GetNormalized();
+                    AZ_PROFILE_FUNCTION(AZ::Debug::ProfileCategory::Entity);
 
-                    SRayHitInfo hi;
-                    hi.inReferencePoint = raySrcLocal;
-                    hi.inRay = Ray(raySrcLocal, rayDirLocal);
-                    if (geometry->RayIntersection(hi))
+                    if (handler->SupportsEditorRayIntersect())
                     {
-                        const Vec3 worldHitPos = GetWorldTM().TransformPoint(hi.vHitPos);
-                        hc.dist = hc.raySrc.GetDistance(worldHitPos);
-                        hc.object = this;
-                        return true;
+                        AZ::VectorFloat distance = AZ::VectorFloat(FLT_MAX);
+                        preciseSelectionRequired = true;
+                        const bool intersection = handler->EditorSelectionIntersectRayViewport(
+                            { viewportId }, LYVec3ToAZVec3(hc.raySrc), LYVec3ToAZVec3(hc.rayDir), distance);
+
+                        rayIntersection = rayIntersection || intersection;
+
+                        if (intersection && distance < closestDistance)
+                        {
+                            closestDistance = distance;
+                        }
                     }
 
-                    return false;
-                }
-                else
+                    return true; // iterate over all handlers
+                });
+
+                hc.object = this;
+
+                if (preciseSelectionRequired)
                 {
-                    // Otherwise accept the AABB hit.
-                    hc.dist = (hitPos - hc.raySrc).GetLength();
-                    return true;
+                    hc.dist = closestDistance;
+                    return rayIntersection;
                 }
+
+                hc.dist = (hitPos - hc.raySrc).GetLength();
+                return true;
+
             }
 
             return false;
@@ -783,24 +903,35 @@ bool CComponentEntityObject::HitTest(HitContext& hc)
 
 void CComponentEntityObject::GetBoundBox(AABB& box)
 {
+    AZ_PROFILE_FUNCTION(AZ::Debug::ProfileCategory::Entity);
+
+    box.Reset();
+
+    const AZ::EntityId entityId = m_entityId;
+    if (entityId.IsValid())
+    {
+        CViewport *gameViewport = GetIEditor()->GetViewManager()->GetGameViewport();
+        const int viewportId =  gameViewport ? gameViewport->GetViewportId() : -1;
+
+        AZ::EBusReduceResult<AZ::Aabb, AzToolsFramework::AabbAggregator> aabbResult(AZ::Aabb::CreateNull());
+        AzToolsFramework::EditorComponentSelectionRequestsBus::EventResult(
+            aabbResult, entityId, &AzToolsFramework::EditorComponentSelectionRequests::GetEditorSelectionBoundsViewport,
+            AzFramework::ViewportInfo{ viewportId });
+
+        if (aabbResult.value.IsValid())
+        {
+            box.Add(AZVec3ToLYVec3(aabbResult.value.GetMin()));
+            box.Add(AZVec3ToLYVec3(aabbResult.value.GetMax()));
+            return;
+        }
+    }
+
     CBaseObject::GetBoundBox(box);
 }
 
 void CComponentEntityObject::GetLocalBounds(AABB& box)
 {
     box.Reset();
-
-    if (m_entityId.IsValid())
-    {
-        AZ::Aabb aabb = AZ::Aabb::CreateNull();
-        EBUS_EVENT_ID_RESULT(aabb, m_entityId, LmbrCentral::MeshComponentRequestBus, GetLocalBounds);
-        if (aabb.IsValid())
-        {
-            box.Add(AZVec3ToLYVec3(aabb.GetMin()));
-            box.Add(AZVec3ToLYVec3(aabb.GetMax()));
-            return;
-        }
-    }
 
     float r = GetRadius();
     box.min = -Vec3(r, r, r);
@@ -855,31 +986,17 @@ void CComponentEntityObject::Display(DisplayContext& dc)
 
     if (m_entityId.IsValid())
     {
-        // Do geometry debug draw if geometry highlighting is enabled (editor feature).
-        if ((!IsSelected() && m_accentType == AzToolsFramework::EntityAccentType::Hover && GetIEditor()->GetEditorSettings()->viewports.bHighlightMouseOverGeometry) ||
-            (IsSelected() && GetIEditor()->GetEditorSettings()->viewports.bHighlightSelectedGeometry))
-        {
-            SGeometryDebugDrawInfo dd;
-            dd.tm = GetWorldTM();
-            dd.bExtrude = true;
-            dd.color = ColorB(250, 0, 250, 30);
-            dd.lineColor = ColorB(255, 255, 0, 160);
-            IStatObj* geometry = nullptr;
-            EBUS_EVENT_ID_RESULT(geometry, m_entityId, LmbrCentral::LegacyMeshComponentRequestBus, GetStatObj);
-            if (geometry)
-            {
-                geometry->DebugDraw(dd);
-            }
-        }
-
         // Draw link to parent if this or the parent object are selected.
         {
             AZ::EntityId parentId;
             EBUS_EVENT_ID_RESULT(parentId, m_entityId, AZ::TransformBus, GetParentId);
             if (parentId.IsValid())
             {
+                bool isParentVisible = false;
+                AzToolsFramework::EditorEntityInfoRequestBus::EventResult(isParentVisible, parentId, &AzToolsFramework::EditorEntityInfoRequestBus::Events::IsVisible);
+
                 CComponentEntityObject* parentObject = CComponentEntityObject::FindObjectForEntity(parentId);
-                if (IsSelected() || (parentObject && parentObject->IsSelected()))
+                if (isParentVisible && (IsSelected() || (parentObject && parentObject->IsSelected())))
                 {
                     const QColor kLinkColorParent(0, 255, 255);
                     const QColor kLinkColorChild(0, 0, 255);
@@ -898,7 +1015,7 @@ void CComponentEntityObject::Display(DisplayContext& dc)
         if (showIcons)
         {
             if ((dc.flags & DISPLAY_2D) ||
-                IsSelected() || 
+                IsSelected() ||
                 IsAncestorIconDrawingAtSameLocation() ||
                 IsDescendantSelectedAtSameLocation())
             {
@@ -907,46 +1024,30 @@ void CComponentEntityObject::Display(DisplayContext& dc)
         }
 
         // Allow components to override in-editor visualization.
-        bool displayHandled = false;
-        EBUS_EVENT(AzFramework::EntityDebugDisplayRequestBus, SetDC, &dc);
-        EBUS_EVENT_ID(m_entityId, AzFramework::EntityDebugDisplayEventBus, DisplayEntity, displayHandled);
-        if (showIcons)
         {
-            if (!displaySelectionHelper && !IsSelected())
+            const AzFramework::DisplayContextRequestGuard displayContextGuard(dc);
+
+            AzFramework::DebugDisplayRequestBus::BusPtr debugDisplayBus;
+            AzFramework::DebugDisplayRequestBus::Bind(
+                debugDisplayBus, AzToolsFramework::ViewportInteraction::g_mainViewportEntityDebugDisplayId);
+            AZ_Assert(debugDisplayBus, "Invalid DebugDisplayRequestBus.");
+
+            AzFramework::DebugDisplayRequests* debugDisplay =
+                AzFramework::DebugDisplayRequestBus::FindFirstHandler(debugDisplayBus);
+
+            AzFramework::EntityDebugDisplayEventBus::Event(
+                m_entityId, &AzFramework::EntityDebugDisplayEvents::DisplayEntityViewport,
+                AzFramework::ViewportInfo{ dc.GetView()->asCViewport()->GetViewportId() },
+                *debugDisplay);
+
+            if (showIcons)
             {
-                m_entityIconVisible = DisplayEntityIcon(dc);
+                if (!displaySelectionHelper && !IsSelected())
+                {
+                    m_entityIconVisible = DisplayEntityIcon(dc, *debugDisplay);
+                }
             }
         }
-        EBUS_EVENT(AzFramework::EntityDebugDisplayRequestBus, SetDC, nullptr);
-
-        if (displayHandled || (dc.flags & DISPLAY_2D))
-        {
-            return;
-        }
-    }
-
-    const Matrix34& wtm = GetWorldTM();
-
-    Vec3 dir = wtm.TransformVector(Vec3(0, 1, 0));
-    Vec3 wp = wtm.GetTranslation();
-    if (IsFrozen())
-    {
-        dc.SetFreezeColor();
-    }
-    else
-    {
-        dc.SetColor(GetColor(), 0.8f);
-    }
-
-    // Draw a ball for easy selection (needed only if showing icons is desired but none are drawing).
-    if (!IsSelected() && !IsEntityIconVisible() && !displaySelectionHelper && showIcons)
-    {
-        dc.DrawBall(wp, GetRadius());
-    }
-
-    if (IsSelected())
-    {
-        dc.SetSelectedColor(0.6f);
     }
 }
 
@@ -969,22 +1070,67 @@ bool CComponentEntityObject::IsIsolated() const
     return m_isIsolated;
 }
 
+bool CComponentEntityObject::IsSelected() const
+{
+    if (GetIEditor()->IsNewViewportInteractionModelEnabled())
+    {
+        return AzToolsFramework::IsSelected(m_entityId);
+    }
+
+    // legacy is selected call
+    return CBaseObject::IsSelected();
+}
+
+bool CComponentEntityObject::IsSelectable() const
+{
+    if (GetIEditor()->IsNewViewportInteractionModelEnabled())
+    {
+        return AzToolsFramework::IsSelectableInViewport(m_entityId);
+    }
+
+    // legacy is selectable call
+    return CBaseObject::IsSelectable();
+}
+
+void CComponentEntityObject::SetWorldPos(const Vec3& pos, int flags)
+{
+    // Layers, by design, are not supposed to be moveable. Layers are intended to just be a grouping
+    // mechanism to allow teams to cleanly split their level into working zones, and a moveable position
+    // complicates that behavior more than it helps.
+    // Unfortunately component entity objects have a position under the hood, so prevent layers from moving here.
+    bool isLayerEntity = false;
+    AzToolsFramework::Layers::EditorLayerComponentRequestBus::EventResult(
+        isLayerEntity,
+        m_entityId,
+        &AzToolsFramework::Layers::EditorLayerComponentRequestBus::Events::HasLayer);
+
+    bool isAzEditorTransformLocked = false;
+    AzToolsFramework::Components::TransformComponentMessages::Bus::EventResult(isAzEditorTransformLocked, m_entityId,
+        &AzToolsFramework::Components::TransformComponentMessages::IsTransformLocked);
+
+    bool lockTransformOnUserInput = isAzEditorTransformLocked && (flags & eObjectUpdateFlags_UserInput);
+
+    if (isLayerEntity || lockTransformOnUserInput)
+    {
+        return;
+    }
+    CEntityObject::SetWorldPos(pos, flags);
+}
+
 void CComponentEntityObject::OnContextMenu(QMenu* /*pMenu*/)
 {
     // Deliberately bypass the base class implementation (CEntityObject::OnContextMenu()).
 }
 
-bool CComponentEntityObject::DisplayEntityIcon(DisplayContext& editorDisplay)
+bool CComponentEntityObject::DisplayEntityIcon(
+    DisplayContext& displayContext, AzFramework::DebugDisplayRequests& debugDisplay)
 {
     if (!m_hasIcon)
     {
         return false;
     }
 
-    auto* displayInterface = AzFramework::EntityDebugDisplayRequestBus::FindFirstHandler();
-    AZ_Assert(displayInterface, "Invalid display context.");
-
-    const QPoint entityScreenPos = editorDisplay.GetView()->WorldToView(GetWorldPos());
+    const QPoint entityScreenPos = displayContext.GetView()->WorldToView(GetWorldPos());
 
     const Vec3 worldPos = GetWorldPos();
     const CCamera& camera = gEnv->pRenderer->GetCamera();
@@ -995,14 +1141,15 @@ bool CComponentEntityObject::DisplayEntityIcon(DisplayContext& editorDisplay)
         return false;
     }
 
-    int iconFlags = (int) DisplayContext::ETextureIconFlags::TEXICON_ON_TOP; // Draw component icons on top of meshes (no depth testing)
-    SetDrawTextureIconProperties(editorDisplay, worldPos, 1.0f, iconFlags);
+    // Draw component icons on top of meshes (no depth testing)
+    int iconFlags = (int) DisplayContext::ETextureIconFlags::TEXICON_ON_TOP;
+    SetDrawTextureIconProperties(displayContext, worldPos, 1.0f, iconFlags);
 
-    const float iconScale = s_kIconMinScale + (s_kIconMaxScale - s_kIconMinScale) * (1.f - clamp_tpl(max(0.f, sqrt_tpl(distSq) - s_kIconCloseDist) / s_kIconFarDist, 0.0f, 1.f));
+    const float iconScale = s_kIconMinScale + (s_kIconMaxScale - s_kIconMinScale) * (1.0f - clamp_tpl(max(0.0f, sqrt_tpl(distSq) - s_kIconCloseDist) / s_kIconFarDist, 0.0f, 1.0f));
     const float worldDistToScreenScaleFraction = 0.045f;
-    const float screenScale = editorDisplay.GetView()->GetScreenScaleFactor(GetWorldPos()) * worldDistToScreenScaleFraction;
+    const float screenScale = displayContext.GetView()->GetScreenScaleFactor(GetWorldPos()) * worldDistToScreenScaleFraction;
 
-    displayInterface->DrawTextureLabel(m_iconTexture, LYVec3ToAZVec3(worldPos), s_kIconSize * iconScale, s_kIconSize * iconScale, GetTextureIconFlags());
+    debugDisplay.DrawTextureLabel(m_iconTexture, LYVec3ToAZVec3(worldPos), s_kIconSize * iconScale, s_kIconSize * iconScale, GetTextureIconFlags());
 
     return true;
 }
@@ -1013,15 +1160,15 @@ void CComponentEntityObject::SetupEntityIcon()
     m_hasIcon = false;
 
     AzToolsFramework::EditorEntityIconComponentRequestBus::EventResult(hideIconInViewport, m_entityId, &AzToolsFramework::EditorEntityIconComponentRequestBus::Events::IsEntityIconHiddenInViewport);
-    
+
     if (!hideIconInViewport)
     {
         AzToolsFramework::EditorEntityIconComponentRequestBus::EventResult(m_icon, m_entityId, &AzToolsFramework::EditorEntityIconComponentRequestBus::Events::GetEntityIconPath);
-        
+
         if (!m_icon.empty())
         {
             m_hasIcon = true;
-            
+
             int textureId = GetIEditor()->GetIconManager()->GetIconTexture(m_icon.c_str());
             m_iconTexture = GetIEditor()->GetRenderer()->EF_GetTextureByID(textureId);
         }
@@ -1061,26 +1208,41 @@ void CComponentEntityObject::DrawAccent(DisplayContext& dc)
         }
         case AzToolsFramework::EntityAccentType::ParentSelected:
         {
-            dc.SetColor(1, 0.549, 0); // Orange
+            dc.SetColor(1, 0.549f, 0); // Orange
             break;
         }
         case AzToolsFramework::EntityAccentType::SliceSelected:
         {
-            dc.SetColor(0.117, 0.565, 1); // Blue
+            dc.SetColor(0.117f, 0.565f, 1); // Blue
             break;
         }
         default:
         {
-            dc.SetColor(1, 0.0784, 0.576); // Pink
+            dc.SetColor(1, 0.0784f, 0.576f); // Pink
             break;
         }
     }
 
-    AABB box;
-    GetLocalBounds(box);
-    dc.PushMatrix(GetWorldTM());
-    dc.DrawWireBox(box.min, box.max);
-    dc.PopMatrix();
+    using AzToolsFramework::EditorComponentSelectionRequests;
+    AZ::u32 displayOptions = EditorComponentSelectionRequests::BoundingBoxDisplay::NoBoundingBox;
+
+    AZ::u32 handlers = 0;
+    AzToolsFramework::EditorComponentSelectionRequestsBus::EnumerateHandlersId(m_entityId,
+        [&displayOptions, &handlers](AzToolsFramework::EditorComponentSelectionRequests* handler) -> bool
+    {
+        handlers++;
+        displayOptions = displayOptions || handler->GetBoundingBoxDisplayType();
+        return true;
+    });
+
+    // if there are no explicit handlers, default to show the aabb when the mouse is over or the entity is selected.
+    // this will be the case with newly added entities without explicit handlers attached (no components).
+    if (handlers == 0 || (displayOptions & EditorComponentSelectionRequests::BoundingBoxDisplay::BoundingBox) != 0)
+    {
+        AABB box;
+        GetBoundBox(box);
+        dc.DrawWireBox(box.min, box.max);
+    }
 }
 
 void CComponentEntityObject::SetMaterial(CMaterial* material)
@@ -1098,6 +1260,8 @@ void CComponentEntityObject::SetMaterial(CMaterial* material)
             EBUS_EVENT_ID(m_entityId, LmbrCentral::MaterialOwnerRequestBus, SetMaterial, nullptr);
         }
     }
+
+    ValidateMeshStatObject();
 }
 
 CMaterial* CComponentEntityObject::GetMaterial() const
@@ -1123,6 +1287,15 @@ CMaterial* CComponentEntityObject::GetRenderMaterial() const
     }
 
     return nullptr;
+}
+
+void CComponentEntityObject::ValidateMeshStatObject()
+{
+    IStatObj* statObj = GetIStatObj();
+    CMaterial* editorMaterial = GetMaterial();
+    CStatObjValidator statValidator;
+    // This will print out warning messages to the console.
+    statValidator.Validate(statObj, editorMaterial, nullptr);
 }
 
 #include <Objects/ComponentEntityObject.moc>

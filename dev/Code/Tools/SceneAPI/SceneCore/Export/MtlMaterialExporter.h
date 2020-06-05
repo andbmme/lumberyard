@@ -75,13 +75,6 @@ namespace AZ
                 Events::ProcessingResult ExportMaterials(Events::PreExportEventContext& context) const;
 
                 static void Reflect(ReflectContext* context);
-
-            protected:
-#if defined(AZ_COMPILER_MSVC) && AZ_COMPILER_MSVC <= 1800
-                // Workaround for VS2013 - Delete the copy constructor and make it private
-                // https://connect.microsoft.com/VisualStudio/feedback/details/800328/std-is-copy-constructible-is-broken
-                MaterialExporterComponent(const MaterialExporterComponent&) = delete;
-#endif
             };
 
             class RCMaterialExporterComponent
@@ -97,13 +90,6 @@ namespace AZ
                 Events::ProcessingResult ExportMaterials(Events::PreExportEventContext& context) const;
 
                 static void Reflect(ReflectContext* context);
-
-            protected:
-#if defined(AZ_COMPILER_MSVC) && AZ_COMPILER_MSVC <= 1800
-                // Workaround for VS2013 - Delete the copy constructor and make it private
-                // https://connect.microsoft.com/VisualStudio/feedback/details/800328/std-is-copy-constructible-is-broken
-                RCMaterialExporterComponent(const RCMaterialExporterComponent&) = delete;
-#endif
             };
 
             class MtlMaterialExporter
@@ -133,7 +119,7 @@ namespace AZ
                 {
                     AZStd::shared_ptr<const AZ::SceneAPI::DataTypes::IMaterialData> m_materialData { nullptr };
                     bool m_usesVertexColoring { false };
-                    bool m_physicalize { false };
+                    int m_physicsMaterialFlags { 0 }; //Values of AZ::GFxFramework::EMaterialFlags
                     AZStd::string m_name;
                 };
 

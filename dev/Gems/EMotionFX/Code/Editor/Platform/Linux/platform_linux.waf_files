@@ -1,0 +1,14 @@
+{
+    "auto":
+    {
+        "Platform/Linux":
+        [
+            "EMotionFX_Traits_Platform.h",
+            "EMotionFX_Traits_Linux.h"
+        ],
+        "EMotionFXTools/EMStudioSDK/Platform/Linux":
+        [
+            "../Common/Default/EMotionFX/Tools/EMotionStudio/EMStudioSDK/Source/MainWindowEventFilter_Default.cpp"
+        ]
+   }
+}

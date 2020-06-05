@@ -50,7 +50,6 @@ namespace NAsyncCull
 
     bool CCullThread::LoadLevel(const char* pFolderName)
     {
-        MEMSTAT_CONTEXT(EMemStatContextTypes::MSC_Other, 0, "Occluder Mesh");
         m_OCMBuffer.resize(0);
         AZ::IO::HandleType fileHandle = gEnv->pCryPak->FOpen((string(pFolderName) + "/occluder.ocm").c_str(), "rbx");
         if (fileHandle == AZ::IO::InvalidHandle)
@@ -352,7 +351,7 @@ namespace NAsyncCull
         }
     }
 
-    void CCullThread::CullEnd()
+    void CCullThread::CullEnd(bool waitForOcclusionJobCompletion)
     {
         // If no frame was rendered, we need to remove the producer added in BeginCulling
         m_PrepareBufferSync.WaitForCompletion();
@@ -370,6 +369,12 @@ namespace NAsyncCull
             GetObjManager()->RemoveCullJobProducer();
             m_nPrepareState = IDLE; // No producer so mark us as idle
         }
+
+        if (waitForOcclusionJobCompletion)
+        {
+            m_OcclusionJobExecutor.WaitForCompletion();
+        }
+
     }
 
     void CCullThread::OutputMeshList()
@@ -721,7 +726,7 @@ namespace NAsyncCull
             if (jobData.type == SCheckOcclusionJobData::OCTREE_NODE)
             {
                 AABB    rAABB;
-                COctreeNode* pOctTreeNode = jobData.octTreeData.pOctTreeNode;
+                COctreeNode* pOctTreeNode = (COctreeNode*)jobData.octTreeData.pOctTreeNode;
 
                 memcpy(&rAABB, &pOctTreeNode->GetObjectsBBox(), sizeof(AABB));
                 float fDistance = sqrtf(Distance::Point_AABBSq(passInfo.GetCamera().GetPosition(), rAABB));

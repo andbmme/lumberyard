@@ -14,12 +14,13 @@
 
 #include "EMotionFXConfig.h"
 #include <AzCore/std/containers/vector.h>
+#include <AzCore/std/string/string.h>
 #include "BaseObject.h"
 #include "VertexAttributeLayer.h"
+#include "Transform.h"
 
 #include <MCore/Source/Vector.h>
 #include <MCore/Source/Array.h>
-#include <MCore/Source/Matrix4.h>
 #include <MCore/Source/Ray.h>
 #include <MCore/Source/Color.h>
 
@@ -54,7 +55,7 @@ namespace EMotionFX
     class EMFX_API Mesh
         : public BaseObject
     {
-        MCORE_MEMORYOBJECTCATEGORY(Mesh, EMFX_DEFAULT_ALIGNMENT, EMFX_MEMCATEGORY_GEOMETRY_MESHES);
+        AZ_CLASS_ALLOCATOR_DECL
 
     public:
         /**
@@ -63,14 +64,15 @@ namespace EMotionFX
          */
         enum
         {
-            ATTRIB_POSITIONS        = 0,    /**< Vertex positions. Typecast to AZ::PackedVector3f. Positions are always exist. */
-            ATTRIB_NORMALS          = 1,    /**< Vertex normals. Typecast to AZ::PackedVector3f. Normals are always exist. */
+            ATTRIB_POSITIONS        = 0,    /**< Vertex positions. Typecast to AZ::Vector3. Positions are always exist. */
+            ATTRIB_NORMALS          = 1,    /**< Vertex normals. Typecast to AZ::Vector3. Normals are always exist. */
             ATTRIB_TANGENTS         = 2,    /**< Vertex tangents. Typecast to <b> AZ::Vector4 </b>. */
             ATTRIB_UVCOORDS         = 3,    /**< Vertex uv coordinates. Typecast to AZ::Vector2. */
             ATTRIB_COLORS32         = 4,    /**< Vertex colors in 32-bits. Typecast to uint32. */
             ATTRIB_ORGVTXNUMBERS    = 5,    /**< Original vertex numbers. Typecast to uint32. Original vertex numbers always exist. */
-            ATTRIB_COLORS128        = 6,    /**< Vertex colors in 128-bits. Typecast to MCore::RGBAColor. */
-            ATTRIB_BITANGENTS       = 7     /**< Vertex bitangents (aka binormal). Typecast to AZ::PackedVector3f. When tangents exists bitangents may still not exist! */
+            ATTRIB_COLORS128        = 6,    /**< Vertex colors in 128-bits. */
+            ATTRIB_BITANGENTS       = 7,    /**< Vertex bitangents (aka binormal). Typecast to AZ::Vector3. When tangents exists bitangents may still not exist! */
+            ATTRIB_CLOTH_INVMASSES  = 8     /**< Cloth per vertex inverse mass values stored as AZ::u32, packed using four 8 bit values, similar to a 32 bit vertex color. */
         };
 
         /**
@@ -109,19 +111,22 @@ namespace EMotionFX
         /**
          * Calculates the tangent vectors which can be used for per pixel lighting.
          * These are vectors also known as S and T, used in per pixel lighting techniques, like bumpmapping.
-         * You can calculate the binormal for the given tangent by taking the cross product between the
-         * normal and the tangent for the given vertex. These three vectors (normal, tangent and binormal) are
+         * You can calculate the bitangent for the given tangent by taking the cross product between the
+         * normal and the tangent for the given vertex. These three vectors (normal, tangent and bitangent) are
          * used to build a matrix which transforms the lights into tangent space.
          * You can only call this method after you have passed all other vertex and index data to the mesh.
          * So after all that has been initialized, call this method to calculate these vectors automatically.
+         * If you specify a UV set that doesn't exist, this method will fall back to UV set 0.
          * @param uvLayer[in] The UV texture coordinate layer number. This is not the vertex attribute layer number, but the UV layer number.
          *                    This means that 0 means the first UV set, and 1 would mean the second UV set, etc.
          *                    When the UV layer doesn't exist, this method does nothing.
+         * @param storeBitangents Set to true when you want the mesh to store its bitangents in its own layer. This will generate a bitangents layer inside the mesh. False will no do this.
+         * @result Returns true on success, or false on failure. A failure can happen when no UV data can be found.
          */
-        void CalcTangents(uint32 uvLayer = 0);
+        bool CalcTangents(uint32 uvLayer = 0, bool storeBitangents = false);
 
         /**
-         * Calculates the tangent and binormal for a given triangle.
+         * Calculates the tangent and bitangent for a given triangle.
          * @param posA The position of the first vertex.
          * @param posB The position of the second vertex.
          * @param posC The position of the third vertex.
@@ -129,11 +134,11 @@ namespace EMotionFX
          * @param uvB The texture coordinate of the second vertex.
          * @param uvC The texture coordinate of the third vertex.
          * @param outTangent A pointer to the vector to store the calculated tangent vector.
-         * @param outBiNormal A pointer to the vector to store the calculated binormal vector (calculated using the gradients).
+         * @param outBitangent A pointer to the vector to store the calculated bitangent vector (calculated using the gradients).
          */
-        static void CalcTangentAndBiNormalForFace(const AZ::Vector3& posA, const AZ::Vector3& posB, const AZ::Vector3& posC,
+        static void CalcTangentAndBitangentForFace(const AZ::Vector3& posA, const AZ::Vector3& posB, const AZ::Vector3& posC,
             const AZ::Vector2& uvA,  const AZ::Vector2& uvB,  const AZ::Vector2& uvC,
-            AZ::Vector3* outTangent, AZ::Vector3* outBiNormal);
+            AZ::Vector3* outTangent, AZ::Vector3* outBitangent);
 
         /**
          * Allocate mesh data. If there is already data allocated, this data will be deleted first.
@@ -384,11 +389,11 @@ namespace EMotionFX
         VertexAttributeLayer* FindVertexAttributeLayer(uint32 layerTypeID, uint32 occurence = 0) const;
 
         uint32 FindVertexAttributeLayerIndexByName(const char* name) const;
-        uint32 FindVertexAttributeLayerIndexByNameString(const MCore::String& name) const;
+        uint32 FindVertexAttributeLayerIndexByNameString(const AZStd::string& name) const;
         uint32 FindVertexAttributeLayerIndexByNameID(uint32 nameID) const;
 
         uint32 FindSharedVertexAttributeLayerIndexByName(const char* name) const;
-        uint32 FindSharedVertexAttributeLayerIndexByNameString(const MCore::String& name) const;
+        uint32 FindSharedVertexAttributeLayerIndexByNameString(const AZStd::string& name) const;
         uint32 FindSharedVertexAttributeLayerIndexByNameID(uint32 nameID) const;
 
         /**
@@ -408,18 +413,18 @@ namespace EMotionFX
 
         /**
          * Checks for an intersection between the mesh and a given ray.
-         * @param transformMatrix The transformation matrix of the mesh.
+         * @param transform The transformation of the mesh.
          * @param ray The ray to test with.
          * @result Returns true when an intersection has occurred, otherwise false.
          */
-        bool Intersects(const MCore::Matrix& transformMatrix, const MCore::Ray& ray);
+        bool Intersects(const Transform& transform, const MCore::Ray& ray);
 
         /**
          * Check for an intersection between the mesh a given ray, and calculate the closest intersection point.
          * If you do NOT need to know the intersection point, use the other Intersects method, because that one is faster, since it doesn't need to calculate
          * the closest intersection point.
          * The intersection point returned is in object space.
-         * @param transformMatrix The transformation matrix of the mesh.
+         * @param transform The transformation of the mesh.
          * @param ray The ray to test with.
          * @param outIntersect A pointer to the vector to store the intersection point in, in case of a collision (nullptr allowed).
          * @param outBaryU A pointer to a float in which the method will store the barycentric U coordinate, to be used to interpolate values on the triangle (nullptr allowed).
@@ -428,7 +433,7 @@ namespace EMotionFX
          *                   A value of nullptr is allowed, which will skip storing the resulting triangle indices.
          * @result Returns true when an intersection has occurred, otherwise false.
          */
-        bool Intersects(const MCore::Matrix& transformMatrix, const MCore::Ray& ray, AZ::Vector3* outIntersect, float* outBaryU = nullptr, float* outBaryV = nullptr, uint32* outIndices = nullptr);
+        bool Intersects(const Transform& transform, const MCore::Ray& ray, AZ::Vector3* outIntersect, float* outBaryU = nullptr, float* outBaryV = nullptr, uint32* outIndices = nullptr);
 
         //---------------------------------------------------
 
@@ -471,7 +476,7 @@ namespace EMotionFX
          * For a cube, which normally might have 32 vertices, it will result in 8 positions.
          * @param outPoints The output array to store the points in. The array will be automatically resized.
          */
-        void ExtractOriginalVertexPositions(MCore::Array<AZ::Vector3>& outPoints) const;
+        void ExtractOriginalVertexPositions(AZStd::vector<AZ::Vector3>& outPoints) const;
 
         /**
          * Clone the mesh.
@@ -558,13 +563,13 @@ namespace EMotionFX
         void* FindOriginalVertexDataByName(uint32 layerID, const char* name) const;
 
         /**
-         * Calculate the axis aligned bounding box of this mesh, after transforming the positions with the provided matrix.
+         * Calculate the axis aligned bounding box of this mesh, after transforming the positions with the provided transform.
          * @param outBoundingBox The bounding box that will contain the bounds after executing this method.
-         * @param globalMatrix The global space matrix to muliply all vertex positions with.
+         * @param Transform The transformation to transform all vertex positions with.
          * @param vertexFrequency This is the for loop increase counter value. A value of 1 means every vertex will be processed
          *                        while a value of 2 means every second vertex, etc. The value must be 1 or higher.
          */
-        void CalcAABB(MCore::AABB* outBoundingBox, const MCore::Matrix& globalMatrix, uint32 vertexFrequency = 1);
+        void CalcAABB(MCore::AABB* outBoundingBox, const Transform& transform, uint32 vertexFrequency = 1);
 
         /**
          * The mesh type used to indicate if a mesh is either static, like a cube or building, cpu deformed, if it needs to be processed on the CPU, or GPU deformed if it can be processed fully on the GPU.

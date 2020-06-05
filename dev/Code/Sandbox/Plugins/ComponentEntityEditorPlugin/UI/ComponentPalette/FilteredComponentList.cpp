@@ -10,7 +10,7 @@
 *
 */
 
-#include "StdAfx.h"
+#include "ComponentEntityEditorPlugin_precompiled.h"
 
 #include "ComponentDataModel.h"
 #include "FavoriteComponentList.h"

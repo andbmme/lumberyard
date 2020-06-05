@@ -183,7 +183,7 @@ MCORE_INLINE void KeyTrackHermite<ReturnType, StorageType>::AddKey(float time, c
 template <class ReturnType, class StorageType>
 MCORE_INLINE uint32 KeyTrackHermite<ReturnType, StorageType>::FindKeyNumber(float curTime) const
 {
-    return KeyFrameFinder<ReturnType, StorageType>::FindKey(curTime, this);
+    return KeyFrameFinder<ReturnType, StorageType>::FindKey(curTime, mKeys.GetReadPtr(), mKeys.GetLength());
 }
 
 
@@ -192,7 +192,7 @@ template <class ReturnType, class StorageType>
 MCORE_INLINE KeyFrame<ReturnType, StorageType>* KeyTrackHermite<ReturnType, StorageType>::FindKey(float curTime)  const
 {
     // find the key number
-    const uint32 keyNumber = KeyFrameFinder<ReturnType, StorageType>::FindKey(curTime, this);
+    const uint32 keyNumber = KeyFrameFinder<ReturnType, StorageType>::FindKey(curTime, mKeys.GetReadPtr(), mKeys.GetLength());
 
     // if no key was found
     return (keyNumber != MCORE_INVALIDINDEX32) ? &mKeys[keyNumber] : nullptr;
@@ -332,15 +332,15 @@ MCORE_INLINE ReturnType KeyTrackHermite<ReturnType, StorageType>::Interpolate(ui
 
 
 template <>
-MCORE_INLINE MCore::Quaternion KeyTrackHermite<MCore::Quaternion, MCore::Compressed16BitQuaternion>::Interpolate(uint32 startKey, float currentTime) const
+MCORE_INLINE AZ::Quaternion KeyTrackHermite<AZ::Quaternion, MCore::Compressed16BitQuaternion>::Interpolate(uint32 startKey, float currentTime) const
 {
     // get the keys to interpolate between
-    const KeyFrame<MCore::Quaternion, MCore::Compressed16BitQuaternion>& firstKey = mKeys[startKey];
-    const KeyFrame<MCore::Quaternion, MCore::Compressed16BitQuaternion>& nextKey  = mKeys[startKey + 1];
+    const KeyFrame<AZ::Quaternion, MCore::Compressed16BitQuaternion>& firstKey = mKeys[startKey];
+    const KeyFrame<AZ::Quaternion, MCore::Compressed16BitQuaternion>& nextKey  = mKeys[startKey + 1];
 
     // get the two quaternions
-    MCore::Quaternion a = firstKey.GetValue();
-    MCore::Quaternion b = nextKey.GetValue();
+    AZ::Quaternion a = firstKey.GetValue();
+    AZ::Quaternion b = nextKey.GetValue();
 
     // check if both quaternions are on the same hypersphere or not, if not, invert one
     if (a.Dot(b) < 0.0f)
@@ -359,10 +359,10 @@ MCORE_INLINE MCore::Quaternion KeyTrackHermite<MCore::Quaternion, MCore::Compres
     const float t2 = t * t;
     const float t3 = t2  * t;
 
-    return ((2 * t3 + -3 * t2 + 1) * a.LogN()  +
-            (-2 * t3 +  3 * t2)     * b.LogN()  +
+    return MCore::Exp((2 * t3 + -3 * t2 + 1) * MCore::LogN(a)  +
+            (-2 * t3 +  3 * t2)     * MCore::LogN(b)  +
             (t3 + -2 * t2 + t) * mTangents[startKey] +
-            (t3 + -t2)       * mTangents[startKey + 1]).Exp().Normalize();
+            (t3 + -t2)       * mTangents[startKey + 1]).GetNormalizedExact();
 }
 
 

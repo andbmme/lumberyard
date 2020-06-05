@@ -1,0 +1,22 @@
+{
+    "description"           : "Configuration to build DCC plugins",
+    "visual_studio_name"    : "DCC Plug-ins",
+    "comment"               : "Internal use only.  For building DCC plugin tools.",
+    "disable_game_projects"  : true,
+    "platforms" : [
+        "win"
+    ],
+    "configurations" : [
+        "debug",
+        "profile"
+    ],
+    "modules" :
+    [
+        "AzCore",
+        "AzFramework",
+        "MayaCryExport22014",
+        "MayaCryExport22015",
+        "MayaCryExport22016",
+        "MayaCryExport22017"
+    ]
+}

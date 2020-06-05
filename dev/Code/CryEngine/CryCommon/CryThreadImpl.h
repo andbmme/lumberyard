@@ -11,8 +11,6 @@
 */
 // Original file Copyright Crytek GMBH or its affiliates, used under license.
 
-#ifndef CRYINCLUDE_CRYCOMMON_CRYTHREADIMPL_H
-#define CRYINCLUDE_CRYCOMMON_CRYTHREADIMPL_H
 #pragma once
 
 
@@ -21,8 +19,21 @@
 // Include architecture specific code.
 #if defined(LINUX) || defined(APPLE)
 #include <CryThreadImpl_pthreads.h>
+#define AZ_RESTRICTED_SECTION_IMPLEMENTED
 #elif defined(WIN32) || defined(WIN64)
 #include <CryThreadImpl_windows.h>
+#define AZ_RESTRICTED_SECTION_IMPLEMENTED
+#elif defined(AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/CryThreadImpl_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/CryThreadImpl_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/CryThreadImpl_h_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
 #else
 // Put other platform specific includes here!
 #endif
@@ -31,7 +42,6 @@
 
 void CryThreadSetName(threadID dwThreadId, const char* sThreadName)
 {
-    ScopedSwitchToGlobalHeap useGlobalHeap;
     if (gEnv && gEnv->pSystem && gEnv->pSystem->GetIThreadTaskManager())
     {
         gEnv->pSystem->GetIThreadTaskManager()->SetThreadName(dwThreadId, sThreadName);
@@ -46,8 +56,3 @@ const char* CryThreadGetName(threadID dwThreadId)
     }
     return "";
 }
-
-#endif // CRYINCLUDE_CRYCOMMON_CRYTHREADIMPL_H
-
-// vim:ts=2
-

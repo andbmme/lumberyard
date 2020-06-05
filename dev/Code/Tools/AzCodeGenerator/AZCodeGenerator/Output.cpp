@@ -14,6 +14,7 @@
 #include "Writer.h"
 #include "JSONWriter.h"
 #include "Configuration.h"
+#include <cstdarg>
 #ifdef AZCG_PLATFORM_WINDOWS
 #include <io.h>
 // Underscore ISO C++ versions are only supported on windows right now
@@ -43,8 +44,7 @@ namespace CodeGenerator
             cl::values(
                 clEnumValN(NoRedirect, "none", "No output redirection, clang and python will output to stdout and stderr"),
                 clEnumValN(NullRedirect, "null", "Redirect clang and python to null, effectively suppressing that output"),
-                clEnumValN(FileRedirect, "file", "Redirect clang and python to disk, specify path with redirect-output-file"),
-                clEnumValEnd
+                clEnumValN(FileRedirect, "file", "Redirect clang and python to disk, specify path with redirect-output-file")
                 ),
             cl::cat(OutputSettingsCategory),
             cl::Optional,
@@ -178,8 +178,13 @@ namespace CodeGenerator
 
     void OutputWriter::Error(const char* format, va_list args)
     {
+        // va_list can only be used once on some platforms, must make a copy since we will iterate on it twice here
+        va_list targs;
+        va_copy(targs,args);
         // Manually handle the null terminator because some version of VC++ do not actually print the null terminator when the buffer size is >= input size
-        size_t bufferSize = vsnprintf(nullptr, 0, format, args) + 1;
+        size_t bufferSize = vsnprintf(nullptr, 0, format, targs) + 1;
+        va_end(targs);
+
         std::vector<char> buffer;
         buffer.resize(bufferSize);
         vsnprintf(buffer.data(), bufferSize, format, args);
@@ -232,7 +237,7 @@ namespace CodeGenerator
         }
         else
         {
-            printf("Generated File: %s (%s be added to the build)", fileName.c_str(), shouldBeAddedToBuild ? "should" : "should not");
+            printf("Generated File: %s (%s be added to the build)\n", fileName.c_str(), shouldBeAddedToBuild ? "should" : "should not");
         }
     }
 

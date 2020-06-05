@@ -13,53 +13,50 @@
 
 #include "EditorBaseShapeComponent.h"
 #include "CapsuleShapeComponent.h"
+#include <AzFramework/Entity/EntityDebugDisplayBus.h>
 #include <LmbrCentral/Shape/CapsuleShapeComponentBus.h>
 
 namespace LmbrCentral
 {
     class EditorCapsuleShapeComponent
         : public EditorBaseShapeComponent
-        , public CapsuleShape
+        , private AzFramework::EntityDebugDisplayEventBus::Handler
     {
     public:
-
         AZ_EDITOR_COMPONENT(EditorCapsuleShapeComponent, EditorCapsuleShapeComponentTypeId, EditorBaseShapeComponent);
         static void Reflect(AZ::ReflectContext* context);
 
-        ~EditorCapsuleShapeComponent() override = default;
+        EditorCapsuleShapeComponent() = default;
 
-        ////////////////////////////////////////////////////////////////////////
-        // EditorComponentBase implementation
-        void BuildGameEntity(AZ::Entity* gameEntity) override;
-        ////////////////////////////////////////////////////////////////////////
-
-        ////////////////////////////////////////////////////////////////////////
-        void DrawShape(AzFramework::EntityDebugDisplayRequests* displayContext) const override;
-        ////////////////////////////////////////////////////////////////////////        
-
-        //////////////////////////////////////////////////////////////////////////
-        // AZ::Component interface implementation
+        // AZ::Component
+        void Init() override;
         void Activate() override;
         void Deactivate() override;
-        //////////////////////////////////////////////////////////////////////////
-
-        // CapsuleShape
-        CapsuleShapeConfig& GetConfiguration() override { return m_configuration; }
 
     protected:
-
         static void GetProvidedServices(AZ::ComponentDescriptor::DependencyArrayType& provided)
         {
             EditorBaseShapeComponent::GetProvidedServices(provided);
             provided.push_back(AZ_CRC("CapsuleShapeService", 0x9bc1122c));
+            provided.push_back(AZ_CRC("AreaLightShapeService", 0x68ea78dc));
         }
 
-        AZ::Crc32 OnConfigurationChanged();
+        // EditorComponentBase
+        void BuildGameEntity(AZ::Entity* gameEntity) override;
 
     private:
-        void ConfigurationChanged();
+        AZ_DISABLE_COPY_MOVE(EditorCapsuleShapeComponent)
 
-        //! Stores configuration of a capsule for this component
-        CapsuleShapeConfig m_configuration;
+        // AzFramework::EntityDebugDisplayEventBus
+        void DisplayEntityViewport(
+            const AzFramework::ViewportInfo& viewportInfo,
+            AzFramework::DebugDisplayRequests& debugDisplay) override;
+
+        AZ::Crc32 ConfigurationChanged();
+        void ClampHeight();
+        void GenerateVertices();
+
+        CapsuleShape m_capsuleShape; ///< Stores underlying capsule representation for this component.
+        ShapeMesh m_capsuleShapeMesh; ///< Buffer to hold index and vertex data for CapsuleShape when drawing.
     };
 } // namespace LmbrCentral

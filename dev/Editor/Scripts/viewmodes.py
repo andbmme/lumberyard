@@ -11,12 +11,12 @@
 import sys
 import itertools
 from tools_shelf_actions import *
-
+import azlmbr.legacy.general as general
 
 if len(sys.argv) > 1:
 	mode = sys.argv[1]
 	if mode == 'Fullshading':
-		general.set_cvar('r_DebugGBuffer', 0)	
+		updateCvars('r_DebugGBuffer', 0)
 	elif mode == 'Normals':
 		toggleCvarsValue('mode_%s' % mode, 'r_DebugGBuffer', 1, 0)
 	elif mode == 'Smoothness':
@@ -45,8 +45,6 @@ if len(sys.argv) > 1:
 		toggleCvarsValue('mode_%s' % mode, 'r_showlines', 2, 0)
 	elif mode == 'wireframe':
 		toggleCvarsValue('mode_%s' % mode, 'r_wireframe', 1, 0)
-	elif mode == 'Vnormals':	
-		toggleCvarsValue('mode_%s' % mode, 'r_shownormals', 1, 0)
 	elif mode == 'Tangents':
 		toggleCvarsValue('mode_%s' % mode, 'r_ShowTangents', 1, 0)	
 	elif mode == 'texelspermeter360':
@@ -59,3 +57,8 @@ if len(sys.argv) > 1:
 		cycleCvarsIntValue("e_DebugDraw", [0, 3, -3])
 	elif mode == 'lods_level':
 		cycleCvarsIntValue("e_LodMin", [0, 1, 2, 3, 4, 5])
+	elif mode == 'default_view':
+		for cVars in ['r_DebugGBuffer', 'e_defaultmaterial', 'r_TexBindMode',
+					  'p_draw_helpers', 'r_showlines', 'r_wireframe', 'r_shownormals',
+					  'r_ShowTangents', 'r_TexelsPerMeter', 'e_DebugDraw', 'e_LodMin']:
+			restoreDefaultValue(cVars)

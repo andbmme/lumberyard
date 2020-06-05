@@ -14,7 +14,7 @@
 
 #include <GridMate/Memory.h>
 #include <AzCore/std/string/string.h>
-
+#include <AzCore/std/string/conversions.h>  // for getting from string->wstring and backwards
 
 namespace GridMate
 {

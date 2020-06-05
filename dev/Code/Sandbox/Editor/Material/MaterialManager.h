@@ -55,7 +55,7 @@ enum EHighlightMode
     eHighlight_All = 0xFFFFFFFF
 };
 
-
+AZ_PUSH_DISABLE_DLL_EXPORT_BASECLASS_WARNING
 /** Manages all entity prototypes and material libraries.
 */
 class CRYEDIT_API CMaterialManager
@@ -67,6 +67,7 @@ class CRYEDIT_API CMaterialManager
     , public AzFramework::AssetCatalogEventBus::Handler
     , public AzToolsFramework::EditorEvents::Bus::Handler
 {
+AZ_POP_DISABLE_DLL_EXPORT_BASECLASS_WARNING
 public:
 
     //! Notification callback.
@@ -209,7 +210,7 @@ protected:
     void GenerateUniqueSubmaterialName(const CMaterial* pSourceMaterial, const CMaterial* pTargetMaterial, QString& uniqueSubmaterialName) const;
 
     // Open save as dialog for saving materials.
-    bool SelectSaveMaterial(QString& itemName, const char* defaultStartPath);
+    bool SelectSaveMaterial(QString& itemName, QString& fullPath, const char* defaultStartPath);
 
     void OnEditorNotifyEvent(EEditorNotifyEvent event);
 

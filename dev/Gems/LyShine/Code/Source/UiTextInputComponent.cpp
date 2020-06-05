@@ -36,6 +36,7 @@
 #include "UiSerialize.h"
 #include "Sprite.h"
 #include "StringUtfUtils.h"
+#include "UiClipboard.h"
 
 namespace
 {
@@ -176,6 +177,7 @@ UiTextInputComponent::UiTextInputComponent()
     , m_replacementCharacter(defaultReplacementChar)
     , m_isPasswordField(false)
     , m_clipInputText(true)
+    , m_enableClipboard(true)
 {
 }
 
@@ -329,7 +331,7 @@ bool UiTextInputComponent::HandleTextInput(const AZStd::string& inputTextUTF8)
 
     bool changedText = false;
 
-    if (inputTextUTF8 == "\b")
+    if (inputTextUTF8 == "\b" || inputTextUTF8 == "\x7f")
     {
         // backspace pressed, delete character before cursor or the selected range
         if (m_textCursorPos > 0 || m_textCursorPos != m_textSelectionStartPos)
@@ -411,6 +413,7 @@ bool UiTextInputComponent::HandleKeyInputBegan(const AzFramework::InputChannel::
     int oldTextSelectionStartPos = m_textSelectionStartPos;
 
     const bool isShiftModifierActive = (static_cast<int>(activeModifierKeys) & static_cast<int>(AzFramework::ModifierKeyMask::ShiftAny)) != 0;
+    const bool isLCTRLModifierActive = (static_cast<int>(activeModifierKeys) & static_cast<int>(AzFramework::ModifierKeyMask::CtrlAny)) != 0;
     const UiNavigationHelpers::Command command = UiNavigationHelpers::MapInputChannelIdToUiNavigationCommand(inputSnapshot.m_channelId, activeModifierKeys);
     if (command == UiNavigationHelpers::Command::Enter)
     {
@@ -601,6 +604,65 @@ bool UiTextInputComponent::HandleKeyInputBegan(const AzFramework::InputChannel::
         if (!isShiftModifierActive)
         {
             m_textSelectionStartPos = m_textCursorPos;
+        }
+    }
+    else if (m_enableClipboard && (inputSnapshot.m_channelId == AzFramework::InputDeviceKeyboard::Key::AlphanumericC) && isLCTRLModifierActive)
+    {
+        AZStd::string textString;
+        EBUS_EVENT_ID_RESULT(textString, m_textEntity, UiTextBus, GetText);
+        if (textString.length() > 0 && m_textCursorPos != m_textSelectionStartPos)
+        {
+            int left = min(m_textCursorPos, m_textSelectionStartPos);
+            int right = max(m_textCursorPos, m_textSelectionStartPos);
+            UiClipboard::SetText(textString.substr(left, right - left));
+        }
+    }
+    else if (m_enableClipboard && (inputSnapshot.m_channelId == AzFramework::InputDeviceKeyboard::Key::AlphanumericX) && isLCTRLModifierActive)
+    {
+        AZStd::string textString;
+        EBUS_EVENT_ID_RESULT(textString, m_textEntity, UiTextBus, GetText);
+        if (textString.length() > 0 && m_textCursorPos != m_textSelectionStartPos)
+        {
+            int left = min(m_textCursorPos, m_textSelectionStartPos);
+            int right = max(m_textCursorPos, m_textSelectionStartPos);
+            UiClipboard::SetText(textString.substr(left, right - left));
+            textString.erase(left, right - left);
+            m_textCursorPos = m_textSelectionStartPos = left;
+
+            ChangeText(textString);
+            ResetCursorBlink();
+        }
+    }
+    else if (m_enableClipboard && (inputSnapshot.m_channelId == AzFramework::InputDeviceKeyboard::Key::AlphanumericV) && isLCTRLModifierActive)
+    {
+        auto clipboardText = UiClipboard::GetText();
+        if (clipboardText.length() > 0)
+        {
+            AZStd::string textString;
+            EBUS_EVENT_ID_RESULT(textString, m_textEntity, UiTextBus, GetText);
+
+            // If a range is selected then erase that first
+            if (m_textCursorPos != m_textSelectionStartPos)
+            {
+                int left = min(m_textCursorPos, m_textSelectionStartPos);
+                int right = max(m_textCursorPos, m_textSelectionStartPos);
+                textString.erase(left, right - left);
+                m_textCursorPos = m_textSelectionStartPos = left;
+            }
+
+            // Append text from clipboard
+            textString.insert(m_textCursorPos, clipboardText);
+            m_textCursorPos += clipboardText.length();
+            m_textSelectionStartPos = m_textCursorPos;
+
+            // If max length is set, remove extra characters
+            if (m_maxStringLength >= 0 && textString.length() > m_maxStringLength)
+            {
+                textString.resize(m_maxStringLength);
+            }
+
+            ChangeText(textString);
+            ResetCursorBlink();
         }
     }
     else
@@ -926,6 +988,18 @@ void UiTextInputComponent::SetPlaceHolderTextEntity(AZ::EntityId textEntity)
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+bool UiTextInputComponent::GetIsClipboardEnabled()
+{
+    return m_enableClipboard;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+void UiTextInputComponent::SetIsClipboardEnabled(bool enableClipboard)
+{
+    m_enableClipboard = enableClipboard;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
 // PROTECTED MEMBER FUNCTIONS
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -1207,6 +1281,7 @@ void UiTextInputComponent::Reflect(AZ::ReflectContext* context)
             ->Field("IsPasswordField", &UiTextInputComponent::m_isPasswordField)
             ->Field("ReplacementCharacter", &UiTextInputComponent::m_replacementCharacter)
             ->Field("ClipInputText", &UiTextInputComponent::m_clipInputText)
+            ->Field("EnableClipboard", &UiTextInputComponent::m_enableClipboard)
         // Actions group
             ->Field("ChangeAction", &UiTextInputComponent::m_changeAction)
             ->Field("EndEditAction", &UiTextInputComponent::m_endEditAction)
@@ -1218,6 +1293,7 @@ void UiTextInputComponent::Reflect(AZ::ReflectContext* context)
             auto editInfo = ec->Class<UiTextInputComponent>("TextInput", "An interactable component for editing a text string.");
 
             editInfo->ClassElement(AZ::Edit::ClassElements::EditorData, "")
+                ->Attribute(AZ::Edit::Attributes::Category, "UI")
                 ->Attribute(AZ::Edit::Attributes::Icon, "Editor/Icons/Components/UiTextInput.png")
                 ->Attribute(AZ::Edit::Attributes::ViewportIcon, "Editor/Icons/Components/Viewport/UiTextInput.png")
                 ->Attribute(AZ::Edit::Attributes::AppearsInAddComponentMenu, AZ_CRC("UI", 0x27ff46b0))
@@ -1261,6 +1337,8 @@ void UiTextInputComponent::Reflect(AZ::ReflectContext* context)
                     ->Attribute(AZ::Edit::Attributes::Visibility, &UiTextInputComponent::GetIsPasswordField);
                 editInfo->DataElement(AZ::Edit::UIHandlers::CheckBox, &UiTextInputComponent::m_clipInputText,
                     "Clip input text", "When checked, the input text is clipped to this element's rect.");
+                editInfo->DataElement(AZ::Edit::UIHandlers::CheckBox, &UiTextInputComponent::m_enableClipboard,
+                    "Enable clipboard", "When checked, Ctrl-C, Ctrl-X, and Ctrl-V events will be handled");
             }
 
             // Actions group
@@ -1279,7 +1357,6 @@ void UiTextInputComponent::Reflect(AZ::ReflectContext* context)
     if (behaviorContext)
     {
         behaviorContext->EBus<UiTextInputBus>("UiTextInputBus")
-            ->Attribute(AZ::Script::Attributes::ExcludeFrom, AZ::Script::Attributes::ExcludeFlags::Preview)
             ->Event("GetTextSelectionColor", &UiTextInputBus::Events::GetTextSelectionColor)
             ->Event("SetTextSelectionColor", &UiTextInputBus::Events::SetTextSelectionColor)
             ->Event("GetTextCursorColor", &UiTextInputBus::Events::GetTextCursorColor)
@@ -1304,6 +1381,8 @@ void UiTextInputComponent::Reflect(AZ::ReflectContext* context)
             ->Event("SetIsPasswordField", &UiTextInputBus::Events::SetIsPasswordField)
             ->Event("GetReplacementCharacter", &UiTextInputBus::Events::GetReplacementCharacter)
             ->Event("SetReplacementCharacter", &UiTextInputBus::Events::SetReplacementCharacter)
+            ->Event("GetIsClipboardEnabled", &UiTextInputBus::Events::GetIsClipboardEnabled)
+            ->Event("SetIsClipboardEnabled", &UiTextInputBus::Events::SetIsClipboardEnabled)
             ->VirtualProperty("TextSelectionColor", "GetTextSelectionColor", "SetTextSelectionColor")
             ->VirtualProperty("TextCursorColor", "GetTextCursorColor", "SetTextCursorColor")
             ->VirtualProperty("CursorBlinkInterval", "GetCursorBlinkInterval", "SetCursorBlinkInterval")
@@ -1312,7 +1391,6 @@ void UiTextInputComponent::Reflect(AZ::ReflectContext* context)
         behaviorContext->Class<UiTextInputComponent>()->RequestBus("UiTextInputBus");
 
         behaviorContext->EBus<UiTextInputNotificationBus>("UiTextInputNotificationBus")
-            ->Attribute(AZ::Script::Attributes::ExcludeFrom, AZ::Script::Attributes::ExcludeFlags::Preview)
             ->Handler<BehaviorUiTextInputNotificationBusHandler>();
     }
 }
@@ -1376,6 +1454,10 @@ void UiTextInputComponent::CheckStartTextInput()
         EBUS_EVENT_ID(GetEntityId(), UiTransformBus, GetViewportSpacePoints, rectPoints);
         const AZ::Vector2 bottomRight = rectPoints.GetAxisAlignedBottomRight();
         options.m_normalizedMinY = bottomRight.GetY() / static_cast<float>(gEnv->pRenderer->GetHeight());
+
+        AZ::EntityId canvasEntityId;
+        EBUS_EVENT_ID_RESULT(canvasEntityId, GetEntityId(), UiElementBus, GetCanvasEntityId);
+        EBUS_EVENT_ID_RESULT(options.m_localUserId, canvasEntityId, UiCanvasBus, GetLocalUserIdInputFilter);
 
         AzFramework::InputTextEntryRequestBus::Broadcast(&AzFramework::InputTextEntryRequests::TextEntryStart, options);
 

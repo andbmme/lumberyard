@@ -44,7 +44,7 @@
 #include "Controls/TransitionEditorPage.h"
 #include "Controls/PreviewerPage.h"
 #include "Objects/ObjectLayerManager.h"
-#include "../objects/EntityObject.h"
+#include "../Objects/EntityObject.h"
 #include "QtViewPaneManager.h"
 
 #include <QCloseEvent>
@@ -1092,18 +1092,18 @@ void CMannequinDialog::OnInitDialog()
     m_central->addTab(m_wndTransitionEditorPage, m_wndTransitionEditorPage->windowTitle());
     m_central->addTab(m_wndPreviewerPage, m_wndPreviewerPage->windowTitle());
     m_central->addTab(m_wndErrorReport, m_wndErrorReport->windowTitle());
-    connect(m_central, &QTabWidget::currentChanged, [=]()
+    connect(m_central, &QTabWidget::currentChanged, m_central, [=]()
         {
-		QWidget* current = m_central->currentWidget();
-		for (int i = 0; i < m_central->count(); ++i)
-		{
-			QWidget* widget = m_central->widget(i);
-			if (widget->metaObject()->indexOfSlot("slotVisibilityChanged(bool)") != -1)
+        QWidget* current = m_central->currentWidget();
+        for (int i = 0; i < m_central->count(); ++i)
+        {
+            QWidget* widget = m_central->widget(i);
+            if (widget->metaObject()->indexOfSlot("slotVisibilityChanged(bool)") != -1)
                 {
-				QMetaObject::invokeMethod(widget, "slotVisibilityChanged", Q_ARG(bool, widget == current));
-		}
+                QMetaObject::invokeMethod(widget, "slotVisibilityChanged", Q_ARG(bool, widget == current));
+        }
             }
-	});
+    });
 
     setCentralWidget(m_central);
 
@@ -2049,8 +2049,8 @@ void CMannequinDialog::PopulateTagList(const CTagDefinition* tagDef)
 //////////////////////////////////////////////////////////////////////////
 void CMannequinDialog::RefreshTagsPanel()
 {
-	m_wndTagsPanel->DeleteVars();
-	m_wndTagsPanel->SetVarBlock(m_tagVars.get(), functor(*this, &CMannequinDialog::OnInternalVariableChange));
+    m_wndTagsPanel->DeleteVars();
+    m_wndTagsPanel->SetVarBlock(m_tagVars.get(), functor(*this, &CMannequinDialog::OnInternalVariableChange));
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -2175,6 +2175,7 @@ namespace MannequinInfoHelper
 
     void OnAnimAssetReport(const SAnimAssetReport& animAssetReport, void* const pCallbackData)
     {
+#if defined(EDITOR_PCDEBUGCODE)
         SAnimAssetCollector* const pCollector = static_cast<SAnimAssetCollector*>(pCallbackData);
         SAnimAssetReportData reportData;
         reportData.assetReport = animAssetReport;
@@ -2194,6 +2195,7 @@ namespace MannequinInfoHelper
             subReportData.assetReport.pAnimPath = pCollector->animSet.GetFilePathByID(subAnimID);
             pCollector->assetList.push_back(subReportData);
         }
+#endif // EDITOR_PCDEBUGCODE
     }
 
     void ListUsedAnimationsHeader(QIODevice* pFile)

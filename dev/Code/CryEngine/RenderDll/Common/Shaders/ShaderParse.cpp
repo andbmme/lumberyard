@@ -227,14 +227,14 @@ SShaderGenBit* CShaderMan::mfCompileShaderGenProperty(char* scr)
                     shgm->m_nDependencySet |= SHGD_USER_ENABLED;
                 }
                 else
-                if (!azstricmp(data, "$HW_DURANGO")) // ACCEPTED_USE
+                if (!azstricmp(data, "$HW_DURANGO"))
                 {
-                    shgm->m_nDependencySet |= SHGD_HW_DURANGO; // ACCEPTED_USE
+                    shgm->m_nDependencySet |= SHGD_HW_DURANGO;
                 }
                 else
-                if (!azstricmp(data, "$HW_ORBIS")) // ACCEPTED_USE
+                if (!azstricmp(data, "$HW_ORBIS"))
                 {
-                    shgm->m_nDependencySet |= SHGD_HW_ORBIS; // ACCEPTED_USE
+                    shgm->m_nDependencySet |= SHGD_HW_ORBIS;
                 }
                 else
                 if (!azstricmp(data, "$HW_DX11"))
@@ -403,14 +403,14 @@ SShaderGenBit* CShaderMan::mfCompileShaderGenProperty(char* scr)
                     shgm->m_nDependencyReset |= SHGD_HW_METAL;
                 }
                 else
-                if (!azstricmp(data, "$HW_DURANGO")) // ACCEPTED_USE
+                if (!azstricmp(data, "$HW_DURANGO"))
                 {
-                    shgm->m_nDependencyReset |= SHGD_HW_DURANGO; // ACCEPTED_USE
+                    shgm->m_nDependencyReset |= SHGD_HW_DURANGO;
                 }
                 else
-                if (!azstricmp(data, "$HW_ORBIS")) // ACCEPTED_USE
+                if (!azstricmp(data, "$HW_ORBIS"))
                 {
-                    shgm->m_nDependencyReset |= SHGD_HW_ORBIS; // ACCEPTED_USE
+                    shgm->m_nDependencyReset |= SHGD_HW_ORBIS;
                 }
                 else
                 if (!azstricmp(data, "$TEX_Emittance"))
@@ -742,26 +742,25 @@ uint64 CShaderMan::mfGetShaderGlobalMaskGenFromString(const char* szShaderGen)
     return nMaskGen;
 }
 
-const char* CShaderMan::mfGetShaderBitNamesFromGlobalMaskGen(uint64 nMaskGen)
+AZStd::string CShaderMan::mfGetShaderBitNamesFromGlobalMaskGen(uint64 nMaskGen)
 {
     if (!nMaskGen)
     {
         return "\0";
     }
 
-    static string pszShaderBitNames;
-    pszShaderBitNames = "\0";
+    AZStd::string shaderBitNames = "\0";
     MapNameFlagsItor pIter = m_pShaderCommonGlobalFlag.begin();
     MapNameFlagsItor pEnd = m_pShaderCommonGlobalFlag.end();
     for (; pIter != pEnd; ++pIter)
     {
         if (nMaskGen & pIter->second)
         {
-            pszShaderBitNames += pIter->first.c_str();
+            shaderBitNames += pIter->first.c_str();
         }
     }
 
-    return pszShaderBitNames.c_str();
+    return shaderBitNames;
 }
 
 uint64 CShaderMan::mfGetRemapedShaderMaskGen(const char* szName, uint64 nMaskGen, bool bFixup)

@@ -22,7 +22,9 @@
 #include <IStatObj.h>
 #include "ObjMan.h"
 #include "MatMan.h"
-#include "terrain.h"
+
+#include <AzFramework/Terrain/TerrainDataRequestBus.h>
+
 #include "RenderMeshMerger.h"
 #include "RenderMeshUtils.h"
 #include "VisAreas.h"
@@ -729,28 +731,43 @@ bool CDecalManager::Spawn(CryEngineDecalInfo DecalInfo, CDecal* pCallerManagedDe
     }
     else
     {
-        CTerrain* pTerrain = GetTerrain();
-        if (!DecalInfo.preventDecalOnGround && DecalInfo.fSize > (fWrapMinSize * 2.f) && !DecalInfo.ownerInfo.pRenderNode &&
-            (DecalInfo.vPos.z - pTerrain->GetBilinearZ(DecalInfo.vPos.x, DecalInfo.vPos.y)) < DecalInfo.fSize && !DecalInfo.bDeferred)
+        bool isHole = true;
+        auto enumerationCallback = [&](AzFramework::Terrain::TerrainDataRequests* terrain) -> bool
         {
-            newDecal.m_eDecalType = eDecalType_WS_OnTheGround;
-
-            int nUnitSize = CTerrain::GetHeightMapUnitSize();
-            int x1 = int(DecalInfo.vPos.x - DecalInfo.fSize) / nUnitSize * nUnitSize - nUnitSize;
-            int x2 = int(DecalInfo.vPos.x + DecalInfo.fSize) / nUnitSize * nUnitSize + nUnitSize;
-            int y1 = int(DecalInfo.vPos.y - DecalInfo.fSize) / nUnitSize * nUnitSize - nUnitSize;
-            int y2 = int(DecalInfo.vPos.y + DecalInfo.fSize) / nUnitSize * nUnitSize + nUnitSize;
-
-            for (int x = x1; x <= x2; x += CTerrain::GetHeightMapUnitSize())
+            isHole = false;
+            if (!DecalInfo.preventDecalOnGround && DecalInfo.fSize > (fWrapMinSize * 2.f) && !DecalInfo.ownerInfo.pRenderNode &&
+                (DecalInfo.vPos.z - terrain->GetHeightFromFloats(DecalInfo.vPos.x, DecalInfo.vPos.y)) < DecalInfo.fSize && !DecalInfo.bDeferred)
             {
-                for (int y = y1; y <= y2; y += CTerrain::GetHeightMapUnitSize())
+                newDecal.m_eDecalType = eDecalType_WS_OnTheGround;
+
+                const AZ::Vector2 terrainGridResolution = terrain->GetTerrainGridResolution();
+                const float unitSizeX = terrainGridResolution.GetX();
+                const float unitSizeY = terrainGridResolution.GetY();
+
+                const float x1 = (DecalInfo.vPos.x - DecalInfo.fSize) / unitSizeX * unitSizeX - unitSizeX;
+                const float x2 = (DecalInfo.vPos.x + DecalInfo.fSize) / unitSizeX * unitSizeX + unitSizeX;
+                const float y1 = (DecalInfo.vPos.y - DecalInfo.fSize) / unitSizeY * unitSizeY - unitSizeY;
+                const float y2 = (DecalInfo.vPos.y + DecalInfo.fSize) / unitSizeY * unitSizeY + unitSizeY;
+
+                for (float x = x1; x <= x2; x += unitSizeX)
                 {
-                    if (pTerrain->IsHole(x, y))
+                    for (float y = y1; y <= y2; y += unitSizeY)
                     {
-                        return false;
+                        if (terrain->GetIsHoleFromFloats(x, y))
+                        {
+                            isHole = true;
+                            return false;
+                        }
                     }
                 }
             }
+            // Only one handler should exist.
+            return false;
+        };
+        AzFramework::Terrain::TerrainDataRequestBus::EnumerateHandlers(enumerationCallback);
+        if (isHole)
+        {
+            return false;
         }
         else
         {
@@ -1326,7 +1343,7 @@ void CDecalManager::FillBigDecalIndices(IRenderMesh* pRM, Vec3 vPos, float fRadi
                             hwvec3 triBBoxMin2 = HWVMin(meshBBoxMin, v2);
 
                             meshBBoxMax = HWVMax(triBBoxMax1, triBBoxMax2);
-                            meshBBoxMax = HWVMin(triBBoxMin1, triBBoxMin2);
+                            meshBBoxMin = HWVMin(triBBoxMin1, triBBoxMin2);
 
                             usedTriangles++;
                         }
@@ -1450,7 +1467,7 @@ void CDecalManager::FillBigDecalIndices(IRenderMesh* pRM, Vec3 vPos, float fRadi
                             hwvec3 triBBoxMin2 = HWVMin(meshBBoxMin, v2);
 
                             meshBBoxMax = HWVMax(triBBoxMax1, triBBoxMax2);
-                            meshBBoxMax = HWVMin(triBBoxMin1, triBBoxMin2);
+                            meshBBoxMin = HWVMin(triBBoxMin1, triBBoxMin2);
 
                             usedTriangles++;
                         }
@@ -1485,7 +1502,7 @@ void CDecalManager::FillBigDecalIndices(IRenderMesh* pRM, Vec3 vPos, float fRadi
                         hwvec3 triBBoxMin2 = HWVMin(meshBBoxMin, v2);
 
                         meshBBoxMax = HWVMax(triBBoxMax1, triBBoxMax2);
-                        meshBBoxMax = HWVMin(triBBoxMin1, triBBoxMin2);
+                        meshBBoxMin = HWVMin(triBBoxMin1, triBBoxMin2);
 
                         //                      triBBoxMax = HWVMax(triBBoxMax, v2);
                         //                      triBBoxMin = HWVMin(triBBoxMin, v2);

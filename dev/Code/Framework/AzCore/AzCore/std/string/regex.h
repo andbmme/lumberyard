@@ -9,8 +9,7 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
-#ifndef AZSTD_REGEX_H
-#define AZSTD_REGEX_H
+#pragma once
 
 #include <AzCore/std/base.h>
 #include <AzCore/std/algorithm.h>
@@ -22,10 +21,7 @@
 #include <AzCore/std/containers/vector.h>
 #include <AzCore/Memory/SystemAllocator.h>
 
-#if    defined(AZ_PLATFORM_LINUX) || defined(AZ_PLATFORM_ANDROID) || defined(AZ_PLATFORM_APPLE)
-#   include <limits.h>
-#   include <limits>
-#endif
+#include <limits>
 
 // used for std::pointer_traits \note do an AZStd version
 #include <memory>
@@ -44,9 +40,9 @@
  #endif /* AZ_REGEX_MAX_STACK_COUNT */
 
 /**
- * Cx11 Regular expressions based on STL from (MS,Sony,etc.). All allocations are piped trough the system allocator by default.
+ * Cx11 Regular expressions based on STL from manufacturers. All allocations are piped through the system allocator by default.
  * we don't use std::locale/std::facet/std::collate/etc. as the facets do allocate global memory which is freed atexit(). This of course
- * is not complaint with our allocation schema.
+ * is not compliant with our allocation schema.
  */
 namespace AZStd
 {
@@ -735,7 +731,6 @@ namespace AZStd
             return (*this);
         }
 
-#if defined(AZ_HAS_RVALUE_REFS)
         match_results(this_type&& right)
             : m_isReady(right.m_isReady)
             , m_original(right.m_original)
@@ -759,7 +754,6 @@ namespace AZStd
             }
             return (*this);
         }
-#endif //
 
         bool ready() const              { return m_isReady; }
 
@@ -1346,6 +1340,8 @@ namespace AZStd
         typedef AZ_REGEX_DIFFT (ForwardIterator) DiffType;
 
         Builder(const RegExTraits& traits, regex_constants::syntax_option_type);
+        ~Builder();
+
         bool BeginExpression() const;
         void SetLong();
         void DiscardPattern();
@@ -1740,7 +1736,6 @@ namespace AZStd
             Reset(right.m_rootNode);
         }
 
-#if defined(AZ_HAS_RVALUE_REFS)
         basic_regex(this_type&& right)
             : m_rootNode(nullptr)
             , m_error(nullptr)
@@ -1771,7 +1766,6 @@ namespace AZStd
             _Assign_rv(AZStd:: move(right));
             return (*this);
         }
-#endif // AZ_HAS_RVALUE_REFS
 
         ~basic_regex()
         {   // destroy the object
@@ -2628,6 +2622,16 @@ namespace AZStd
     }
 
     template<class ForwardIterator, class Element, class RegExTraits>
+    inline Builder<ForwardIterator, Element, RegExTraits>::~Builder()
+    {
+        if (m_root && m_root->m_refs == 0)
+        {
+            DestroyNode(m_root);
+        }
+    }
+
+
+    template<class ForwardIterator, class Element, class RegExTraits>
     inline void Builder<ForwardIterator, Element, RegExTraits>::SetLong()
     {   // set flag
         m_root->m_flags |= NFLG_longest;
@@ -2865,7 +2869,7 @@ namespace AZStd
         int m_max = BITMAP_max;             // to quiet diagnostics
         NodeClass<Element, RegExTraits>* node = (NodeClass<Element, RegExTraits>*)m_current;
         AddElts(node, _Cl, m_traits);
-        if (static_cast<Element>(m_max) < std::numeric_limits<Element>::max())
+        if (static_cast<Element>(m_max) < (std::numeric_limits<Element>::max)())
         {
             node->_Classes = (RegexTraitsBase::char_class_type)(node->_Classes | _Cl);
         }
@@ -2906,7 +2910,7 @@ namespace AZStd
                 node->m_small->Mark(ch);
             }
         }
-        if (static_cast<Element>(m_max) < std::numeric_limits<Element>::max())
+        if (static_cast<Element>(m_max) < (std::numeric_limits<Element>::max)())
         {   // map range
             RegExSequence<Element>** current = &node->m_equiv;
             CharToElts(first, last, diff, current);
@@ -4489,7 +4493,7 @@ namespace AZStd
             return _IdentityEscape();
         }
 
-        if (m_value < (int)std::numeric_limits<Element>::min() || (int)std::numeric_limits<Element>::max() < m_value)
+        if (m_value < (int)(std::numeric_limits<Element>::min)() || (int)(std::numeric_limits<Element>::max)() < m_value)
         {
             Error(regex_constants::error_escape);
         }
@@ -4771,10 +4775,3 @@ namespace AZStd
 #if defined(AZ_COMPILER_MSVC)
 #   pragma warning(pop)
 #endif // AZ_COMPILER_MSVC
-
-/*
- * Copyright (c) 1992-2012 by P.J. Plauger.  ALL RIGHTS RESERVED.
- * Consult your license regarding permissions and restrictions. V6.00:0009 */
-
-#endif // #ifndef AZSTD_REGEX_H
-#pragma once

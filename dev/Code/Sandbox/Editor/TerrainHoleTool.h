@@ -16,11 +16,16 @@
 
 #pragma once
 
+#include <AzCore/Component/Component.h>
+
 //////////////////////////////////////////////////////////////////////////
 class CTerrainHoleTool
     : public CEditTool
 {
     Q_OBJECT
+private:
+    friend class ScriptingBindings;
+
 public:
     Q_INVOKABLE CTerrainHoleTool();
     virtual ~CTerrainHoleTool();
@@ -53,9 +58,11 @@ public:
     void SetMakeHole(bool bEnable) { m_bMakeHole = bEnable; }
     bool GetMakeHole() { return m_bMakeHole; }
 
-    void Modify();
+    AZStd::pair<Vec2i, Vec2i> Modify();
 
 private:
+    bool UpdatePointerPos(CViewport* view, const QPoint& pos);
+
     bool CalculateHoleArea(Vec2i& min, Vec2i& max) const;
 
     Vec3 m_pointerPos;
@@ -66,5 +73,22 @@ private:
     class CTerrainHolePanel* m_panel;
 };
 
+//////////////////////////////////////////////////////////////////////////
+namespace AzToolsFramework
+{
+    //! A component to reflect scriptable commands for the Editor
+    class TerrainHoleToolPythonFuncsHandler
+        : public AZ::Component
+    {
+    public:
+        AZ_COMPONENT(TerrainHoleToolPythonFuncsHandler, "{9725BC25-846F-4AD6-9EE3-E1719E534FD2}")
+
+        static void Reflect(AZ::ReflectContext* context);
+
+        // AZ::Component ...
+        void Activate() override {}
+        void Deactivate() override {}
+    };
+} // namespace AzToolsFramework
 
 #endif // CRYINCLUDE_EDITOR_TERRAINHOLETOOL_H

@@ -17,18 +17,21 @@
 #include <QStyleOptionGraphicsItem>
 
 #include <Components/GridVisualComponent.h>
+#include <GraphCanvas/Editor/GraphCanvasProfiler.h>
+#include <GraphCanvas/Utils/QtDrawingUtils.h>
 
 namespace GraphCanvas
 {
     ////////////////////////
     // GridVisualComponent
     ////////////////////////
+
     void GridVisualComponent::Reflect(AZ::ReflectContext * context)
     {
         AZ::SerializeContext* serializeContext = azrtti_cast<AZ::SerializeContext*>(context);
         if (serializeContext)
         {
-            serializeContext->Class<GridVisualComponent>()
+            serializeContext->Class<GridVisualComponent, AZ::Component>()
                 ->Version(1)
                 ;
         }
@@ -75,6 +78,24 @@ namespace GraphCanvas
         return false;
     }
 
+    void GridVisualComponent::SetVisible(bool visible)
+    {
+        if (m_gridVisualUi)
+        {
+            m_gridVisualUi->setVisible(visible);
+        }        
+    }
+
+    bool GridVisualComponent::IsVisible() const
+    {
+        if (m_gridVisualUi)
+        {
+            return m_gridVisualUi->isVisible();
+        }
+
+        return false;
+    }
+
     QGraphicsItem* GridVisualComponent::GetRootGraphicsItem()
     {
         return m_gridVisualUi.get();
@@ -94,11 +115,42 @@ namespace GraphCanvas
         return false;
     }
 
+    QPainterPath GridVisualComponent::GetOutline() const
+    {
+        return QPainterPath();
+    }
+
+    void GridVisualComponent::SetZValue(qreal)
+    {
+    }
+
+    qreal GridVisualComponent::GetZValue() const
+    {
+        if (m_gridVisualUi)
+        {
+            return aznumeric_cast<int>(m_gridVisualUi->zValue());
+        }
+
+        return -10000;
+    }
+
     void GridVisualComponent::OnMajorPitchChanged(const AZ::Vector2& pitch)
     {
         if (!pitch.IsClose(m_majorPitch))
         {
             m_majorPitch = pitch;
+
+            // Clamp it to 1.0f
+            if (m_majorPitch.GetX() < 1.0f)
+            {
+                m_majorPitch.SetX(1.0f);
+            }
+
+            if (m_majorPitch.GetY() < 1.0f)
+            {
+                m_majorPitch.SetY(1.0f);
+            }
+
             if (m_gridVisualUi)
             {
                 m_gridVisualUi->update();
@@ -111,6 +163,17 @@ namespace GraphCanvas
         if (!pitch.IsClose(m_minorPitch))
         {
             m_minorPitch = pitch;
+
+            if (m_minorPitch.GetX() < 1.0f)
+            {
+                m_minorPitch.SetX(1.0f);
+            }
+
+            if (m_minorPitch.GetY() < 1.0f)
+            {
+                m_minorPitch.SetY(1.0f);
+            }
+
             if (m_gridVisualUi)
             {
                 m_gridVisualUi->update();
@@ -121,15 +184,23 @@ namespace GraphCanvas
     /////////////////////
     // GridGraphicsItem
     /////////////////////
+
+    const int GridGraphicsItem::k_stencilScaleFactor = 2;
+
     GridGraphicsItem::GridGraphicsItem(GridVisualComponent& gridVisual)
-        : RootVisualNotificationsHelper(gridVisual.GetEntityId())
+        : RootGraphicsItem(gridVisual.GetEntityId())
         , m_gridVisual(gridVisual)
     {
         setFlags(QGraphicsItem::ItemUsesExtendedStyleOption);
-        setCacheMode(QGraphicsItem::CacheMode::DeviceCoordinateCache);
         setZValue(-10000);
         setAcceptHoverEvents(false);
         setData(GraphicsItemName, QStringLiteral("DefaultGridVisual/%1").arg(static_cast<AZ::u64>(GetEntityId()), 16, 16, QChar('0')));
+        
+        m_levelOfDetails.resize(m_levelOfDetails.capacity());
+        for (int i = 0; i < m_levelOfDetails.size(); ++i)
+        {
+            m_levelOfDetails[i] = nullptr;
+        }
     }
 
     void GridGraphicsItem::Init()
@@ -145,10 +216,17 @@ namespace GraphCanvas
     {
         StyleNotificationBus::Handler::BusDisconnect();
     }
+    
+    QRectF GridGraphicsItem::GetBoundingRect() const
+    {
+        return boundingRect();
+    }
 
     void GridGraphicsItem::OnStyleChanged()
     {
         m_style.SetStyle(GetEntityId());
+        CacheStencils();
+        update();
     }
 
     QRectF GridGraphicsItem::boundingRect(void) const
@@ -158,63 +236,128 @@ namespace GraphCanvas
 
     void GridGraphicsItem::paint(QPainter* painter, const QStyleOptionGraphicsItem* option, QWidget* widget)
     {
-        painter->save();
-        painter->setClipRect(option->exposedRect);
+        GRAPH_CANVAS_DETAILED_PROFILE_FUNCTION();
+        int lod = 0;
 
-        QColor backgroundColor = m_style.GetColor(Styling::Attribute::BackgroundColor);
-        painter->fillRect(option->exposedRect, backgroundColor);
+        qreal width = option->exposedRect.width();
+        qreal height = option->exposedRect.height();
 
-        QPen majorPen = m_style.GetPen(Styling::Attribute::GridMajorWidth, Styling::Attribute::GridMajorStyle, Styling::Attribute::GridMajorColor, Styling::Attribute::CapStyle, true);
-        QPen minorPen = m_style.GetPen(Styling::Attribute::GridMinorWidth, Styling::Attribute::GridMinorStyle, Styling::Attribute::GridMinorColor, Styling::Attribute::CapStyle, true);
+        int numDraws = aznumeric_cast<int>(AZStd::max(ceil(height /static_cast<qreal>(m_gridVisual.m_majorPitch.GetY())) , ceil(width / static_cast<qreal>(m_gridVisual.m_majorPitch.GetX()))));
+                
+        while (numDraws > 10 && lod < (m_levelOfDetails.size() - 1))
+        {
+            lod++;
+            numDraws /= k_stencilScaleFactor;
+        }
 
-        qreal minimumVisualPitch = 5.;
-        GridRequestBus::EventResult(minimumVisualPitch, GetEntityId(), &GridRequests::GetMinimumVisualPitch);
+        QPixmap* pixmap = m_levelOfDetails[lod];
 
-        qreal lod = option->levelOfDetailFromTransform(painter->worldTransform());
-        if (m_gridVisual.m_majorPitch.GetX() * lod < minimumVisualPitch || m_gridVisual.m_majorPitch.GetY() * lod < minimumVisualPitch)
+        if (pixmap == nullptr)
         {
             return;
         }
 
-        bool drawMinor = (m_gridVisual.m_minorPitch.GetX() * lod) >= minimumVisualPitch &&
-            (m_gridVisual.m_minorPitch.GetY() * lod) >= minimumVisualPitch;
-        qreal integral = std::floor(option->exposedRect.left() / m_gridVisual.m_majorPitch.GetX());
+        int gridStartX = aznumeric_cast<int>(option->exposedRect.left());
+        gridStartX -= gridStartX % static_cast<int>(m_gridVisual.m_majorPitch.GetX());
+
+        // Offset by one major step to give a buffer when dealing with negative values to avoid making this super complicated
+        gridStartX = aznumeric_cast<int>(gridStartX - m_gridVisual.m_majorPitch.GetX());
 
 
-        QSizeF size = boundingRect().size() / 2.;
 
-        for (qreal x = (integral - 1.) * m_gridVisual.m_majorPitch.GetX(); x <= option->exposedRect.right(); x += m_gridVisual.m_majorPitch.GetX())
+        int gridStartY = aznumeric_cast<int>(option->exposedRect.top());
+        gridStartY -= gridStartY % static_cast<int>(m_gridVisual.m_majorPitch.GetY());
+
+        // Offset by one major step to give a buffer when dealing with negative values to avoid making this super complicated
+        gridStartY = aznumeric_cast<int>(gridStartY - m_gridVisual.m_majorPitch.GetY());
+
+        int terminalY = aznumeric_cast<int>(option->exposedRect.bottom() + m_gridVisual.m_majorPitch.GetY());
+
+        QRectF patternFillRect(QPointF(gridStartX, gridStartY), QPointF(option->exposedRect.right(), terminalY));
+
+        PatternFillConfiguration patternFillConfiguration;
+        patternFillConfiguration.m_minimumTileRepetitions = 1;
+        patternFillConfiguration.m_evenRowOffsetPercent = 0.0f;
+        patternFillConfiguration.m_oddRowOffsetPercent = 0.0f;
+
+        QtDrawingUtils::PatternFillArea((*painter), patternFillRect, (*pixmap), patternFillConfiguration);
+    }
+
+    void GridGraphicsItem::CacheStencils()
+    {
+        int stencilSize = 1;
+
+        int majorX = aznumeric_cast<int>(m_gridVisual.m_majorPitch.GetX());
+        int majorY = aznumeric_cast<int>(m_gridVisual.m_majorPitch.GetY());
+
+        int minorX = aznumeric_cast<int>(m_gridVisual.m_minorPitch.GetX());
+        int minorY = aznumeric_cast<int>(m_gridVisual.m_minorPitch.GetY());
+
+        int totalSizeX = majorX * stencilSize;
+        int totalSizeY = majorY * stencilSize;
+
+        delete m_levelOfDetails[0];
+        QPixmap* stencil = new QPixmap(totalSizeX, totalSizeY);
+        m_levelOfDetails[0] = stencil;
+
+        QPainter painter(stencil);
+        QColor backgroundColor = m_style.GetColor(Styling::Attribute::BackgroundColor);
+
+        painter.fillRect(0, 0, majorX, majorY, backgroundColor);
+
+        QPen majorPen = m_style.GetPen(Styling::Attribute::GridMajorWidth, Styling::Attribute::GridMajorStyle, Styling::Attribute::GridMajorColor, Styling::Attribute::CapStyle, true);
+        QPen minorPen = m_style.GetPen(Styling::Attribute::GridMinorWidth, Styling::Attribute::GridMinorStyle, Styling::Attribute::GridMinorColor, Styling::Attribute::CapStyle, true);
+
+        painter.setPen(majorPen);
+
+        for (int i = 0; i <= totalSizeX; i += majorX)
         {
-            painter->setPen(majorPen);
-            painter->drawLine(QPointF{ x, -size.height() }, QPointF{ x, size.height() });
-
-            if (drawMinor)
-            {
-                painter->setPen(minorPen);
-                for (qreal minorX = x + m_gridVisual.m_minorPitch.GetX(); minorX < x + m_gridVisual.m_majorPitch.GetX(); minorX += m_gridVisual.m_minorPitch.GetX())
-                {
-                    painter->drawLine(QPointF{ minorX, -size.height() }, QPointF{ minorX, size.height() });
-                }
-            }
+            painter.drawLine(QPoint(i, 0), QPoint(i, majorY));
         }
 
-        integral = std::floor(option->exposedRect.top() / m_gridVisual.m_majorPitch.GetY());
-
-        for (qreal y = (integral - 1.) * m_gridVisual.m_majorPitch.GetY(); y <= option->exposedRect.bottom(); y += m_gridVisual.m_majorPitch.GetY())
+        for (int i = 0; i <= totalSizeY; i += majorY)
         {
-            painter->setPen(majorPen);
-            painter->drawLine(QPointF{ -size.width(), y }, QPointF{ size.width(), y });
-
-            if (drawMinor)
-            {
-                painter->setPen(minorPen);
-                for (qreal minorY = y + m_gridVisual.m_minorPitch.GetY(); minorY < y + m_gridVisual.m_majorPitch.GetY(); minorY += m_gridVisual.m_minorPitch.GetY())
-                {
-                    painter->drawLine(QPointF{ -size.width(), minorY }, QPointF{ size.width(), minorY });
-                }
-            }
+            painter.drawLine(QPoint(0, i), QPoint(majorX, i));
         }
 
-        painter->restore();
+        painter.setPen(minorPen);
+
+        for (int i = minorX; i < totalSizeX; i += minorX)
+        {
+            if (i % majorX == 0)
+            {
+                continue;
+            }
+
+            painter.drawLine(QPoint(i, 0), QPoint(i, majorY));
+        }
+
+        for (int i = minorY; i < totalSizeY; i += minorY)
+        {
+            if (i % majorY == 0)
+            {
+                continue;
+            }
+
+            painter.drawLine(QPoint(0, i), QPoint(majorX, i));
+        }
+
+        PatternFillConfiguration patternFillConfiguration;
+        patternFillConfiguration.m_minimumTileRepetitions = 1;
+        patternFillConfiguration.m_evenRowOffsetPercent = 0.0f;
+        patternFillConfiguration.m_oddRowOffsetPercent = 0.0f;
+
+        for (int i = 1; i < m_levelOfDetails.size(); ++i)
+        {
+            QPixmap* drawStencil = m_levelOfDetails[i - 1];
+
+            delete m_levelOfDetails[i];
+            QPixmap* paintStencil = new QPixmap(drawStencil->width() * k_stencilScaleFactor, drawStencil->height() * k_stencilScaleFactor);
+            m_levelOfDetails[i] = paintStencil;
+
+            QPainter localPainter(paintStencil);
+
+            QtDrawingUtils::PatternFillArea(localPainter, paintStencil->rect(), (*drawStencil), patternFillConfiguration);
+        }
     }
 }

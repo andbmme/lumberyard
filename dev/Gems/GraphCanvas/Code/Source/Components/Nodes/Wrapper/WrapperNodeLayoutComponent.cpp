@@ -23,14 +23,18 @@
 #include <Components/Nodes/Wrapper/WrapperNodeLayoutComponent.h>
 
 #include <Components/Nodes/NodeComponent.h>
+#include <Components/Nodes/NodeLayerControllerComponent.h>
 #include <Components/Nodes/General/GeneralNodeFrameComponent.h>
 #include <Components/Nodes/General/GeneralSlotLayoutComponent.h>
 #include <Components/Nodes/General/GeneralNodeTitleComponent.h>
 #include <Components/StylingComponent.h>
 #include <GraphCanvas/Components/GeometryBus.h>
 #include <GraphCanvas/Components/Slots/SlotBus.h>
+#include <GraphCanvas/Components/VisualBus.h>
+#include <GraphCanvas/Editor/GraphModelBus.h>
 #include <GraphCanvas/tools.h>
-#include <Styling/StyleHelper.h>
+#include <GraphCanvas/Styling/StyleHelper.h>
+#include <GraphCanvas/Utils/GraphUtils.h>
 
 namespace GraphCanvas
 {    
@@ -72,7 +76,6 @@ namespace GraphCanvas
         m_layout->updateGeometry();
 
         updateGeometry();
-        adjustSize();
         update();
     }
     
@@ -97,9 +100,8 @@ namespace GraphCanvas
                 {
                     m_layout->addItem(rootLayoutItem);
                 }
-            }
-            
-            adjustSize();
+            }            
+
             updateGeometry();
             update();
         }
@@ -272,7 +274,7 @@ namespace GraphCanvas
                 ->Field("LayoutOrder", &WrappedNodeConfiguration::m_layoutOrder)
                 ->Field("ElementOrder", &WrappedNodeConfiguration::m_elementOrdering)
             ;
-            serializeContext->Class<WrapperNodeLayoutComponent>()
+            serializeContext->Class<WrapperNodeLayoutComponent, NodeLayoutComponent>()
                 ->Version(2)
                 ->Field("ElementOrdering", &WrapperNodeLayoutComponent::m_elementCounter)
                 ->Field("WrappedNodeConfigurations", &WrapperNodeLayoutComponent::m_wrappedNodeConfigurations)
@@ -290,6 +292,7 @@ namespace GraphCanvas
         entity->CreateComponent<WrapperNodeLayoutComponent>();
         entity->CreateComponent<GeneralNodeTitleComponent>();
         entity->CreateComponent<GeneralSlotLayoutComponent>();
+        entity->CreateComponent<NodeLayerControllerComponent>();
 
         return entity;
     }
@@ -305,10 +308,9 @@ namespace GraphCanvas
 
     WrapperNodeLayoutComponent::~WrapperNodeLayoutComponent()
     {
-        ClearLayout();
     }
-	
-	void WrapperNodeLayoutComponent::Init()
+
+    void WrapperNodeLayoutComponent::Init()
     {
         NodeLayoutComponent::Init();
 
@@ -328,6 +330,7 @@ namespace GraphCanvas
     {
         NodeLayoutComponent::Activate();
 
+        SceneMemberNotificationBus::MultiHandler::BusConnect(GetEntityId());
         NodeNotificationBus::MultiHandler::BusConnect(GetEntityId());
         WrapperNodeRequestBus::Handler::BusConnect(GetEntityId());
     }
@@ -339,6 +342,7 @@ namespace GraphCanvas
         NodeLayoutComponent::Deactivate();
 
         NodeNotificationBus::MultiHandler::BusDisconnect();
+        SceneMemberNotificationBus::MultiHandler::BusDisconnect();
 
         WrapperNodeRequestBus::Handler::BusDisconnect();
         StyleNotificationBus::Handler::BusDisconnect();
@@ -359,7 +363,9 @@ namespace GraphCanvas
         if (m_wrappedNodeConfigurations.find(nodeId) == m_wrappedNodeConfigurations.end())
         {
             NodeNotificationBus::MultiHandler::BusConnect(nodeId);
-            NodeNotificationBus::Event(nodeId, &NodeNotifications::OnNodeWrapped, GetEntityId());
+            SceneMemberNotificationBus::MultiHandler::BusConnect(nodeId);
+
+            NodeRequestBus::Event(nodeId, &NodeRequests::SetWrappingNode, GetEntityId());
             WrapperNodeNotificationBus::Event(GetEntityId(), &WrapperNodeNotifications::OnWrappedNode, nodeId);
 
             m_wrappedNodeConfigurations[nodeId] = nodeConfiguration;
@@ -372,6 +378,11 @@ namespace GraphCanvas
 
             NodeUIRequestBus::Event(GetEntityId(), &NodeUIRequests::AdjustSize);
 
+            RootGraphicsItemEnabledState enabledState = RootGraphicsItemEnabledState::ES_Enabled;
+            RootGraphicsItemRequestBus::EventResult(enabledState, GetEntityId(), &RootGraphicsItemRequests::GetEnabledState);
+
+            RootGraphicsItemRequestBus::Event(nodeId, &RootGraphicsItemRequests::SetEnabledState, enabledState);
+
             RefreshActionStyle();
         }
     }
@@ -382,8 +393,9 @@ namespace GraphCanvas
 
         if (configurationIter != m_wrappedNodeConfigurations.end())
         {
+            SceneMemberNotificationBus::MultiHandler::BusDisconnect(nodeId);
             NodeNotificationBus::MultiHandler::BusDisconnect(nodeId);
-            NodeNotificationBus::Event(nodeId, &NodeNotifications::OnNodeUnwrapped, GetEntityId());
+            NodeRequestBus::Event(nodeId, &NodeRequests::SetWrappingNode, AZ::EntityId());
             WrapperNodeNotificationBus::Event(GetEntityId(), &WrapperNodeNotifications::OnUnwrappedNode, nodeId);
 
             m_wrappedNodes.erase(nodeId);
@@ -393,8 +405,21 @@ namespace GraphCanvas
 
             NodeUIRequestBus::Event(GetEntityId(), &NodeUIRequests::AdjustSize);
 
+            // If we unwrap something just set it to enabled.
+            RootGraphicsItemRequestBus::Event(nodeId, &RootGraphicsItemRequests::SetEnabledState, RootGraphicsItemEnabledState::ES_Enabled);
+
             RefreshActionStyle();
         }
+    }
+
+    void WrapperNodeLayoutComponent::SetWrapperType(const AZ::Crc32& wrapperType)
+    {
+        m_wrapperType = wrapperType;
+    }
+
+    AZ::Crc32 WrapperNodeLayoutComponent::GetWrapperType() const
+    {
+        return m_wrapperType;
     }
 
     void WrapperNodeLayoutComponent::OnNodeActivated()
@@ -407,62 +432,23 @@ namespace GraphCanvas
         }
     }
 
-    void WrapperNodeLayoutComponent::OnNodeAboutToSerialize(SceneSerialization& sceneSerialization)
-    {
-        AZ::EntityId nodeId = (*NodeNotificationBus::GetCurrentBusId());
-
-        if (nodeId == GetEntityId())
-        {
-            for (const AZ::EntityId& entityId : m_wrappedNodes)
-            {
-                AZ::Entity* wrappedNodeEntity = nullptr;
-                AZ::ComponentApplicationBus::BroadcastResult(wrappedNodeEntity, &AZ::ComponentApplicationRequests::FindEntity, entityId);
-
-                sceneSerialization.GetSceneData().m_nodes.insert(wrappedNodeEntity);
-            }
-        }
-    }
-
-    void WrapperNodeLayoutComponent::OnNodeDeserialized(const SceneSerialization& sceneSerialization)
-    {
-        AZ::EntityId nodeId = (*NodeNotificationBus::GetCurrentBusId());
-
-        if (nodeId == GetEntityId())
-        {
-            m_elementCounter = 0;
-            m_wrappedNodes.clear();
-
-            WrappedNodeConfigurationMap oldConfigurations = m_wrappedNodeConfigurations;
-            m_wrappedNodeConfigurations.clear();
-
-            for (auto& configurationPair : oldConfigurations)
-            {
-                if (sceneSerialization.FindRemappedEntityId(configurationPair.first).IsValid())
-                {
-                    m_wrappedNodeConfigurations.insert(configurationPair);
-                    m_wrappedNodes.insert(configurationPair.first);
-                }
-            }
-        }
-    }
-
     void WrapperNodeLayoutComponent::OnAddedToScene(const AZ::EntityId& sceneId)
     {
         AZ::EntityId nodeId = (*NodeNotificationBus::GetCurrentBusId());
 
         if (nodeId == GetEntityId())
         {
-            for (const AZ::EntityId& node : m_wrappedNodes)
+            for (const AZ::EntityId& wrappedNodeId : m_wrappedNodes)
             {
-                NodeNotificationBus::MultiHandler::BusConnect(node);
+                NodeNotificationBus::MultiHandler::BusConnect(wrappedNodeId);
 
                 // Test to make sure the node is activated before we signal out anything to it.
                 //
                 // We listen for when the node activates, so these calls will be handled there.
-                if (NodeRequestBus::FindFirstHandler(node) != nullptr)
+                if (NodeRequestBus::FindFirstHandler(wrappedNodeId) != nullptr)
                 {
-                    NodeNotificationBus::Event(node, &NodeNotifications::OnNodeWrapped, GetEntityId());
-                    WrapperNodeNotificationBus::Event(GetEntityId(), &WrapperNodeNotifications::OnWrappedNode, node);
+                    NodeRequestBus::Event(wrappedNodeId, &NodeRequests::SetWrappingNode, GetEntityId());
+                    WrapperNodeNotificationBus::Event(GetEntityId(), &WrapperNodeNotifications::OnWrappedNode, wrappedNodeId);
                 }
             }
 
@@ -479,7 +465,7 @@ namespace GraphCanvas
         }
         else
         {
-            NodeNotificationBus::Event(nodeId, &NodeNotifications::OnNodeWrapped, GetEntityId());
+            NodeRequestBus::Event(nodeId, &NodeRequests::SetWrappingNode, GetEntityId());
             WrapperNodeNotificationBus::Event(GetEntityId(), &WrapperNodeNotifications::OnWrappedNode, nodeId);
 
             // Sort ick, but should work for now.
@@ -488,12 +474,52 @@ namespace GraphCanvas
         }
     }
 
-    void WrapperNodeLayoutComponent::OnRemovedFromScene(const AZ::EntityId& sceneId)
+    void WrapperNodeLayoutComponent::OnSceneMemberAboutToSerialize(GraphSerialization& sceneSerialization)
     {
-        AZ::EntityId nodeId = (*NodeNotificationBus::GetCurrentBusId());
+        AZ::EntityId nodeId = (*SceneMemberNotificationBus::GetCurrentBusId());
 
         if (nodeId == GetEntityId())
         {
+            AZStd::unordered_set<AZ::EntityId> memberIds;
+            memberIds.insert(m_wrappedNodes.begin(), m_wrappedNodes.end());
+
+            GraphUtils::ParseMembersForSerialization(sceneSerialization, memberIds);
+        }
+    }
+
+    void WrapperNodeLayoutComponent::OnSceneMemberDeserialized(const AZ::EntityId& graphId, const GraphSerialization& sceneSerialization)
+    {
+        AZ::EntityId nodeId = (*SceneMemberNotificationBus::GetCurrentBusId());
+
+        if (nodeId == GetEntityId())
+        {
+            m_elementCounter = 0;
+            m_wrappedNodes.clear();
+
+            WrappedNodeConfigurationMap oldConfigurations = m_wrappedNodeConfigurations;
+            m_wrappedNodeConfigurations.clear();
+
+            for (const auto& configurationPair : oldConfigurations)
+            {
+                if (sceneSerialization.FindRemappedEntityId(configurationPair.first).IsValid())
+                {
+                    m_wrappedNodeConfigurations.insert(configurationPair);
+                    m_wrappedNodes.insert(configurationPair.first);
+                }
+            }
+        }
+    }
+
+    void WrapperNodeLayoutComponent::OnRemovedFromScene(const AZ::EntityId& sceneId)
+    {
+        AZ::EntityId nodeId = (*SceneMemberNotificationBus::GetCurrentBusId());
+
+        if (nodeId == GetEntityId())
+        {
+            // We are about to remove everything.
+            // So we don't really need to update ourselves to keep our state in order.
+            SceneMemberNotificationBus::MultiHandler::BusDisconnect();
+
             AZStd::unordered_set< AZ::EntityId > deleteNodes(m_wrappedNodes.begin(), m_wrappedNodes.end());
             SceneRequestBus::Event(sceneId, &SceneRequests::Delete, deleteNodes);
         }
@@ -518,7 +544,7 @@ namespace GraphCanvas
         m_wrapperNodeActionWidget->RefreshStyle();
 
         RefreshDisplay();
-    }
+    }    
 
     void WrapperNodeLayoutComponent::RefreshActionStyle()
     {
@@ -538,11 +564,11 @@ namespace GraphCanvas
         SceneMemberRequestBus::EventResult(sceneId, GetEntityId(), &SceneMemberRequests::GetScene);
 
         bool shouldAcceptDrop = false;
-        WrapperNodeActionRequestBus::EventResult(shouldAcceptDrop, sceneId, &WrapperNodeActionRequests::ShouldAcceptDrop, GetEntityId(), mimeData);
+        GraphModelRequestBus::EventResult(shouldAcceptDrop, sceneId, &GraphModelRequests::ShouldWrapperAcceptDrop, GetEntityId(), mimeData);
 
         if (shouldAcceptDrop)
         {
-            WrapperNodeActionRequestBus::Event(sceneId, &WrapperNodeActionRequests::AddWrapperDropTarget, GetEntityId());
+            GraphModelRequestBus::Event(sceneId, &GraphModelRequests::AddWrapperDropTarget, GetEntityId());
         }
         return shouldAcceptDrop;
     }
@@ -552,7 +578,7 @@ namespace GraphCanvas
         AZ::EntityId sceneId;
         SceneMemberRequestBus::EventResult(sceneId, GetEntityId(), &SceneMemberRequests::GetScene);
 
-        WrapperNodeActionRequestBus::Event(sceneId, &WrapperNodeActionRequests::RemoveWrapperDropTarget, GetEntityId());
+        GraphModelRequestBus::Event(sceneId, &GraphModelRequests::RemoveWrapperDropTarget, GetEntityId());
     }
 
     void WrapperNodeLayoutComponent::OnActionWidgetClicked(const QPointF& scenePoint, const QPoint& screenPoint) const

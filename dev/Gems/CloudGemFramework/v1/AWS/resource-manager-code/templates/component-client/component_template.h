@@ -28,22 +28,28 @@
 #include <AzCore/std/string/conversions.h>
 
 #if defined (PLATFORM_SUPPORTS_AWS_NATIVE_SDK)
+// The AWS Native SDK AWSAllocator triggers a warning due to accessing members of std::allocator directly.
+// AWSAllocator.h(70): warning C4996: 'std::allocator<T>::pointer': warning STL4010: Various members of std::allocator are deprecated in C++17.
+// Use std::allocator_traits instead of accessing these members directly.
+// You can define _SILENCE_CXX17_OLD_ALLOCATOR_MEMBERS_DEPRECATION_WARNING or _SILENCE_ALL_CXX17_DEPRECATION_WARNINGS to acknowledge that you have received this warning.
+AZ_PUSH_DISABLE_WARNING(4251 4996, "-Wunknown-warning-option")
 #include <aws/core/http/HttpRequest.h>
 #include <aws/core/http/HttpResponse.h>
+AZ_POP_DISABLE_WARNING
 #endif // (PLATFORM_SUPPORTS_AWS_NATIVE_SDK)
 
 #include <CloudGemFramework/ServiceRequestJob.h>
 
 {% if json_object.HasStdAfx %}
 #include "StdAfx.h"
-{% else %}
+{% elif json_object.DisabledPCH == False %}
 #include "{{ json_object.namespace }}_precompiled.h"
 {% endif %}
 
 
 namespace {{ json_object.namespace }} {
 namespace ServiceAPI {
-    {% for key, value in json_object.UUIDs.iteritems() %}
+    {% for key, value in json_object.UUIDs.items() %}
     extern const char* LmbrAWS_CodeGen_{{ key }}_UUID;
     {% endfor %}
 
@@ -71,7 +77,7 @@ namespace ServiceAPI {
         AZ_CLASS_ALLOCATOR({{ item.name }}, AZ::SystemAllocator, 0)
 
         {% for prop in item.props %}
-        {{ prop.type }} {{prop.name}};
+        {{ prop.type }} {{prop.name}}{{prop.init}};
         {% endfor %}
 
         bool OnJsonKey(const char* key, CloudGemFramework::JsonReader& reader);
@@ -232,7 +238,7 @@ namespace ServiceAPI {
             if (serializeContext)
             {
                 // we must include any fields we want to expose to the editor or lua in the serialize context
-                serializeContext->Class<{{ json_object.componentClass }}>()
+                serializeContext->Class<{{ json_object.componentClass }}, AZ::Component>()
                     ->Version(1);
 
                 AZ::EditContext* editContext = serializeContext->GetEditContext();

@@ -142,9 +142,9 @@ inline Quat w_dt(const Vec3& w, float dt)
     float wlen = w.len();
 
     // In some cases (likely due to low frame rates), the angular velocity can reach values so
-    // close to zero that the result of len() produces NaN.  Here is the safest place to guard
-    // against that NaN from propagating.
-    if (_isnan(wlen))
+    // close to zero that the result of len() produces an invalid number.  Here is the safest place to guard
+    // against invalid numbers from propagating.
+    if (!NumberValid(wlen))
     {
         return Quat(IDENTITY);
     }
@@ -511,8 +511,6 @@ real ComputeRc(RigidBody* body0, entity_contact** pContacts, int nAngContacts, i
 
 void InitContactSolver(float time_interval)
 {
-    MEMSTAT_CONTEXT(EMemStatContextTypes::MSC_Physics, 0, "Physics Contact Solver");
-
     int iCaller = get_iCaller_int();
     if (!g_RBdata[iCaller])
     {
@@ -1321,7 +1319,7 @@ got_solver_results:
         unsigned int iClass;
         int cgiter, bStateChanged, n1dofContacts, n2dofContacts, nAngContacts, nFric0Contacts, nFricInfContacts,
             nContacts, nRopes, iSortedContacts[7], flags, bNoImprovement;
-        real a, b, r2, r2new, pAp;
+        real a, b, r2, r2new = 0, pAp;
         body_helper* hbody0, * hbody1;
         float vmax = 0;
         Vec3 vreq;

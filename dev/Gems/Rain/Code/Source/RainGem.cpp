@@ -12,8 +12,6 @@
 #include "Rain_precompiled.h"
 #include <platform_impl.h>
 
-#include <FlowSystem/Nodes/FlowBaseNode.h>
-
 #include "RainGem.h"
 #include "Rain.h"
 
@@ -46,21 +44,20 @@ void RainGem::PostGameInit()
 {
     // Originally registered with REGISTER_GAME_OBJECT(pFramework, Rain, "Scripts/Entities/Environment/Rain.lua");
     // If more objects need registered, consider bringing the macro back along with the GameFactory wrapper.
-    IEntityClassRegistry::SEntityClassDesc clsDesc;
-    clsDesc.sName = "Rain";
-    clsDesc.sScriptFile = "Scripts/Entities/Environment/Rain.lua";
-    static LYGame::CRainCreator _creator;
-    GetISystem()->GetIGame()->GetIGameFramework()->GetIGameObjectSystem()->RegisterExtension("Rain", &_creator, &clsDesc);
+    if (GetISystem()->GetIGame() && GetISystem()->GetIGame()->GetIGameFramework())
+    {
+        IEntityClassRegistry::SEntityClassDesc clsDesc;
+        clsDesc.sName = "Rain";
+        clsDesc.sScriptFile = "Scripts/Entities/Environment/Rain.lua";
+        static LYGame::CRainCreator _creator;
+        GetISystem()->GetIGame()->GetIGameFramework()->GetIGameObjectSystem()->RegisterExtension("Rain", &_creator, &clsDesc);
+    }
 }
 
 void RainGem::OnSystemEvent(ESystemEvent event, UINT_PTR wparam, UINT_PTR lparam)
 {
     switch (event)
     {
-    case ESYSTEM_EVENT_FLOW_SYSTEM_REGISTER_EXTERNAL_NODES:
-        RegisterExternalFlowNodes();
-        break;
-
     case ESYSTEM_EVENT_GAME_POST_INIT:
         IComponentFactoryRegistry::RegisterAllComponentFactoryNodes(*gEnv->pEntitySystem->GetComponentFactoryRegistry());
         PostGameInit();

@@ -20,6 +20,7 @@
 #include <LyShine/Bus/UiCanvasBus.h>
 #include <LyShine/Bus/UiInteractableBus.h>
 #include <LyShine/Bus/UiAnimationBus.h>
+#include <LyShine/Bus/UiEditorCanvasBus.h>
 #include <LyShine/UiEntityContext.h>
 #include <LyShine/UiComponentTypes.h>
 
@@ -28,6 +29,14 @@
 #include "Animation/UiAnimationSystem.h"
 #include "UiLayoutManager.h"
 #include "UiNavigationHelpers.h"
+#include "RenderGraph.h"
+
+#ifndef _RELEASE
+#include "LyShineDebug.h"
+#endif
+#include "TextureAtlas/TextureAtlas.h"
+#include "TextureAtlas/TextureAtlasBus.h"
+#include "TextureAtlas/TextureAtlasNotificationBus.h"
 
 namespace AZ
 {
@@ -43,11 +52,15 @@ class UiCanvasComponent
     , public AZ::EntityBus::Handler
     , public UiAnimationBus::Handler
     , public UiInteractableActiveNotificationBus::Handler
+    , public ISystem::CrySystemNotificationBus::Handler
     , public IGameFrameworkListener
     , public IUiAnimationListener
+    , public UiEditorCanvasBus::Handler
+    , public UiCanvasComponentImplementationBus::Handler
 {
 public: // constants
     static const AZ::Vector2 s_defaultCanvasSize;
+    static const AZ::Color s_defaultGuideColor;
 
 public: // member functions
 
@@ -59,10 +72,7 @@ public: // member functions
 
     // UiCanvasInterface
 
-    void UpdateCanvas(float deltaTime, bool isInGame) override;
-    void RenderCanvas(bool isInGame, AZ::Vector2 viewportSize, bool displayBounds) override;
-
-    const string& GetPathname() override;
+    const AZStd::string& GetPathname() override;
     LyShine::CanvasId GetCanvasId() override;
 
     AZ::u64 GetUniqueCanvasId() override;
@@ -89,7 +99,7 @@ public: // member functions
     void FindElementsByName(const LyShine::NameType& name, LyShine::EntityArray& result) override;
     AZ::EntityId FindElementEntityIdByName(const LyShine::NameType& name) override;
     AZ::Entity* FindElementByHierarchicalName(const LyShine::NameType& name) override;
-    void FindElements(std::function<bool(const AZ::Entity*)> predicate, LyShine::EntityArray& result) override;
+    void FindElements(AZStd::function<bool(const AZ::Entity*)> predicate, LyShine::EntityArray& result) override;
 
     AZ::Entity* PickElement(AZ::Vector2 point) override;
     LyShine::EntityArray PickElements(const AZ::Vector2& bound0, const AZ::Vector2& bound1) override;
@@ -115,9 +125,11 @@ public: // member functions
     AZ::Vector2 GetCanvasSize() override;
     void SetCanvasSize(const AZ::Vector2& canvasSize) override;
     void SetTargetCanvasSize(bool isInGame, const AZ::Vector2& targetCanvasSize) override;
-    float GetUniformDeviceScale() override;
+    AZ::Vector2 GetDeviceScale() override;
     bool GetIsPixelAligned() override;
     void SetIsPixelAligned(bool isPixelAligned) override;
+    bool GetIsTextPixelAligned() override;
+    void SetIsTextPixelAligned(bool isTextPixelAligned) override;
     IUiAnimationSystem* GetAnimationSystem() override;
     bool GetEnabled() override;
     void SetEnabled(bool enabled) override;
@@ -129,8 +141,20 @@ public: // member functions
 
     bool GetIsPositionalInputSupported() override;
     void SetIsPositionalInputSupported(bool isSupported) override;
+    bool GetIsConsumingAllInputEvents() override;
+    void SetIsConsumingAllInputEvents(bool isConsuming) override;
+    bool GetIsMultiTouchSupported() override;
+    void SetIsMultiTouchSupported(bool isSupported) override;
     bool GetIsNavigationSupported() override;
     void SetIsNavigationSupported(bool isSupported) override;
+    float GetNavigationThreshold() override;
+    void SetNavigationThreshold(float navigationThreshold) override;
+    AZ::u64 GetNavigationRepeatDelay() override;
+    void SetNavigationRepeatDelay(AZ::u64 navigationRepeatDelay) override;
+    AZ::u64 GetNavigationRepeatPeriod() override;
+    void SetNavigationRepeatPeriod(AZ::u64 navigationRepeatPeriod) override;
+    AzFramework::LocalUserId GetLocalUserIdInputFilter() override;
+    void SetLocalUserIdInputFilter(AzFramework::LocalUserId localUserId) override;
 
     bool HandleInputEvent(const AzFramework::InputChannel::Snapshot& inputSnapshot,
         const AZ::Vector2* viewportPos = nullptr,
@@ -143,18 +167,13 @@ public: // member functions
     AZ::EntityId GetTooltipDisplayElement() override;
     void SetTooltipDisplayElement(AZ::EntityId entityId) override;
 
-    bool GetIsSnapEnabled() override;
-    void SetIsSnapEnabled(bool enabled) override;
-    float GetSnapDistance() override;
-    void SetSnapDistance(float distance) override;
-    float GetSnapRotationDegrees() override;
-    void SetSnapRotationDegrees(float degrees) override;
-
+    void ForceFocusInteractable(AZ::EntityId interactableId) override;
     void ForceActiveInteractable(AZ::EntityId interactableId, bool shouldStayActive, AZ::Vector2 point) override;
     AZ::EntityId GetHoverInteractable() override;
     void ForceHoverInteractable(AZ::EntityId interactableId) override;
+    void ClearAllInteractables() override;
+    void ForceEnterInputEventOnInteractable(AZ::EntityId interactableId) override;
 
-    void SetTransformsNeedRecomputeFlag() override;
     // ~UiCanvasInterface
 
     // EntityEvents
@@ -163,6 +182,7 @@ public: // member functions
 
     // UiAnimationInterface
     void StartSequence(const AZStd::string& sequenceName) override;
+    void PlaySequenceRange(const AZStd::string& sequenceName, float startTime, float endTime) override;
     void StopSequence(const AZStd::string& sequenceName) override;
     void AbortSequence(const AZStd::string& sequenceName) override;
     void PauseSequence(const AZStd::string& sequenceName) override;
@@ -172,6 +192,8 @@ public: // member functions
     void SetSequencePlayingSpeed(const AZStd::string& sequenceName, float speed) override;
     float GetSequencePlayingTime(const AZStd::string& sequenceName) override;
     bool IsSequencePlaying(const AZStd::string& sequenceName) override;
+    float GetSequenceLength(const AZStd::string& sequenceName) override;
+    void SetSequenceStopBehavior(IUiAnimationSystem::ESequenceStopBehavior stopBehavior) override;
     // ~UiAnimationInterface
 
     // UiInteractableActiveNotifications
@@ -179,13 +201,49 @@ public: // member functions
     void ActiveChanged(AZ::EntityId m_newActiveInteractable, bool shouldStayActive) override;
     // ~UiInteractableActiveNotifications
 
-    // IGameFrameworkListener
+    // IGameFrameworkListener / ISystem::CrySystemNotifications
     void OnPreRender() override;
-    // ~IGameFrameworkListener
+    // ~IGameFrameworkListener / ISystem::CrySystemNotifications
 
     // IUiAnimationListener
     void OnUiAnimationEvent(EUiAnimationEvent uiAnimationEvent, IUiAnimSequence* pAnimSequence) override;
     // ~IUiAnimationListener
+
+    // UiEditorCanvasInterface
+    bool GetIsSnapEnabled() override;
+    void SetIsSnapEnabled(bool enabled) override;
+    float GetSnapDistance() override;
+    void SetSnapDistance(float distance) override;
+    float GetSnapRotationDegrees() override;
+    void SetSnapRotationDegrees(float degrees) override;
+
+    AZStd::vector<float> GetHorizontalGuidePositions() override;
+    void AddHorizontalGuide(float position) override;
+    void RemoveHorizontalGuide(int index) override;
+    void SetHorizontalGuidePosition(int index, float position) override;
+    AZStd::vector<float> GetVerticalGuidePositions() override;
+    void AddVerticalGuide(float position) override;
+    void RemoveVerticalGuide(int index) override;
+    void SetVerticalGuidePosition(int index, float position) override;
+    void RemoveAllGuides() override;
+    AZ::Color GetGuideColor() override;
+    void SetGuideColor(const AZ::Color& color) override;
+    bool GetGuidesAreLocked() override;
+    void SetGuidesAreLocked(bool areLocked) override;
+    bool CheckForOrphanedElements() override;
+    void RecoverOrphanedElements() override;
+    void RemoveOrphanedElements() override;
+
+    void UpdateCanvasInEditorViewport(float deltaTime, bool isInGame) override;
+    void RenderCanvasInEditorViewport(bool isInGame, AZ::Vector2 viewportSize) override;
+    // ~UiEditorCanvasInterface
+
+    // UiCanvasComponentImplementationInterface
+    void MarkRenderGraphDirty() override;
+    // ~UiCanvasComponentImplementationInterface
+
+    void UpdateCanvas(float deltaTime, bool isInGame);
+    void RenderCanvas(bool isInGame, AZ::Vector2 viewportSize);
 
     AZ::Entity* GetRootElement() const;
 
@@ -193,7 +251,7 @@ public: // member functions
 
     //! Clone this canvas's entity and return the Canvas component
     //! (used when it is loaded from in game or for preview mode etc)
-    UiCanvasComponent* CloneAndInitializeCanvas(UiEntityContext* entityContext, const string& assetIdPathname, const AZ::Vector2* canvasSize = nullptr);
+    UiCanvasComponent* CloneAndInitializeCanvas(UiEntityContext* entityContext, const AZStd::string& assetIdPathname, const AZ::Vector2* canvasSize = nullptr);
 
     //! Deactivate all elements. Used when queuing a canvas up for deletion
     void DeactivateElements();
@@ -202,6 +260,38 @@ public: // member functions
 
     //! Get the mapping from editor EntityId to game EntityId. This will be empty for canvases loaded for editing
     AZ::SliceComponent::EntityIdToEntityIdMap GetEditorToGameEntityIdMap() { return m_editorToGameEntityIdMap; }
+
+    void ScheduleElementForTransformRecompute(UiElementComponent* elementComponent);
+    void UnscheduleElementForTransformRecompute(UiElementComponent* elementComponent);
+
+    //! Queue an element to be destroyed at end of frame
+    void ScheduleElementDestroy(AZ::EntityId entityId);
+
+#ifndef _RELEASE
+    struct DebugInfoNumElements
+    {
+        int m_numElements;
+        int m_numEnabledElements;
+        int m_numRenderElements;
+        int m_numRenderControlElements;
+        int m_numImageElements;
+        int m_numTextElements;
+        int m_numMaskElements;
+        int m_numFaderElements;
+        int m_numInteractableElements;
+        int m_numUpdateElements;
+    };
+
+    void GetDebugInfoInteractables(AZ::EntityId& activeInteractable,  AZ::EntityId& hoverInteractable) const;
+    void GetDebugInfoNumElements(DebugInfoNumElements& info) const;
+    void GetDebugInfoRenderGraph(LyShineDebug::DebugInfoRenderGraph& info) const;
+    void DebugInfoCountChildren(const AZ::EntityId entity, bool parentEnabled, DebugInfoNumElements& info) const;
+
+    void DebugReportDrawCalls(AZ::IO::HandleType fileHandle, LyShineDebug::DebugInfoDrawCallReport& reportInfo, void* context) const;
+
+    void DebugDisplayElemBounds(IDraw2d* draw2d) const;
+    void DebugDisplayChildElemBounds(IDraw2d* draw2d, const AZ::EntityId entity) const;
+#endif
 
 public: // static member functions
 
@@ -231,10 +321,7 @@ public: // static member functions
         const AZ::SliceComponent::EntityIdToEntityIdMap* previousRemapTable = nullptr, AZ::EntityId previousCanvasId = AZ::EntityId());
     static UiCanvasComponent* FixupReloadedCanvasForEditorInternal(AZ::Entity* newCanvasEntity,
         AZ::Entity* rootSliceEntity, UiEntityContext* entityContext,
-        LyShine::CanvasId existingId, const string& existingPathname);
-
-    // Console variable
-    DeclareStaticConstIntCVar(CV_ui_DisplayElemBounds, 0);
+        LyShine::CanvasId existingId, const AZStd::string& existingPathname);
 
 protected: // member functions
 
@@ -247,6 +334,11 @@ protected: // member functions
 private: // member functions
 
     AZ_DISABLE_COPY_MOVE(UiCanvasComponent);
+
+    // Texture Atlas loading
+    void LoadAtlases();
+    void UnloadAtlases();
+    void ReloadAtlases();
 
     // handle events for this canvas
     bool HandleHoverInputEvent(AZ::Vector2 point);
@@ -261,9 +353,14 @@ private: // member functions
     // A key was pressed to transfer hover to the ancestor interactable
     bool PassHoverToAncestorByKeyInput(const AzFramework::InputChannel::Snapshot& inputSnapshot);
 
-    // Code shared by HandleInputEvent and HandleTouchEvent
+    // Code shared by all positional input events
     bool HandlePrimaryPress(AZ::Vector2 point);
+    bool HandlePrimaryUpdate(AZ::Vector2 point);
     bool HandlePrimaryRelease(AZ::Vector2 point);
+    bool HandleMultiTouchPress(AZ::Vector2 point, int multiTouchIndex);
+    bool HandleMultiTouchRelease(AZ::Vector2 point, int multiTouchIndex);
+    bool HandleMultiTouchUpdated(AZ::Vector2 point, int multiTouchIndex);
+    bool IsInteractableActiveOrPressed(AZ::EntityId interactableId) const;
 
     // Functions to change the hover and active interactables
     void SetHoverInteractable(AZ::EntityId interactableId);
@@ -272,7 +369,7 @@ private: // member functions
     void ClearActiveInteractable();
 
     //! Check if the hover interactable is set to auto-activate, and if so activate it
-    void CheckHoverInteractableAndAutoActivate(AZ::EntityId prevHoverInteractable = AZ::EntityId(), UiNavigationHelpers::Command command = UiNavigationHelpers::Command::Unknown);
+    void CheckHoverInteractableAndAutoActivate(AZ::EntityId prevHoverInteractable = AZ::EntityId(), UiNavigationHelpers::Command command = UiNavigationHelpers::Command::Unknown, bool forceAutoActivate = false);
 
     //! Check if the active interactable has a descendant interactable. If it does,
     //! make the descendant the hover interactable and clear the active interactable
@@ -309,10 +406,12 @@ private: // member functions
     using EntityComboBoxVec = AZStd::vector< AZStd::pair< AZ::EntityId, AZStd::string > >;
     EntityComboBoxVec PopulateNavigableEntityList();
     EntityComboBoxVec PopulateTooltipDisplayEntityList();
+    void OnPixelAlignmentChange();
+    void OnTextPixelAlignmentChange();
 
     void CreateRenderTarget();
     void DestroyRenderTarget();
-    void RenderCanvasToTexture(bool displayBounds);
+    void RenderCanvasToTexture();
 
     bool SaveCanvasToFile(const string& pathname, AZ::DataStream::StreamType streamType);
     bool SaveCanvasToStream(AZ::IO::GenericStream& stream, AZ::DataStream::StreamType streamType);
@@ -327,8 +426,16 @@ private: // member functions
     //! Called on canvas initialization
     void InitializeLayouts();
 
+    //! Call InGamePostActivate on children first, then parent
+    void InGamePostActivateBottomUp(AZ::Entity* entity);
+
     //! Internal function for cloning an element
     AZ::Entity* CloneAndAddElementInternal(AZ::Entity* sourceEntity, AZ::Entity* parentEntity, AZ::Entity* insertBeforeEntity);
+
+    //! Get any orphaned elements caused by old bugs
+    void GetOrphanedElements(AZ::SliceComponent::EntityList& orphanedEntities);
+
+    void DestroyScheduledElements();
 
 private: // static member functions
 
@@ -346,18 +453,28 @@ private: // types
 
 private: // data
 
-    string m_pathname;              //! This is an asset ID pathname
+    AZStd::string m_pathname;              //! This is an asset ID pathname
     AZ::u64 m_uniqueId;
     AZ::EntityId m_rootElement;
     LyShine::ElementId m_lastElementId;
-    bool m_isPixelAligned;    //! if true all visual elements have their vertices snapped to the nearest pixel
+    bool m_isPixelAligned = true;       //! if true all visual elements have their vertices snapped to the nearest pixel
+    bool m_isTextPixelAligned = true;   //! if true all text is snapped to the nearest pixel
     AZ::EntityId m_firstHoverInteractable;
     bool m_isPositionalInputSupported = true;
+    bool m_isConsumingAllInputEvents = false;
+    bool m_isMultiTouchSupported = true;
     bool m_isNavigationSupported = true;
+    float m_navigationThreshold = 0.4f;
+    AZ::u64 m_navigationRepeatDelay = 300;
+    AZ::u64 m_navigationRepeatPeriod = 150;
+    AzFramework::LocalUserId m_localUserIdInputFilter = AzFramework::LocalUserIdAny;
     AZ::EntityId m_tooltipDisplayElement;
 
     AZ::Matrix4x4 m_canvasToViewportMatrix;
     AZ::Matrix4x4 m_viewportToCanvasMatrix;
+
+    AZStd::vector <AzFramework::SimpleAssetReference<TextureAtlasNamespace::TextureAtlasAsset>> m_atlasPathNames;  //! This is a list of filepaths for TextureAtlases
+    AZStd::vector<TextureAtlasNamespace::TextureAtlas*> m_atlases;
 
     // In the comments below an "interactable entity" is an entity that is connected to the
     // UiInteractableBus
@@ -382,16 +499,25 @@ private: // data
     //! If this is true the active interactable stays active after the release event
     bool m_activeInteractableShouldStayActive;
 
-    //! If true, when handling hover input events, allow invalidating the hover interactable.
-    //! Set to false when a key event occurs and back to true when handling hover
-    //! input events and the input position hovers over an interactable.
-    bool m_allowInvalidatingHoverInteractableOnHoverInput;
-
     //! True if the mouse is pressed or the enter key is down and there is an active interactable
     bool m_isActiveInteractablePressed;
 
     //! The last mouse position. Used to detect mouse movement
     AZ::Vector2 m_lastMousePosition;
+
+    //! A map of all interactables that have handled a multi-touch (non-primary) pressed
+    //! event but that are still waiting to receive the corresponding released event
+    AZStd::unordered_map<int, AZ::EntityId> m_multiTouchInteractablesByTouchIndex;
+
+    struct NavigationStatus
+    {
+        AZ::u64 lastNavigationTime;
+        int navigationCount;
+        bool allowNavigation;
+    };
+
+    //! The status of navigation in each direction
+    AZStd::unordered_map<UiNavigationHelpers::Command, NavigationStatus> m_navCommandStatus;
 
     LyShine::CanvasId m_id;
     int m_drawOrder;
@@ -414,7 +540,7 @@ private: // data
     //! In the editor this is always 1.0f
     //! In game it is the closer value to 1.0f of the two values m_viewportSize.x/m_canvasSize.x
     //! and m_viewportSize.y/m_canvasSize.y
-    float m_uniformDeviceScale;
+    AZ::Vector2 m_deviceScale;
 
     //! True if this canvas is loaded in game (including for Ctrl-G in Sandbox), false if open in the UI Editor
     bool m_isLoadedInGame;
@@ -449,16 +575,36 @@ private: // data
     float m_snapDistance;
     float m_snapRotationDegrees;
 
+    //! guides (editor-only)
+    AZStd::vector<float> m_horizontalGuidePositions;
+    AZStd::vector<float> m_verticalGuidePositions;
+    AZ::Color m_guideColor;
+    bool m_guidesAreLocked;
+
     UiEntityContext* m_entityContext;
     AZ::SliceComponent::EntityIdToEntityIdMap m_editorToGameEntityIdMap;
 
     //! This is an optimization to avoid visiting all elements multiple times every frame to see if any of them need recomputing
-    bool m_transformsNeedRecompute = true;
+    //! We use an intrusive_slist to avoid any memory allocations and also to cheaply be able to tell if an element is already in list
+    using ElementComponentSlist = AZStd::intrusive_slist<UiElementComponent, AZStd::slist_base_hook<UiElementComponent>>;
+    ElementComponentSlist m_elementsNeedingTransformRecompute;
+
+    //! Holds elements that are queued up to be deleted at end of frame
+    AZStd::vector<AZ::EntityId> m_elementsScheduledForDestroy;
 
 private: // static data
+
 
     //! If true update which element should be the hover interactable based on input position
     //! and notify the active interactable of position changes. Set to false when a key event
     //! occurs and back to true on mouse/touch activity.
     static bool s_handleHoverInputEvents;
+
+    //! If true, when handling hover input events, allow clearing the hover interactable if the mouse isn't
+    //! over any interactables. Set to false when a key event occurs and back to true when handling hover
+    //! input events and the input position hovers over an interactable.
+    static bool s_allowClearingHoverInteractableOnHoverInput;
+
+    LyShine::RenderGraph m_renderGraph; //!< the render graph for rendering the canvas, can be cached between frames
+    bool m_isRendering = false;
 };

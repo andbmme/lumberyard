@@ -34,7 +34,8 @@ TempFilePakExtraction::TempFilePakExtraction(const char* filename, const char* t
     }
 
     {
-        FILE* const fileOnDisk = fopen(m_strOriginalFileName.c_str(), "rb");
+        FILE* fileOnDisk = nullptr;
+        azfopen(&fileOnDisk, m_strOriginalFileName.c_str(), "rb");
         if (fileOnDisk)
         {
             fclose(fileOnDisk);
@@ -81,7 +82,8 @@ TempFilePakExtraction::TempFilePakExtraction(const char* filename, const char* t
 
             if (!FileUtil::FileExists(tempFullFileName.c_str()))
             {
-                FILE* const f = fopen(tempFullFileName.c_str(), "wb");
+                FILE* f = nullptr;
+                azfopen(&f, tempFullFileName.c_str(), "wb");
                 if (f)
                 {
                     fclose(f);

@@ -112,7 +112,8 @@ void CGameResourcesExporter::Save(const QString& outputDirectory)
             QString trgFileDir = Path::GetPath(trgFilename);
             CFileUtil::CreateDirectory(trgFileDir.toUtf8().data());
             // Create a file.
-            FILE* trgFile = fopen(trgFilename.toUtf8().data(), "wb");
+            FILE* trgFile = nullptr;
+            azfopen(&trgFile, trgFilename.toUtf8().data(), "wb");
             if (trgFile)
             {
                 // Save data to new file.
@@ -125,7 +126,7 @@ void CGameResourcesExporter::Save(const QString& outputDirectory)
     m_files.clear();
 }
 
-#if defined(WIN64) || defined(APPLE)
+#if defined(WIN64) || defined(APPLE) || defined(AZ_PLATFORM_LINUX)
 template <class Container1, class Container2>
 void Append(Container1& a, const Container2& b)
 {
@@ -254,7 +255,8 @@ void CGameResourcesExporter::ExportPerLayerResourceList()
         }
         if (!files.empty())
         {
-            FILE* file = fopen(listFilename.toUtf8().data(), "wt");
+            FILE* file = nullptr;
+            azfopen(&file, listFilename.toUtf8().data(), "wt");
             if (file)
             {
                 for (size_t c = 0; c < files.size(); c++)

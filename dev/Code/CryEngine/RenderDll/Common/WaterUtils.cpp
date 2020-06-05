@@ -14,6 +14,23 @@
 #include "StdAfx.h"
 
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#undef AZ_RESTRICTED_SECTION
+#define WATERUTILS_CPP_SECTION_1 1
+#define WATERUTILS_CPP_SECTION_2 2
+#endif
+
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION WATERUTILS_CPP_SECTION_1
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/WaterUtils_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/WaterUtils_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/WaterUtils_cpp_salem.inl"
+    #endif
+#endif
+
 #include <complex>
 #include <AzCore/Jobs/LegacyJobExecutor.h>
 
@@ -441,6 +458,16 @@ public:
                 float fAngularFreq = pK.w * fTime; //GetTermAngularFreq(fKLen)
 
                 float fAngularFreqSin = 0, fAngularFreqCos = 0;
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION WATERUTILS_CPP_SECTION_2
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/WaterUtils_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/WaterUtils_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/WaterUtils_cpp_salem.inl"
+    #endif
+#endif
                 sincos_tpl((f32)fAngularFreq, (f32*) &fAngularFreqSin, (f32*)&fAngularFreqCos);
 
                 complexF ep(fAngularFreqCos, fAngularFreqSin);
@@ -616,7 +643,6 @@ protected:
 
 void CWater::Create(float fA, float fWorldSizeX, float fWorldSizeY)
 {
-    MEMSTAT_CONTEXT(EMemStatContextTypes::MSC_Other, 0, "Water Sim");
     Release();
     m_pWaterSim = CryAlignedNew<CWaterSim>(); //::GetInstance();
     m_pWaterSim->Create(fA, fWorldSizeX, fWorldSizeY);

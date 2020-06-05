@@ -15,11 +15,17 @@
 #include "PropertyQTConstants.h"
 #include <QSlider>
 #include <QLineEdit>
+AZ_PUSH_DISABLE_WARNING(4251, "-Wunknown-warning-option") // 4251: 'QLayoutItem::align': class 'QFlags<Qt::AlignmentFlag>' needs to have dll-interface to be used by clients of class 'QLayoutItem'
 #include <QHBoxLayout>
+AZ_POP_DISABLE_WARNING
 #include <QTimer>
 #include <cfloat>
 #include <AzCore/Math/MathUtils.h>
 #include <AzCore/Math/VectorFloat.h>
+AZ_PUSH_DISABLE_WARNING(4244 4251, "-Wunknown-warning-option") // 4244: conversion from 'int' to 'float', possible loss of data
+                                                               // 4251: 'QInputEvent::modState': class 'QFlags<Qt::KeyboardModifier>' needs to have dll-interface to be used by clients of class 'QInputEvent'
+#include <QFocusEvent>
+AZ_POP_DISABLE_WARNING
 
 namespace AzToolsFramework
 {
@@ -45,6 +51,7 @@ namespace AzToolsFramework
         setFocusPolicy(m_pSpinBox->focusPolicy());
 
         connect(m_pSpinBox, SIGNAL(valueChanged(double)), this, SLOT(onChildSpinboxValueChange(double)));
+        connect(m_pSpinBox, &QDoubleSpinBox::editingFinished, this, &PropertyDoubleSpinCtrl::editingFinished);
     }
 
     QWidget* PropertyDoubleSpinCtrl::GetFirstInTabOrder()
@@ -63,8 +70,8 @@ namespace AzToolsFramework
 
     void PropertyDoubleSpinCtrl::setValue(double value)
     {
-
         value = AZ::ClampIfCloseMag(value, double(round(value)));
+
         bool notifyLater = false;
         m_pSpinBox->blockSignals(true);
 
@@ -80,12 +87,14 @@ namespace AzToolsFramework
             notifyLater = true;
         }
 
+        const double oldValue = m_pSpinBox->value();
         m_pSpinBox->setValue(value);
         m_pSpinBox->blockSignals(false);
 
-        if (notifyLater)
+        //the value didn't change, so don't send a notify
+        if (!AZ::ClampIfCloseMag(value, oldValue) && notifyLater)
         {
-            float newValue = m_pSpinBox->value();
+            float newValue = static_cast<float>(m_pSpinBox->value());
             // queue an invocation of value changed next tick after everything is good.)
             QTimer::singleShot(0, this, [this, newValue]() { Q_EMIT valueChanged(newValue); });
         }
@@ -96,6 +105,12 @@ namespace AzToolsFramework
     {
         ((QAbstractSpinBox*)m_pSpinBox)->event(e);
         ((QAbstractSpinBox*)m_pSpinBox)->selectAll();
+    }
+
+    void PropertyDoubleSpinCtrl::focusOutEvent(QFocusEvent* e)
+    {
+        // needed to ensure that the correct selection of the spinbox text occurs
+        ((QAbstractSpinBox*)m_pSpinBox)->event(e);
     }
 
     void PropertyDoubleSpinCtrl::setMinimum(double value)
@@ -299,6 +314,10 @@ namespace AzToolsFramework
             {
                 EBUS_EVENT(PropertyEditorGUIMessages::Bus, RequestWrite, newCtrl);
             });
+        connect(newCtrl, &PropertyDoubleSpinCtrl::editingFinished, this, [newCtrl]()
+        {
+            AzToolsFramework::PropertyEditorGUIMessages::Bus::Broadcast(&PropertyEditorGUIMessages::Bus::Handler::OnEditingFinished, newCtrl);
+        });
         // note:  Qt automatically disconnects objects from each other when either end is destroyed, no need to worry about delete.
 
         // set defaults:
@@ -315,6 +334,10 @@ namespace AzToolsFramework
             {
                 EBUS_EVENT(PropertyEditorGUIMessages::Bus, RequestWrite, newCtrl);
             });
+        connect(newCtrl, &PropertyDoubleSpinCtrl::editingFinished, this, [newCtrl]()
+        {
+            AzToolsFramework::PropertyEditorGUIMessages::Bus::Broadcast(&PropertyEditorGUIMessages::Bus::Handler::OnEditingFinished, newCtrl);
+        });
         // note:  Qt automatically disconnects objects from each other when either end is destroyed, no need to worry about delete.
 
         // set defaults:

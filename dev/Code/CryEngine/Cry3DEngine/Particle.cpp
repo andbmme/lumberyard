@@ -16,7 +16,9 @@
 #include "Particle.h"
 #include "ParticleEmitter.h"
 #include "ParticleContainer.h"
-#include "terrain.h"
+
+#include <AzFramework/Terrain/TerrainDataRequestBus.h>
+
 #include "GeomQuery.h"
 #include "MatMan.h"
 
@@ -184,7 +186,15 @@ void CParticle::Move(SParticleState& state, float fTime, STargetForces const& fo
 
     ParticleParams::EEmitterShapeType emitterShape = GetEmitter()->GetParams().GetEmitterShape();
 
-    Vec3 currentVelocity = params.vVelocity.GetVector(GetEmitter()->GetRelativeAge(), fRelativeAge);
+    Vec3 currentVelocity(0.0f);
+    if (emitterShape == ParticleParams::EEmitterShapeType::CIRCLE ||
+        emitterShape == ParticleParams::EEmitterShapeType::SPHERE ||
+        emitterShape == ParticleParams::EEmitterShapeType::BOX ||
+        emitterShape == ParticleParams::EEmitterShapeType::POINT)
+    {
+        currentVelocity = params.vVelocity.GetVector(GetEmitter()->GetRelativeAge(), fRelativeAge);
+    }
+
     Vec3 vVelUser = (currentVelocity + m_preEmissionRandomVelocity) * fTime;
 
     QuatTS locCur(IDENTITY);
@@ -587,34 +597,6 @@ bool CParticle::CheckCollision(ray_hit& hit, float fStepTime, SParticleUpdateCon
     return hit.dist < 1.f;
 }
 
-
-void CParticle::InitFadeParticle(float fAge)
-{
-    assert(m_pFadeEmitterState);
-    assert(m_pEmitter);
-
-    m_pEmitter->AddRef();
-
-    // Init allocations.
-    m_aPosHistory = 0;
-    if (int nSteps = GetContainer().GetHistorySteps())
-    {
-        if ((m_aPosHistory = static_cast<SParticleHistory*>(ParticleObjectAllocator().Allocate(sizeof(SParticleHistory) * nSteps))))
-        {
-            for (int n = 0; n < nSteps; n++)
-            {
-                m_aPosHistory[n].SetUnused();
-            }
-        }
-    }
-
-    float fEmissionStrength = m_pEmitter->GetStrength(-fAge);
-    m_BaseMods.Color = GetParams().cColor.GetVarMod(fEmissionStrength, m_BaseMods.ColorLerp);
-
-    m_pFadeEmitterState->AddRef();
-    m_pFadeEmitterState->m_fFadeEmitterDot = 0;
-}
-
 void CParticle::Init(SParticleUpdateContext const& context, float fAge, CParticleSubEmitter* pEmitter, const EmitParticleData& data)
 {
     assert(pEmitter);
@@ -629,14 +611,7 @@ void CParticle::Init(SParticleUpdateContext const& context, float fAge, CParticl
     SpawnParams const& spawnParams = GetMain().GetSpawnParams();
 
     m_originalEmitterLocation = Vec3(0, 0, 0);
-
-    m_pFadeEmitterState = nullptr;
-    if (params.bCameraNonFacingFade)
-    {
-        m_pFadeEmitterState = new SFadeEmitterState();
-        m_pFadeEmitterState->AddRef();
-        m_pFadeEmitterState->m_fFadeEmitterDot = 0;
-    }
+    
     // Init allocations.
     m_aPosHistory = 0;
     if (int nSteps = rContainer.GetHistorySteps())
@@ -691,8 +666,10 @@ void CParticle::Init(SParticleUpdateContext const& context, float fAge, CParticl
     m_BaseMods.SizeX = params.fSizeX.GetVarMod(fEmissionStrength);
     // We copy the size X modifier in case we're maintaining aspect ratio because it just contains the randomness/emitter strength component of the size
     m_BaseMods.SizeY = params.bMaintainAspectRatio ? m_BaseMods.SizeX : static_cast<TFixed<unsigned char, 1>>(params.fSizeY.GetVarMod(fEmissionStrength));
+    m_BaseMods.SizeZ = params.bMaintainAspectRatio ? m_BaseMods.SizeX : static_cast<TFixed<unsigned char, 1>>(params.fSizeZ.GetVarMod(fEmissionStrength));
     m_BaseMods.PivotX = params.fPivotX.GetVarMod(fEmissionStrength);
     m_BaseMods.PivotY = params.fPivotY.GetVarMod(fEmissionStrength);
+    m_BaseMods.PivotZ = params.fPivotZ.GetVarMod(fEmissionStrength);
     m_BaseMods.StretchOrTail = params.fTailLength ? params.fTailLength.GetVarMod(fEmissionStrength) : params.fStretch.GetVarMod(fEmissionStrength);
 
     m_BaseMods.AirResistance = params.fAirResistance.GetVarMod(fEmissionStrength);
@@ -904,7 +881,7 @@ void CParticle::InitPos(SParticleUpdateContext const& context, QuatTS const& loc
 
             const float radius = params.fEmitterSizeDiameter(VRANDOM, fEmissionStrength) * 0.5f;
             const float circumference = gf_PI2 * radius;
-            const float percentageToUniformScale = 0.01;
+            const float percentageToUniformScale = 0.01f;
 
             Vec3 positionIncrement = m_pEmitter->GetCurrentPosIncrementXYZ();
 
@@ -1298,11 +1275,6 @@ void CParticle::Update(SParticleUpdateContext const& context, float fFrameTime, 
     SPhysEnviron const& PhysEnv = GetMain().GetPhysEnviron();
     ResourceParticleParams const& params = rContainer.GetParams();
 
-    //Do not update, as these particles are duplicates and are already updated by the trail particle.
-    if (params.bIsCameraNonFacingFadeParticle)
-    {
-        return;
-    }
     // Process only up to lifetime of particle, and handle negative initial age.
     if (m_fAge + fFrameTime <= 0.f)
     {
@@ -1316,8 +1288,9 @@ void CParticle::Update(SParticleUpdateContext const& context, float fFrameTime, 
     }
     if (!params.bRemainWhileVisible)
     {
-        assert(m_fAge <= m_fStopAge);
-        fFrameTime = min(fFrameTime, m_fStopAge - m_fAge);
+        // [LY-112058] Clamp to 0.f in case (m_fAge > m_fStopAge) due to a long frame step
+        float fRemainTime = max(m_fStopAge - m_fAge, 0.f);
+        fFrameTime = min(fFrameTime, fRemainTime);
     }
 
     if (m_pCollisionInfo && m_pCollisionInfo->Stopped())
@@ -1699,7 +1672,8 @@ float CParticle::UpdateAlignment(SParticleState& state, SParticleUpdateContext c
     }
     case ParticleParams::EFacing::Terrain:
     {
-        if (CTerrain* const pTerrain = GetTerrain())
+        // So long as this code runs on main thread, it is safe to use the pointer returned by FindFirstHandler()
+        if (auto terrain = AzFramework::Terrain::TerrainDataRequestBus::FindFirstHandler())
         {
             // Project center and velocity onto plane.
             if (state.m_Loc.s > 0.f)
@@ -1714,7 +1688,7 @@ float CParticle::UpdateAlignment(SParticleState& state, SParticleUpdateContext c
                         avCorner[c].x += ((c & 1) * 2 - 1) * state.m_Loc.s;
                         avCorner[c].y += ((c & 2) - 1) * state.m_Loc.s;
                     }
-                    avCorner[c].z = pTerrain->GetBilinearZ(avCorner[c].x, avCorner[c].y);
+                    avCorner[c].z = terrain->GetHeightFromFloats(avCorner[c].x, avCorner[c].y);
                 }
 
                 // Rotate sprite to average normal of quad.
@@ -1870,7 +1844,8 @@ void CParticle::TargetMovement(ParticleTarget const& target, SParticleState& sta
     }
 
     // Goal is to reach target radius in a quarter revolution over particle's life.
-    float fLife = state.m_fStopAge - state.m_fAge;
+    // [LY-112058] Clamp to 0.f in case (m_fAge > m_fStopAge) due to a long frame step
+    float fLife = max(state.m_fStopAge - state.m_fAge, 0.f);
     fArrivalTime = div_min(gf_PI * 0.5f * fDist * fLife, fOrbitalVel * state.m_fStopAge, fArrivalTime);
 
     if (fArrivalTime > fLife)
@@ -1984,15 +1959,6 @@ CParticle::~CParticle()
     }
 
     ParticleObjectAllocator().Deallocate(m_aPosHistory, sizeof(SParticleHistory) * m_pContainer->GetHistorySteps());
-
-    if (m_pFadeEmitterState)
-    {
-        m_pFadeEmitterState->Release();
-        if (m_pFadeEmitterState->NumRefs() == 0)
-        {
-            delete m_pFadeEmitterState;
-        }
-    }
 }
 
 char GetMinAxis(Vec3 const& vVec)

@@ -18,17 +18,26 @@
 #include <QLibrary>
 
 #include <AzCore/std/base.h>
+#include <AzCore/std/containers/set.h>
 
 #include <AssetBuilderSDK/AssetBuilderSDK.h>
 
-#include "native/assetprocessor.h"
-#include "native/utilities/PlatformConfiguration.h"
-#include "native/resourcecompiler/RCBuilder.h"
+#include <native/assetprocessor.h>
+#include <native/utilities/PlatformConfiguration.h>
+#include <native/resourcecompiler/RCBuilder.h>
+#include <AssetBuilder/AssetBuilderInfo.h>
+
 class FolderWatchCallbackEx;
 class QCoreApplication;
 
 namespace AssetProcessor
 {
+    using AssetBuilder::AssetBuilderType;
+    enum ASSET_BUILDER_TYPE
+    {
+        INVALID, VALID, NONE
+    };
+
     // A string like "AssetBuilder.exe" which names the executable of the asset builder.
     extern const char* const s_assetBuilderRelativePath;
 
@@ -40,9 +49,11 @@ namespace AssetProcessor
         virtual ~ExternalModuleAssetBuilderInfo() = default;
 
         const QString& GetName() const;
+        QString GetModuleFullPath() const;
+
 
         //! Perform a load of the external module, this is required before initialize.
-        bool Load();
+        AssetBuilderType Load();
 
         //! Sanity check for the module's status
         bool IsLoaded() const;
@@ -53,10 +64,14 @@ namespace AssetProcessor
         //! Perform the necessary process of uninitializing an external builder
         void UnInitialize();
 
-        //! Register a builder descriptor ID to track as part of this builders lifecycle managementg
+        //! Check to see if the builder has the required functions defined.
+        AssetBuilderType GetAssetBuilderType();
+        ASSET_BUILDER_TYPE IsAssetBuilder();
+
+        //! Register a builder descriptor ID to track as part of this builders lifecycle management
         void RegisterBuilderDesc(const AZ::Uuid& builderDesc);
 
-        //! Register a component descriptor to track as part of this builders lifecycle managementg
+        //! Register a component descriptor to track as part of this builders lifecycle management
         void RegisterComponentDesc(AZ::ComponentDescriptor* descriptor);
     protected:
         AZStd::set<AZ::Uuid>    m_registeredBuilderDescriptorIDs;
@@ -73,11 +88,10 @@ namespace AssetProcessor
         ModuleRegisterDescriptorsFunction m_moduleRegisterDescriptorsFunction;
         ModuleAddComponentsFunction m_moduleAddComponentsFunction;
         UninitializeModuleFunction m_uninitializeModuleFunction;
-        QVector<AZ::ComponentDescriptor*> m_componentDescriptorList;
+        AZStd::vector<AZ::ComponentDescriptor*> m_componentDescriptorList;
         AZ::Entity* m_entity = nullptr;
 
         QString m_builderName;
-        QString m_modulePath;
         QLibrary m_library;
     };
 
@@ -93,7 +107,7 @@ namespace AssetProcessor
 
         virtual ~AssetBuilderRegistrationBusTraits() {}
 
-        virtual void UnRegisterBuilderDescriptor(const AZ::Uuid& builderId) {}
+        virtual void UnRegisterBuilderDescriptor(const AZ::Uuid& /*builderId*/) {}
     };
 
     typedef AZ::EBus<AssetBuilderRegistrationBusTraits> AssetBuilderRegistrationBus;

@@ -77,7 +77,7 @@ namespace UnitTest
         AZ::IO::LocalFileIO m_localFileIO;
 
         EntityTestbed()
-            : AllocatorsFixture(200, false)
+            : AllocatorsFixture()
         {
         }
 
@@ -195,8 +195,7 @@ namespace UnitTest
 
             AzToolsFramework::Components::PropertyManagerComponent::CreateDescriptor();
 
-            char dir[512];
-            GetCurrentDirectoryA(sizeof(dir), dir);
+            const char* dir = m_componentApplication->GetExecutableFolder();
             m_componentApplication->SetAssetRoot(dir);
 
             m_localFileIO.SetAlias("@assets@", dir);
@@ -230,9 +229,12 @@ namespace UnitTest
         void AddEntity()
         {
             AZStd::string entityName = AZStd::string::format("Entity%u", m_entityCounter);
-            AZ::Entity* entity = nullptr;
-            EBUS_EVENT_RESULT(entity, AzToolsFramework::EditorEntityContextRequestBus, CreateEditorEntity, entityName.c_str());
+            AZ::EntityId entityId;
+            AzToolsFramework::EditorEntityContextRequestBus::BroadcastResult(entityId, &AzToolsFramework::EditorEntityContextRequests::CreateNewEditorEntity, entityName.c_str());
             ++m_entityCounter;
+
+            AZ::Entity* entity = nullptr;
+            AZ::ComponentApplicationBus::BroadcastResult(entity, &AZ::ComponentApplicationRequests::FindEntity, entityId);
 
             entity->Deactivate();
             OnEntityAdded(*entity);

@@ -11,17 +11,21 @@
 */
 #pragma once
 
+AZ_PUSH_DISABLE_WARNING(4251 4800, "-Wunknown-warning-option")
 #include <QGraphicsPathItem>
 #include <QPainterPath>
+AZ_POP_DISABLE_WARNING
 
 #include <AzCore/Component/Component.h>
 #include <AzCore/std/smart_ptr/unique_ptr.h>
+#include <AzCore/std/chrono/chrono.h>
 
 #include <GraphCanvas/Components/Connections/ConnectionBus.h>
 #include <GraphCanvas/Components/ViewBus.h>
 #include <GraphCanvas/Components/VisualBus.h>
-#include <Styling/StyleHelper.h>
-#include <Ui/RootVisualNotificationsHelper.h>
+#include <GraphCanvas/Editor/AssetEditorBus.h>
+#include <GraphCanvas/Widgets/RootGraphicsItem.h>
+#include <GraphCanvas/Styling/StyleHelper.h>
 
 class QKeyEvent;
 
@@ -76,15 +80,23 @@ namespace GraphCanvas
         // VisualRequestBus
         QGraphicsItem* AsGraphicsItem() override;
 
-        bool Contains(const AZ::Vector2& point) const;
+        bool Contains(const AZ::Vector2& point) const override;
+
+        void SetVisible(bool visible) override;
+        bool IsVisible() const override;
         ////
 
         // SceneMemberUIRequestBus
         QGraphicsItem* GetRootGraphicsItem() override;
         QGraphicsLayoutItem* GetRootGraphicsLayoutItem() override;
 
-        void SetSelected(bool selected);
-        bool IsSelected() const;
+        void SetSelected(bool selected) override;
+        bool IsSelected() const override;
+
+        QPainterPath GetOutline() const override;
+
+        void SetZValue(qreal zValue) override;
+        qreal GetZValue() const override;
         ////
 
     protected:
@@ -101,13 +113,14 @@ namespace GraphCanvas
     //! The NodeVisual is the QGraphicsItem for a given node, any components that are created
     //! on a Node will all be children QGraphicsItem of this one.
     class ConnectionGraphicsItem
-        : public RootVisualNotificationsHelper<QGraphicsPathItem>
+        : public RootGraphicsItem<QGraphicsPathItem>
         , public ConnectionNotificationBus::Handler
         , public ConnectionUIRequestBus::Handler
         , public VisualNotificationBus::MultiHandler
         , public StyleNotificationBus::Handler
         , public AZ::SystemTickBus::Handler
-        , public ViewSceneNotificationBus::Handler
+        , public SceneMemberNotificationBus::Handler
+        , public AssetEditorSettingsNotificationBus::Handler        
     {
     public:
         AZ_CLASS_ALLOCATOR(ConnectionGraphicsItem, AZ::SystemAllocator, 0);
@@ -120,12 +133,16 @@ namespace GraphCanvas
         ~ConnectionGraphicsItem() override = default;
 
         void Activate();
-        void Deactivate();        
+        void Deactivate();
 
         void RefreshStyle();
         const Styling::StyleHelper& GetStyle() const;
 
         void UpdateOffset();
+
+        // RootVisualNotificationsHelper
+        QRectF GetBoundingRect() const override;
+        ////
 
         // ConnectionNotificationBus
         void OnSourceSlotIdChanged(const AZ::EntityId& oldSlotId, const AZ::EntityId& newSlotId) override;
@@ -148,13 +165,17 @@ namespace GraphCanvas
 
         // ConnectionUIRequestBus
         void UpdateConnectionPath() override;
-        void SetDisplayState(ConnectionDisplayState displayState) override;
-        void SetSelected(bool selected) override;
-        bool IsSelected() const override;
         ////
 
-        // ViewNotificationBus
-        void OnAltModifier(bool enabled) override;
+        // SceneMemberNotifications
+        void OnSceneMemberHidden() override;
+        void OnSceneMemberShown() override;
+
+        void OnSceneSet(const GraphId& graphId) override;
+        ////
+
+        // AssetEditorSettingsNotifications
+        void OnSettingsChanged() override;
         ////
 
     protected:
@@ -164,47 +185,44 @@ namespace GraphCanvas
         AZ::EntityId GetSourceSlotEntityId() const;
         AZ::EntityId GetTargetSlotEntityId() const;
 
+        EditorId GetEditorId() const;
+
+        void UpdateCurveStyle();
+
+        virtual Styling::ConnectionCurveType GetCurveStyle() const;
+
         virtual void UpdatePen();
         virtual void OnActivate();
         virtual void OnDeactivate();
         virtual void OnPathChanged();
-        virtual void OnDisplayStateChanged();
-
-        ConnectionDisplayState GetDisplayState() const;
         
         // QGraphicsItem
         QPainterPath shape() const override;
-        void contextMenuEvent(QGraphicsSceneContextMenuEvent* contextMenuEvent) override;
 
-        void hoverEnterEvent(QGraphicsSceneHoverEvent* event) override;
-        void hoverLeaveEvent(QGraphicsSceneHoverEvent* event) override;
         void mousePressEvent(QGraphicsSceneMouseEvent* mouseEvent) override;
         void mouseMoveEvent(QGraphicsSceneMouseEvent* mouseEvent) override;
-        void mouseReleaseEvent(QGraphicsSceneMouseEvent* mouseEvent) override;        
+        void mouseReleaseEvent(QGraphicsSceneMouseEvent* mouseEvent) override;
         ////
 
         void paint(QPainter* painter, const QStyleOptionGraphicsItem* option, QWidget* widget = nullptr) override;
 
     private:
 
-        void UpdateDisplayState(ConnectionDisplayState displayState, bool enabled);
-
         ConnectionGraphicsItem(const ConnectionGraphicsItem&) = delete;
-
-        ConnectionDisplayState m_displayState;
-
-        bool m_hovered;
 
         bool m_trackMove;
         bool m_moveSource;
         
         QPointF m_initialPoint;
 
+        Styling::ConnectionCurveType m_curveType;
         Styling::StyleHelper m_style;
         QPen m_pen;
 
+        AZStd::chrono::milliseconds m_lastUpdate;
         double m_offset;
 
-        AZ::EntityId m_connectionEntityId;
+        AZ::EntityId m_connectionEntityId;        
+        EditorId     m_editorId;
     };
 }

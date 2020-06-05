@@ -74,9 +74,11 @@ struct SMaterialLayerResources
     XmlNodeRef m_publicVarsCache;
 };
 
+AZ_PUSH_DISABLE_DLL_EXPORT_BASECLASS_WARNING
 class CRYEDIT_API CMaterial
     : public IEditorMaterial
 {
+AZ_POP_DISABLE_DLL_EXPORT_BASECLASS_WARNING
 public:
     //////////////////////////////////////////////////////////////////////////
     CMaterial(const QString& name, int nFlags = 0);
@@ -125,6 +127,9 @@ public:
 
     //! Get public parameters of material in variable block.
     CVarBlock* GetPublicVars(SInputShaderResources& pShaderResources);
+
+    //! Set the shader public param m_script variable into our own m_script, script contains min/max for a given shader param value
+    void SetShaderParamPublicScript();
 
     //! Sets variable block of public shader parameters.
     //! VarBlock must be in same format as returned by GetPublicVars().
@@ -202,7 +207,7 @@ public:
     bool CanModify(bool bSkipReadOnly = true);
 
     // Save material to file.
-    virtual bool Save(bool bSkipReadOnly = true);
+    virtual bool Save(bool bSkipReadOnly = true, const QString& fullPath = "");
 
     // Dummy material is just a placeholder item for materials that have not been found on disk.
     void SetDummy(bool bDummy) { m_bDummyMaterial = bDummy; }
@@ -238,6 +243,7 @@ public:
 
     uint32 GetDccMaterialHash() const { return m_dccMaterialHash; }
     void SetDccMaterialHash(AZ::u32 hash) { m_dccMaterialHash = hash; }
+    void SetShaderItem(const SShaderItem& shaderItem);
 
 private:
     void UpdateMatInfo();

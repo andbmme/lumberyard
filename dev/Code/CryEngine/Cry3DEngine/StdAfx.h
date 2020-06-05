@@ -11,12 +11,7 @@
 */
 // Original file Copyright Crytek GMBH or its affiliates, used under license.
 
-#if !defined(AFX_STDAFX_H__8B93AD4E_EE86_4127_9BED_37AC6D0F978B__INCLUDED_3DENGINE)
-#define AFX_STDAFX_H__8B93AD4E_EE86_4127_9BED_37AC6D0F978B__INCLUDED_3DENGINE
-
-#if _MSC_VER > 1000
 #pragma once
-#endif // _MSC_VER > 1000
 
 #pragma warning( disable : 6286 ) // (<non-zero constant> || <expres ion>) is always a non-zero constant. <expression> is never evaluated and might have side
 #pragma warning( disable : 6237 ) // (<zero> && <expression>) is always zero. <expression> is never evaluated and might have side effects
@@ -25,18 +20,13 @@
 #pragma warning( disable : 6239 ) // (<non-zero constant> && <expression>) always evaluates to the result of <expression>
 #pragma warning( disable : 6240 ) // (<expression> && <non-zero constant>) always evaluates to the result of <expression>
 
-#define RWI_NAME_TAG "RayWorldIntersection(3dEngine)"
-#define PWI_NAME_TAG "PrimitiveWorldIntersection(3dEngine)"
-
-#define CRY3DENGINE_EXPORTS
-
 const int nThreadsNum = 3;
+
+#include <platform.h>
 
 #include <vector>
 //#define DEFINE_MODULE_NAME "Cry3DEngine"
 //#define FORCE_STANDARD_ASSERT // fix edit and continue
-
-#include <platform.h>
 
 #if defined(WIN64)
 #define CRY_INTEGRATE_DX12
@@ -89,12 +79,17 @@ const int nThreadsNum = 3;
 #include "cvars.h"
 #include <CrySizer.h>
 #include <StlUtils.h>
-#include "Array2d.h"
+#include <CryArray2d.h>
 #include "Material.h"
 #include "3dEngine.h"
 #include "ObjMan.h"
 #include "Vegetation.h"
-#include "terrain.h"
+
+#include <ISerialize.h>
+#include <IParticles.h>
+#include "BasicArea.h"
+#include "Environment/OceanEnvironmentBus.h"
+
 #include "ObjectsTree.h"
 
 // TODO refactor!
@@ -104,7 +99,7 @@ const int nThreadsNum = 3;
 #ifdef _MSC_VER
 inline int vsnprintf(char* buf, int size, const char* format, va_list& args)
 {
-    int res = _vsnprintf(buf, size, format, args);
+    int res = _vsnprintf_s(buf, size, size, format, args);
     assert(res >= 0 && res < size); // just to know if there was problems in past
     buf[size - 1] = 0;
     return res;
@@ -233,4 +228,3 @@ struct TriangleIndex
 #   define INCLUDE_SAVECGF
 #endif
 
-#endif // !defined(AFX_STDAFX_H__8B93AD4E_EE86_4127_9BED_37AC6D0F978B__INCLUDED_3DENGINE)

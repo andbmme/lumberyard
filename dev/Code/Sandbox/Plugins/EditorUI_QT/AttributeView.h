@@ -17,7 +17,6 @@
 
 #include "AttributeItem.h"
 
-#include <QtWidgets/QtWidgets>
 #include <QVBoxLayout>
 #include <Util/smartptr.h>
 
@@ -30,6 +29,7 @@
 #include "VariableWidgets/QGradientSwatchWidget.h"
 #include "VariableWidgets/QCustomColorDialog.h"
 
+#include <AzCore/std/functional.h>
 
 class CParticleItem;
 class CVarBlock;
@@ -45,7 +45,7 @@ class EDITOR_QT_UI_API CAttributeView
 {
     Q_OBJECT
 public:
-    typedef std::function<void()> RefreshCallback;
+    typedef AZStd::function<void()> RefreshCallback;
 
     CAttributeView(QWidget* parent);
     virtual ~CAttributeView();
@@ -113,7 +113,7 @@ public:
 
 
     bool hasPanels() const { return m_panels.isEmpty() == false; }
-    
+
     void showAdvanced(bool show);
     void copyItem(const CAttributeItem* item, bool bRecursively);
 
@@ -191,7 +191,7 @@ public:
 
     //to emit a undo point signal to main window
     void OnAttributeItemUndoPoint();
-    
+
 signals:
     void SignalRefreshAttributeView();
     void SignalRenamePanel(PanelTitleBar* title, QString name);
@@ -214,8 +214,10 @@ private:
     void SetEnabledFromPath(QString path, bool enable);
     void RecurseSetProperty(QString prop, QString value, CAttributeItem::AttributeList start);
     bool PanelExist(QString name);
+    AZ_PUSH_DISABLE_DLL_EXPORT_MEMBER_WARNING
     std::function<void()> callback_gradient_editor_start;
     std::function<void(bool)> m_callbackEmitterEnableToggled;
+    AZ_POP_DISABLE_DLL_EXPORT_MEMBER_WARNING
 
     void CorrectLayout(QByteArray& data);
 
@@ -228,7 +230,7 @@ private:
     //check whether we can copy varSrc to varDst
     //this function should only be used for checking copy an AttributeItem's IVariable's clone to an AttributeItem's IVariable
     bool CanCopyVariable(IVariable* varSrc, IVariable* varDst);
-    
+
     //Copy an CAttributeItem's ( w/ or w/o its children's) variable to input list variableList
     void CopyItemVariables(const CAttributeItem* item, bool recursive, /*out*/ QVector<TSmartPtr<IVariable>> & variableList);
 
@@ -240,6 +242,7 @@ private:
 private:
     CAttributeViewConfig m_config;
     CAttributeViewConfig m_defaultConfig;
+    AZ_PUSH_DISABLE_DLL_EXPORT_MEMBER_WARNING
     QVector<CAttributeViewConfig*> m_importedConfigs;
     QMap<QString, IVariable*> m_configVariableMap;
     QMap<QString, bool> m_variableIgnoreMap;
@@ -273,6 +276,7 @@ private:
     RefreshCallback m_refreshCallback;
 
     QVector<TSmartPtr<IVariable>> m_variableCopyList;
+    AZ_POP_DISABLE_DLL_EXPORT_MEMBER_WARNING
 
     QByteArray m_originalLayout;
     CVarBlock* m_lastVarBlock;
@@ -284,7 +288,7 @@ private:
                                 // 1 : show group attributes
     bool m_bMultiSelectionOn;
     bool m_updateLogicalChildrenFence;
-    
+
 };
 
 

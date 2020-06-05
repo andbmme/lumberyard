@@ -22,6 +22,8 @@
 #include <unordered_map>
 #include <AzCore/std/parallel/mutex.h>
 
+#include <Terrain/Bus/TerrainBus.h>
+
 struct SRenderBuf;
 class CRendElementBase;
 struct SEmitter;
@@ -236,12 +238,36 @@ enum EShaderCacheMode
     eSC_Preactivate = 4,
 };
 
+enum EShaderLanguage
+{
+    eSL_Unknown,
+    eSL_Orbis,
+    eSL_Durango,
+    eSL_D3D11,
+    eSL_GL4_1,
+    eSL_GL4_4,
+    eSL_GLES3_0,
+    eSL_GLES3_1,
+    eSL_METAL,
+
+    eSL_MAX
+};
+
+EShaderLanguage GetShaderLanguage();
+
+const char *GetShaderLanguageName();
+
+const char *GetShaderLanguageResourceName();
+
+AZStd::string GetShaderListFilename();
+
 //////////////////////////////////////////////////////////////////////////
 class CShaderMan
     : public ISystemEventListener
 #if defined(SHADERS_SERIALIZING)
     , public CShaderSerialize
 #endif
+    , public Terrain::TerrainShaderRequestBus::Handler
 {
     friend class CShader;
     friend class CParserBin;
@@ -253,7 +279,7 @@ class CShaderMan
     //////////////////////////////////////////////////////////////////////////
 
 private:
-	STexAnim* mfReadTexSequence(const char *name, int Flags, bool bFindOnly);
+    CTexAnim* mfReadTexSequence(const char *name, int Flags, bool bFindOnly);
     int mfReadTexSequence(STexSamplerRT* smp, const char* name, int Flags, bool bFindOnly);
 
     CShader* mfNewShader(const char* szName);
@@ -326,11 +352,11 @@ public:
     bool m_bInitialized;
     bool m_bLoadedSystem;
 
-    const char* m_ShadersPath;
-    const char* m_ShadersCache;
-    const char* m_ShadersFilter;
-    const char* m_ShadersMergeCachePath;
-    string m_szCachePath;
+    AZStd::string m_ShadersPath;
+    AZStd::string m_ShadersCache;
+    AZStd::string m_ShadersFilter;
+    AZStd::string m_ShadersMergeCachePath;
+    AZStd::string m_szCachePath;
 
     int m_nFrameForceReload;
 
@@ -357,6 +383,7 @@ public:
 
 #ifndef NULL_RENDERER
     static CShader* s_ShaderFPEmu;
+    static CShader* s_ShaderUI;
     static CShader* s_ShaderFallback;
     static CShader* s_ShaderStars;
     static CShader* s_ShaderShadowBlur;
@@ -376,12 +403,15 @@ public:
     static CShader* s_ShaderDXTCompress;
     static CShader* s_ShaderStereo;
     static CShader* s_ShaderFur;
+    static CShader* s_ShaderVideo;
 #else
     static SShaderItem s_DefaultShaderItem;
 #endif
 
     const SInputShaderResources* m_pCurInputResources;
     SShaderGen* m_pGlobalExt;
+    SShaderGen* m_staticExt;    // Shader gen info for static flags (Statics.ext)
+    uint64 m_staticFlags;       // Enabled global flags used for generating the shaders.
     SShaderLevelPolicies* m_pLevelsPolicies;
 
     Vec4 m_TempVecs[16];
@@ -402,7 +432,7 @@ public:
     FXShaderCacheCombinations m_ShaderCacheExportCombinations;
     AZ::IO::HandleType m_FPCacheCombinations[2];
 
-    typedef std::vector<CCryNameTSCRC, stl::STLGlobalAllocator<CCryNameTSCRC> > ShaderCacheMissesVec;
+    typedef std::vector<CCryNameTSCRC> ShaderCacheMissesVec;
     ShaderCacheMissesVec m_ShaderCacheMisses;
     string m_ShaderCacheMissPath;
     ShaderCacheMissCallback m_ShaderCacheMissCallback;
@@ -463,6 +493,8 @@ public:
         m_bLoadedSystem = false;
         s_DefaultShader = NULL;
         m_pGlobalExt = NULL;
+        m_staticExt = nullptr;
+        m_staticFlags = 0;
         g_pShaderParserHelper = &m_shaderParserHelper;
         m_nCombinationsProcess = -1;
         m_nCombinationsProcessOverall = -1;
@@ -473,6 +505,8 @@ public:
         memset(&m_RTRect, 0, sizeof(Vec4));
         m_eCacheMode = eSC_Normal;
         m_nFrameSubmit = 1;
+
+        Terrain::TerrainShaderRequestBus::Handler::BusConnect();
     }
 
     void ShutDown();
@@ -485,12 +519,17 @@ public:
     string mfGetShaderBitNamesFromMaskGen(const char* szName, uint64 nMaskGen);
 
     bool mfUsesGlobalFlags(const char* szShaderName);
-    const char* mfGetShaderBitNamesFromGlobalMaskGen(uint64 nMaskGen);
+    AZStd::string mfGetShaderBitNamesFromGlobalMaskGen(uint64 nMaskGen);
     uint64 mfGetShaderGlobalMaskGenFromString(const char* szShaderGen);
 
     void mfInitGlobal(void);
     void mfInitLevelPolicies(void);
     void mfInitLookups(void);
+
+    void InitStaticFlags();
+    void AddStaticFlag(EHWSSTFlag flag);
+    void RemoveStaticFlag(EHWSSTFlag flag);
+    bool HasStaticFlag(EHWSSTFlag flag);
 
     void mfPreloadShaderExts(void);
     void mfInitCommonGlobalFlags(void);
@@ -513,10 +552,17 @@ public:
     {
         if (!pSysShader)
         {
-            CryComment("Load System Shader '%s'...", szName);
+            CryComment("Load System Shader (refresh) '%s'...", szName);
 
             if (pSysShader = mfForName(szName, EF_SYSTEM))
             {
+                if (pSysShader->m_Flags & EF_NOTFOUND)
+                {
+                    pSysShader = NULL;
+                    CryComment("Load System Shader Failed %s", szName);
+                    return false;
+                }
+                CryComment("ok");
                 return true;
             }
         }
@@ -577,13 +623,12 @@ public:
     void mfInitShadersCache(byte bForLevel, FXShaderCacheCombinations* Combinations = NULL, const char* pCombinations = NULL, int nType = 0);
     void mfMergeShadersCombinations(FXShaderCacheCombinations* Combinations, int nType);
     void mfInsertNewCombination(SShaderCombIdent& Ident, EHWShaderClass eCL, const char* name, int nID, string* Str = NULL, byte bStore = 1);
-	string mfGetShaderCompileFlags(EHWShaderClass eClass, UPipelineState pipelineState) const;
     const char* mfGetLevelListName() const;
     void mfExportShaders();
 
     bool mfReleasePreactivatedShaderData();
     bool mfPreactivateShaders2(const char* szPak, const char* szPath, bool bPersistent, const char* szBindRoot);
-    bool mfPreactivate2(CResFileLookupDataMan& LevelLookup, string szPathPerLevel, string szPathGlobal, bool bVS, bool bPersistent);
+    bool mfPreactivate2(CResFileLookupDataMan& LevelLookup, const AZStd::string& pathPerLevel, const AZStd::string& pathGlobal, bool bVS, bool bPersistent);
 
     bool mfPreloadBinaryShaders();
 
@@ -598,6 +643,7 @@ public:
     void AddGLCombination(FXShaderCacheCombinations& CmbsMap, SCacheCombination& cc);
     void FilterShaderCombinations(std::vector<SCacheCombination>& Cmbs, const std::vector<CShaderListFilter>& Filters);
     void mfPrecacheShaders(bool bStatsOnly);
+    void mfGetShaderList();
     void _PrecacheShaderList(bool bStatsOnly);
     void mfOptimiseShaders(const char* szFolder, bool bForce);
     void mfMergeShaders();
@@ -630,6 +676,16 @@ public:
         pSizer->AddObject(m_ShaderNames);
         pSizer->AddObject(m_ShaderCacheCombinations[0]);
         pSizer->AddObject(m_ShaderCacheCombinations[1]);
+    }
+
+    void RefreshShader(const AZStd::string_view name, CShader* shader) override
+    {
+        mfRefreshSystemShader(name.data(), shader);
+    }
+
+    void ReleaseShader(CShader* shader) const override
+    {
+        SAFE_RELEASE_FORCE(shader);
     }
 
     static float EvalWaveForm(SWaveForm* wf);

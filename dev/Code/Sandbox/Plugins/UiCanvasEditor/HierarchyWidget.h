@@ -13,21 +13,30 @@
 
 #include "EditorCommon.h"
 
+#include <AzToolsFramework/API/ToolsApplicationAPI.h>
+#include <AzToolsFramework/ToolsMessaging/EntityHighlightBus.h>
+
 #include <QTreeWidget>
 
 class HierarchyWidget
     : public QTreeWidget
+    , private AzToolsFramework::EditorPickModeNotificationBus::Handler
+    , private AzToolsFramework::EntityHighlightMessages::Bus::Handler
 {
     Q_OBJECT
 
 public:
 
     HierarchyWidget(EditorWindow* editorWindow);
+    virtual ~HierarchyWidget();
 
     void SetIsDeleting(bool b);
 
     EntityHelpers::EntityToHierarchyItemMap& GetEntityItemMap();
     EditorWindow* GetEditorWindow();
+
+    void ActiveCanvasChanged();
+    void EntityContextChanged();
 
     void CreateItems(const LyShine::EntityArray& elements);
     void RecreateItems(const LyShine::EntityArray& elements);
@@ -36,15 +45,11 @@ public:
     AZ::Entity* CurrentSelectedElement() const;
 
     void SetUniqueSelectionHighlight(QTreeWidgetItem* item);
-    void SetUniqueSelectionHighlight(AZ::Entity* element);
+    void SetUniqueSelectionHighlight(const AZ::Entity* element);
 
     void AddElement(const QTreeWidgetItemRawPtrQList& selectedItems, const QPoint* optionalPos);
 
     void SignalUserSelectionHasChanged(const QTreeWidgetItemRawPtrQList& selectedItems);
-
-    void ReparentItems(bool onCreationOfElement,
-        const QTreeWidgetItemRawPtrList& baseParentItems,
-        const HierarchyItemRawPtrList& childItems);
 
     //! When we delete the Editor window we call this. It avoid the element Entities
     //! being deleted when the HierarchyItem is deleted
@@ -54,16 +59,28 @@ public:
 
     void ClearItemBeingHovered();
 
+    //! Update the appearance of all hierarchy items to reflect their slice status
+    void UpdateSliceInfo();
+
+    //! Drop assets from asset browser
+    void DropMimeDataAssets(const QMimeData* data,
+        const AZ::EntityId& targetEntityId,
+        bool onElement,
+        int childIndex,
+        const QPoint* newElementPosition = nullptr);
+
 public slots:
     void DeleteSelectedItems();
     void Cut();
     void Copy();
     void PasteAsSibling();
     void PasteAsChild();
+    void SetEditorOnlyForSelectedItems(bool editorOnly);
 
 signals:
 
     void SetUserSelection(HierarchyItemRawPtrList* items);
+    void editorOnlyStateChangedOnSelectedElements();
 
 private slots:
 
@@ -91,8 +108,34 @@ protected:
 
 private:
 
+    // EditorPickModeNotificationBus
+    void OnEntityPickModeStarted() override;
+    void OnEntityPickModeStopped() override;
+
+    // EntityHighlightMessages
+    void EntityHighlightRequested(AZ::EntityId entityId) override;
+    void EntityStrongHighlightRequested(AZ::EntityId entityId) override;
+    // ~EntityHighlightMessages
+
+    void PickItem(HierarchyItem* item);
+
+    bool IsEntityInEntityContext(AZ::EntityId entityId);
+
+    void ReparentItems(const QTreeWidgetItemRawPtrList& baseParentItems,
+        const HierarchyItemRawPtrList& childItems);
+
+    void ToggleVisibility(HierarchyItem* hierarchyItem);
     void DeleteSelectedItems(const QTreeWidgetItemRawPtrQList& selectedItems);
-    bool AcceptsMimeData(const QMimeData *mimeData);
+
+    bool AcceptsMimeData(const QMimeData* mimeData);
+    
+    // Drag/drop assets from asset browser
+    void DropMimeDataAssetsAtHierarchyPosition(const QMimeData* data, const QPoint& position);
+    void DropMimeDataAssets(const QMimeData* data,
+        QTreeWidgetItem* targetWidgetItem,
+        bool onElement,
+        int childIndex,
+        const QPoint* newElementPosition);
 
     bool m_isDeleting;
 
@@ -108,5 +151,12 @@ private:
     bool m_selectionChangedBeforeDrag;
     bool m_signalSelectionChange;
 
-    bool m_inited;
+    bool m_inObjectPickMode;
+
+    // Used to restore the normal hierarchy mode after pick mode is complete
+    QAbstractItemView::SelectionMode m_selectionModeBeforePickMode;
+    EditTriggers m_editTriggersBeforePickMode;
+    QModelIndex m_currentItemBeforePickMode;
+
+    bool m_isInited;
 };

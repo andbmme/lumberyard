@@ -12,27 +12,29 @@
 
 // include required headers
 #include "AttachmentsWindow.h"
-#include "../../../../EMStudioSDK/Source/EMStudioManager.h"
-#include <MysticQt/Source/LinkWidget.h>
+#include <AzFramework/API/ApplicationAPI.h>
+#include <EMotionFX/Source/ActorManager.h>
 #include <EMotionFX/Source/AttachmentNode.h>
 #include <EMotionFX/Source/AttachmentSkin.h>
-#include <EMotionFX/Source/ActorManager.h>
-#include "../../../../EMStudioSDK/Source/MainWindow.h"
+#include <EMotionStudio/EMStudioSDK/Source/EMStudioManager.h>
+#include <EMotionStudio/EMStudioSDK/Source/FileManager.h>
+#include <EMotionStudio/EMStudioSDK/Source/MainWindow.h>
+#include <EMotionStudio/EMStudioSDK/Source/SaveChangedFilesManager.h>
+#include <MCore/Source/LogManager.h>
+#include <MCore/Source/StringConversions.h>
+#include <MysticQt/Source/LinkWidget.h>
+#include <QAction>
+#include <QCheckBox>
+#include <QFileDialog>
+#include <QHeaderView>
+#include <QKeySequence>
+#include <QLabel>
+#include <QMenu>
+#include <QPushButton>
+#include <QShortcut>
+#include <QTableWidget>
 #include <QTableWidget>
 #include <QVBoxLayout>
-#include <QHeaderView>
-#include <QCheckBox>
-#include <QTableWidget>
-#include <QPushButton>
-#include <QFileDialog>
-#include <QLabel>
-#include <QAction>
-#include <QMenu>
-#include <QShortcut>
-#include <QKeySequence>
-#include <AzFramework/StringFunc/StringFunc.h>
-#include <AzFramework/API/ApplicationAPI.h>
-
 
 namespace EMStudio
 {
@@ -58,7 +60,7 @@ namespace EMStudio
     // init the geometry lod window
     void AttachmentsWindow::Init()
     {
-        mTempString.Reserve(16384);
+        mTempString.reserve(16384);
 
         setObjectName("StackFrameOnlyBG");
         setAcceptDrops(true);
@@ -91,7 +93,7 @@ namespace EMStudio
         mTableWidget->setContextMenuPolicy(Qt::DefaultContextMenu);
 
         // set the column count
-        mTableWidget->setColumnCount(7);
+        mTableWidget->setColumnCount(6);
 
         // set header items for the table
         mTableWidget->setHorizontalHeaderItem(0, new QTableWidgetItem("Vis"));
@@ -99,8 +101,7 @@ namespace EMStudio
         mTableWidget->setHorizontalHeaderItem(2, new QTableWidgetItem("Name"));
         mTableWidget->setHorizontalHeaderItem(3, new QTableWidgetItem("IsSkin"));
         mTableWidget->setHorizontalHeaderItem(4, new QTableWidgetItem("Node"));
-        mTableWidget->setHorizontalHeaderItem(5, new QTableWidgetItem("Fast"));
-        mTableWidget->setHorizontalHeaderItem(6, new QTableWidgetItem("Nodes"));
+        mTableWidget->setHorizontalHeaderItem(5, new QTableWidgetItem("Nodes"));
 
         // set the horizontal header alignement
         horizontalHeader->setDefaultAlignment(Qt::AlignVCenter | Qt::AlignLeft);
@@ -202,16 +203,16 @@ namespace EMStudio
         mNodeSelectionWindow = new NodeSelectionWindow(this, true);
 
         // connect the controls to the slots
-        connect(mTableWidget,                          SIGNAL(itemSelectionChanged()), this, SLOT(OnSelectionChanged()));
-        connect(mOpenAttachmentButton,                 SIGNAL(clicked()),              this, SLOT(OnOpenAttachmentButtonClicked()));
-        connect(mOpenDeformableAttachmentButton,       SIGNAL(clicked()),              this, SLOT(OnOpenDeformableAttachmentButtonClicked()));
-        connect(mRemoveButton,                         SIGNAL(clicked()),              this, SLOT(OnRemoveButtonClicked()));
-        connect(mClearButton,                          SIGNAL(clicked()),              this, SLOT(OnClearButtonClicked()));
-        connect(mNodeSelectionWindow->GetNodeHierarchyWidget(),                        SIGNAL(OnSelectionDone(MCore::Array<SelectionItem>)), this, SLOT(OnAttachmentNodesSelected(MCore::Array<SelectionItem>)));
-        connect(mNodeSelectionWindow,                                                  SIGNAL(rejected()),             this, SLOT(OnCancelAttachmentNodeSelection()));
-        connect(mNodeSelectionWindow->GetNodeHierarchyWidget()->GetTreeWidget(),       SIGNAL(itemSelectionChanged()), this, SLOT(OnNodeChanged()));
-        connect(mEscapeShortcut, SIGNAL(activated()), this, SLOT(OnEscapeButtonPressed()));
-        connect(mCancelSelectionButton, SIGNAL(clicked()), this, SLOT(OnEscapeButtonPressed()));
+        connect(mTableWidget,                          &QTableWidget::itemSelectionChanged, this, &AttachmentsWindow::OnSelectionChanged);
+        connect(mOpenAttachmentButton,                 &QPushButton::clicked,              this, &AttachmentsWindow::OnOpenAttachmentButtonClicked);
+        connect(mOpenDeformableAttachmentButton,       &QPushButton::clicked,              this, &AttachmentsWindow::OnOpenDeformableAttachmentButtonClicked);
+        connect(mRemoveButton,                         &QPushButton::clicked,              this, &AttachmentsWindow::OnRemoveButtonClicked);
+        connect(mClearButton,                          &QPushButton::clicked,              this, &AttachmentsWindow::OnClearButtonClicked);
+        connect(mNodeSelectionWindow->GetNodeHierarchyWidget(),                        static_cast<void (NodeHierarchyWidget::*)(MCore::Array<SelectionItem>)>(&NodeHierarchyWidget::OnSelectionDone), this, &AttachmentsWindow::OnAttachmentNodesSelected);
+        connect(mNodeSelectionWindow,                                                  &NodeSelectionWindow::rejected,             this, &AttachmentsWindow::OnCancelAttachmentNodeSelection);
+        connect(mNodeSelectionWindow->GetNodeHierarchyWidget()->GetTreeWidget(),       &QTreeWidget::itemSelectionChanged, this, &AttachmentsWindow::OnNodeChanged);
+        connect(mEscapeShortcut, &QShortcut::activated, this, &AttachmentsWindow::OnEscapeButtonPressed);
+        connect(mCancelSelectionButton, &QPushButton::clicked, this, &AttachmentsWindow::OnEscapeButtonPressed);
 
         // reinit the window
         ReInit();
@@ -259,7 +260,7 @@ namespace EMStudio
             uint32                      attachedToNodeIndex = MCORE_INVALIDINDEX32;
             EMotionFX::Node*            attachedToNode      = nullptr;
 
-            if (attachment->GetIsInfluencedByMultipleNodes() == false)
+            if (!attachment->GetIsInfluencedByMultipleJoints())
             {
                 attachedToNodeIndex = static_cast<EMotionFX::AttachmentNode*>(attachment)->GetAttachToNodeIndex();
             }
@@ -270,14 +271,14 @@ namespace EMStudio
             }
 
             // create table items
-            mTempString.Format("%i", attachmentInstance->GetID());
-            QTableWidgetItem* tableItemID           = new QTableWidgetItem(mTempString.AsChar());
-            mTempString.Format("%s", attachmentActor->GetFileNameString().ExtractFileName().AsChar());
-            QTableWidgetItem* tableItemName         = new QTableWidgetItem(mTempString.AsChar());
-            mTempString.Format("%s", (attachment->GetIsInfluencedByMultipleNodes() ? "Yes" : "No"));
-            QTableWidgetItem* tableItemDeformable   = new QTableWidgetItem(mTempString.AsChar());
-            mTempString.Format("%i", attachmentInstance->GetNumNodes());
-            QTableWidgetItem* tableItemNumNodes     = new QTableWidgetItem(mTempString.AsChar());
+            mTempString = AZStd::string::format("%i", attachmentInstance->GetID());
+            QTableWidgetItem* tableItemID           = new QTableWidgetItem(mTempString.c_str());
+            AzFramework::StringFunc::Path::GetFileName(attachmentActor->GetFileNameString().c_str(), mTempString);
+            QTableWidgetItem* tableItemName         = new QTableWidgetItem(mTempString.c_str());
+            mTempString = attachment->GetIsInfluencedByMultipleJoints() ? "Yes" : "No";
+            QTableWidgetItem* tableItemDeformable   = new QTableWidgetItem(mTempString.c_str());
+            mTempString = AZStd::string::format("%i", attachmentInstance->GetNumNodes());
+            QTableWidgetItem* tableItemNumNodes     = new QTableWidgetItem(mTempString.c_str());
             QTableWidgetItem* tableItemNodeName     = new QTableWidgetItem("");
             // set node name if exists
             if (attachedToNode)
@@ -287,7 +288,7 @@ namespace EMStudio
                 MysticQt::LinkWidget* nodeSelectionButton = new MysticQt::LinkWidget(attachedToNode->GetName());
                 nodeSelectionButton->setStyleSheet("text-align: left;");
                 mTableWidget->setCellWidget(i, 4, nodeSelectionButton);
-                connect(nodeSelectionButton, SIGNAL(clicked()), this, SLOT(OnSelectNodeButtonClicked()));
+                connect(nodeSelectionButton, &MysticQt::LinkWidget::clicked, this, &AttachmentsWindow::OnSelectNodeButtonClicked);
             }
 
             // create the checkboxes
@@ -296,24 +297,16 @@ namespace EMStudio
             isVisibleCheckBox->setProperty("attachmentInstanceID", attachmentInstance->GetID());
             isVisibleCheckBox->setChecked(true);
 
-            QCheckBox* allowFastUpdatesCheckBox = new QCheckBox();
-            allowFastUpdatesCheckBox->setProperty("attachmentInstanceID", attachmentInstance->GetID());
-            allowFastUpdatesCheckBox->setStyleSheet("background: transparent; padding-left: 9px;");
-            allowFastUpdatesCheckBox->setChecked(attachment->GetAllowFastUpdates());
-            allowFastUpdatesCheckBox->setMaximumWidth(51);
-
             // add table items to the current row
             mTableWidget->setCellWidget(i, 0, isVisibleCheckBox);
             mTableWidget->setItem(i, 1, tableItemID);
             mTableWidget->setItem(i, 2, tableItemName);
             mTableWidget->setItem(i, 3, tableItemDeformable);
             mTableWidget->setItem(i, 4, tableItemNodeName);
-            mTableWidget->setCellWidget(i, 5, allowFastUpdatesCheckBox);
-            mTableWidget->setItem(i, 6, tableItemNumNodes);
+            mTableWidget->setItem(i, 5, tableItemNumNodes);
 
             // connect the controls to the functions
-            connect(isVisibleCheckBox,         SIGNAL(stateChanged(int)), this, SLOT(OnVisibilityChanged(int)));
-            connect(allowFastUpdatesCheckBox,  SIGNAL(stateChanged(int)), this, SLOT(OnFastUpdatesChanged(int)));
+            connect(isVisibleCheckBox,         &QCheckBox::stateChanged, this, &AttachmentsWindow::OnVisibilityChanged);
 
             // set the row height
             mTableWidget->setRowHeight(i, 21);
@@ -366,7 +359,7 @@ namespace EMStudio
             {
                 // get the complete file name and extract the extension
                 filename = urls[i].toLocalFile().toUtf8().data();
-                AzFramework::StringFunc::Path::GetExtension(filename.c_str(), extension, false);
+                AzFramework::StringFunc::Path::GetExtension(filename.c_str(), extension, false /* include dot */);
 
                 if (extension == "actor")
                 {
@@ -393,8 +386,8 @@ namespace EMStudio
                 attachmentAction->setIcon(MysticQt::GetMysticQt()->FindIcon("Images/Icons/Open.png"));
                 deformableAction->setIcon(MysticQt::GetMysticQt()->FindIcon("Images/Icons/Open.png"));
 
-                connect(attachmentAction, SIGNAL(triggered()), this, SLOT(OnDroppedAttachmentsActors()));
-                connect(deformableAction, SIGNAL(triggered()), this, SLOT(OnDroppedDeformableActors()));
+                connect(attachmentAction, &QAction::triggered, this, &AttachmentsWindow::OnDroppedAttachmentsActors);
+                connect(deformableAction, &QAction::triggered, this, &AttachmentsWindow::OnDroppedDeformableActors);
 
                 // show the menu at the given position
                 menu.exec(mapToGlobal(event->pos()));
@@ -426,7 +419,7 @@ namespace EMStudio
     void AttachmentsWindow::AddAttachments(const AZStd::vector<AZStd::string>& filenames)
     {
         // create our command group
-        MCore::String outString;
+        AZStd::string outString;
         MCore::CommandGroup commandGroup("Add attachments");
 
         // skip adding if no actor instance is selected
@@ -455,30 +448,30 @@ namespace EMStudio
             // create instance for the attachment
             if (actorIndex == MCORE_INVALIDINDEX32)
             {
-                commandGroup.AddCommandString(MCore::String().Format("ImportActor -filename \"%s\"", filename.c_str()).AsChar());
+                commandGroup.AddCommandString(AZStd::string::format("ImportActor -filename \"%s\"", filename.c_str()).c_str());
                 commandGroup.AddCommandString("CreateActorInstance -actorID %LASTRESULT%");
             }
             else
             {
                 EMotionFX::Actor* attachmentActor = EMotionFX::GetActorManager().GetActor(actorIndex);
                 uint32 attachmentActorID = attachmentActor->GetID();
-                commandGroup.AddCommandString(MCore::String().Format("CreateActorInstance -actorID %i", attachmentActorID).AsChar());
+                commandGroup.AddCommandString(AZStd::string::format("CreateActorInstance -actorID %i", attachmentActorID).c_str());
             }
 
             // add the attachment
             if (mIsDeformableAttachment == false)
             {
-                commandGroup.AddCommandString(MCore::String().Format("AddAttachment -attachmentID %%LASTRESULT%% -attachToID %i -attachToNode \"%s\"", mActorInstance->GetID(), nodeName).AsChar());
+                commandGroup.AddCommandString(AZStd::string::format("AddAttachment -attachmentID %%LASTRESULT%% -attachToID %i -attachToNode \"%s\"", mActorInstance->GetID(), nodeName).c_str());
             }
             else
             {
-                commandGroup.AddCommandString(MCore::String().Format("AddDeformableAttachment -attachmentID %%LASTRESULT%% -attachToID %i", mActorInstance->GetID()).AsChar());
+                commandGroup.AddCommandString(AZStd::string::format("AddDeformableAttachment -attachmentID %%LASTRESULT%% -attachToID %i", mActorInstance->GetID()).c_str());
             }
         }
 
         // select the old actorinstance
-        commandGroup.AddCommandString("ClearSelection");
-        commandGroup.AddCommandString(MCore::String().Format("Select -actorinstanceID %i", mActorInstance->GetID()).AsChar());
+        commandGroup.AddCommandString("Unselect -actorInstanceID SELECT_ALL -actorID SELECT_ALL");
+        commandGroup.AddCommandString(AZStd::string::format("Select -actorinstanceID %i", mActorInstance->GetID()).c_str());
 
         // execute the command group
         GetCommandManager()->ExecuteCommandGroup(commandGroup, outString);
@@ -489,8 +482,8 @@ namespace EMStudio
     void AttachmentsWindow::RemoveTableItems(const QList<QTableWidgetItem*>& items)
     {
         // import and start playing the animation
-        MCore::String outResult;
-        MCore::CommandGroup group(MCore::String("Remove Attachment Actor").AsChar());
+        AZStd::string outResult;
+        MCore::CommandGroup group(AZStd::string("Remove Attachment Actor").c_str());
 
         // iterate trough all selected items
         const uint32 numItems = items.length();
@@ -504,9 +497,9 @@ namespace EMStudio
 
             // the attachment id
             const uint32 id                 = GetIDFromTableRow(item->row());
-            const MCore::String nodeName    = GetNodeNameFromTableRow(item->row());
+            const AZStd::string nodeName    = GetNodeNameFromTableRow(item->row());
 
-            group.AddCommandString(MCore::String().Format("RemoveAttachment -attachmentID %i -attachToID %i -attachToNode \"%s\"", id, mActorInstance->GetID(), nodeName.AsChar()).AsChar());
+            group.AddCommandString(AZStd::string::format("RemoveAttachment -attachmentID %i -attachToID %i -attachToNode \"%s\"", id, mActorInstance->GetID(), nodeName.c_str()).c_str());
         }
 
         // execute the group command
@@ -574,22 +567,22 @@ namespace EMStudio
         mActorInstance->RemoveAttachment(attachmentInstance);
 
         // execute command for the attachment
-        MCore::String outResult;
+        AZStd::string outResult;
         MCore::CommandGroup commandGroup("Add Attachment");
 
         // add the attachment
         if (mIsDeformableAttachment == false)
         {
-            commandGroup.AddCommandString(MCore::String().Format("AddAttachment -attachToID %i -attachmentID %i -attachToNode \"%s\"", mActorInstance->GetID(), attachmentInstance->GetID(), nodeName).AsChar());
+            commandGroup.AddCommandString(AZStd::string::format("AddAttachment -attachToID %i -attachmentID %i -attachToNode \"%s\"", mActorInstance->GetID(), attachmentInstance->GetID(), nodeName).c_str());
         }
         else
         {
-            commandGroup.AddCommandString(MCore::String().Format("AddDeformableAttachment -attachToID %i -attachmentID %i", mActorInstance->GetID(), attachmentInstance->GetID()).AsChar());
+            commandGroup.AddCommandString(AZStd::string::format("AddDeformableAttachment -attachToID %i -attachmentID %i", mActorInstance->GetID(), attachmentInstance->GetID()).c_str());
         }
 
         // clear selection and select the actor instance the attachment is attached to
-        commandGroup.AddCommandString(MCore::String().Format("ClearSelection"));
-        commandGroup.AddCommandString(MCore::String().Format("Select -actorInstanceID %i", mActorInstance->GetID()));
+        commandGroup.AddCommandString(AZStd::string::format("ClearSelection"));
+        commandGroup.AddCommandString(AZStd::string::format("Select -actorInstanceID %i", mActorInstance->GetID()));
 
         // reset the state for selection
         mWaitingForAttachment = false;
@@ -605,8 +598,8 @@ namespace EMStudio
     void AttachmentsWindow::OnNodeChanged()
     {
         NodeHierarchyWidget* hierarchyWidget = mNodeSelectionWindow->GetNodeHierarchyWidget();
-        MCore::Array<SelectionItem>& selectedItems = hierarchyWidget->GetSelectedItems();
-        if (selectedItems.GetLength() != 1)
+        AZStd::vector<SelectionItem>& selectedItems = hierarchyWidget->GetSelectedItems();
+        if (selectedItems.size() != 1)
         {
             return;
         }
@@ -797,7 +790,7 @@ namespace EMStudio
         }
 
         // create command group
-        MCore::String outResult;
+        AZStd::string outResult;
         MCore::CommandGroup commandGroup("Adjust attachment node");
 
         // get the attachment
@@ -807,11 +800,11 @@ namespace EMStudio
             return;
         }
 
-        MCore::String oldNodeName = GetSelectedNodeName();
+        AZStd::string oldNodeName = GetSelectedNodeName();
 
         // remove and readd the attachment
-        commandGroup.AddCommandString(MCore::String().Format("RemoveAttachment -attachmentID %i -attachToID %i -attachToNode \"%s\"", attachment->GetID(), mActorInstance->GetID(), oldNodeName.AsChar()).AsChar());
-        commandGroup.AddCommandString(MCore::String().Format("AddAttachment -attachToID %i -attachmentID %i -attachToNode \"%s\"", mActorInstance->GetID(), attachment->GetID(), nodeName).AsChar());
+        commandGroup.AddCommandString(AZStd::string::format("RemoveAttachment -attachmentID %i -attachToID %i -attachToNode \"%s\"", attachment->GetID(), mActorInstance->GetID(), oldNodeName.c_str()).c_str());
+        commandGroup.AddCommandString(AZStd::string::format("AddAttachment -attachToID %i -attachmentID %i -attachToNode \"%s\"", mActorInstance->GetID(), attachment->GetID(), nodeName).c_str());
 
         // execute the command group
         GetCommandManager()->ExecuteCommandGroup(commandGroup, outResult);
@@ -819,38 +812,16 @@ namespace EMStudio
 
 
     // get the selected node name
-    MCore::String AttachmentsWindow::GetSelectedNodeName()
+    AZStd::string AttachmentsWindow::GetSelectedNodeName()
     {
         const QList<QTableWidgetItem*> items = mTableWidget->selectedItems();
         const uint32 numItems = items.length();
         if (numItems < 1)
         {
-            return MCore::String();
+            return AZStd::string();
         }
 
         return GetNodeNameFromTableRow(items[0]->row());
-    }
-
-
-    // called when fast updates changed
-    void AttachmentsWindow::OnFastUpdatesChanged(int fastUpdates)
-    {
-        MCORE_UNUSED(fastUpdates);
-
-        // get the sender widget
-        QCheckBox* widget = (QCheckBox*)(QWidget*)sender();
-        if (widget == nullptr)
-        {
-            return;
-        }
-
-        // get the id from the checkbox
-        const int id = widget->property("attachmentInstanceID").toInt();
-
-        // execute visible command
-        MCore::String outResult;
-        const char* doRender = (widget->isChecked()) ? "true" : "false";
-        GetCommandManager()->ExecuteCommand(MCore::String().Format("AdjustActorInstance -actorInstanceID %d -attachmentFastUpdate %s", id, doRender).AsChar(), outResult);
     }
 
 
@@ -870,9 +841,8 @@ namespace EMStudio
         const int id = widget->property("attachmentInstanceID").toInt();
 
         // execute visible command
-        MCore::String outResult;
-        const char* doRender = (widget->isChecked()) ? "true" : "false";
-        GetCommandManager()->ExecuteCommand(MCore::String().Format("AdjustActorInstance -actorInstanceID %d -doRender %s", id, doRender).AsChar(), outResult);
+        AZStd::string outResult;
+        GetCommandManager()->ExecuteCommand(AZStd::string::format("AdjustActorInstance -actorInstanceID %d -doRender %s", id, AZStd::to_string(widget->isChecked()).c_str()), outResult);
     }
 
 
@@ -885,20 +855,20 @@ namespace EMStudio
             return MCORE_INVALIDINDEX32;
         }
 
-        MCore::String id;
+        AZStd::string id;
         FromQtString(item->text(), &id);
 
-        return id.ToInt();
+        return AzFramework::StringFunc::ToInt(id.c_str());
     }
 
 
     // extracts the node name from a given row
-    MCore::String AttachmentsWindow::GetNodeNameFromTableRow(int row)
+    AZStd::string AttachmentsWindow::GetNodeNameFromTableRow(int row)
     {
         QTableWidgetItem* item = mTableWidget->item(row, 4);
         if (item == nullptr)
         {
-            return MCore::String();
+            return AZStd::string();
         }
 
         return FromQtString(item->whatsThis());

@@ -75,11 +75,19 @@ namespace AZ
          * An entity cannot be activated unless all component dependency requirements are met, and 
          * components are sorted so that each can be activated before the components that depend on it.
          */
-        enum DependencySortResult
+        enum class DependencySortResult
         {
-            DSR_OK = 0,             ///< All component dependency requirements are met. The entity can be activated.
-            DSR_MISSING_REQUIRED,   ///< One or more components that provide required services are not in the list of components to activate.
-            DSR_CYCLIC_DEPENDENCY,  ///< A cycle in component service dependencies was detected.
+            Success = 0,                ///< All component dependency requirements are met. The entity can be activated.
+            MissingRequiredService,     ///< One or more components that provide required services are not in the list of components to activate.
+            HasCyclicDependency,        ///< A cycle in component service dependencies was detected.
+            HasIncompatibleServices,    ///< A component is incompatible with a service provided by another component.
+            DescriptorNotRegistered,    ///< A component descriptor was not registered with the AZ::ComponentApplication.
+            MissingDescriptor,          ///< Cannot find a component's ComponentDescriptor
+
+            // Deprecated values
+            DSR_OK = Success,
+            DSR_MISSING_REQUIRED = MissingRequiredService,
+            DSR_CYCLIC_DEPENDENCY = HasCyclicDependency,
         };
 
         /**
@@ -96,6 +104,19 @@ namespace AZ
          * but a name is useful for debugging.
          */
         Entity(const EntityId& id, const char* name = nullptr);
+
+        // Delete the copy constructor, becuase this contains vector of pointers and other pointers that
+        // are supposed to be unique, this would be a mistake.  Its safer to cause code that tries to
+        // copy an Entity to fail on compile than it would be to allow it to transparently work via
+        // some sort of serializer-powered deep copy clone.  (If you want to manually clone entities,
+        // use the serializer to do so explicitly).
+        Entity(const Entity& other) = delete;
+        Entity& operator=(const Entity& other) = delete;
+
+        // You are ONLY allowed to move construct and assign:
+        Entity(Entity&& other) = default;
+        Entity& operator=(Entity&& other) = default;
+
 
         /**
          * Destroys an entity and its components.
@@ -120,7 +141,7 @@ namespace AZ
          * Sets the name of the entity.
          * @param name A name for the entity.
          */
-        void SetName(AZStd::string name) { m_name = name; OnNameChanged(); }
+        void SetName(AZStd::string name) { m_name = AZStd::move(name); OnNameChanged(); }
 
         /**
          * Gets the state of the entity.
@@ -347,14 +368,33 @@ namespace AZ
         void            InvalidateDependencies();
 
         /**
-         * Calls DependencySort() to sort an entity's components based on the dependencies
-         * among components. If all dependencies are met, the required services can be 
-         * activated before the components that depend on them. An entity will not be 
-         * activated unless the sort succeeds.
-         * @return Indicates whether the entity can determine an order in which
-         * to activate its components.
+         * Contains a failed DependencySortResult code
+         * and a detailed message that can be presented to users.
          */
-        DependencySortResult    EvaluateDependencies();
+        struct FailedSortDetails
+        {
+            DependencySortResult m_code;
+            AZStd::string m_message;
+        };
+
+        using DependencySortOutcome = AZ::Outcome<void, FailedSortDetails>;
+
+        /**
+         * Calls DependencySort() to sort an entity's components based on the dependencies
+         * among components. If all dependencies are met, the required services can be
+         * activated before the components that depend on them. An entity will not be
+         * activated unless the sort succeeds.
+         * @return A successful outcome is returned if the entity can
+         * determine an order in which to activate its components.
+         * Otherwise the failed outcome contains details on why the sort failed.
+         */
+        DependencySortOutcome EvaluateDependenciesGetDetails();
+
+        /**
+         * Same as EvaluateDependenciesGetDetails(), but if sort fails
+         * only a code is returned, there is no detailed error message.
+         */
+        DependencySortResult EvaluateDependencies();
 
         /**
          * Mark the entity to be activated by default. This is observed automatically by EntityContext,
@@ -394,6 +434,17 @@ namespace AZ
         inline TransformInterface* GetTransform() const { return m_transform; }
         /// @endcond
 
+        /**
+        * Sorts an entity's components based on the dependencies between components.
+        * If all dependencies are met, the required services can be activated
+        * before the components that depend on them.
+        * @param components An array of components attached to the entity.
+        * @return A successful outcome is returned if the entity can
+        * determine an order in which to activate its components.
+        * Otherwise the outcome contains details on why the sort failed.
+        */
+        static DependencySortOutcome DependencySort(ComponentArrayType& components);
+
     protected:
 
         /// @cond EXCLUDE_DOCS 
@@ -417,16 +468,6 @@ namespace AZ
          * Otherwise, false.
          */
         bool CanAddRemoveComponents() const;
-
-        /**
-         * Sorts an entity's components based on the dependencies between components.
-         * If all dependencies are met, the required services can be activated 
-         * before the components that depend on them.
-         * @param components An array of components attached to the entity.
-         * @return Indicates whether the entity can determine an order in which
-         * to activate its components.
-         */
-        static DependencySortResult DependencySort(ComponentArrayType& components);
 
         // Helpers for child classes
         static void ActivateComponent(Component& component) { component.Activate(); }

@@ -11,8 +11,12 @@
 */
 // Original file Copyright Crytek GMBH or its affiliates, used under license.
 
-#ifndef __SHADERCACHE_H__
-#define __SHADERCACHE_H__
+#pragma once
+
+// Shader cache directory
+#define g_shaderCache "Shaders/Cache/"
+
+#define CONCAT_PATHS(a, b) a b
 
 struct SPreprocessMasks
 {
@@ -104,6 +108,15 @@ struct SShaderLevelPolicies
 // CRY DX12
 union UPipelineState // Pipeline state relevant for shader instantiation
 {
+#if defined(AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/ShaderCache_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/ShaderCache_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/ShaderCache_h_salem.inl"
+    #endif
+#endif
     uint64 opaque;
     UPipelineState()
         : opaque(0) {
@@ -115,6 +128,7 @@ struct SShaderCombIdent
 {
     uint64 m_RTMask;    // run-time mask
     uint64 m_GLMask;    // global mask
+    uint64 m_STMask;    // static mask
     UPipelineState m_pipelineState;
     union
     {
@@ -140,6 +154,7 @@ struct SShaderCombIdent
         m_MDMask = nMD;
         m_MDVMask = nMDV;
         m_nHash = 0;
+        m_STMask = 0;
     }
     SShaderCombIdent(uint64 nGL, const SShaderCombIdent& Ident)
     {
@@ -155,6 +170,7 @@ struct SShaderCombIdent
         m_MDMask = 0;
         m_MDVMask = 0;
         m_nHash = 0;
+        m_STMask = 0;
     }
 
     uint32 PostCreate();
@@ -348,9 +364,11 @@ struct SEmptyCombination
     uint32 nLTNew;
     uint32 nMD;
     uint32 nMDV;
+    uint64 nST;
     class CHWShader* pShader;
 
-    static std::vector<SEmptyCombination> s_Combinations;
+    using Combinations = AZStd::vector<SEmptyCombination, AZ::StdLegacyAllocator>;
+    static Combinations s_Combinations;
 };
 
 //==========================================================================================================================
@@ -432,7 +450,3 @@ typedef std::map<CCryNameR, SCacheCombination> FXShaderCacheCombinations;
 typedef FXShaderCacheCombinations::iterator FXShaderCacheCombinationsItor;
 typedef std::map<CCryNameR, std::vector<SCacheCombination> > FXShaderCacheCombinationsList;
 typedef FXShaderCacheCombinationsList::iterator FXShaderCacheCombinationsListItor;
-
-
-#endif
-

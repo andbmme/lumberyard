@@ -9,12 +9,15 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
-#ifndef AZ_UNITY_BUILD
 
+#include <AzCore/Asset/AssetJsonSerializer.h>
 #include <AzCore/Asset/AssetManagerComponent.h>
+#include <AzCore/Asset/AssetManagerBus.h>
 #include <AzCore/Serialization/SerializeContext.h>
 #include <AzCore/Serialization/EditContext.h>
+#include <AzCore/RTTI/BehaviorContext.h>
 #include <AzCore/Asset/AssetManager.h>
+#include <AzCore/Serialization/Json/RegistrationContext.h>
 #include <AzCore/Slice/SliceAssetHandler.h>
 #include <AzCore/Slice/SliceComponent.h>
 #include <AzCore/Math/Crc.h>
@@ -37,7 +40,7 @@ namespace AZ
     {
         Data::AssetManager::Descriptor desc;
         Data::AssetManager::Create(desc);
-        TickBus::Handler::BusConnect();
+        SystemTickBus::Handler::BusConnect();
     }
 
     //=========================================================================
@@ -46,7 +49,9 @@ namespace AZ
     //=========================================================================
     void AssetManagerComponent::Deactivate()
     {
-        TickBus::Handler::BusDisconnect();
+        Data::AssetManager::Instance().DispatchEvents(); // clear any waiting assets.
+
+        SystemTickBus::Handler::BusDisconnect();
         Data::AssetManager::Destroy();
     }
 
@@ -54,7 +59,7 @@ namespace AZ
     // OnTick
     // [6/25/2012]
     //=========================================================================
-    void AssetManagerComponent::OnTick(float /*deltaTime*/, ScriptTimePoint /*time*/)
+    void AssetManagerComponent::OnSystemTick()
     {
         Data::AssetManager::Instance().DispatchEvents();
     }
@@ -89,21 +94,16 @@ namespace AZ
     //=========================================================================
     void AssetManagerComponent::Reflect(ReflectContext* context)
     {
+        Data::AssetId::Reflect(context);
+        Data::AssetData::Reflect(context);
+
         if (SerializeContext* serializeContext = azrtti_cast<SerializeContext*>(context))
         {
-            serializeContext->Class<Data::AssetId>()
-                ->Version(1)
-                ->Field("guid", &Data::AssetId::m_guid)
-                ->Field("subId", &Data::AssetId::m_subId)
-                ;
-
-            serializeContext->Class<AZ::Data::AssetData>()
-                ->Version(1)
-                ;
+            serializeContext->RegisterGenericType<Data::Asset<Data::AssetData>>();
 
             serializeContext->Class<AssetManagerComponent, AZ::Component>()
                 ->Version(1)
-                ->SerializerForEmptyClass();
+                ;
 
             if (EditContext* editContext = serializeContext->GetEditContext())
             {
@@ -115,7 +115,22 @@ namespace AZ
                     ;
             }
         }
+
+        if (BehaviorContext* behaviorContext = azrtti_cast<BehaviorContext*>(context))
+        {
+            behaviorContext->EBus<Data::AssetCatalogRequestBus>("AssetCatalogRequestBus")
+                ->Attribute(AZ::Script::Attributes::Scope, AZ::Script::Attributes::ScopeFlags::Common)
+                ->Attribute(AZ::Script::Attributes::Category, "Asset")
+                ->Attribute(AZ::Script::Attributes::Module, "asset")
+                ->Attribute(AZ::Script::Attributes::ExcludeFrom, AZ::Script::Attributes::ExcludeFlags::All)
+                ->Event("GetAssetPathById", &Data::AssetCatalogRequests::GetAssetPathById)
+                ->Event("GetAssetIdByPath", &Data::AssetCatalogRequests::GetAssetIdByPath)
+                ;
+        }
+
+        if (JsonRegistrationContext* jsonContext = azrtti_cast<JsonRegistrationContext*>(context))
+        {
+            jsonContext->Serializer<AZ::Data::AssetJsonSerializer>()->HandlesType<AZ::Data::Asset>();
+        }
     }
 }
-
-#endif // #ifndef AZ_UNITY_BUILD

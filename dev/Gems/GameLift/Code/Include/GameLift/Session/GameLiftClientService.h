@@ -11,19 +11,23 @@
 */
 #pragma once
 
-#if !defined(BUILD_GAMELIFT_SERVER) && defined(BUILD_GAMELIFT_CLIENT)
+#if defined(BUILD_GAMELIFT_CLIENT)
 
+#include <AzCore/PlatformDef.h>
+// The AWS Native SDK AWSAllocator triggers a warning due to accessing members of std::allocator directly.
+// AWSAllocator.h(70): warning C4996: 'std::allocator<T>::pointer': warning STL4010: Various members of std::allocator are deprecated in C++17.
+// Use std::allocator_traits instead of accessing these members directly.
+// You can define _SILENCE_CXX17_OLD_ALLOCATOR_MEMBERS_DEPRECATION_WARNING or _SILENCE_ALL_CXX17_DEPRECATION_WARNINGS to acknowledge that you have received this warning.
+AZ_PUSH_DISABLE_WARNING(4251 4996, "-Wunknown-warning-option")
 #include <aws/core/Aws.h>
+AZ_POP_DISABLE_WARNING
 #include <GameLift/Session/GameLiftClientServiceBus.h>
 #include <GameLift/Session/GameLiftClientServiceEventsBus.h>
 #include <GameLift/Session/GameLiftSessionDefs.h>
+#include <GameLift/Session/GameLiftRequestInterface.h>
 
 #include <GridMate/Session/Session.h>
 #include <AzCore/std/smart_ptr/scoped_ptr.h>
-
-#ifdef GetMessage
-#undef GetMessage
-#endif
 
 #pragma warning(push)
 #pragma warning(disable: 4355) // <future> includes ppltasks.h which throws a C4355 warning: 'this' used in base member initializer list
@@ -43,19 +47,21 @@ namespace GridMate
     struct GameLiftClientServiceDesc
         : public SessionServiceDesc
     {
+        GameLiftClientServiceDesc()
+            : m_useGameLiftLocalServer(false)
+        {}
+
         string m_region; //< AWS Region
         string m_endpoint; //< GameLift endpoint host
 
         string m_accessKey; //< AWS Access key
         string m_secretKey; //< AWS Secret key
 
-        string m_playerId; //< GameLift playerId
+        string m_playerId;
 
-        // Needs to be filled in when using GameLift as a player with fleetId.
-        string m_fleetId; //< GameLift fleetId
+        // Allow client to use a local GameLift server for development.
+        bool m_useGameLiftLocalServer; // Default (false) is use SSL validation and HTTPS. A value of true enables the use of the GameLift local server, turns off SSL validation and uses HTTP.
 
-        // Needs to be filled in when using GameLift as a player with aliasId.
-        string m_aliasId; //< GameLift aliasId
     };
 
     /*!
@@ -74,11 +80,10 @@ namespace GridMate
         ~GameLiftClientService() override;
 
         bool IsReady() const;
-        bool UseFleetId() const;
-        Aws::String GetAliasId() const;
-        Aws::String GetFleetId() const;
-        Aws::GameLift::GameLiftClient* GetClient() const;
+        AZStd::shared_ptr<Aws::GameLift::GameLiftClient> GetClient() const;
         Aws::String GetPlayerId() const;
+        bool UseGameLiftLocal() const { return m_serviceDesc.m_useGameLiftLocalServer; }
+        string GetEndpoint() const { return m_serviceDesc.m_endpoint; }
 
         // SessionService
         void OnServiceRegistered(IGridMate* gridMate) override;
@@ -87,14 +92,16 @@ namespace GridMate
 
         // GameLiftClientServiceBus implementation
         GridSession* JoinSessionBySearchInfo(const GameLiftSearchInfo& params, const CarrierDesc& carrierDesc) override;
-        GameLiftSessionRequest* RequestSession(const GameLiftSessionRequestParams& params) override;
+        GridSearch* RequestSession(const GameLiftSessionRequestParams& params) override;
+        GridSearch* StartMatchmaking(const AZStd::string& matchmakingConfig) override;
         GameLiftSearch* StartSearch(const GameLiftSearchParams& params) override;
         GameLiftClientSession* QueryGameLiftSession(const GridSession* session) override;
-        GameLiftSearch* QueryGameLiftSearch(const GridSearch* search) override;        
+        GameLiftSearch* QueryGameLiftSearch(const GridSearch* search) override;
 
     protected:
         bool StartGameLiftClient();
-        bool ValidateServiceDesc();
+        virtual void CreateSharedAWSGameLiftClient();
+        virtual bool ValidateAWSCredentials();
 
         enum GameLiftStatus
         {
@@ -107,18 +114,10 @@ namespace GridMate
 
         GameLiftClientServiceDesc m_serviceDesc;
         GameLiftStatus m_clientStatus;
-        bool m_useFleetId;
-        Aws::String m_playerId;
-        Aws::String m_aliasId;
-        Aws::String m_fleetId;
-        Aws::GameLift::GameLiftClient* m_client;
-        Aws::GameLift::Model::UpdateFleetAttributesOutcomeCallable m_updateFleetAttributesOutcomeCallable;
-        Aws::GameLift::Model::UpdateAliasOutcomeCallable m_updateAliasOutcomeCallable;
-
+        AZStd::shared_ptr<Aws::GameLift::GameLiftClient> m_clientSharedPtr;
+        Aws::GameLift::Model::ListBuildsOutcomeCallable m_listBuildsOutcomeCallable;
         Aws::SDKOptions m_optionsSdk;
 
-        template<typename Callable>
-        void UpdateImpl(Callable& callable);
     };
 } // namespace GridMate
 

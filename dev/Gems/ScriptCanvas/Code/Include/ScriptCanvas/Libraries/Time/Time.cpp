@@ -10,11 +10,12 @@
 *
 */
 
-#include "precompiled.h"
-
 #include <Libraries/Libraries.h>
 
 #include "Time.h"
+#include <ScriptCanvas/Core/Attributes.h>
+
+#include <ScriptCanvas/Internal/Nodes/BaseTimerNode.h>
 
 namespace ScriptCanvas
 {
@@ -35,10 +36,13 @@ namespace ScriptCanvas
                     editContext->Class<Time>("Timing", "Time related operations.")->
                         ClassElement(AZ::Edit::ClassElements::EditorData, "")->
                         Attribute(AZ::Edit::Attributes::Icon, "Editor/Icons/ScriptCanvas/Libraries/Math.png")->
-                        Attribute(AZ::Edit::Attributes::CategoryStyle, ".time")
+                        Attribute(AZ::Edit::Attributes::CategoryStyle, ".time")->
+                        Attribute(ScriptCanvas::Attributes::Node::TitlePaletteOverride, "TimeNodeTitlePalette")
                         ;
                 }
             }
+
+            ScriptCanvas::Nodes::Internal::BaseTimerNode::Reflect(reflection);
         }
 
         void Time::InitNodeRegistry(NodeRegistry& nodeRegistry)
@@ -46,6 +50,9 @@ namespace ScriptCanvas
             using namespace ScriptCanvas::Nodes::Time;
             AddNodeToRegistry<Time, Countdown>(nodeRegistry);
             AddNodeToRegistry<Time, Duration>(nodeRegistry);
+            AddNodeToRegistry<Time, HeartBeat>(nodeRegistry);
+            AddNodeToRegistry<Time, TickDelay>(nodeRegistry);
+            AddNodeToRegistry<Time, TimeDelay>(nodeRegistry);
             AddNodeToRegistry<Time, Timer>(nodeRegistry);
         }
         
@@ -53,7 +60,10 @@ namespace ScriptCanvas
         {
             return AZStd::vector<AZ::ComponentDescriptor*>({
                 ScriptCanvas::Nodes::Time::Countdown::CreateDescriptor(),
+                ScriptCanvas::Nodes::Time::TickDelay::CreateDescriptor(),
+                ScriptCanvas::Nodes::Time::TimeDelay::CreateDescriptor(),
                 ScriptCanvas::Nodes::Time::Duration::CreateDescriptor(),
+                ScriptCanvas::Nodes::Time::HeartBeat::CreateDescriptor(),
                 ScriptCanvas::Nodes::Time::Timer::CreateDescriptor(),
             });
         }

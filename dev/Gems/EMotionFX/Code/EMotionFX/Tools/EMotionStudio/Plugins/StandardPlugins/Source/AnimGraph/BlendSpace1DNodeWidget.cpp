@@ -96,7 +96,7 @@ namespace EMStudio
 
         if (node)
         {
-            if (node->GetType() == EMotionFX::BlendSpace1DNode::TYPE_ID)
+            if (azrtti_typeid(node) == azrtti_typeid<EMotionFX::BlendSpace1DNode>())
             {
                 m_currentNode = static_cast<EMotionFX::BlendSpace1DNode*>(node);
                 m_currentNode->SetInteractiveMode(true);
@@ -142,7 +142,7 @@ namespace EMStudio
         painter.setRenderHint(QPainter::HighQualityAntialiasing);
         painter.setRenderHint(QPainter::TextAntialiasing);
 
-        const EMotionFX::AnimGraphInstance* animGraphInstance = GetAnimGraphInstance();
+        const EMotionFX::AnimGraphInstance* animGraphInstance = m_modelIndex.data(AnimGraphModel::ROLE_ANIM_GRAPH_INSTANCE).value<EMotionFX::AnimGraphInstance*>();
         if (!animGraphInstance)
         {
             painter.drawText(rect(), Qt::AlignCenter, "No anim graph active.");
@@ -307,7 +307,7 @@ namespace EMStudio
 
         const float centerX = (min + max) / 2;
         m_scale.Set(scaleX, scaleY);
-        m_shift.Set(m_drawCenterX - centerX * scaleX, m_drawCenterY);
+        m_shift.Set(m_drawCenterX - centerX * scaleX, aznumeric_cast<float>(m_drawCenterY));
     }
 
     void BlendSpace1DNodeWidget::DrawGrid(QPainter& painter)
@@ -505,7 +505,7 @@ namespace EMStudio
             textToDraw += str;
         }
 
-        QRect rect(QPoint(loc.x() - s_maxTextDim, loc.y() - s_maxTextDim), QPoint(loc.x() + s_maxTextDim, m_drawCenterY - 13));
+        QRect rect(QPoint(aznumeric_cast<int>(loc.x() - s_maxTextDim), aznumeric_cast<int>(loc.y() - s_maxTextDim)), QPoint(aznumeric_cast<int>(loc.x() + s_maxTextDim), m_drawCenterY - 13));
 
         // avoid the text occluding the motion point
         rect.translate(0, -s_motionPointCircleWidth);
@@ -566,7 +566,7 @@ namespace EMStudio
 
     void BlendSpace1DNodeWidget::SetCurrentSamplePosition(int windowX, int windowY)
     {
-        EMotionFX::AnimGraphInstance* animGraphInstance = GetAnimGraphInstance();
+        EMotionFX::AnimGraphInstance* animGraphInstance = m_modelIndex.data(AnimGraphModel::ROLE_ANIM_GRAPH_INSTANCE).value<EMotionFX::AnimGraphInstance*>();
         EMotionFX::BlendSpace1DNode::UniqueData* uniqueData = GetUniqueData();
         if (!uniqueData || !animGraphInstance)
         {
@@ -590,8 +590,8 @@ namespace EMStudio
         const AZ::u32 numMotions = (AZ::u32)m_renderPoints.size();
         for (AZ::u32 i = 0; i < numMotions; ++i)
         {
-            const float diffX = windowX - m_renderPoints[i].x();
-            const float diffY = windowY - m_renderPoints[i].y();
+            const float diffX = aznumeric_cast<float>(windowX - m_renderPoints[i].x());
+            const float diffY = aznumeric_cast<float>(windowY - m_renderPoints[i].y());
             const float distSqr = diffX * diffX + diffY * diffY;
             if (distSqr < minDistSqr)
             {
@@ -665,14 +665,14 @@ namespace EMStudio
             return nullptr;
         }
 
-        const EMotionFX::AnimGraphInstance* animGraphInstance = GetAnimGraphInstance();
+        const EMotionFX::AnimGraphInstance* animGraphInstance = m_modelIndex.data(AnimGraphModel::ROLE_ANIM_GRAPH_INSTANCE).value<EMotionFX::AnimGraphInstance*>();
         if (!animGraphInstance)
         {
             return nullptr;
         }
         
         // Check that we are looking at the correct animgrah instance
-        const EMotionFX::AnimGraphNode* thisNode = animGraphInstance->GetAnimGraph()->RecursiveFindNodeByID(blendSpaceNode->GetID());
+        const EMotionFX::AnimGraphNode* thisNode = animGraphInstance->GetAnimGraph()->RecursiveFindNodeById(blendSpaceNode->GetId());
         if (thisNode != blendSpaceNode)
         {
             return nullptr;

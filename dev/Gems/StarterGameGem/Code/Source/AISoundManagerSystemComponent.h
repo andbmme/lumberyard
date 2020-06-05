@@ -59,7 +59,7 @@ namespace StarterGameGem
     struct SoundPropertiesDebug
         : public SoundProperties
     {
-        AZ_TYPE_INFO(SoundPropertiesDebug, "{58A91D5C-1838-4A82-86FB-4E6307D8A890}", SoundProperties);
+        AZ_TYPE_INFO_LEGACY(SoundPropertiesDebug, "{58A91D5C-1838-4A82-86FB-4E6307D8A890}", SoundProperties);
         AZ_CLASS_ALLOCATOR(SoundPropertiesDebug, AZ::SystemAllocator, 0);
 
         SoundPropertiesDebug(const SoundProperties& props)
@@ -140,8 +140,8 @@ namespace StarterGameGem
         void Deactivate() override;
         ////////////////////////////////////////////////////////////////////////
 
-		//////////////////////////////////////////////////////////////////////////
-		// AZ::TickBus interface implementation
+        //////////////////////////////////////////////////////////////////////////
+        // AZ::TickBus interface implementation
         void OnTick(float deltaTime, AZ::ScriptTimePoint time) override;
         //////////////////////////////////////////////////////////////////////////
 
@@ -156,6 +156,5 @@ namespace StarterGameGem
         AZStd::string m_broadcastSoundEventName;
 
         AZStd::list<SoundPropertiesDebug> m_debugSounds;
-
     };
 } // namespace StarterGameGem

@@ -12,38 +12,39 @@
 
 #include "SelectionManipulator.h"
 
-#include <AzCore/Component/TransformBus.h>
 #include <AzFramework/Entity/EntityDebugDisplayBus.h>
-#include <AzToolsFramework/Viewport/ViewportMessages.h>
 #include <AzToolsFramework/Manipulators/ManipulatorView.h>
 
 namespace AzToolsFramework
 {
-    SelectionManipulator::SelectionManipulator(AZ::EntityId entityId)
-        : BaseManipulator(entityId)
+    AZStd::shared_ptr<SelectionManipulator> SelectionManipulator::MakeShared(const AZ::Transform& worldFromLocal)
+    {
+        return AZStd::shared_ptr<SelectionManipulator>(aznew SelectionManipulator(worldFromLocal));
+    }
+
+    SelectionManipulator::SelectionManipulator(const AZ::Transform& worldFromLocal)
+        : m_worldFromLocal(worldFromLocal)
     {
         AttachLeftMouseDownImpl();
         AttachRightMouseDownImpl();
     }
 
-    SelectionManipulator::~SelectionManipulator() {}
-
-    void SelectionManipulator::InstallLeftMouseDownCallback(MouseActionCallback onMouseDownCallback)
+    void SelectionManipulator::InstallLeftMouseDownCallback(const MouseActionCallback& onMouseDownCallback)
     {
         m_onLeftMouseDownCallback = onMouseDownCallback;
     }
 
-    void SelectionManipulator::InstallLeftMouseUpCallback(MouseActionCallback onMouseUpCallback)
+    void SelectionManipulator::InstallLeftMouseUpCallback(const MouseActionCallback& onMouseUpCallback)
     {
         m_onLeftMouseUpCallback = onMouseUpCallback;
     }
 
-    void SelectionManipulator::InstallRightMouseDownCallback(MouseActionCallback onMouseDownCallback)
+    void SelectionManipulator::InstallRightMouseDownCallback(const MouseActionCallback& onMouseDownCallback)
     {
         m_onRightMouseDownCallback = onMouseDownCallback;
     }
 
-    void SelectionManipulator::InstallRightMouseUpCallback(MouseActionCallback onMouseUpCallback)
+    void SelectionManipulator::InstallRightMouseUpCallback(const MouseActionCallback& onMouseUpCallback)
     {
         m_onRightMouseUpCallback = onMouseUpCallback;
     }
@@ -83,15 +84,18 @@ namespace AzToolsFramework
     }
 
     void SelectionManipulator::Draw(
-        AzFramework::EntityDebugDisplayRequests& display,
-        const ViewportInteraction::CameraState& cameraState,
+        const ManipulatorManagerState& managerState,
+        AzFramework::DebugDisplayRequests& debugDisplay,
+        const AzFramework::CameraState& cameraState,
         const ViewportInteraction::MouseInteraction& mouseInteraction)
     {
-        AZ::Transform worldFromLocal;
-        AZ::TransformBus::EventResult(worldFromLocal, GetEntityId(), &AZ::TransformBus::Events::GetWorldTM);
-
-        m_manipulatorView->Draw(GetManipulatorManagerId(), GetManipulatorId(), MouseOver(),
-            m_position, worldFromLocal, display, cameraState, mouseInteraction, GetManipulatorSpace(GetManipulatorManagerId()));
+        m_manipulatorView->Draw(
+            GetManipulatorManagerId(), managerState,
+            GetManipulatorId(), {
+                TransformUniformScale(m_worldFromLocal),
+                m_position, MouseOver()
+            },
+            debugDisplay, cameraState, mouseInteraction);
     }
 
     void SelectionManipulator::SetBoundsDirtyImpl()

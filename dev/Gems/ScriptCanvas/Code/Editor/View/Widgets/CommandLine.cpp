@@ -30,8 +30,8 @@
 #include <AzFramework/StringFunc/StringFunc.h>
 
 #include <Editor/Metrics.h>
-
 #include <Editor/Nodes/NodeUtils.h>
+#include <Editor/QtMetaTypes.h>
 
 #include <ScriptCanvas/Bus/RequestBus.h>
 
@@ -65,14 +65,14 @@ namespace
             return;
         }
 
-        AZ::EntityId sceneId;
-        ScriptCanvasEditor::GeneralRequestBus::BroadcastResult(sceneId, &ScriptCanvasEditor::GeneralRequests::GetActiveSceneId);
+        ScriptCanvas::ScriptCanvasId scriptCanvasId;
+        ScriptCanvasEditor::GeneralRequestBus::BroadcastResult(scriptCanvasId, &ScriptCanvasEditor::GeneralRequests::GetActiveScriptCanvasId);
 
-        AZ::EntityId graphId;
-        ScriptCanvasEditor::GeneralRequestBus::BroadcastResult(graphId, &ScriptCanvasEditor::GeneralRequests::GetActiveGraphId);
+        AZ::EntityId graphCanvasGraphId;
+        ScriptCanvasEditor::GeneralRequestBus::BroadcastResult(graphCanvasGraphId, &ScriptCanvasEditor::GeneralRequests::GetActiveGraphCanvasGraphId);
 
-        if (!(sceneId.IsValid() &&
-              graphId.IsValid()))
+        if (!(scriptCanvasId.IsValid() &&
+            graphCanvasGraphId.IsValid()))
         {
             // Nothing active.
             return;
@@ -93,8 +93,10 @@ namespace
             const AZ::SerializeContext::ClassData* classData = serializeContext->FindClassData(type);
             AZ_Assert(classData, "Failed to find ClassData for ID: %s", type.ToString<AZStd::string>().data());
 
-            NodeIdPair nodePair = Nodes::CreateNode(type, graphId, "");
-            GraphCanvas::SceneRequestBus::Event(sceneId, &GraphCanvas::SceneRequests::AddNode, nodePair.m_graphCanvasId, pos);
+            ScriptCanvasEditor::Nodes::StyleConfiguration styleConfiguration;
+
+            NodeIdPair nodePair = ScriptCanvasEditor::Nodes::CreateNode(type, scriptCanvasId, styleConfiguration);
+            GraphCanvas::SceneRequestBus::Event(graphCanvasGraphId, &GraphCanvas::SceneRequests::AddNode, nodePair.m_graphCanvasId, pos);
 
             // The next position to create a node at.
             // IMPORTANT: This SHOULD be using GraphCanvas::GeometryRequests::GetWidth, but

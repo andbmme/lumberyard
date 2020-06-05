@@ -47,10 +47,12 @@ namespace AZ
     {
         namespace UI
         {
-            class NodeTreeSelectionHandler 
+            AZ_PUSH_DISABLE_DLL_EXPORT_BASECLASS_WARNING
+            class SCENE_UI_API NodeTreeSelectionHandler
                 : public QObject
                 , public AzToolsFramework::PropertyHandler<DataTypes::ISceneNodeSelectionList, NodeTreeSelectionWidget>
             {
+            AZ_POP_DISABLE_DLL_EXPORT_BASECLASS_WARNING
                 Q_OBJECT
             public:
                 AZ_CLASS_ALLOCATOR_DECL

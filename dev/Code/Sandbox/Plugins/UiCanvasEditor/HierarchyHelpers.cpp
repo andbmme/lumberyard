@@ -62,6 +62,10 @@ namespace HierarchyHelpers
             }
         }
         hierarchy->SetIsDeleting(false);
+
+        hierarchy->SignalUserSelectionHasChanged(hierarchy->selectedItems());
+
+        hierarchy->GetEditorWindow()->EntitiesAddedOrRemoved();
     }
 
     bool HandleDeselect(QTreeWidgetItem* widgetItem, const bool controlKeyPressed)
@@ -91,6 +95,7 @@ namespace HierarchyHelpers
                 hierarchy);
         QObject::connect(action,
             &QAction::triggered,
+            hierarchy,
             [hierarchy, addAtRoot, optionalPos](bool checked)
             {
                 if (addAtRoot)
@@ -137,6 +142,8 @@ namespace HierarchyHelpers
 
         // Now create the items in the QTreeWidget
         CreateItems(widget, completeListOfNewlyCreatedTopLevelElements);
+
+        widget->GetEditorWindow()->EntitiesAddedOrRemoved();
     }
 
     //-------------------------------------------------------------------------------
@@ -200,12 +207,14 @@ namespace HierarchyHelpers
         // Create the items to go along the elements created above.
         CreateItems(widget, completeListOfNewlyCreatedTopLevelElements);
 
+        widget->GetEditorWindow()->EntitiesAddedOrRemoved();
+
         return completeListOfNewlyCreatedTopLevelElements;
     }
 
     //-------------------------------------------------------------------------------
 
-    QTreeWidgetItem* ElementToItem(HierarchyWidget* widget, AZ::Entity* element, bool defaultToInvisibleRootItem)
+    QTreeWidgetItem* ElementToItem(HierarchyWidget* widget, const AZ::Entity* element, bool defaultToInvisibleRootItem)
     {
         if (!element)
         {

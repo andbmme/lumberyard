@@ -41,7 +41,7 @@ namespace NCryOpenGL
 
 #define DXGL_PROFILING 0
 
-#if defined(_MSC_VER)
+#if defined(AZ_COMPILER_MSVC)
 #define _DXGL_LOG_STRINGIFY_(x) #x
 #define _DXGL_LOG_STRINGIFY(x) _DXGL_LOG_STRINGIFY_(x)
 #define _DXGL_LOG_MSG(_TEXT, _FILE, _LINE, _FUNC) "DXGL: " _TEXT " : [@" _FUNC "] " _FILE "(" _LINE ")"
@@ -61,13 +61,8 @@ namespace NCryOpenGL
 #define DXGL_INFO(_Format, ...)    NCryOpenGL::LogMessage(NCryOpenGL::eLS_Info,    DXGL_LOG_MSG(_Format), ##__VA_ARGS__, __LINE__)
 #endif
 
-#if defined(AZ_PLATFORM_WINDOWS)
-// VS 2013 does not support __func__ yet, even though MS website says it does.
-// So for now use __FUNCTION__ until support for VS2013 is dropped
-#define DXGL_NOT_IMPLEMENTED NCryOpenGL::BreakUnique(__FILE__, __LINE__, __FUNCTION__);
-#else
 #define DXGL_NOT_IMPLEMENTED NCryOpenGL::BreakUnique(__FILE__, __LINE__, __func__);
-#endif
+
 
 #define DXGL_TODO(_DESC)
 
@@ -436,7 +431,7 @@ namespace NCryOpenGL
     {
 #if defined(WIN32)
         return alias_cast<void*>(TlsAlloc());
-#elif defined(LINUX) || defined(APPLE)
+#elif AZ_LEGACY_CRYCOMMON_TRAIT_USE_PTHREADS
         pthread_key_t* pKey(new pthread_key_t());
         pthread_key_create(pKey, NULL);
         return alias_cast<void*>(pKey);
@@ -449,7 +444,7 @@ namespace NCryOpenGL
     {
 #if defined(WIN32)
         TlsFree(alias_cast<DWORD>(pTLSHandle));
-#elif defined(LINUX) || defined(APPLE)
+#elif AZ_LEGACY_CRYCOMMON_TRAIT_USE_PTHREADS
         pthread_key_t* pKey(alias_cast<pthread_key_t*>(pTLSHandle));
         pthread_key_delete(*pKey);
 #else
@@ -461,7 +456,7 @@ namespace NCryOpenGL
     {
 #if defined(WIN32)
         return TlsGetValue(alias_cast<DWORD>(pTLSHandle));
-#elif defined(LINUX) || defined(APPLE)
+#elif AZ_LEGACY_CRYCOMMON_TRAIT_USE_PTHREADS
         return pthread_getspecific(*alias_cast<pthread_key_t*>(pTLSHandle));
 #else
 #error "Not implemented on this platform"
@@ -472,7 +467,7 @@ namespace NCryOpenGL
     {
 #if defined(WIN32)
         TlsSetValue(alias_cast<DWORD>(pTLSHandle), pValue);
-#elif defined(LINUX) || defined(APPLE)
+#elif AZ_LEGACY_CRYCOMMON_TRAIT_USE_PTHREADS
         pthread_setspecific(*alias_cast<pthread_key_t*>(pTLSHandle), pValue);
 #else
 #error "Not implemented on this platform"

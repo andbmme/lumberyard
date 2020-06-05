@@ -9,9 +9,9 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
-#ifndef AZ_UNITY_BUILD
 
 #include <AzCore/RTTI/BehaviorContext.h>
+#include <AzCore/RTTI/AttributeReader.h>
 #include <AzCore/Component/EntityBus.h>
 
 namespace AZ
@@ -46,7 +46,7 @@ namespace AZ
         , m_setter(nullptr)
     {
     }
-    
+
     //=========================================================================
     // ~BehaviorProperty
     //=========================================================================
@@ -75,7 +75,12 @@ namespace AZ
         {
             // if the property is Write only we should have a setter and the setter last argument is the property type
             return m_setter->GetArgument(m_setter->GetNumArguments() - 1)->m_typeId;
-        }        
+        }
+    }
+
+    ScopedBehaviorOnDemandReflector::ScopedBehaviorOnDemandReflector(BehaviorContext& behaviorContext)
+        : OnDemandReflectionOwner(behaviorContext)
+    {
     }
 
     //=========================================================================
@@ -163,7 +168,7 @@ namespace AZ
     {
         return this;
     }
-    
+
     //=========================================================================
     // BehaviorContext::GlobalPropertyBuilder
     //=========================================================================
@@ -239,6 +244,12 @@ namespace AZ
         }
     }
 
+    bool BehaviorContext::IsTypeReflected(AZ::Uuid typeId) const
+    {
+        auto classTypeIt = m_typeToClassMap.find(typeId);
+        return (classTypeIt != m_typeToClassMap.end());
+    }
+
     //=========================================================================
     // BehaviorClass
     //=========================================================================
@@ -248,6 +259,7 @@ namespace AZ
         , m_defaultConstructor(nullptr)
         , m_destructor(nullptr)
         , m_cloner(nullptr)
+        , m_equalityComparer(nullptr)
         , m_userData(nullptr)
         , m_typeId(Uuid::CreateNull())
         , m_alignment(0)
@@ -299,7 +311,7 @@ namespace AZ
     {
         return Create(Allocate());
     }
-    
+
     BehaviorObject BehaviorClass::Create(void* address) const
     {
         if (m_defaultConstructor && address)
@@ -313,7 +325,7 @@ namespace AZ
     //=========================================================================
     // Clone
     //=========================================================================
-    BehaviorObject BehaviorClass::Clone(const BehaviorObject& object) const 
+    BehaviorObject BehaviorClass::Clone(const BehaviorObject& object) const
     {
         BehaviorObject result;
         if (m_cloner && object.m_typeId == m_typeId)
@@ -373,7 +385,7 @@ namespace AZ
             return azmalloc(m_size, m_alignment, AZ::SystemAllocator, m_name.c_str());
         }
     }
-    
+
     //=========================================================================
     // Deallocate
     //=========================================================================
@@ -392,6 +404,22 @@ namespace AZ
         {
             azfree(address, AZ::SystemAllocator, m_size, m_alignment);
         }
+    }
+
+    //=========================================================================
+    // FindAttribute
+    //=========================================================================
+    AZ::Attribute* BehaviorClass::FindAttribute(const AttributeId& attributeId) const
+    {
+        return AZ::FindAttribute(attributeId, m_attributes);
+    }
+
+    //=========================================================================
+    // HasAttribute
+    //=========================================================================
+    bool BehaviorClass::HasAttribute(const AttributeId& attributeId) const
+    {
+        return FindAttribute(attributeId) != nullptr;
     }
 
     //////////////////////////////////////////////////////////////////////////
@@ -433,12 +461,12 @@ namespace AZ
 
     bool BehaviorEBusHandler::BusForwarderEvent::HasResult() const
     {
-        return !m_parameters.empty() && m_parameters.front().m_typeId != azrtti_typeid<void>();
+        return !m_parameters.empty() && !m_parameters.front().m_typeId.IsNull() && m_parameters.front().m_typeId != azrtti_typeid<void>();
     }
 
     namespace BehaviorContextHelper
     {
-        AZ::BehaviorClass* GetClass(BehaviorContext* behaviorContext, const AZ::Uuid& id)
+        AZ::BehaviorClass* GetClass(BehaviorContext* behaviorContext, const AZ::TypeId& id)
         {
             const auto& classIterator = behaviorContext->m_typeToClassMap.find(id);
             if (classIterator != behaviorContext->m_typeToClassMap.end())
@@ -470,7 +498,7 @@ namespace AZ
             return classIter->second;
         }
 
-        const BehaviorClass* GetClass(AZ::Uuid typeID)
+        const BehaviorClass* GetClass(const AZ::TypeId& typeID)
         {
             AZ::BehaviorContext* behaviorContext(nullptr);
             AZ::ComponentApplicationBus::BroadcastResult(behaviorContext, &AZ::ComponentApplicationRequests::GetBehaviorContext);
@@ -490,8 +518,8 @@ namespace AZ
             AZ_Assert(classIter->second, "BehaviorContext class by typeID %s is nullptr in the behavior context!", typeID.ToString<AZStd::string>().c_str());
             return classIter->second;
         }
-    
-        AZ::Uuid GetClassType(const AZStd::string& classNameString)
+
+        AZ::TypeId GetClassType(const AZStd::string& classNameString)
         {
             const char* className = classNameString.c_str();
             AZ::BehaviorContext* behaviorContext(nullptr);
@@ -499,14 +527,14 @@ namespace AZ
             if (!behaviorContext)
             {
                 AZ_Error("Behavior Context", false, "A behavior context is required!");
-                return AZ::Uuid::CreateNull();
+                return AZ::TypeId::CreateNull();
             }
 
             const auto classIter(behaviorContext->m_classes.find(className));
             if (classIter == behaviorContext->m_classes.end())
             {
                 AZ_Error("Behavior Context", false, "No class by name of %s in the behavior context!", className);
-                return AZ::Uuid::CreateNull();
+                return AZ::TypeId::CreateNull();
             }
 
             AZ::BehaviorClass* behaviorClass(classIter->second);
@@ -518,9 +546,27 @@ namespace AZ
         {
             return (parameter.m_traits & AZ::BehaviorParameter::TR_STRING) == AZ::BehaviorParameter::TR_STRING;
         }
-
     }
 
-} // namespace AZ
+    namespace Internal
+    {
+        bool IsInScope(const AttributeArray& attributes, const AZ::Script::Attributes::ScopeFlags scope)
+        {
+            // Scope defaults to Launcher
+            Script::Attributes::ScopeFlags scopeType = Script::Attributes::ScopeFlags::Launcher;
 
-#endif // AZ_UNITY_BUILD
+            // If Scope is defined, read it
+            Attribute* scopeAttribute = FindAttribute(Script::Attributes::Scope, attributes);
+            if (scopeAttribute)
+            {
+                AZ::AttributeReader scopeAttributeReader(nullptr, scopeAttribute);
+                scopeAttributeReader.Read<Script::Attributes::ScopeFlags>(scopeType);
+            }
+
+            // Do a bitwise & - if the result is equal to scope, the scope is correct.
+            // This ensures that, for example, checking Common for Launcher returns true, but checking Launcher for Common does not.
+            return ((static_cast<AZ::u64>(scopeType) & static_cast<AZ::u64>(scope)) == static_cast<AZ::u64>(scope));
+        }
+    }
+ 
+} // namespace AZ

@@ -16,16 +16,20 @@
 
 #include "StdAfx.h"
 
-#include "terrain.h"
+#include <MathConversion.h>
+
 #include "StatObj.h"
 #include "ObjMan.h"
 #include "CullBuffer.h"
 #include "3dEngine.h"
 #include "Vegetation.h"
 #include "DeformableNode.h"
+#include <AzFramework/Terrain/TerrainDataRequestBus.h>
 
-#define BYTE2RAD(x) ((x) * float(g_PI2) / 255.0f)
+#include "TouchBendingCVegetationAgent.h"
 
+#define BYTE2RAD(x) static_cast<float>((x) * g_PI2 / 255.0f)
+#define RAD2BYTE(x) static_cast<byte>((x) * 255.0f / g_PI2)
 
 //volatile int g_lockVegetationPhysics = 0;
 
@@ -59,35 +63,38 @@ void CVegetation::Init()
     m_ucAngleX = 0;
     m_ucAngleY = 0;
     m_ucSunDotTerrain = 255;
-    m_pRNTmpData = NULL;
-    m_pDeformable = NULL;
+    m_pRNTmpData = nullptr;
+    m_pDeformable = nullptr;
+    m_touchBendingTriggerProxy = nullptr;
     m_bApplyPhys = false;
+
+    // By default, we assume that we're a static vegetation instance.  Dynamic instances will explicitly 
+    // set this flag.
+    m_isDynamic = false;
 }
 
 //////////////////////////////////////////////////////////////////////////
 void CVegetation::CalcMatrix(Matrix34A& tm, int* pFObjFlags)
 {
-    Matrix34A matTmp;
     int orFlags = 0;
 
-    matTmp.SetIdentity();
-
-    if (float fAngle = GetZAngle())
-    {
-        matTmp.SetRotationZ(fAngle);
-    }
+    tm.SetIdentity();
 
     StatInstGroup& vegetGroup = GetStatObjGroup();
-
     if (vegetGroup.GetAlignToTerrainAmount() != 0.f)
     {
+        tm.SetRotationZ(GetZAngle());
+
         Matrix33 m33;
-        GetTerrain()->GetTerrainAlignmentMatrix(m_vPos, vegetGroup.GetAlignToTerrainAmount(), m33);
-        matTmp = m33 * matTmp;
+        m33.SetIdentity();
+
+        GetTerrainAlignmentMatrix(m_vPos, vegetGroup.GetAlignToTerrainAmount(), m33);
+
+        tm = m33 * tm;
     }
     else
     {
-        matTmp = Matrix34::CreateRotationXYZ(Ang3(BYTE2RAD(m_ucAngleX), BYTE2RAD(m_ucAngleY), GetZAngle()));
+        tm = Matrix34::CreateRotationXYZ(Ang3(GetXAngle(), GetYAngle(), GetZAngle()));
     }
 
     float fScale = GetScale();
@@ -96,17 +103,15 @@ void CVegetation::CalcMatrix(Matrix34A& tm, int* pFObjFlags)
         Matrix33 m33;
         m33.SetIdentity();
         m33.SetScale(Vec3(fScale, fScale, fScale));
-        matTmp = m33 * matTmp;
+        tm = m33 * tm;
     }
 
-    matTmp.SetTranslation(m_vPos);
+    tm.SetTranslation(m_vPos);
 
     if (pFObjFlags)
     {
         *pFObjFlags |= (orFlags);
     }
-
-    tm = matTmp;
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -131,6 +136,21 @@ AABB CVegetation::CalcBBox()
     SetBBox(WSBBox);
 
     return WSBBox;
+}
+
+void CVegetation::PrepareBBox()
+{
+    if (GetStatObj())
+    {
+        CalcBBox();
+    }
+}
+
+void CVegetation::SetRotation(const Ang3& rotation)
+{
+    m_ucAngleX = RAD2BYTE(rotation.x);
+    m_ucAngleY = RAD2BYTE(rotation.y);
+    m_ucAngle = RAD2BYTE(rotation.z);
 }
 
 CLodValue CVegetation::ComputeLod(int wantedLod, const SRenderingPassInfo& passInfo)
@@ -202,6 +222,15 @@ CLodValue CVegetation::ComputeLod(int wantedLod, const SRenderingPassInfo& passI
 }
 
 //////////////////////////////////////////////////////////////////////////
+bool CVegetation::CanExecuteRenderAsJob()
+{
+    if (m_pDeformable)
+    {
+        return false;
+    }
+    return true;
+}
+
 void CVegetation::Render(const SRenderingPassInfo& passInfo, const CLodValue& lodValue, SSectorTextureSet* pTerrainTexInfo, const SRendItemSorter& rendItemSorter) const
 {
     FUNCTION_PROFILER_3DENGINE;
@@ -282,11 +311,6 @@ void CVegetation::Render(const SRenderingPassInfo& passInfo, const CLodValue& lo
 
     if (pTerrainTexInfo)
     {
-        pRenderObject->m_nRenderQuality = (uint16)(fRenderQuality * 65535.0f);
-    }
-
-    if (pTerrainTexInfo)
-    {
         if (pRenderObject->m_ObjFlags & (FOB_BLEND_WITH_TERRAIN_COLOR))
         {
             pRenderObject->m_nTextureID = pTerrainTexInfo->nTex0;
@@ -309,6 +333,11 @@ void CVegetation::Render(const SRenderingPassInfo& passInfo, const CLodValue& lo
                 pOD->m_fTempVars[8] = abs(GetCVars()->e_VegetationUseTerrainColorDistance) * vegetGroup.fVegRadius * GetCVars()->e_ViewDistRatioVegetation;
             }
         }
+    }
+    else
+    {
+        // No terrain texture to blend with, so remove the blend flag
+        pRenderObject->m_ObjFlags &= ~FOB_BLEND_WITH_TERRAIN_COLOR;
     }
 
     IFoliage* pFoliage = const_cast<CVegetation*>(this)->GetFoliage();
@@ -409,8 +438,6 @@ void CVegetation::Physicalize(bool bInstant)
 {
     FUNCTION_PROFILER_3DENGINE;
 
-    MEMSTAT_CONTEXT(EMemStatContextTypes::MSC_Physics, 0, "Vegetation physicalization");
-
     StatInstGroup& vegetGroup = GetStatObjGroup();
 
     IStatObj* pBody = vegetGroup.GetStatObj();
@@ -424,6 +451,7 @@ void CVegetation::Physicalize(bool bInstant)
 
     //////////////////////////////////////////////////////////////////////////
     // Not create instance if no physical geometry.
+    bool isBodyOnlyNoCollide = false;
     if (!pBody->GetArrPhysGeomInfo()[PHYS_GEOM_TYPE_DEFAULT] && !(pBody->GetFlags() & STATIC_OBJECT_COMPOUND))
     {
         //no bHidability check for the E3 demo - make all the bushes with MAT_OBSTRUCT things soft cover
@@ -434,9 +462,23 @@ void CVegetation::Physicalize(bool bInstant)
             {
                 return;
             }
+            else
+            {
+                isBodyOnlyNoCollide = true;
+            }
         }
     }
     //////////////////////////////////////////////////////////////////////////
+
+    if (isBodyOnlyNoCollide && pBody->GetSpineCount())
+    {
+        AZ::TouchBendingCVegetationAgent* agent = AZ::TouchBendingCVegetationAgent::GetInstance();
+        if (agent->Physicalize(this))
+        {
+            return;
+        }
+    }
+
     m_bApplyPhys = true;
 
     AABB WSBBox = GetBBox();
@@ -471,7 +513,7 @@ void CVegetation::Physicalize(bool bInstant)
     }
 
     m_pPhysEnt = GetSystem()->GetIPhysicalWorld()->CreatePhysicalEntity(PE_STATIC, (1 - bNoOnDemand) * 5.0f, &pp,
-            (IRenderNode*)this, PHYS_FOREIGN_ID_STATIC);
+        (IRenderNode*)this, PHYS_FOREIGN_ID_STATIC);
     if (!m_pPhysEnt)
     {
         return;
@@ -573,8 +615,6 @@ void CVegetation::Physicalize(bool bInstant)
         foreignData.iForeignFlags |= PFF_HIDABLE_SECONDARY;
         m_pPhysEnt->SetParams(&foreignData, 1);
     }
-
-    //PhysicalizeFoliage();
 }
 
 bool CVegetation::PhysicalizeFoliage(bool bPhysicalize, int iSource, int nSlot)
@@ -615,31 +655,31 @@ IRenderNode* CVegetation::Clone() const
     CVegetation* pDestVeg = new CVegetation();
 
     //CVegetation member vars
-    pDestVeg->m_vPos                    = m_vPos;
-    pDestVeg->m_nObjectTypeIndex        = m_nObjectTypeIndex;
-    pDestVeg->m_ucAngle                 = m_ucAngle;
-    pDestVeg->m_ucAngleX                = m_ucAngleX;
-    pDestVeg->m_ucAngleY                = m_ucAngleY;
-    pDestVeg->m_ucSunDotTerrain         = m_ucSunDotTerrain;
-    pDestVeg->m_ucScale                 = m_ucScale;
-    pDestVeg->m_boxExtends[0]           = m_boxExtends[0];
-    pDestVeg->m_boxExtends[1]           = m_boxExtends[1];
-    pDestVeg->m_boxExtends[2]           = m_boxExtends[2];
-    pDestVeg->m_boxExtends[3]           = m_boxExtends[3];
-    pDestVeg->m_boxExtends[4]           = m_boxExtends[4];
-    pDestVeg->m_boxExtends[5]           = m_boxExtends[5];
-    pDestVeg->m_ucRadius                = m_ucRadius;
+    pDestVeg->m_vPos = m_vPos;
+    pDestVeg->m_nObjectTypeIndex = m_nObjectTypeIndex;
+    pDestVeg->m_ucAngle = m_ucAngle;
+    pDestVeg->m_ucAngleX = m_ucAngleX;
+    pDestVeg->m_ucAngleY = m_ucAngleY;
+    pDestVeg->m_ucSunDotTerrain = m_ucSunDotTerrain;
+    pDestVeg->m_ucScale = m_ucScale;
+    pDestVeg->m_boxExtends[0] = m_boxExtends[0];
+    pDestVeg->m_boxExtends[1] = m_boxExtends[1];
+    pDestVeg->m_boxExtends[2] = m_boxExtends[2];
+    pDestVeg->m_boxExtends[3] = m_boxExtends[3];
+    pDestVeg->m_boxExtends[4] = m_boxExtends[4];
+    pDestVeg->m_boxExtends[5] = m_boxExtends[5];
+    pDestVeg->m_ucRadius = m_ucRadius;
 
     //IRenderNode member vars
     //  We cannot just copy over due to issues with the linked list of IRenderNode objects
-    pDestVeg->m_fWSMaxViewDist          = m_fWSMaxViewDist;
-    pDestVeg->m_dwRndFlags                  = m_dwRndFlags;
-    pDestVeg->m_pOcNode                         = m_pOcNode;
-    pDestVeg->m_fViewDistanceMultiplier         = m_fViewDistanceMultiplier;
-    pDestVeg->m_ucLodRatio                  = m_ucLodRatio;
-    pDestVeg->m_cShadowLodBias          = m_cShadowLodBias;
-    pDestVeg->m_nInternalFlags          = m_nInternalFlags;
-    pDestVeg->m_nMaterialLayers         = m_nMaterialLayers;
+    pDestVeg->m_fWSMaxViewDist = m_fWSMaxViewDist;
+    pDestVeg->m_dwRndFlags = m_dwRndFlags;
+    pDestVeg->m_pOcNode = m_pOcNode;
+    pDestVeg->m_fViewDistanceMultiplier = m_fViewDistanceMultiplier;
+    pDestVeg->m_ucLodRatio = m_ucLodRatio;
+    pDestVeg->m_cShadowLodBias = m_cShadowLodBias;
+    pDestVeg->m_nInternalFlags = m_nInternalFlags;
+    pDestVeg->m_nMaterialLayers = m_nMaterialLayers;
     //pDestVeg->m_pRNTmpData                //If this is copied from the source render node, there are two
     //  pointers to the same data, and if either is deleted, there will
     //  be a crash when the dangling pointer is used on the other
@@ -687,6 +727,8 @@ void CVegetation::Dephysicalize(bool bKeepIfReferenced)
             m_pRNTmpData->userData.m_pFoliage = NULL;
         }
     }
+
+    AZ::TouchBendingCVegetationAgent::GetInstance()->Dephysicalize(this);
 }
 
 void CVegetation::GetMemoryUsage(ICrySizer* pSizer) const
@@ -707,7 +749,7 @@ const char* CVegetation::GetName() const
 //////////////////////////////////////////////////////////////////////////
 IRenderMesh* CVegetation::GetRenderMesh(int nLod)
 {
-    IStatObj*   pStatObj(GetStatObj());
+    IStatObj* pStatObj(GetStatObj());
 
     if (!pStatObj)
     {
@@ -734,6 +776,16 @@ _smart_ptr<IMaterial> CVegetation::GetMaterialOverride()
     }
 
     return NULL;
+}
+
+float CVegetation::GetXAngle() const
+{
+    return BYTE2RAD(m_ucAngleX);
+}
+
+float CVegetation::GetYAngle() const
+{
+    return BYTE2RAD(m_ucAngleY);
 }
 
 float CVegetation::GetZAngle() const
@@ -839,6 +891,7 @@ void CVegetation::SetStatObjGroupIndex(int nVegetationanceGroupId)
 
 void CVegetation::SetMatrix(const Matrix34& mat)
 {
+    //does this need to set rotation as well?
     m_vPos = mat.GetTranslation();
     if (m_pDeformable)
     {
@@ -951,4 +1004,19 @@ float CVegetation::GetFirstLodDistance() const
     StatInstGroup& vegetGroup = GetStatObjGroup();
     CStatObj* pStatObj = static_cast<CStatObj*>(vegetGroup.GetStatObj());
     return pStatObj ? pStatObj->GetLodDistance() : FLT_MAX;
+}
+
+void CVegetation::GetTerrainAlignmentMatrix(const Vec3& vPos, const float amount, Matrix33& matrix33)
+{
+    AZ::Vector3 terrainNormal = AzFramework::Terrain::TerrainDataRequests::GetDefaultTerrainNormal();
+    AzFramework::Terrain::TerrainDataRequestBus::BroadcastResult(terrainNormal
+        , &AzFramework::Terrain::TerrainDataRequests::GetNormalFromFloats
+        , vPos.x, vPos.y, AzFramework::Terrain::TerrainDataRequests::Sampler::BILINEAR, nullptr);
+
+    Vec3 vTerrainNormal = AZVec3ToLYVec3(terrainNormal);
+    vTerrainNormal = LERP(Vec3(0, 0, 1.f), vTerrainNormal, amount);
+    vTerrainNormal.Normalize();
+    Vec3 vDir = Vec3(-1, 0, 0).Cross(vTerrainNormal);
+
+    matrix33 = matrix33.CreateOrientation(vDir, -vTerrainNormal, 0);
 }

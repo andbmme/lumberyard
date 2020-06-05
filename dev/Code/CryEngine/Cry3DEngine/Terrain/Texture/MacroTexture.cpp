@@ -13,6 +13,8 @@
 #include "StdAfx.h"
 #include "MacroTexture.h"
 #include <AzCore/Math/Color.h>
+#include <AzCore/IO/Streamer.h>
+#include <Terrain/Bus/LegacyTerrainBus.h>
 
 const MacroTexture::Region MacroTexture::Region::Unit(0.0f, 0.0f, 1.0f);
 
@@ -108,7 +110,7 @@ Morton::Key MacroTexture::MortonEncodeRegion(Region region) const
     return Morton::FindCommonAncestor(p0, p1, p2, p3);
 }
 
-MacroTexture::MacroTexture(const MacroTextureConfiguration& configuration)
+MacroTexture::MacroTexture(const LegacyTerrain::MacroTextureConfiguration& configuration)
     : m_TexturePool(configuration.maxElementCountPerPool)
     , m_TotalSectorDataSize(configuration.totalSectorDataSize)
     , m_SectorDataStartOffset(configuration.sectorStartDataOffset)
@@ -176,7 +178,9 @@ void MacroTexture::GetMemoryUsage(ICrySizer* sizer) const
 {
     sizer->AddObject(this, sizeof(*this));
     sizer->AddObject(&m_TexturePool, sizeof(m_TexturePool));
-    sizer->AddObject(m_Nodes.data(), sizeof(Node) * m_Nodes.size());
+    sizer->AddObject(m_Nodes.data(), sizeof(Node) * m_Nodes.capacity());
+    sizer->AddObject(m_ActiveNodes.data(), sizeof(Node*) * m_ActiveNodes.capacity());
+    sizer->AddContainer(m_NodeMortonLookup);
 }
 
 MacroTexture::Node* MacroTexture::HashTableLookup(Morton::Key key)
@@ -191,6 +195,12 @@ MacroTexture::Node* MacroTexture::HashTableLookup(Morton::Key key)
 
 void MacroTexture::FlushTiles()
 {
+    //For efficiency sake the AZ::IO::Streamer API keeps file handles open.
+    //We should close the file handle of the terrain macro texture whenever this
+    //class is shutting down. This is important for example when the Terrain Editor
+    //needs to modify the content of the macro texture file.
+    AZ::IO::Streamer::Instance().FlushCache(m_Filename.c_str());
+
     for (Node* node : m_ActiveNodes)
     {
         DeactivateNode(*node);
@@ -393,7 +403,7 @@ void MacroTexture::StreamOnComplete(IReadStream* stream, unsigned error)
     node.readStream = nullptr;
 }
 
-void MacroTexture::GetTileStatistics(TileStatistics& statistics) const
+void MacroTexture::GetTileStatistics(LegacyTerrain::MacroTexture::TileStatistics& statistics) const
 {
     uint32 resident = 0;
     uint32 streaming = 0;

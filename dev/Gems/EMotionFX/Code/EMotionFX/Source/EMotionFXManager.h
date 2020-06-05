@@ -15,16 +15,14 @@
 // include the required headers
 #include "EMotionFXConfig.h"
 #include <MCore/Source/Array.h>
-#include <MCore/Source/UnicodeString.h>
 #include <MCore/Source/Distance.h>
 #include "ThreadData.h"
 #include "BaseObject.h"
-#include <AzCore/std/string/string.h>
 
 #include <AzCore/Module/Environment.h>
 
-
 MCORE_FORWARD_DECLARE(MemoryTracker);
+
 
 namespace EMotionFX
 {
@@ -38,7 +36,8 @@ namespace EMotionFX
     class WaveletCache;
     class Recorder;
     class MotionInstancePool;
-    //class RigManager;
+    class EventDataFactory;
+    class DebugDraw;
 
     // versions
 #define EMFX_HIGHVERSION 4
@@ -58,7 +57,7 @@ namespace EMotionFX
     class EMFX_API EMotionFXManager
         : public BaseObject
     {
-        MCORE_MEMORYOBJECTCATEGORY(EMotionFXManager, EMFX_DEFAULT_ALIGNMENT, EMFX_MEMCATEGORY_EMOTIONFXMANAGER);
+        AZ_CLASS_ALLOCATOR_DECL
         friend class Initializer;
 
     public:
@@ -116,7 +115,7 @@ namespace EMotionFX
          * In case of EMotion FX v3.05 this would make it equal to "05".
          * @param outLowVersionString The output string to store the low version number in.
          */
-        void BuildLowVersionString(MCore::String& outLowVersionString);
+        void BuildLowVersionString(AZStd::string& outLowVersionString);
 
         /**
          * Update EMotion FX with a given time delta.
@@ -199,6 +198,12 @@ namespace EMotionFX
         MCORE_INLINE WaveletCache* GetWaveletCache() const                          { return mWaveletCache; }
 
         /**
+         * Get the debug drawing class.
+         * @result A pointer to the wavelet cache.
+         */
+        MCORE_INLINE DebugDraw* GetDebugDraw() const                                { return mDebugDraw; }
+
+        /**
          * Set the path of the media root directory.
          * @param path The path of the media root folder.
          */
@@ -229,14 +234,14 @@ namespace EMotionFX
          * Convert the passed absolute filename to one relative to the media root folder.
          * @param inOutFileName Absolute filename to be changed to a relative one using the current media root folder.
          */
-        void GetFilenameRelativeToMediaRoot(MCore::String* inOutFilename) const;
+        void GetFilenameRelativeToMediaRoot(AZStd::string* inOutFilename) const;
 
         /**
          * Convert the given absolute filename to one relative to the given folder path.
          * @param folderPath Base folder path to remove.
          * @param inOutFileName Absolute filename to be changed to a relative one.
          */
-        static void GetFilenameRelativeTo(MCore::String* inOutFilename, const char* folderPath);
+        static void GetFilenameRelativeTo(AZStd::string* inOutFilename, const char* folderPath);
 
         /**
          * Get the path of the media root folder.
@@ -261,14 +266,6 @@ namespace EMotionFX
          * @result The path of the asset cache folder.
          */
         MCORE_INLINE const AZStd::string& GetAssetCacheFolder() const               { return mAssetCacheFolder; }
-
-        /**
-         * Set the number of threads to use.
-         * @param numThreads The number of threads to use internally. This must be a value of 1 or above.
-         * @param adjustJobManagerNumThreads When set to true, the MCore job manager will adjust its number of threads as well.
-         * @param jobListExecuteFunction The job list execute function ot use in case the number of threads is bigger than 1. If numThreads equals one the JobListExecuteSerial function will be used automatically.
-         */
-        void SetNumThreads(uint32 numThreads, bool adjustJobManagerNumThreads = true, MCore::JobListExecuteFunctionType jobListExecuteFunction = MCore::JobListExecuteMCoreJobSystem);
 
         /**
          * Get the unique per thread data for a given thread by index.
@@ -314,9 +311,39 @@ namespace EMotionFX
          */
         void SetUnitType(MCore::Distance::EUnitType unitType);
 
+        /**
+         * Get if EMotionFX is in editor mode or not
+         * @return True if EMotionFX is configured in editor mode (e.g. ly editor or EMStudio).
+         */
+        bool GetIsInEditorMode() const { return m_isInEditorMode; }
+
+        /**
+         * Sets EMotionFX's editor mode. 
+         * @param editorMode Indicating if EMotionFX is running in editor mode.
+         */
+        void SetIsInEditorMode(bool isInEditorMode) { m_isInEditorMode = isInEditorMode; }
+
+        /**
+         * Get if EMotionFX is in server mode or not
+         * @return True if EMotionFX is configured in server mode.
+         */
+        bool GetIsInServerMode() const { return m_isInServerMode; }
+
+        /**
+         * Sets EMotionFX's server mode.
+         * @param editorMode Indicating if EMotionFX is running in server mode.
+         */
+        void SetIsInServerMode(bool isInServerMode) { m_isInServerMode = isInServerMode; }
+
+        /**
+         * Get if EMotionFX is enabled for server optimization.
+         * @return True if EMotionFX is in server mode and enabled for server optimization.
+         */
+        bool GetEnableServerOptimization() const { return m_isInServerMode && m_enableServerOptimization; }
+
     private:
-        MCore::String               mVersionString;         /**< The version string. */
-        MCore::String               mCompilationDate;       /**< The compilation date string. */
+        AZStd::string               mVersionString;         /**< The version string. */
+        AZStd::string               mCompilationDate;       /**< The compilation date string. */
         AZStd::string               mMediaRootFolder;       /**< The path of the media root directory. */
         AZStd::string               mAssetSourceFolder;     /**< The absolute path of the asset source folder. */
         AZStd::string               mAssetCacheFolder;      /**< The absolute path of the asset cache folder. */
@@ -328,13 +355,16 @@ namespace EMotionFX
         EventManager*               mEventManager;          /**< The motion event manager. */
         SoftSkinManager*            mSoftSkinManager;       /**< The softskin manager. */
         WaveletCache*               mWaveletCache;          /**< The wavelet cache. */
-        AnimGraphManager*          mAnimGraphManager;     /**< The animgraph manager. */
-        //RigManager*               mRigManager;            /**< The rig manager. */
+        AnimGraphManager*           mAnimGraphManager;      /**< The animgraph manager. */
         Recorder*                   mRecorder;              /**< The recorder. */
-        MotionInstancePool*         mMotionInstancePool;    /**< The motion instance pool. */
+        MotionInstancePool*         mMotionInstancePool;    /**< The motion instance pool. */        
+        DebugDraw*                  mDebugDraw;             /**< The debug drawing system. */
         MCore::Array<ThreadData*>   mThreadDatas;           /**< The per thread data. */
         MCore::Distance::EUnitType  mUnitType;              /**< The unit type, on default it is MCore::Distance::UNITTYPE_METERS. */
         float                       mGlobalSimulationSpeed; /**< The global simulation speed, default is 1.0. */
+        bool                        m_isInEditorMode;       /**< True when the runtime requires to support an editor. Optimizations can be made if there is no need for editor support. */
+        bool                        m_isInServerMode;       /**< True when emotionfx is running on server. */
+        bool                        m_enableServerOptimization; /**< True when optimization can be made when emotionfx is running in server mode. */
 
         /**
          * The constructor.
@@ -383,12 +413,6 @@ namespace EMotionFX
         void SetAnimGraphManager(AnimGraphManager* manager);
 
         /**
-         * Set the rig manager.
-         * @param manager The rig manager.
-         */
-        //void SetRigManager(RigManager* manager);
-
-        /**
          * Set the recorder.
          * @param recorder The recorder object.
          */
@@ -401,10 +425,22 @@ namespace EMotionFX
         void SetWaveletCache(WaveletCache* cache);
 
         /**
+         * Set the debug draw object.
+         * @param draw The debug drawing object.
+         */
+        void SetDebugDraw(DebugDraw* draw);
+
+        /**
          * Set the motion instance pool.
          * @param pool The motion instance pool.
          */
         void SetMotionInstancePool(MotionInstancePool* pool);
+
+        /**
+         * Set the number of threads to use.
+         * @param numThreads The number of threads to use internally. This must be a value of 1 or above.
+         */
+        void SetNumThreads(uint32 numThreads);
     };
 
     //-----------------------------------------------------------------------------
@@ -484,8 +520,8 @@ namespace EMotionFX
     MCORE_INLINE EventManager&              GetEventManager()           { return *GetEMotionFX().GetEventManager(); }       /**< Get the motion event manager. */
     MCORE_INLINE SoftSkinManager&           GetSoftSkinManager()        { return *GetEMotionFX().GetSoftSkinManager(); }    /**< Get the softskin manager. */
     MCORE_INLINE WaveletCache&              GetWaveletCache()           { return *GetEMotionFX().GetWaveletCache(); }       /**< Get the wavelet cache. */
-    MCORE_INLINE AnimGraphManager&         GetAnimGraphManager()        { return *GetEMotionFX().GetAnimGraphManager(); }  /**< Get the animgraph manager. */
-    //MCORE_INLINE RigManager&              GetRigManager()             { return *GetEMotionFX().GetRigManager(); }             /**< Get the rig manager. */
+    MCORE_INLINE AnimGraphManager&          GetAnimGraphManager()       { return *GetEMotionFX().GetAnimGraphManager(); }   /**< Get the animgraph manager. */
     MCORE_INLINE Recorder&                  GetRecorder()               { return *GetEMotionFX().GetRecorder(); }           /**< Get the recorder. */
     MCORE_INLINE MotionInstancePool&        GetMotionInstancePool()     { return *GetEMotionFX().GetMotionInstancePool(); } /**< Get the motion instance pool. */
+    MCORE_INLINE DebugDraw&                 GetDebugDraw()              { return *GetEMotionFX().GetDebugDraw(); }          /**< Get the debug drawing. */
 }   // namespace EMotionFX

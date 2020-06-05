@@ -11,8 +11,8 @@
 */
 #pragma once
 
-#include <Components/NodePropertyDisplay/NodePropertyDisplay.h>
-#include <Components/NodePropertyDisplay/ReadOnlyDataInterface.h>
+#include <GraphCanvas/Components/NodePropertyDisplay/NodePropertyDisplay.h>
+#include <GraphCanvas/Components/NodePropertyDisplay/ReadOnlyDataInterface.h>
 
 namespace GraphCanvas
 {
@@ -23,7 +23,7 @@ namespace GraphCanvas
     {    
     public:
         AZ_CLASS_ALLOCATOR(ReadOnlyNodePropertyDisplay, AZ::SystemAllocator, 0);
-		
+        
         ReadOnlyNodePropertyDisplay(ReadOnlyDataInterface* dataInterface);
         virtual ~ReadOnlyNodePropertyDisplay();
     
@@ -31,9 +31,13 @@ namespace GraphCanvas
         void RefreshStyle() override;
         void UpdateDisplay() override;
         
-        QGraphicsLayoutItem* GetDisabledGraphicsLayoutItem() const override;
-        QGraphicsLayoutItem* GetDisplayGraphicsLayoutItem() const override;
-        QGraphicsLayoutItem* GetEditableGraphicsLayoutItem() const override;
+        QGraphicsLayoutItem* GetDisabledGraphicsLayoutItem() override;
+        QGraphicsLayoutItem* GetDisplayGraphicsLayoutItem() override;
+        QGraphicsLayoutItem* GetEditableGraphicsLayoutItem() override;
+        ////
+
+        // DataSlotNotifications
+        void OnDragDropStateStateChanged(const DragDropState& dragState) override;
         ////
     
     private:

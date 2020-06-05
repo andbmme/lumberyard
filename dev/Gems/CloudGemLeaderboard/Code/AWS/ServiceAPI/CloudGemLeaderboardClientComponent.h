@@ -28,18 +28,31 @@
 #include <AzCore/std/string/conversions.h>
 
 #if defined (PLATFORM_SUPPORTS_AWS_NATIVE_SDK)
+// The AWS Native SDK AWSAllocator triggers a warning due to accessing members of std::allocator directly.
+// AWSAllocator.h(70): warning C4996: 'std::allocator<T>::pointer': warning STL4010: Various members of std::allocator are deprecated in C++17.
+// Use std::allocator_traits instead of accessing these members directly.
+// You can define _SILENCE_CXX17_OLD_ALLOCATOR_MEMBERS_DEPRECATION_WARNING or _SILENCE_ALL_CXX17_DEPRECATION_WARNINGS to acknowledge that you have received this warning.
+
+
+AZ_PUSH_DISABLE_WARNING(4251 4996, "-Wunknown-warning-option")
 #include <aws/core/http/HttpRequest.h>
 #include <aws/core/http/HttpResponse.h>
+AZ_POP_DISABLE_WARNING
 #endif // (PLATFORM_SUPPORTS_AWS_NATIVE_SDK)
 
 #include <CloudGemFramework/ServiceRequestJob.h>
 
+
 #include "CloudGemLeaderboard_precompiled.h"
+
+
 
 namespace CloudGemLeaderboard {
 namespace ServiceAPI {
     
     extern const char* LmbrAWS_CodeGen_StatList_UUID;
+    
+    extern const char* LmbrAWS_CodeGen_StatDefinition_UUID;
     
     extern const char* LmbrAWS_CodeGen_BannedPlayerList_UUID;
     
@@ -49,15 +62,13 @@ namespace ServiceAPI {
     
     extern const char* LmbrAWS_CodeGen_NotificationBus1_UUID;
     
-    extern const char* LmbrAWS_CodeGen_StatDefinition_UUID;
+    extern const char* LmbrAWS_CodeGen_RequestBus1_UUID;
     
     extern const char* LmbrAWS_CodeGen_BanOutcome_UUID;
     
     extern const char* LmbrAWS_CodeGen_SingleScore_UUID;
     
     extern const char* LmbrAWS_CodeGen_ServiceStatus_UUID;
-    
-    extern const char* LmbrAWS_CodeGen_RequestBus1_UUID;
     
     extern const char* LmbrAWS_CodeGen_ScoreData_UUID;
     
@@ -100,6 +111,102 @@ namespace ServiceAPI {
     
     
     
+    struct SingleScore
+    {
+
+        AZ_TYPE_INFO(SingleScore, LmbrAWS_CodeGen_SingleScore_UUID)
+        AZ_CLASS_ALLOCATOR(SingleScore, AZ::SystemAllocator, 0)
+
+        
+        AZStd::string stat;
+        
+        AZStd::string user;
+        
+        double value{0.0};
+        
+        int estimated_rank{0};
+        
+
+        bool OnJsonKey(const char* key, CloudGemFramework::JsonReader& reader);
+
+        static void Reflect(AZ::ReflectContext* reflection);
+    };
+
+    bool WriteJson(CloudGemFramework::JsonWriter& writer, const SingleScore& item);
+    
+    
+    
+    struct ServiceStatus
+    {
+
+        AZ_TYPE_INFO(ServiceStatus, LmbrAWS_CodeGen_ServiceStatus_UUID)
+        AZ_CLASS_ALLOCATOR(ServiceStatus, AZ::SystemAllocator, 0)
+
+        
+        AZStd::string status;
+        
+
+        bool OnJsonKey(const char* key, CloudGemFramework::JsonReader& reader);
+
+        static void Reflect(AZ::ReflectContext* reflection);
+    };
+
+    bool WriteJson(CloudGemFramework::JsonWriter& writer, const ServiceStatus& item);
+    
+    
+    
+    struct AdditionalLeaderboardRequestData
+    {
+
+        AZ_TYPE_INFO(AdditionalLeaderboardRequestData, LmbrAWS_CodeGen_AdditionalLeaderboardRequestData_UUID)
+        AZ_CLASS_ALLOCATOR(AdditionalLeaderboardRequestData, AZ::SystemAllocator, 0)
+
+        
+        StringList users;
+        
+        int page_size{0};
+        
+        int page{0};
+        
+
+        bool OnJsonKey(const char* key, CloudGemFramework::JsonReader& reader);
+
+        static void Reflect(AZ::ReflectContext* reflection);
+    };
+
+    bool WriteJson(CloudGemFramework::JsonWriter& writer, const AdditionalLeaderboardRequestData& item);
+    
+    
+    
+    using ScoreList = AZStd::vector<SingleScore>;
+
+    bool WriteJson(CloudGemFramework::JsonWriter& writer, const ScoreList& list);
+    
+    
+    
+    struct ScoreData
+    {
+
+        AZ_TYPE_INFO(ScoreData, LmbrAWS_CodeGen_ScoreData_UUID)
+        AZ_CLASS_ALLOCATOR(ScoreData, AZ::SystemAllocator, 0)
+
+        
+        int current_page{0};
+        
+        int total_pages{0};
+        
+        ScoreList scores;
+        
+
+        bool OnJsonKey(const char* key, CloudGemFramework::JsonReader& reader);
+
+        static void Reflect(AZ::ReflectContext* reflection);
+    };
+
+    bool WriteJson(CloudGemFramework::JsonWriter& writer, const ScoreData& item);
+    
+    
+    
     struct StatDefinition
     {
 
@@ -107,13 +214,13 @@ namespace ServiceAPI {
         AZ_CLASS_ALLOCATOR(StatDefinition, AZ::SystemAllocator, 0)
 
         
-        double max;
+        double max{0.0};
         
-        double min;
+        double min{0.0};
         
         AZStd::string name;
         
-        double sample_size;
+        double sample_size{0.0};
         
         AZStd::string mode;
         
@@ -152,79 +259,6 @@ namespace ServiceAPI {
     
     
     
-    struct ServiceStatus
-    {
-
-        AZ_TYPE_INFO(ServiceStatus, LmbrAWS_CodeGen_ServiceStatus_UUID)
-        AZ_CLASS_ALLOCATOR(ServiceStatus, AZ::SystemAllocator, 0)
-
-        
-        AZStd::string status;
-        
-
-        bool OnJsonKey(const char* key, CloudGemFramework::JsonReader& reader);
-
-        static void Reflect(AZ::ReflectContext* reflection);
-    };
-
-    bool WriteJson(CloudGemFramework::JsonWriter& writer, const ServiceStatus& item);
-    
-    
-    
-    struct SingleScore
-    {
-
-        AZ_TYPE_INFO(SingleScore, LmbrAWS_CodeGen_SingleScore_UUID)
-        AZ_CLASS_ALLOCATOR(SingleScore, AZ::SystemAllocator, 0)
-
-        
-        AZStd::string stat;
-        
-        AZStd::string user;
-        
-        double value;
-        
-        int estimated_rank;
-        
-
-        bool OnJsonKey(const char* key, CloudGemFramework::JsonReader& reader);
-
-        static void Reflect(AZ::ReflectContext* reflection);
-    };
-
-    bool WriteJson(CloudGemFramework::JsonWriter& writer, const SingleScore& item);
-    
-    
-    
-    using ScoreList = AZStd::vector<SingleScore>;
-
-    bool WriteJson(CloudGemFramework::JsonWriter& writer, const ScoreList& list);
-    
-    
-    
-    struct ScoreData
-    {
-
-        AZ_TYPE_INFO(ScoreData, LmbrAWS_CodeGen_ScoreData_UUID)
-        AZ_CLASS_ALLOCATOR(ScoreData, AZ::SystemAllocator, 0)
-
-        
-        int current_page;
-        
-        int total_pages;
-        
-        ScoreList scores;
-        
-
-        bool OnJsonKey(const char* key, CloudGemFramework::JsonReader& reader);
-
-        static void Reflect(AZ::ReflectContext* reflection);
-    };
-
-    bool WriteJson(CloudGemFramework::JsonWriter& writer, const ScoreData& item);
-    
-    
-    
     struct BanOutcome
     {
 
@@ -241,29 +275,6 @@ namespace ServiceAPI {
     };
 
     bool WriteJson(CloudGemFramework::JsonWriter& writer, const BanOutcome& item);
-    
-    
-    
-    struct AdditionalLeaderboardRequestData
-    {
-
-        AZ_TYPE_INFO(AdditionalLeaderboardRequestData, LmbrAWS_CodeGen_AdditionalLeaderboardRequestData_UUID)
-        AZ_CLASS_ALLOCATOR(AdditionalLeaderboardRequestData, AZ::SystemAllocator, 0)
-
-        
-        StringList users;
-        
-        int page_size;
-        
-        int page;
-        
-
-        bool OnJsonKey(const char* key, CloudGemFramework::JsonReader& reader);
-
-        static void Reflect(AZ::ReflectContext* reflection);
-    };
-
-    bool WriteJson(CloudGemFramework::JsonWriter& writer, const AdditionalLeaderboardRequestData& item);
     
     
 
@@ -298,16 +309,16 @@ namespace ServiceAPI {
 
     using GetPlayerBan_listRequestJob = CloudGemFramework::ServiceRequestJob<GetPlayerBan_listRequest>;
     
-    class DeleteStatsRequest
+    class PostScoreDedicatedRequest
         : public CloudGemFramework::ServiceRequest
     {
     public:
-        SERVICE_REQUEST(CloudGemLeaderboard, HttpMethod::HTTP_DELETE, "/stats/{stat_name}");
+        SERVICE_REQUEST(CloudGemLeaderboard, HttpMethod::HTTP_POST, "/score/dedicated");
 
         struct Parameters
         {
             
-            AZStd::string stat_name;
+            SingleScore score_entry;
             
 
             bool BuildRequest(CloudGemFramework::RequestBuilder& request);
@@ -316,14 +327,14 @@ namespace ServiceAPI {
         };
 
         
-        StatList result;
+        SingleScore result;
         
 
         Parameters parameters;
     };
 
 
-    using DeleteStatsRequestJob = CloudGemFramework::ServiceRequestJob<DeleteStatsRequest>;
+    using PostScoreDedicatedRequestJob = CloudGemFramework::ServiceRequestJob<PostScoreDedicatedRequest>;
     
     class get_service_statusRequest
         : public CloudGemFramework::ServiceRequest
@@ -349,6 +360,35 @@ namespace ServiceAPI {
 
 
     using get_service_statusRequestJob = CloudGemFramework::ServiceRequestJob<get_service_statusRequest>;
+    
+    class PostLeaderboardRequest
+        : public CloudGemFramework::ServiceRequest
+    {
+    public:
+        SERVICE_REQUEST(CloudGemLeaderboard, HttpMethod::HTTP_POST, "/leaderboard/{stat}");
+
+        struct Parameters
+        {
+            
+            AZStd::string stat;
+            
+            AdditionalLeaderboardRequestData additional_data;
+            
+
+            bool BuildRequest(CloudGemFramework::RequestBuilder& request);
+
+            bool WriteJson(CloudGemFramework::JsonWriter& writer) const;
+        };
+
+        
+        ScoreData result;
+        
+
+        Parameters parameters;
+    };
+
+
+    using PostLeaderboardRequestJob = CloudGemFramework::ServiceRequestJob<PostLeaderboardRequest>;
     
     class GetScoresRequest
         : public CloudGemFramework::ServiceRequest
@@ -591,18 +631,16 @@ namespace ServiceAPI {
 
     using GetScoreRequestJob = CloudGemFramework::ServiceRequestJob<GetScoreRequest>;
     
-    class PostLeaderboardRequest
+    class DeleteStatsRequest
         : public CloudGemFramework::ServiceRequest
     {
     public:
-        SERVICE_REQUEST(CloudGemLeaderboard, HttpMethod::HTTP_POST, "/leaderboard/{stat}");
+        SERVICE_REQUEST(CloudGemLeaderboard, HttpMethod::HTTP_DELETE, "/stats/{stat_name}");
 
         struct Parameters
         {
             
-            AZStd::string stat;
-            
-            AdditionalLeaderboardRequestData additional_data;
+            AZStd::string stat_name;
             
 
             bool BuildRequest(CloudGemFramework::RequestBuilder& request);
@@ -611,14 +649,14 @@ namespace ServiceAPI {
         };
 
         
-        ScoreData result;
+        StatList result;
         
 
         Parameters parameters;
     };
 
 
-    using PostLeaderboardRequestJob = CloudGemFramework::ServiceRequestJob<PostLeaderboardRequest>;
+    using DeleteStatsRequestJob = CloudGemFramework::ServiceRequestJob<DeleteStatsRequest>;
     
 
 
@@ -657,7 +695,7 @@ namespace ServiceAPI {
          *    request:          The AWS Lambda request object
          */
         
-        virtual void OnDeleteStatsRequestSuccess(const StatList response);
+        virtual void OnPostScoreDedicatedRequestSuccess(const SingleScore response);
         
 
         /**
@@ -668,7 +706,7 @@ namespace ServiceAPI {
          *                     could be function error or an issue with the request
          *    request:         The AWS Lambda request object
          */
-        virtual void OnDeleteStatsRequestError(const CloudGemFramework::Error error);
+        virtual void OnPostScoreDedicatedRequestError(const CloudGemFramework::Error error);
         
         /**
          * Sent when the request is a success
@@ -690,6 +728,27 @@ namespace ServiceAPI {
          *    request:         The AWS Lambda request object
          */
         virtual void Onget_service_statusRequestError(const CloudGemFramework::Error error);
+        
+        /**
+         * Sent when the request is a success
+         *
+         * Params:
+         *    jsonOutput:       The output receieved from the lambda call
+         *    request:          The AWS Lambda request object
+         */
+        
+        virtual void OnPostLeaderboardRequestSuccess(const ScoreData response);
+        
+
+        /**
+         * Sent when the request fails
+         *
+         * Params:
+         *    error:           The output receieved from the lambda call,
+         *                     could be function error or an issue with the request
+         *    request:         The AWS Lambda request object
+         */
+        virtual void OnPostLeaderboardRequestError(const CloudGemFramework::Error error);
         
         /**
          * Sent when the request is a success
@@ -888,7 +947,7 @@ namespace ServiceAPI {
          *    request:          The AWS Lambda request object
          */
         
-        virtual void OnPostLeaderboardRequestSuccess(const ScoreData response);
+        virtual void OnDeleteStatsRequestSuccess(const StatList response);
         
 
         /**
@@ -899,7 +958,7 @@ namespace ServiceAPI {
          *                     could be function error or an issue with the request
          *    request:         The AWS Lambda request object
          */
-        virtual void OnPostLeaderboardRequestError(const CloudGemFramework::Error error);
+        virtual void OnDeleteStatsRequestError(const CloudGemFramework::Error error);
         
     };
 
@@ -914,11 +973,14 @@ namespace ServiceAPI {
         , OnGetPlayerBan_listRequestSuccess
         , OnGetPlayerBan_listRequestError
         
-        , OnDeleteStatsRequestSuccess
-        , OnDeleteStatsRequestError
+        , OnPostScoreDedicatedRequestSuccess
+        , OnPostScoreDedicatedRequestError
         
         , Onget_service_statusRequestSuccess
         , Onget_service_statusRequestError
+        
+        , OnPostLeaderboardRequestSuccess
+        , OnPostLeaderboardRequestError
         
         , OnGetScoresRequestSuccess
         , OnGetScoresRequestError
@@ -947,8 +1009,8 @@ namespace ServiceAPI {
         , OnGetScoreRequestSuccess
         , OnGetScoreRequestError
         
-        , OnPostLeaderboardRequestSuccess
-        , OnPostLeaderboardRequestError
+        , OnDeleteStatsRequestSuccess
+        , OnDeleteStatsRequestError
         
         );
         
@@ -958,14 +1020,19 @@ namespace ServiceAPI {
         void OnGetPlayerBan_listRequestError(const CloudGemFramework::Error error) override;
         
         
-        void OnDeleteStatsRequestSuccess(const StatList response) override;
+        void OnPostScoreDedicatedRequestSuccess(const SingleScore response) override;
         
-        void OnDeleteStatsRequestError(const CloudGemFramework::Error error) override;
+        void OnPostScoreDedicatedRequestError(const CloudGemFramework::Error error) override;
         
         
         void Onget_service_statusRequestSuccess(const ServiceStatus response) override;
         
         void Onget_service_statusRequestError(const CloudGemFramework::Error error) override;
+        
+        
+        void OnPostLeaderboardRequestSuccess(const ScoreData response) override;
+        
+        void OnPostLeaderboardRequestError(const CloudGemFramework::Error error) override;
         
         
         void OnGetScoresRequestSuccess(const ScoreData response) override;
@@ -1013,9 +1080,9 @@ namespace ServiceAPI {
         void OnGetScoreRequestError(const CloudGemFramework::Error error) override;
         
         
-        void OnPostLeaderboardRequestSuccess(const ScoreData response) override;
+        void OnDeleteStatsRequestSuccess(const StatList response) override;
         
-        void OnPostLeaderboardRequestError(const CloudGemFramework::Error error) override;
+        void OnDeleteStatsRequestError(const CloudGemFramework::Error error) override;
         
     };
     class CloudGemLeaderboardResponseHandler;
@@ -1032,11 +1099,15 @@ namespace ServiceAPI {
         
         
         
-        virtual void DeleteStats(const AZStd::string& stat_name, CloudGemLeaderboardResponseHandler* responseHandler);
+        virtual void PostScoreDedicated(const SingleScore& score_entry, CloudGemLeaderboardResponseHandler* responseHandler);
         
         
         
         virtual void get_service_status(CloudGemLeaderboardResponseHandler* responseHandler);
+        
+        
+        
+        virtual void PostLeaderboard(const AZStd::string& stat, const AdditionalLeaderboardRequestData& additional_data, CloudGemLeaderboardResponseHandler* responseHandler);
         
         
         
@@ -1076,7 +1147,7 @@ namespace ServiceAPI {
         
         
         
-        virtual void PostLeaderboard(const AZStd::string& stat, const AdditionalLeaderboardRequestData& additional_data, CloudGemLeaderboardResponseHandler* responseHandler);
+        virtual void DeleteStats(const AZStd::string& stat_name, CloudGemLeaderboardResponseHandler* responseHandler);
         
         
     };
@@ -1096,11 +1167,14 @@ namespace ServiceAPI {
         virtual void HandleGetPlayerBan_listSuccess(GetPlayerBan_listRequestJob* job, AZ::EntityId entityId);
         virtual void HandleGetPlayerBan_listError(GetPlayerBan_listRequestJob* job, AZ::EntityId entityId);
         
-        virtual void HandleDeleteStatsSuccess(DeleteStatsRequestJob* job, AZ::EntityId entityId);
-        virtual void HandleDeleteStatsError(DeleteStatsRequestJob* job, AZ::EntityId entityId);
+        virtual void HandlePostScoreDedicatedSuccess(PostScoreDedicatedRequestJob* job, AZ::EntityId entityId);
+        virtual void HandlePostScoreDedicatedError(PostScoreDedicatedRequestJob* job, AZ::EntityId entityId);
         
         virtual void Handleget_service_statusSuccess(get_service_statusRequestJob* job, AZ::EntityId entityId);
         virtual void Handleget_service_statusError(get_service_statusRequestJob* job, AZ::EntityId entityId);
+        
+        virtual void HandlePostLeaderboardSuccess(PostLeaderboardRequestJob* job, AZ::EntityId entityId);
+        virtual void HandlePostLeaderboardError(PostLeaderboardRequestJob* job, AZ::EntityId entityId);
         
         virtual void HandleGetScoresSuccess(GetScoresRequestJob* job, AZ::EntityId entityId);
         virtual void HandleGetScoresError(GetScoresRequestJob* job, AZ::EntityId entityId);
@@ -1129,8 +1203,8 @@ namespace ServiceAPI {
         virtual void HandleGetScoreSuccess(GetScoreRequestJob* job, AZ::EntityId entityId);
         virtual void HandleGetScoreError(GetScoreRequestJob* job, AZ::EntityId entityId);
         
-        virtual void HandlePostLeaderboardSuccess(PostLeaderboardRequestJob* job, AZ::EntityId entityId);
-        virtual void HandlePostLeaderboardError(PostLeaderboardRequestJob* job, AZ::EntityId entityId);
+        virtual void HandleDeleteStatsSuccess(DeleteStatsRequestJob* job, AZ::EntityId entityId);
+        virtual void HandleDeleteStatsError(DeleteStatsRequestJob* job, AZ::EntityId entityId);
         
     };
 
@@ -1160,6 +1234,24 @@ namespace ServiceAPI {
             
             
             
+            SingleScore::Reflect(reflection);
+            
+            
+            
+            ServiceStatus::Reflect(reflection);
+            
+            
+            
+            AdditionalLeaderboardRequestData::Reflect(reflection);
+            
+            
+            
+            
+            
+            ScoreData::Reflect(reflection);
+            
+            
+            
             StatDefinition::Reflect(reflection);
             
             
@@ -1170,25 +1262,7 @@ namespace ServiceAPI {
             
             
             
-            ServiceStatus::Reflect(reflection);
-            
-            
-            
-            SingleScore::Reflect(reflection);
-            
-            
-            
-            
-            
-            ScoreData::Reflect(reflection);
-            
-            
-            
             BanOutcome::Reflect(reflection);
-            
-            
-            
-            AdditionalLeaderboardRequestData::Reflect(reflection);
             
             
 
@@ -1196,7 +1270,7 @@ namespace ServiceAPI {
             if (serializeContext)
             {
                 // we must include any fields we want to expose to the editor or lua in the serialize context
-                serializeContext->Class<CloudGemLeaderboardClientComponent>()
+                serializeContext->Class<CloudGemLeaderboardClientComponent, AZ::Component>()
                     ->Version(1);
 
                 AZ::EditContext* editContext = serializeContext->GetEditContext();
@@ -1217,9 +1291,11 @@ namespace ServiceAPI {
                     
                     ->Event("GetPlayerBan_list", &CloudGemLeaderboardRequestBus::Events::GetPlayerBan_list)
                     
-                    ->Event("DeleteStats", &CloudGemLeaderboardRequestBus::Events::DeleteStats)
+                    ->Event("PostScoreDedicated", &CloudGemLeaderboardRequestBus::Events::PostScoreDedicated)
                     
                     ->Event("get_service_status", &CloudGemLeaderboardRequestBus::Events::get_service_status)
+                    
+                    ->Event("PostLeaderboard", &CloudGemLeaderboardRequestBus::Events::PostLeaderboard)
                     
                     ->Event("GetScores", &CloudGemLeaderboardRequestBus::Events::GetScores)
                     
@@ -1239,7 +1315,7 @@ namespace ServiceAPI {
                     
                     ->Event("GetScore", &CloudGemLeaderboardRequestBus::Events::GetScore)
                     
-                    ->Event("PostLeaderboard", &CloudGemLeaderboardRequestBus::Events::PostLeaderboard)
+                    ->Event("DeleteStats", &CloudGemLeaderboardRequestBus::Events::DeleteStats)
                     
                     ;
                 behaviorContext->EBus<CloudGemLeaderboardNotificationBus>("CloudGemLeaderboardNotificationBus")
@@ -1255,11 +1331,15 @@ namespace ServiceAPI {
         
         
         
-        void DeleteStats(const AZStd::string& stat_name, CloudGemLeaderboardResponseHandler* responseHandler) override;
+        void PostScoreDedicated(const SingleScore& score_entry, CloudGemLeaderboardResponseHandler* responseHandler) override;
         
         
         
         void get_service_status(CloudGemLeaderboardResponseHandler* responseHandler) override;
+        
+        
+        
+        void PostLeaderboard(const AZStd::string& stat, const AdditionalLeaderboardRequestData& additional_data, CloudGemLeaderboardResponseHandler* responseHandler) override;
         
         
         
@@ -1299,7 +1379,7 @@ namespace ServiceAPI {
         
         
         
-        void PostLeaderboard(const AZStd::string& stat, const AdditionalLeaderboardRequestData& additional_data, CloudGemLeaderboardResponseHandler* responseHandler) override;
+        void DeleteStats(const AZStd::string& stat_name, CloudGemLeaderboardResponseHandler* responseHandler) override;
         
         
     };

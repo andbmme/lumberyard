@@ -67,8 +67,7 @@ bool CD3D9Renderer::FX_DeferredCaustics()
 
     // Caustics are done with projection from sun - hence they update too fast with regular
     // sun direction. Use a smooth sun direction update instead to workaround this
-    PerFrameParameters& PF = gRenDev->m_cEF.m_PF;
-
+    PerFrameParameters& PF = gcpRendD3D->m_RP.m_TI[gcpRendD3D->m_RP.m_nProcessThreadID].m_perFrameParameters;
     Vec3 pRealtimeSunDirNormalized = pEng->GetRealtimeSunDirNormalized();
 
     const float fSnapDot = 0.98f;
@@ -470,20 +469,24 @@ bool CD3D9Renderer::FX_DeferredRainGBuffer()
         return false;
     }
 
-	//  Confetti BEGIN: Igor Lobanchikov :END    
     const bool bUseStencilMask = gcpRendD3D->FX_GetEnabledGmemPath(nullptr) && CRenderer::CV_r_RainUseStencilMasking;
 
     // If GMEM path is enabled but no framebuffer fetches are supported, then neither can this pass.
     // We would have to resolve which would break the GMEM path.
-    if (gcpRendD3D->FX_GetEnabledGmemPath(nullptr) && !RenderCapabilities::SupportsFrameBufferFetches())
+    const bool gmemEnabled = gcpRendD3D->FX_GetEnabledGmemPath(nullptr) != CD3D9Renderer::eGT_REGULAR_PATH;
+    if (gmemEnabled && !(RenderCapabilities::GetFrameBufferFetchCapabilities().test(RenderCapabilities::FBF_ALL_COLORS)))
     {
-        AZ_Assert(RenderCapabilities::SupportsFrameBufferFetches(), "Device does not support framebuffer fetches. Deferred rain not supported with GMEM paths.");
+        AZ_Assert(false, "Device does not support framebuffer fetches for all color attachments. Deferred rain not supported with GMEM paths.");
         return false;
     }
 
     PROFILE_LABEL_SCOPE("DEFERRED_RAIN_GBUFFER");
 
-	//  Confetti BEGIN: Igor Lobanchikov :END
+    if (CRenderer::CV_r_SlimGBuffer)
+    {
+        m_RP.m_FlagsShader_RT |= g_HWSR_MaskBit[HWSR_SLIM_GBUFFER];
+    }
+
     static const int numOfDeferredStencilRainTechniques = 2;
     static CCryNameTSCRC tech[numOfDeferredStencilRainTechniques] = {CCryNameTSCRC("DeferredRainGBufferStencil"), CCryNameTSCRC("DeferredRainGBufferNoDiscard")};
     static CCryNameTSCRC techDiscard = "DeferredRainGBuffer";
@@ -506,12 +509,21 @@ bool CD3D9Renderer::FX_DeferredRainGBuffer()
     const bool bMSAA = m_RP.m_MSAAData.Type ? true : false;
     D3DDepthSurface* pZBufferOrigDSV = (ID3D11DepthStencilView*)m_DepthBufferOrigMSAA.pSurf;
     m_DepthBufferOrigMSAA.pSurf = m_pZBufferReadOnlyDSV;
+    bool restoreStencilResourceView = false;
     D3DShaderResourceView* pZTargetOrigSRV = pDepthBufferRT->GetShaderResourceView(bMSAA? SResourceView::DefaultViewMS : SResourceView::DefaultView);
 
-    if (!gcpRendD3D->FX_GetEnabledGmemPath(nullptr)) // needed RTs already in GMEM
+    if (!gmemEnabled) // needed RTs already in GMEM
     {
         CTexture* pSceneSpecular = CTexture::s_ptexSceneSpecular;
-
+#if defined(AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DDeferredPasses_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DDeferredPasses_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DDeferredPasses_cpp_salem.inl"
+    #endif
+#endif
         // TODO: Try avoiding the copy by directly accessing UAVs
         PostProcessUtils().StretchRect(CTexture::s_ptexSceneNormalsMap, CTexture::s_ptexStereoL);
         PostProcessUtils().StretchRect(pSceneSpecular, CTexture::s_ptexStereoR);
@@ -534,7 +546,6 @@ bool CD3D9Renderer::FX_DeferredRainGBuffer()
         m_RP.m_FlagsShader_RT |= g_HWSR_MaskBit[HWSR_SAMPLE1];  // Splashes
     }
 
-    //  Confetti BEGIN: Igor Lobanchikov
     const int rainStencilMask = 0x40;
     for (int i = bUseStencilMask ? 0 : 1; i < numOfDeferredStencilRainTechniques; ++i)
     {
@@ -619,13 +630,18 @@ bool CD3D9Renderer::FX_DeferredRainGBuffer()
             pShader->FXSetPSFloat(windParamName, &pWindParams, 1);
         }
         
-        if (!gcpRendD3D->FX_GetEnabledGmemPath(nullptr)) // can read straight from GMEM
+        if (!gmemEnabled) // can read straight from GMEM
         {
             SPostEffectsUtils::SetTexture(CTexture::s_ptexStereoL, 9, FILTER_POINT, 0);
             SPostEffectsUtils::SetTexture(CTexture::s_ptexStereoR, 10, FILTER_POINT, 0);
-            SPostEffectsUtils::SetTexture(CTexture::s_ptexSceneNormalsBent, 11, FILTER_POINT, 0);
-            
+            SPostEffectsUtils::SetTexture(CTexture::s_ptexSceneNormalsBent, 11, FILTER_POINT, 0);            
+        }
+
+        // On GMEM we need to check if we have access to the depth RT or depth buffer. If not we push the depth as a texture to be sampled.
+        if(!gmemEnabled || gcpRendD3D->FX_GmemGetDepthStencilMode() == CD3D9Renderer::eGDSM_Texture)
+        {
             // Bind stencil buffer
+            restoreStencilResourceView = true;
             pDepthBufferRT->SetShaderResourceView(m_pZBufferStencilReadOnlySRV, bMSAA);
             SResourceView::KeyType nBindResourceMsaa = gcpRendD3D->m_RP.m_MSAAData.Type ? SResourceView::DefaultViewMS : SResourceView::DefaultView;
             pDepthBufferRT->Apply(12, CTexture::GetTexState(STexState(FILTER_POINT, true)), EFTT_UNKNOWN, -1, nBindResourceMsaa);
@@ -634,14 +650,16 @@ bool CD3D9Renderer::FX_DeferredRainGBuffer()
         SD3DPostEffectsUtils::DrawFullScreenTriWPOS(CTexture::s_ptexSceneNormalsMap->GetWidth(), CTexture::s_ptexSceneNormalsMap->GetHeight(), 1.0f);
         SD3DPostEffectsUtils::ShEndPass();
     }
-	//  Confetti End: Igor Lobanchikov
+
+    // Restore original DSV/SRV
+    m_DepthBufferOrigMSAA.pSurf = pZBufferOrigDSV;
+    if (restoreStencilResourceView)
+    {
+        pDepthBufferRT->SetShaderResourceView(pZTargetOrigSRV, bMSAA);
+    }
 
     if (!gcpRendD3D->FX_GetEnabledGmemPath(nullptr)) // no need to restore... this would break GMEM path
     {
-        // Restore original DSV/SRV
-        m_DepthBufferOrigMSAA.pSurf = pZBufferOrigDSV;
-        pDepthBufferRT->SetShaderResourceView(pZTargetOrigSRV, bMSAA);
-
         FX_PopRenderTarget(0);
         FX_PopRenderTarget(1);
         FX_PopRenderTarget(2);
@@ -671,13 +689,18 @@ bool CD3D9Renderer::FX_DeferredSnowLayer()
 
     // If GMEM path is enabled but no framebuffer fetches are supported, then neither can this pass.
     // We would have to resolve which would break the GMEM path.
-    if (gcpRendD3D->FX_GetEnabledGmemPath(nullptr) && !RenderCapabilities::SupportsFrameBufferFetches())
+    if (gcpRendD3D->FX_GetEnabledGmemPath(nullptr) && !(RenderCapabilities::GetFrameBufferFetchCapabilities().test(RenderCapabilities::FBF_ALL_COLORS)))
     {
-        AZ_Assert(RenderCapabilities::SupportsFrameBufferFetches(), "Device does not support framebuffer fetches. Deferred snow not supported with GMEM paths.");
+        AZ_Assert(false, "Device does not support framebuffer fetches for all color attachments. Deferred snow not supported with GMEM paths.");
         return false;
     }
 
     PROFILE_LABEL_SCOPE("DEFERRED_SNOW_ACCUMULATION");
+
+    if (CRenderer::CV_r_SlimGBuffer)
+    {
+        m_RP.m_FlagsShader_RT |= g_HWSR_MaskBit[HWSR_SLIM_GBUFFER];
+    }
 
     if (!gcpRendD3D->FX_GetEnabledGmemPath(nullptr)) // needed RTs already in GMEM
     {
@@ -790,7 +813,6 @@ bool CD3D9Renderer::FX_DeferredSnowLayer()
     gcpRendD3D->FX_SetState(renderState);
     gcpRendD3D->FX_Commit();
 
-    //  Confetti BEGIN: Igor Lobanchikov :END
     SD3DPostEffectsUtils::DrawFullScreenTriWPOS(CTexture::s_ptexBackBuffer->GetWidth(), CTexture::s_ptexBackBuffer->GetHeight(), 0, &gcpRendD3D->m_FullResRect);
     SD3DPostEffectsUtils::ShEndPass();
 

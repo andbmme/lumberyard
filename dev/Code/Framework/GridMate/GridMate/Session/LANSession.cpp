@@ -9,7 +9,6 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
-#ifndef AZ_UNITY_BUILD
 
 #include <AzCore/std/smart_ptr/intrusive_ptr.h>
 #include <AzCore/std/string/conversions.h>
@@ -350,6 +349,14 @@ namespace GridMate
 }
 //////////////////////////////////////////////////////////////////////////
 
+namespace GridMate
+{
+    namespace Platform
+    {
+        void AssignExtendedName(GridMate::string& extendedName);
+    }
+}
+
 using namespace GridMate;
 
 //=========================================================================
@@ -362,28 +369,7 @@ LANMember::LANMember(const LANMemberID& id, LANSession* session)
     , m_memberId(id)
 {
     string extendedName;
-
-    char hostName[64];
-    gethostname(hostName, AZ_ARRAY_SIZE(hostName));
-
-#ifdef AZ_PLATFORM_WINDOWS
-
-    char procPath[256];
-    char procName[256];
-    DWORD ret = GetModuleFileName(NULL, procPath, 256);
-    if (ret > 0)
-    {
-        ::_splitpath_s(procPath, 0, 0, 0, 0, procName, 256, 0, 0);
-    }
-    else
-    {
-        azsnprintf(procName, AZ_ARRAY_SIZE(procName), "Unknown");
-    }
-
-    extendedName = string::format("%s::%s", hostName, procName);
-#else
-    extendedName = string::format("%s", hostName);
-#endif
+    Platform::AssignExtendedName(extendedName);
 
     m_session = session;
     m_clientState = CreateReplicaChunk<LANMemberState>(this);
@@ -1023,6 +1009,7 @@ LANSearch::Update()
     // Receive all the
     static const int k_maxDataSize = 2048;
     char data[k_maxDataSize];
+    bool haveMaxResults = false;
     while (true)
     {
         AZStd::intrusive_ptr<DriverAddress> from;
@@ -1086,14 +1073,14 @@ LANSearch::Update()
 
         if (m_results.size() == m_searchParams.m_maxSessions)
         {
-            SearchDone(); // We are done
+            haveMaxResults = true;
             break;
         }
     }
 
     // check the timeout
     timeElapsed = now - m_timeStart;
-    if (timeElapsed.count() > m_timeOutMS)
+    if (haveMaxResults || timeElapsed.count() > m_timeOutMS)
     {
         // we are done
         SearchDone();
@@ -1164,7 +1151,7 @@ void LANSessionService::OnServiceRegistered(IGridMate* gridMate)
     LANSessionServiceBus::Handler::BusConnect(gridMate);
 
     EBUS_DBG_EVENT(Debug::SessionDrillerBus, OnSessionServiceReady);
-    EBUS_EVENT_ID(m_gridMate, SessionEventBus, OnSessionServiceReady);    
+    EBUS_EVENT_ID(m_gridMate, SessionEventBus, OnSessionServiceReady);
 }
 
 void LANSessionService::OnServiceUnregistered(IGridMate* gridMate)
@@ -1216,5 +1203,3 @@ GridSearch* LANSessionService::StartGridSearch(const LANSearchParams& params)
 {
     return aznew LANSearch(params, this);
 }
-
-#endif // #ifndef AZ_UNITY_BUILD

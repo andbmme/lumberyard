@@ -12,15 +12,29 @@
 #include "StdAfx.h"
 #include <AzCore/Serialization/EditContext.h>
 #include <AzCore/Component/ComponentApplicationBus.h>
+#include <AzCore/Component/ComponentExport.h>
 #include <AzCore/Slice/SliceComponent.h>
+#include <AzCore/Serialization/SerializeContext.h>
+#include <AzCore/Serialization/EditContext.h>
 #include <AzFramework/Components/EditorEntityEvents.h>
 #include <AzToolsFramework/ToolsComponents/GenericComponentWrapper.h>
 #include <AzToolsFramework/Entity/EditorEntityHelpers.h>
+
 
 namespace AzToolsFramework
 {
     namespace Components
     {
+        /**
+         * Custom export callback for GenericComponentWrapper, invoked by the slice compiler.
+         * The Wrapper component simply exports the inner template, which is the runtime/non-editor component.
+         */
+        AZ::ExportedComponent ExportTemplateComponent(AZ::Component* thisComponent, const AZ::PlatformTagSet& /*platformTags*/)
+        {
+            GenericComponentWrapper* wrapper = static_cast<GenericComponentWrapper*>(thisComponent);
+            return AZ::ExportedComponent(wrapper->GetTemplate(), false);
+        }
+
         ////////////////////////////////////////////////////////////////////////
         // GenericComponentWrapper
         ////////////////////////////////////////////////////////////////////////
@@ -38,11 +52,12 @@ namespace AzToolsFramework
                 {
                     editContext->Class<GenericComponentWrapper>("GenericComponentWrapper", "This should be hidden!")
                         ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
-                        ->Attribute(AZ::Edit::Attributes::NameLabelOverride, &GenericComponentWrapper::GetDisplayName)
-                        ->Attribute(AZ::Edit::Attributes::DescriptionTextOverride, &GenericComponentWrapper::GetDisplayDescription)
-                        ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
+                            ->Attribute(AZ::Edit::Attributes::NameLabelOverride, &GenericComponentWrapper::GetDisplayName)
+                            ->Attribute(AZ::Edit::Attributes::DescriptionTextOverride, &GenericComponentWrapper::GetDisplayDescription)
+                            ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
+                            ->Attribute(AZ::Edit::Attributes::RuntimeExportCallback, &ExportTemplateComponent)
                         ->DataElement("", &GenericComponentWrapper::m_template, "m_template", "")
-                        ->Attribute(AZ::Edit::Attributes::Visibility, AZ_CRC("PropertyVisibility_ShowChildrenOnly", 0xef428f20));
+                            ->Attribute(AZ::Edit::Attributes::Visibility, AZ_CRC("PropertyVisibility_ShowChildrenOnly", 0xef428f20));
                 }
             }
         }
@@ -74,16 +89,101 @@ namespace AzToolsFramework
 
         GenericComponentWrapper::~GenericComponentWrapper()
         {
-            delete m_template;
+            if (m_template)
+            {
+                delete m_template;
+            }
         }
 
-        const char* GenericComponentWrapper::GetDisplayName() const
+        GenericComponentWrapper::GenericComponentWrapper(const GenericComponentWrapper& RHS)
+            : m_displayName(RHS.m_displayName)
+            , m_displayDescription(RHS.m_displayDescription)
         {
+            if (GetEntity())
+            {
+                AZ_Assert(GetEntity()->GetState() <= AZ::Entity::State::ES_INIT, "Entity should not be activated when copying components");
+            }
+
+            AZ::SerializeContext* context = nullptr;
+            AZ::ComponentApplicationBus::BroadcastResult(context, &AZ::ComponentApplicationBus::Events::GetSerializeContext);
+            m_template = context->CloneObject<AZ::Component>(RHS.m_template);
+
+            m_templateEvents = azrtti_cast<AzFramework::EditorEntityEvents*>(m_template);
+        }
+
+        GenericComponentWrapper::GenericComponentWrapper(GenericComponentWrapper&& RHS)
+            : m_displayName(AZStd::move(RHS.m_displayName))
+            , m_displayDescription(AZStd::move(RHS.m_displayDescription))
+        {
+            if (GetEntity())
+            {
+                AZ_Assert(GetEntity()->GetState() <= AZ::Entity::State::ES_INIT, "Entity should not be activated when copying components");
+            }
+
+            m_template = AZStd::move(RHS.m_template);
+            RHS.m_template = nullptr;
+
+            m_templateEvents = azrtti_cast<AzFramework::EditorEntityEvents*>(m_template);
+        }
+
+        GenericComponentWrapper& GenericComponentWrapper::operator=(const GenericComponentWrapper& RHS)
+        {
+            if (GetEntity())
+            {
+                AZ_Assert(GetEntity()->GetState() <= AZ::Entity::State::ES_INIT, "Entity should not be activated when copying components");
+            }
+
+            AZ::SerializeContext* context = nullptr;
+            AZ::ComponentApplicationBus::BroadcastResult(context, &AZ::ComponentApplicationBus::Events::GetSerializeContext);
+            m_template = context->CloneObject<AZ::Component>(RHS.m_template);
+
+            m_templateEvents = azrtti_cast<AzFramework::EditorEntityEvents*>(m_template);
+
+            m_displayName = RHS.m_displayName;
+            m_displayDescription = RHS.m_displayDescription;
+
+            return *this;
+        }
+
+        GenericComponentWrapper& GenericComponentWrapper::operator=(GenericComponentWrapper&& RHS)
+        {
+            if (GetEntity())
+            {
+                AZ_Assert(GetEntity()->GetState() <= AZ::Entity::State::ES_INIT, "Entity should not be activated when copying components");
+            }
+
+            m_template = AZStd::move(RHS.m_template);
+            RHS.m_template = nullptr;
+
+            m_templateEvents = azrtti_cast<AzFramework::EditorEntityEvents*>(m_template);
+
+            m_displayName = AZStd::move(RHS.m_displayName);
+            m_displayDescription = AZStd::move(RHS.m_displayDescription);
+
+            return *this;
+        }
+
+        const char* GenericComponentWrapper::GetDisplayName()
+        {
+            if (m_displayName.empty())
+            {
+                if (m_template)
+                {
+                    m_displayName = GetFriendlyComponentName(m_template);
+                }
+            }
             return m_displayName.c_str();
         }
 
-        const char* GenericComponentWrapper::GetDisplayDescription() const
+        const char* GenericComponentWrapper::GetDisplayDescription()
         {
+            if (m_displayDescription.empty())
+            {
+                if (m_template)
+                {
+                    m_displayDescription = GetFriendlyComponentDescription(m_template);
+                }
+            }
             return m_displayDescription.c_str();
         }
 
@@ -130,31 +230,56 @@ namespace AzToolsFramework
             }
         }
 
+        const AZ::TypeId& GenericComponentWrapper::GetUnderlyingComponentType() const
+        {
+            if (m_template)
+            {
+                return m_template->RTTI_GetType();
+            }
+
+            return RTTI_GetType();
+        }
+
         void GenericComponentWrapper::BuildGameEntity(AZ::Entity* gameEntity)
         {
             if (m_template)
             {
-                gameEntity->AddComponent(m_template);
+                AZ::SerializeContext* context = nullptr;
+                AZ::ComponentApplicationBus::BroadcastResult(context, &AZ::ComponentApplicationBus::Events::GetSerializeContext);
+                if (!context)
+                {
+                    AZ_Error("GenericComponentWrapper", false, "Can't get serialize context from component application.");
+                    return;
+                }
+
+                gameEntity->AddComponent(context->CloneObject(m_template));
             }
         }
 
-        void GenericComponentWrapper::FinishedBuildingGameEntity(AZ::Entity* gameEntity)
+        AZ::ComponentValidationResult GenericComponentWrapper::ValidateComponentRequirements(
+            const AZ::ImmutableEntityVector& sliceEntities, const AZStd::unordered_set<AZ::Crc32>& platformTags) const
         {
+            AZ::ComponentValidationResult baseClassResult = EditorComponentBase::ValidateComponentRequirements(sliceEntities, platformTags);
+            if (!baseClassResult.IsSuccess())
+            {
+                return baseClassResult;
+            }
+
             if (m_template)
             {
-                gameEntity->RemoveComponent(m_template);
+                return m_template->ValidateComponentRequirements(sliceEntities, platformTags);
             }
+
+            return AZ::Success();
         }
 
-        void GenericComponentWrapper::DisplayEntity(bool& handled)
+        void GenericComponentWrapper::DisplayEntityViewport(
+            const AzFramework::ViewportInfo& /*viewportInfo*/,
+            AzFramework::DebugDisplayRequests& debugDisplay)
         {
             if (m_templateEvents)
             {
-                auto* displayInterface = AzFramework::EntityDebugDisplayRequestBus::FindFirstHandler();
-                if (displayInterface)
-                {
-                    m_templateEvents->EditorDisplay(GetEntityId(), *displayInterface, GetWorldTM(), handled);
-                }
+                m_templateEvents->EditorDisplay(GetEntityId(), debugDisplay, GetWorldTM());
             }
         }
 
@@ -244,70 +369,10 @@ namespace AzToolsFramework
 
             return descriptor ? descriptor : aznew GenericComponentWrapperDescriptor();
         }
-
-        ////////////////////////////////////////////////////////////////////////
-        // GenericComponentUnwrapper
-        ////////////////////////////////////////////////////////////////////////
-
-        void GenericComponentUnwrapper::Reflect(AZ::ReflectContext* context)
-        {
-            if (auto serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
-            {
-                serializeContext->Class<GenericComponentUnwrapper, AZ::Component>();
-            }
-        }
-
-        void GenericComponentUnwrapper::Activate()
-        {
-            AZ::SliceAssetSerializationNotificationBus::Handler::BusConnect();
-        }
-
-        void GenericComponentUnwrapper::Deactivate()
-        {
-            AZ::SliceAssetSerializationNotificationBus::Handler::BusDisconnect();
-        }
-
-        // Why do the swap after a SliceAsset loads?
-        // We can't swap during version-conversion of the editor-component
-        // because converters don't have access to parent data.
-        // We can't swap after writing GenericComponentWrapper from data
-        // because we don't have access to the parent Entity.
-        // We could have swapped after writing the AZ::Entity from data,
-        // but Entities are written with high frequency for many reasons (ex: undo).
-        // Therefore, do the swap after slice entities finish loading.
-        // Any editor-entity that's saved out to disk will come in via a
-        // SliceAsset, so this is a safe place for the check.
-        void GenericComponentUnwrapper::OnSliceEntitiesLoaded(const AZStd::vector<AZ::Entity*>& entities)
-        {
-            for (AZ::Entity* entity : entities)
-            {
-                for (AZ::Component* component : entity->GetComponents())
-                {
-                    if (auto genericComponentWrapper = azrtti_cast<GenericComponentWrapper*>(component))
-                    {
-                        if (auto wrappedComponent = azrtti_cast<EditorComponentBase*>(genericComponentWrapper->GetTemplate()))
-                        {
-                            entity->SwapComponents(genericComponentWrapper, wrappedComponent);
-
-                            genericComponentWrapper->ReleaseTemplate();
-                            delete genericComponentWrapper;
-                        }
-                    }
-                }
-            }
-        }
-
     }   // namespace Components
 
     const AZ::Uuid& GetUnderlyingComponentType(const AZ::Component& component)
     {
-        if (const auto* componentWrapper = azdynamic_cast<const Components::GenericComponentWrapper*>(&component))
-        {
-            if (AZ::Component* underlyingComponent = componentWrapper->GetTemplate())
-            {
-                return azrtti_typeid(underlyingComponent);
-            }
-        }
-        return azrtti_typeid(&component);
+        return component.GetUnderlyingComponentType();
     }
 } // namespace AzToolsFramework

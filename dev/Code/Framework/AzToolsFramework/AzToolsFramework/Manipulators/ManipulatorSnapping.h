@@ -16,46 +16,56 @@
 
 namespace AzToolsFramework
 {
-    /**
-     * Calculate the offset along an axis to adjust a position
-     * to stay snapped to a given grid size.
-     */
+    struct GridSnapParameters
+    {
+        GridSnapParameters(bool gridSnap, float gridSize);
+
+        bool m_gridSnap;
+        float m_gridSize;
+    };
+
+    /// Calculate the offset along an axis to adjust a position
+    /// to stay snapped to a given grid size.
     AZ::Vector3 CalculateSnappedOffset(
         const AZ::Vector3& unsnappedPosition, const AZ::Vector3& axis, float size);
 
-    /**
-     * For a given point on the terrain, calculate the closest xy position snapped to the grid
-     * (z position is aligned to terrain height, not snapped to z grid)
-     */
-    AZ::Vector3 CalculateSnappedSurfacePosition(
-        const AZ::Vector3& worldSurfacePosition, const AZ::Transform& worldFromLocal, int viewportId, float gridSize);
+    /// For a given point on the terrain, calculate the closest xy position snapped to the grid
+    /// (z position is aligned to terrain height, not snapped to z grid)
+    AZ::Vector3 CalculateSnappedTerrainPosition(
+        const AZ::Vector3& worldSurfacePosition, const AZ::Transform& worldFromLocal,
+        int viewportId, float gridSize);
 
-    /**
-     * Wrapper for snapping enabled bus call.
-     */
-    bool GridSnapping(int viewportId);
+    /// Wrapper for grid snapping and grid size bus calls.
+    GridSnapParameters GridSnapSettings(int viewportId);
 
-    /**
-     * Wrapper for grid size bus call.
-     */
-    float GridSize(int viewportId);
+    /// Wrapper for angle snapping enabled bus call.
+    bool AngleSnapping(int viewportId);
 
-    /**
-     * Util to return sign of floating point number.
-     * value > 0 return 1.0
-     * value < 0 return -1.0
-     * value == 0 return 0.0
-     */
-    AZ_INLINE float Sign(float value)
+    /// Wrapper for angle snapping increment bus call.
+    /// @return Angle in degrees
+    float AngleStep(int viewportId);
+
+    /// Round to x number of significant digits.
+    /// @param value Number to round.
+    /// @param exponent Precision to use when rounding.
+    inline float Round(const float value, const float exponent)
+    {
+        const float precision = std::powf(10.0f, exponent);
+        return roundf(value * precision) / precision;
+    }
+
+    /// Round to 3 significant digits (3 digits common usage).
+    inline float Round3(const float value)
+    {
+        return Round(value, 3.0f);
+    }
+
+    /// Util to return sign of floating point number.
+    /// value > 0 return 1.0
+    /// value < 0 return -1.0
+    /// value == 0 return 0.0
+    inline float Sign(float value)
     {
         return static_cast<float>((0.0f < value) - (value < 0.0f));
     }
-
-    /**
-     * Get largest element in Vector.
-     */
-    AZ_INLINE float MaxElement(const AZ::Vector3& vector)
-    {
-        return GetMax(vector.GetX(), GetMax(vector.GetY(), vector.GetZ()));
-    }
-}
+} // namespace AzToolsFramework

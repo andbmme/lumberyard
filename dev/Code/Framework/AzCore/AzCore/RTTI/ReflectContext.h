@@ -114,6 +114,9 @@ namespace AZ
         /// Check if an OnDemandReflection type's typeid is already reflected
         bool IsOnDemandTypeReflected(AZ::Uuid typeId);
 
+        // Derived classes should override this if they want users to be able to query whether something has already been reflected or not
+        virtual bool IsTypeReflected(AZ::Uuid /*typeId*/) const { return false; }
+
         /// Execute all queued OnDemandReflection calls
         void ExecuteQueuedOnDemandReflections();
 
@@ -159,6 +162,7 @@ namespace AZ
         }
 
         bool m_describesChildren = false;
+        bool m_childClassOwned = false;
 
     private:
         AZStd::unique_ptr<void, ContextDeleter> m_contextData; ///< a generic value you can use to store extra data associated with the attribute
@@ -170,13 +174,14 @@ namespace AZ
     typedef AZStd::pair<AttributeId, Attribute*> AttributePair;
     typedef AZStd::vector<AttributePair> AttributeArray;
 
-    inline Attribute* FindAttribute(AttributeId id, const AttributeArray& attrArray)
+    template<typename ContainerType>
+    inline Attribute* FindAttribute(AttributeId id, const ContainerType& attrArray)
     {
-        for (const AttributePair& attrPair : attrArray)
+        for (const auto& attrPair : attrArray)
         {
             if (attrPair.first == id)
             {
-                return attrPair.second;
+                return attrPair.second ? &*attrPair.second : nullptr;
             }
         }
         return nullptr;
@@ -223,6 +228,7 @@ namespace AZ
             : AttributeData<T>(T())
             , m_dataPtr(p) {}
         const T& Get(void* instance) const override { return (reinterpret_cast<C*>(instance)->*m_dataPtr); }
+        DataPtr GetMemberDataPtr() const { return m_dataPtr; }
     private:
         DataPtr m_dataPtr;
     };
@@ -245,10 +251,10 @@ namespace AZ
                 : m_function(f)
         {}
 
-        virtual R Invoke(void* instance, Args&&... args)
+        virtual R Invoke(void* instance, const Args&... args)
         {
             (void)instance;
-            return m_function(AZStd::forward<Args>(args) ...);
+            return m_function(args...);
         }
 
         virtual AZ::Uuid GetInstanceType() const
@@ -281,9 +287,9 @@ namespace AZ
                 , m_memFunction(f)
         {}
 
-        R Invoke(void* instance, Args&&... args) override
+        R Invoke(void* instance, const Args&... args) override
         {
-            return (reinterpret_cast<C*>(instance)->*m_memFunction)(AZStd::forward<Args>(args) ...);
+            return (reinterpret_cast<C*>(instance)->*m_memFunction)(args...);
         }
 
         AZ::Uuid GetInstanceType() const override
@@ -291,6 +297,10 @@ namespace AZ
             return AzTypeInfo<C>::Uuid();
         }
 
+        FunctionPtr GetMemberFunctionPtr() const
+        {
+            return m_memFunction;
+        }
     private:
         FunctionPtr m_memFunction;
     };
@@ -310,9 +320,9 @@ namespace AZ
             , m_memFunction(f)
         {}
 
-        R Invoke(void* instance, Args&&... args) override
+        R Invoke(void* instance, const Args&... args) override
         {
-            return (reinterpret_cast<const C*>(instance)->*m_memFunction)(AZStd::forward<Args>(args) ...);
+            return (reinterpret_cast<const C*>(instance)->*m_memFunction)(args...);
         }
 
         AZ::Uuid GetInstanceType() const override
@@ -320,6 +330,10 @@ namespace AZ
             return AzTypeInfo<C>::Uuid();
         }
 
+        FunctionPtr GetMemberFunctionPtr() const
+        {
+            return m_memFunction;
+        }
     private:
         FunctionPtr m_memFunction;
     };

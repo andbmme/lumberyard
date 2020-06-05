@@ -17,6 +17,8 @@
 #include <AzFramework/Input/Channels/InputChannelDeltaWithSharedPosition2D.h>
 #include <AzFramework/Input/Channels/InputChannelDigitalWithSharedPosition2D.h>
 
+#include <AzCore/std/chrono/clocks.h>
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 namespace AzFramework
 {
@@ -30,6 +32,23 @@ namespace AzFramework
                              public InputSystemCursorRequestBus::Handler
     {
     public:
+        ////////////////////////////////////////////////////////////////////////////////////////////
+        //! Default sample rate for raw mouse movement events that aims to strike a balance between
+        //! responsiveness and performance.
+        static const AZ::u32 MovementSampleRateDefault;
+
+        ////////////////////////////////////////////////////////////////////////////////////////////
+        //! Sample rate for raw mouse movement that will cause all events received in the same frame
+        //! to be queued and dispatched as individual events. This results in maximum responsiveness
+        //! but may potentially impact performance depending how many events happen over each frame.
+        static const AZ::u32 MovementSampleRateQueueAll;
+
+        ////////////////////////////////////////////////////////////////////////////////////////////
+        //! Sample rate for raw mouse movement that will cause all events received in the same frame
+        //! to be accumulated and dispatched as a single event. Optimal for performance, but results
+        //! in sluggish/unresponsive mouse movement, especially when running at low frame rates.
+        static const AZ::u32 MovementSampleRateAccumulateAll;
+
         ////////////////////////////////////////////////////////////////////////////////////////////
         //! The id used to identify the primary mouse input device
         static const InputDeviceId Id;
@@ -100,11 +119,8 @@ namespace AzFramework
         explicit InputDeviceMouse();
 
         ////////////////////////////////////////////////////////////////////////////////////////////
-        // Disable copying (protected to workaround a VS2013 bug in std::is_copy_constructible)
-        // https://connect.microsoft.com/VisualStudio/feedback/details/800328/std-is-copy-constructible-is-broken
-    protected:
+        // Disable copying
         AZ_DISABLE_COPY_MOVE(InputDeviceMouse);
-    public:
 
         ////////////////////////////////////////////////////////////////////////////////////////////
         //! Destructor
@@ -141,6 +157,11 @@ namespace AzFramework
         ////////////////////////////////////////////////////////////////////////////////////////////
         //! \ref AzFramework::InputSystemCursorRequests::GetSystemCursorPositionNormalized
         AZ::Vector2 GetSystemCursorPositionNormalized() const override;
+
+        ////////////////////////////////////////////////////////////////////////////////////////////
+        //! Set the sample rate for raw mouse movement events
+        //! \param[in] sampleRateHertz The raw movement sample rate in Hertz (cycles per second)
+        void SetRawMovementSampleRate(AZ::u32 sampleRateHertz);
 
     protected:
         ////////////////////////////////////////////////////////////////////////////////////////////
@@ -221,6 +242,11 @@ namespace AzFramework
             //! Tick/update the input device to broadcast all input events since the last frame
             virtual void TickInputDevice() = 0;
 
+            ////////////////////////////////////////////////////////////////////////////////////////
+            //! Set the sample rate for raw mouse movement events
+            //! \param[in] sampleRateHertz The raw movement sample rate in Hertz (cycles per second)
+            void SetRawMovementSampleRate(AZ::u32 sampleRateHertz);
+
         protected:
             ////////////////////////////////////////////////////////////////////////////////////////
             //! Queue raw button events to be processed in the next call to ProcessRawEventQueues.
@@ -256,8 +282,10 @@ namespace AzFramework
             ////////////////////////////////////////////////////////////////////////////////////////
             // Variables
             InputDeviceMouse&            m_inputDevice;                //!< Reference to the device
+            AZStd::sys_time_t            m_rawMovementSampleRate;      //!< Raw movement sample rate
             RawButtonEventQueueByIdMap   m_rawButtonEventQueuesById;   //!< Raw button events by id
             RawMovementEventQueueByIdMap m_rawMovementEventQueuesById; //!< Raw movement events by id
+            AZStd::chrono::system_clock::time_point m_timeOfLastRawMovementSample; //!< Time of the last raw movement sample
         };
 
         ////////////////////////////////////////////////////////////////////////////////////////////

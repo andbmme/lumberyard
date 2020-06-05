@@ -23,6 +23,7 @@
 					<Class name="bool" field="RenderToTexture" value="false" type="{A0CA880C-AFE4-43CB-926C-59AC48496112}"/>
 					<Class name="AZStd::string" field="RenderTargetName" value="" type="{EF8FF807-DDEE-4EB0-B678-4CA3A2C490A4}"/>
 					<Class name="bool" field="IsPosInputSupported" value="true" type="{A0CA880C-AFE4-43CB-926C-59AC48496112}"/>
+					<Class name="bool" field="IsConsumingAllInput" value="true" type="{A0CA880C-AFE4-43CB-926C-59AC48496112}"/>
 					<Class name="bool" field="IsNavigationSupported" value="true" type="{A0CA880C-AFE4-43CB-926C-59AC48496112}"/>
 					<Class name="EntityId" field="FirstHoverElement" version="1" type="{6383F1D3-BB27-4E6B-A49A-6409B2059EAA}">
 						<Class name="AZ::u64" field="id" value="4294967295" type="{D6597933-47CD-4FC8-B911-63F3E2B0993A}"/>
@@ -428,7 +429,7 @@
 									<Class name="int" field="SpriteType" value="0" type="{72039442-EB38-4D42-A1AD-CB68F7E0EEF6}"/>
 									<Class name="AzFramework::SimpleAssetReference&lt;LmbrCentral::TextureAsset&gt;" field="SpritePath" version="1" type="{68E92460-5C0C-4031-9620-6F1A08763243}">
 										<Class name="SimpleAssetReferenceBase" field="BaseClass1" version="1" type="{E16CA6C5-5C78-4AD9-8E9B-F8C1FB4D1DB8}">
-											<Class name="AZStd::string" field="AssetPath" value="ui/textures/lyshineexamples/Circle_Mask.dds" type="{EF8FF807-DDEE-4EB0-B678-4CA3A2C490A4}"/>
+											<Class name="AZStd::string" field="AssetPath" value="ui/textures/lyshineexamples/CircleMask.dds" type="{EF8FF807-DDEE-4EB0-B678-4CA3A2C490A4}"/>
 										</Class>
 									</Class>
 									<Class name="AZStd::string" field="RenderTargetName" value="" type="{EF8FF807-DDEE-4EB0-B678-4CA3A2C490A4}"/>
@@ -619,7 +620,7 @@
 									<Class name="int" field="SpriteType" value="0" type="{72039442-EB38-4D42-A1AD-CB68F7E0EEF6}"/>
 									<Class name="AzFramework::SimpleAssetReference&lt;LmbrCentral::TextureAsset&gt;" field="SpritePath" version="1" type="{68E92460-5C0C-4031-9620-6F1A08763243}">
 										<Class name="SimpleAssetReferenceBase" field="BaseClass1" version="1" type="{E16CA6C5-5C78-4AD9-8E9B-F8C1FB4D1DB8}">
-											<Class name="AZStd::string" field="AssetPath" value="ui/textures/lyshineexamples/Circle_Mask.dds" type="{EF8FF807-DDEE-4EB0-B678-4CA3A2C490A4}"/>
+											<Class name="AZStd::string" field="AssetPath" value="ui/textures/lyshineexamples/CircleMask.dds" type="{EF8FF807-DDEE-4EB0-B678-4CA3A2C490A4}"/>
 										</Class>
 									</Class>
 									<Class name="AZStd::string" field="RenderTargetName" value="" type="{EF8FF807-DDEE-4EB0-B678-4CA3A2C490A4}"/>
@@ -693,7 +694,7 @@
 									<Class name="int" field="SpriteType" value="0" type="{72039442-EB38-4D42-A1AD-CB68F7E0EEF6}"/>
 									<Class name="AzFramework::SimpleAssetReference&lt;LmbrCentral::TextureAsset&gt;" field="SpritePath" version="1" type="{68E92460-5C0C-4031-9620-6F1A08763243}">
 										<Class name="SimpleAssetReferenceBase" field="BaseClass1" version="1" type="{E16CA6C5-5C78-4AD9-8E9B-F8C1FB4D1DB8}">
-											<Class name="AZStd::string" field="AssetPath" value="ui/textures/lyshineexamples/Circle_Mask.dds" type="{EF8FF807-DDEE-4EB0-B678-4CA3A2C490A4}"/>
+											<Class name="AZStd::string" field="AssetPath" value="ui/textures/lyshineexamples/CircleMask.dds" type="{EF8FF807-DDEE-4EB0-B678-4CA3A2C490A4}"/>
 										</Class>
 									</Class>
 									<Class name="AZStd::string" field="RenderTargetName" value="" type="{EF8FF807-DDEE-4EB0-B678-4CA3A2C490A4}"/>
@@ -890,7 +891,7 @@
 									<Class name="int" field="SpriteType" value="0" type="{72039442-EB38-4D42-A1AD-CB68F7E0EEF6}"/>
 									<Class name="AzFramework::SimpleAssetReference&lt;LmbrCentral::TextureAsset&gt;" field="SpritePath" version="1" type="{68E92460-5C0C-4031-9620-6F1A08763243}">
 										<Class name="SimpleAssetReferenceBase" field="BaseClass1" version="1" type="{E16CA6C5-5C78-4AD9-8E9B-F8C1FB4D1DB8}">
-											<Class name="AZStd::string" field="AssetPath" value="ui/textures/lyshineexamples/Circle_Mask.dds" type="{EF8FF807-DDEE-4EB0-B678-4CA3A2C490A4}"/>
+											<Class name="AZStd::string" field="AssetPath" value="ui/textures/lyshineexamples/CircleMask.dds" type="{EF8FF807-DDEE-4EB0-B678-4CA3A2C490A4}"/>
 										</Class>
 									</Class>
 									<Class name="AZStd::string" field="RenderTargetName" value="" type="{EF8FF807-DDEE-4EB0-B678-4CA3A2C490A4}"/>
@@ -964,7 +965,7 @@
 									<Class name="int" field="SpriteType" value="0" type="{72039442-EB38-4D42-A1AD-CB68F7E0EEF6}"/>
 									<Class name="AzFramework::SimpleAssetReference&lt;LmbrCentral::TextureAsset&gt;" field="SpritePath" version="1" type="{68E92460-5C0C-4031-9620-6F1A08763243}">
 										<Class name="SimpleAssetReferenceBase" field="BaseClass1" version="1" type="{E16CA6C5-5C78-4AD9-8E9B-F8C1FB4D1DB8}">
-											<Class name="AZStd::string" field="AssetPath" value="ui/textures/lyshineexamples/Circle_Mask.dds" type="{EF8FF807-DDEE-4EB0-B678-4CA3A2C490A4}"/>
+											<Class name="AZStd::string" field="AssetPath" value="ui/textures/lyshineexamples/CircleMask.dds" type="{EF8FF807-DDEE-4EB0-B678-4CA3A2C490A4}"/>
 										</Class>
 									</Class>
 									<Class name="AZStd::string" field="RenderTargetName" value="" type="{EF8FF807-DDEE-4EB0-B678-4CA3A2C490A4}"/>

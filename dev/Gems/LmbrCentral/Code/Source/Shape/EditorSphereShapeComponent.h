@@ -9,49 +9,52 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
+
 #pragma once
 
 #include "EditorBaseShapeComponent.h"
 #include "SphereShapeComponent.h"
+#include <AzFramework/Entity/EntityDebugDisplayBus.h>
 #include <LmbrCentral/Shape/SphereShapeComponentBus.h>
 
 namespace LmbrCentral
-{   
+{
     class EditorSphereShapeComponent
         : public EditorBaseShapeComponent
-        , public SphereShape
+        , private AzFramework::EntityDebugDisplayEventBus::Handler
     {
     public:
-
         AZ_EDITOR_COMPONENT(EditorSphereShapeComponent, EditorSphereShapeComponentTypeId, EditorBaseShapeComponent);
         static void Reflect(AZ::ReflectContext* context);
 
-        ~EditorSphereShapeComponent() override = default;
-        
-        // AZ::Component interface implementation
+        EditorSphereShapeComponent() = default;
+
+        // AZ::Component
+        void Init() override;
         void Activate() override;
-        void Deactivate() override;        
-        
-        // EditorComponentBase implementation
-        void BuildGameEntity(AZ::Entity* gameEntity) override;                
-        void DrawShape(AzFramework::EntityDebugDisplayRequests* displayContext) const override;        
+        void Deactivate() override;
 
-        SphereShapeConfig& GetConfiguration() override
-        {
-            return m_configuration;
-        }
+        // EditorComponentBase
+        void BuildGameEntity(AZ::Entity* gameEntity) override;
+
     protected:
-
         static void GetProvidedServices(AZ::ComponentDescriptor::DependencyArrayType& provided)
         {
             EditorBaseShapeComponent::GetProvidedServices(provided);
             provided.push_back(AZ_CRC("SphereShapeService", 0x90c8dc80));
+            provided.push_back(AZ_CRC("AreaLightShapeService", 0x68ea78dc));
         }
 
     private:
+        AZ_DISABLE_COPY_MOVE(EditorSphereShapeComponent)
+
+        // AzFramework::EntityDebugDisplayEventBus
+        void DisplayEntityViewport(
+            const AzFramework::ViewportInfo& viewportInfo,
+            AzFramework::DebugDisplayRequests& debugDisplay) override;
 
         void ConfigurationChanged();
 
-        SphereShapeConfig m_configuration;
+        SphereShape m_sphereShape; ///< Stores underlying sphere representation for this component.
     };
 } // namespace LmbrCentral

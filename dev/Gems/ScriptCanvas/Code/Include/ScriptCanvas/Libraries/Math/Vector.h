@@ -42,16 +42,11 @@ namespace ScriptCanvas
                             editContext->Class<Vector2>("Vector2", "A 2D vector value")
                                 ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
                                 ->Attribute(AZ::Edit::Attributes::Icon, "Editor/Icons/ScriptCanvas/Vector.png")
-                                ->Attribute(AZ::Edit::Attributes::Visibility, AZ::Edit::PropertyVisibility::ShowChildrenOnly)
                                 ;
                         }
                     }
                 }
 
-                void Visit(NodeVisitor& visitor) const override
-                {
-                    visitor.Visit(*this);
-                }
             };
 
             class Vector3
@@ -76,16 +71,11 @@ namespace ScriptCanvas
                             editContext->Class<Vector3>("Vector3", "A 3D vector value")
                                 ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
                                 ->Attribute(AZ::Edit::Attributes::Icon, "Editor/Icons/ScriptCanvas/Vector.png")
-                                ->Attribute(AZ::Edit::Attributes::Visibility, AZ::Edit::PropertyVisibility::ShowChildrenOnly)
                                 ;
                         }
                     }
                 }
 
-                void Visit(NodeVisitor& visitor) const override
-                {
-                    visitor.Visit(*this);
-                }
             };
 
             class Vector4
@@ -110,16 +100,11 @@ namespace ScriptCanvas
                             editContext->Class<Vector4>("Vector4", "A 4D vector value")
                                 ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
                                 ->Attribute(AZ::Edit::Attributes::Icon, "Editor/Icons/ScriptCanvas/Vector.png")
-                                ->Attribute(AZ::Edit::Attributes::Visibility, AZ::Edit::PropertyVisibility::ShowChildrenOnly)
                                 ;
                         }
                     }
                 }
 
-                void Visit(NodeVisitor& visitor) const override
-                {
-                    visitor.Visit(*this);
-                }
             };
         }
     }

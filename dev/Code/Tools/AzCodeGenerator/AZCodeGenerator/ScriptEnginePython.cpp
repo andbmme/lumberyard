@@ -19,6 +19,10 @@
 #include <sstream>
 #include <iomanip>
 
+
+// This is not AZ code - AzCore is not used in the AzCoreGenerator project
+#pragma warning(push)
+#pragma warning(disable: 5033) // Disabling C++17 warning - warning C5033: 'register' is no longer a supported storage class which occurs in Python 2.7
 // Undef _DEBUG to prevent python from trying to link with debug libs even when doing 
 // a debug build. To force the use of a debug python, define USE_DEBUG_PYTHON and make 
 // sure the build output directory has a python27_d.dll file and that the lib path 
@@ -31,8 +35,9 @@
 #endif
 #include "Python.h"
 #ifdef DEBUG
-#defined _DEBUG
+#define _DEBUG
 #endif
+#pragma warning(pop)
 
 #ifdef Py_DEBUG
 #define PYTHON_PATHS Configuration::PythonDebugPaths
@@ -42,8 +47,21 @@
 #define PYTHON_HOME Configuration::PythonHome
 #endif // Py_DEBUG
 
+namespace ScriptErrors
+{
+    const unsigned int ImportMainFailed = 100;
+    const unsigned int ImportLauncherFailed = 200;
+    const unsigned int InvalidSyntax = 300;
+    const unsigned int LauncherError = 400;
+    const unsigned int NoScripts = 500;
+    const unsigned int RunScriptsError = 600;
+    const unsigned int RunScriptsErrorWithReturnedValue = 700;
+};
+
 namespace
 {
+    bool g_runScriptsResult = false;
+    
     struct UTF8Encoding {};
     struct ASCIIEncoding {};
 
@@ -114,7 +132,7 @@ namespace
         }
     }
 
-    PyObject* RegisterOutputFile(PyObject* /*self*/, PyObject* args)
+    static PyObject* RegisterOutputFile(PyObject* /*self*/, PyObject* args)
     {
         const char* generatedFilePath = nullptr;
         PyObject* objectShouldAddToBuild = nullptr;
@@ -140,7 +158,7 @@ namespace
         Py_RETURN_NONE;
     }
 
-    PyObject* OutputPrint(PyObject* /*self*/, PyObject* args)
+    static PyObject* OutputPrint(PyObject* /*self*/, PyObject* args)
     {
         const char* outputString = nullptr;
         if (!PyArg_ParseTuple(args, "s:OutputPrint", &outputString))
@@ -152,7 +170,7 @@ namespace
         Py_RETURN_NONE;
     }
 
-    PyObject* OutputError(PyObject* /*self*/, PyObject* args)
+    static PyObject* OutputError(PyObject* /*self*/, PyObject* args)
     {
         const char* outputString = nullptr;
         if (!PyArg_ParseTuple(args, "s:OutputError", &outputString))
@@ -164,7 +182,7 @@ namespace
         Py_RETURN_NONE;
     }
 
-    PyObject* RegisterDependencyFile(PyObject* /*self*/, PyObject* args)
+    static PyObject* RegisterDependencyFile(PyObject* /*self*/, PyObject* args)
     {
         const char* dependencyFilePath = nullptr;
         // Parse out a string
@@ -177,16 +195,43 @@ namespace
         Py_RETURN_NONE;
     }
 
+    static PyObject* SetRunScriptsResult(PyObject* /*self*/, PyObject* args)
+    {
+        PyObject* runScriptsResultObject = nullptr;
+        if (!PyArg_ParseTuple(args, "O:SetRunScriptsResult", &runScriptsResultObject))
+        {
+            return NULL;
+        }
 
-    PyMethodDef ExtensionMethods[] =
+        g_runScriptsResult = PyObject_IsTrue(runScriptsResultObject);
+        Py_RETURN_NONE;
+    }
+
+    static PyMethodDef ExtensionMethods[] =
     {
         {"RegisterOutputFile", RegisterOutputFile, METH_VARARGS, "Takes a string absolute path to generated output file and boolean indicating if file should be injected into the build or not, returns nothing"},
         {"OutputPrint", OutputPrint, METH_VARARGS, "Takes a string and returns it from the code generator as informational output"},
         {"OutputError", OutputError, METH_VARARGS, "Takes a string and returns it from the code generator as error output"},
         {"RegisterDependencyFile", RegisterDependencyFile, METH_VARARGS, "Takes a string absolute path to raw dependency file, returns nothing"},
+        {"SetRunScriptsResult", SetRunScriptsResult, METH_VARARGS, "Takes a boolean indicating whether run_scripts was successful or not, returns nothing"},
         // Add one entry per method here
         {NULL, NULL, 0, NULL}
     };
+    
+    static struct PyModuleDef ExtensionModDef =
+    {
+        PyModuleDef_HEAD_INIT,
+        "azcg_extension", /* name of module */
+        nullptr,          /* module documentation, may be NULL */
+        -1,          /* size of per-interpreter state of the module, or -1 if the module keeps state in global variables. */
+        ExtensionMethods
+    };
+
+    PyMODINIT_FUNC PyInitAzcgExtension()
+    {
+        return PyModule_Create(&ExtensionModDef);
+    }
+    
 }
 
 namespace PythonScripting
@@ -208,13 +253,40 @@ namespace PythonScripting
     {
     }
 
+    int Py_FlushLine()
+    {
+        PyObject *f = PySys_GetObject("stdout");
+        if (!f)
+        {
+            return 0;
+        }
+        return PyFile_WriteString("\n", f);
+    }
+
+    PyObject* OpenModule(const char* modulePath)
+    {
+        // Make an identifier for the open_code command, compiler doesn't like _Py_IDENTIFIER
+        PyObject* PyId_open;
+        PyId_open = PyUnicode_InternFromString("open_code");
+
+        PyObject *ioMod, *openedFile;
+
+        PyGILState_STATE gilState = PyGILState_Ensure();
+
+        ioMod = PyImport_ImportModule("io");
+
+        openedFile = PyObject_CallMethod(ioMod, "open", "s", modulePath);
+        Py_INCREF(openedFile);
+
+        Py_DECREF(ioMod);
+
+        return openedFile;
+    }
+
     unsigned int PythonScriptEngine::Initialize()
     {
         // Find the program path and get a relative path for python (We should either be in Bin64 or Bin64.Debug)
         InitializePython(const_cast<char*>(m_programName.c_str()));
-
-        // Extend python with our methods for reporting back errors and generated files
-        ExtendPython();
 
         // Find the path to this executable, append launcher.py
         llvm::StringRef exePath = llvm::sys::path::parent_path(m_programName);
@@ -223,13 +295,13 @@ namespace PythonScripting
         scriptPath.append("launcher.py");
 
         // Execute the core script, this will provide functions we can invoke later
-        char mode[] = "r";
-        PyObject* PyFileObject = PyFile_FromString(const_cast<char*>(scriptPath.c_str()), mode);
+        PyObject* PyFileObject = OpenModule(scriptPath.c_str());
         if (!PyFileObject)
         {
             CodeGenerator::Output::Error("Failed to load core script: %s", scriptPath.c_str());
-            return CodeGenerator::ErrorCodes::ScriptError;
+            return CodeGenerator::ErrorCodes::ScriptError + ScriptErrors::ImportLauncherFailed;
         }
+        Py_DECREF(PyFileObject);
 
         // This block of code was duplicated from Python C API - PyRunSimpleFileExFlags()
         // There is no known function in Python that allows for simple script execution with custom error object handling
@@ -237,26 +309,29 @@ namespace PythonScripting
         {
             PyObject* pyModuleMain;
             PyObject* pyDictMain;
-            PyObject* pyResultObject;
-            const char* scriptExtension;
+            PyObject* pyResultObject = nullptr;
             bool setFileName = false;
-            size_t scriptPathLength = 0;
 
             pyModuleMain = PyImport_AddModule("__main__");
             if (pyModuleMain == NULL)
             {
                 // Probably missing __main__.py from scripts folder provided
                 CodeGenerator::Output::Error("Python: Unable to import __main__ module");
-                return CodeGenerator::ErrorCodes::ScriptError;
+                return CodeGenerator::ErrorCodes::ScriptError + ScriptErrors::ImportMainFailed;
             }
             // Todo - Refactor this to reduce duplication with the similar code in Invoke()
             // Also eliminate the need for goto.
             // https://issues.labcollab.net/browse/LMBR-23574
             Py_INCREF(pyModuleMain);
             pyDictMain = PyModule_GetDict(pyModuleMain);
+
+            const int closeFileAfterRun = 1;
+            const char mode[] = "r";
+            FILE* fp = _Py_fopen(scriptPath.c_str(), mode);
+
             if (PyDict_GetItemString(pyDictMain, "__file__") == nullptr)
             {
-                PyObject* pyFilenameString = PyString_FromString(scriptPath.c_str());
+                PyObject* pyFilenameString = PyUnicode_InternFromString(scriptPath.c_str());
                 if (pyFilenameString == NULL)
                 {
                     goto done;
@@ -269,37 +344,18 @@ namespace PythonScripting
                 setFileName = true;
                 Py_DECREF(pyFilenameString);
             }
-            scriptPathLength = strlen(scriptPath.c_str());
-            scriptExtension = scriptPath.c_str() + scriptPathLength - (scriptPathLength > 4 ? 4 : 0);
-#if 0 // Avoid this flow for the moment, we will need to determine if this is necessary in our use case
-            if (maybe_pyc_file(fp, filename, scriptExtension, closeit))
+
+            if (!fp)
             {
-                /* Try to run a pyc file. First, re-open in binary */
-                if (closeit)
-                {
-                    fclose(fp);
-                }
-                if ((fp = fopen(filename, "rb")) == NULL)
-                {
-                    fprintf(stderr, "python: Can't reopen .pyc file\n");
-                    goto done;
-                }
-                /* Turn on optimization if a .pyo file is given */
-                if (strcmp(scriptExtension, ".pyo") == 0)
-                {
-                    Py_OptimizeFlag = 1;
-                }
-                v = run_pyc_file(fp, filename, d, d, flags);
+                CodeGenerator::Output::Error("Error opening file %s\n", scriptPath.c_str());
+                return CodeGenerator::ErrorCodes::ScriptError + ScriptErrors::ImportMainFailed;
             }
-            else
-            {
-                v = PyRun_FileExFlags(fp, filename, Py_file_input, d, d,
-                        closeit, flags);
-            }
-#endif // #if 0
-            pyResultObject = PyRun_FileExFlags(PyFile_AsFile(PyFileObject), scriptPath.c_str(), Py_file_input, pyDictMain, pyDictMain, 0, nullptr);
+
+            pyResultObject = PyRun_FileExFlags(fp, scriptPath.c_str(), Py_file_input, pyDictMain, pyDictMain, closeFileAfterRun, nullptr);
+
             if (pyResultObject == nullptr)
             {
+                unsigned int scriptErrorNumber = 0;
                 PyObject* pyErrType;
                 PyObject* pyErrValue;
                 PyObject* pyErrTraceback;
@@ -310,20 +366,47 @@ namespace PythonScripting
                 {
                     PyObject* pyFileName = PyObject_GetAttrString(pyErrValue, "filename");
                     PyObject* pyLineNumber = PyObject_GetAttrString(pyErrValue, "lineno");
-                    CodeGenerator::Output::Error("Python syntax error during launcher.\nSyntax error at %s:%s\n", PyString_AsString(pyFileName), PyString_AsString(PyObject_Str(pyLineNumber)));
+                    PyObject* pyLineNumberString = PyObject_Str(pyLineNumber);
+                    PyObject* pyOffset = PyObject_GetAttrString(pyErrValue, "offset");
+                    PyObject* pyOffsetString = PyObject_Str(pyOffset);
+                    PyObject* pyText = PyObject_GetAttrString(pyErrValue, "text");
+                    long offset = PyLong_AS_LONG(pyOffset);
+                    if (offset > 0)
+                    {
+                        offset -= 1; // Offset by one since the first character is column 1, so no spaces
+                    }
+                    std::string offsetCaret = std::string(offset, ' ') + "^";
+                    CodeGenerator::Output::Error("%s(%s,%s): SyntaxError: invalid syntax.\n%s%s\n", PyUnicode_AsUTF8(pyFileName), PyUnicode_AsUTF8(pyLineNumberString), PyUnicode_AsUTF8(pyOffsetString), PyUnicode_AsUTF8(pyText), offsetCaret.c_str());
+                    scriptErrorNumber = ScriptErrors::InvalidSyntax;
+                    Py_DECREF(pyText);
+                    Py_DECREF(pyOffsetString);
+                    Py_DECREF(pyOffset);
+                    Py_DECREF(pyLineNumberString);
+                    Py_DECREF(pyLineNumber);
+                    Py_DECREF(pyFileName);
                 }
                 else
                 {
-                    PyObject* pyErrStr = PyObject_Str(pyErrValue);
-                    CodeGenerator::Output::Error("Python errored during launcher.\nPython error string: %s\n", PyString_AsString(pyErrStr));
+                    PyObject* pyErrTypeStr = PyObject_Str(pyErrType);
+                    PyObject* pyErrValueStr = PyObject_Str(pyErrValue);
+                    PyObject* pyErrTracebackStr = PyObject_Str(pyErrTraceback);
+                    const char* errTypeStr = PyUnicode_AsUTF8(pyErrTypeStr);
+                    const char* errTypeValueStr = PyUnicode_AsUTF8(pyErrValueStr);
+                    const char* errTracebackStr = PyUnicode_AsUTF8(pyErrTracebackStr);
+                    CodeGenerator::Output::Error("Python Error %s: %s\n%s\n", errTypeStr, errTypeValueStr, errTracebackStr);
+                    scriptErrorNumber = ScriptErrors::LauncherError;
+                    Py_DECREF(pyErrTracebackStr);
+                    Py_DECREF(pyErrValueStr);
+                    Py_DECREF(pyErrTypeStr);
                 }
                 // End custom error handling code
 
                 // Clear the error
                 PyErr_Clear();
 
-                return CodeGenerator::ErrorCodes::ScriptError;
+                return CodeGenerator::ErrorCodes::ScriptError + scriptErrorNumber;
             }
+            
             Py_DECREF(pyResultObject);
             if (Py_FlushLine())
             {
@@ -356,7 +439,7 @@ done:
         if (!HasScripts())
         {
             CodeGenerator::Output::Error("No python driver scripts provided");
-            return CodeGenerator::ErrorCodes::ScriptError;
+            return CodeGenerator::ErrorCodes::ScriptError + ScriptErrors::NoScripts;
         }
 
         // Generate comma delimited string of scripts to run in python
@@ -371,7 +454,7 @@ done:
         std::stringstream scriptCommand;
         // Python
         // def Run(scripts, dataObject, inputPath, outputPath, inputFile):
-        scriptCommand << "run_scripts(\'" << scriptsToRun.c_str() << "\', \'" << StringEscape::Convert<ASCIIEncoding>(jsonString) << "\', \'" << inputPath << "\', \'" << outputPath << "\', \'" << inputFileName << "\')" << std::endl;
+        scriptCommand << "SetRunScriptsResult(run_scripts(\'" << scriptsToRun.c_str() << "\', \'" << StringEscape::Convert<ASCIIEncoding>(jsonString) << "\', \'" << inputPath << "\', \'" << outputPath << "\', \'" << inputFileName << "\'))" << std::endl;
 
         PyCompilerFlags pyCompilerFlags;
         //pyCompilerFlags.cf_flags = 0;
@@ -390,16 +473,17 @@ done:
             {
                 // Probably missing __main__.py from scripts folder provided
                 CodeGenerator::Output::Error("Python: Unable to import __main__ module");
-                return CodeGenerator::ErrorCodes::ScriptError;
+                return CodeGenerator::ErrorCodes::ScriptError + ScriptErrors::ImportMainFailed;
             }
             pyDictMain = PyModule_GetDict(pyModuleMain);
 
             // Run our script
-            pyResultObject = PyRun_StringFlags(scriptCommand.str().c_str(), Py_file_input, pyDictMain, pyDictMain, &pyCompilerFlags);
+            pyResultObject = PyRun_StringFlags(scriptCommand.str().c_str(), Py_single_input, pyDictMain, pyDictMain, &pyCompilerFlags);
 
             // Error handling
-            if (pyResultObject == nullptr)
+            if (!pyResultObject)
             {
+                // Null result object means that Python execution failed internally
                 // Custom error handling (not from Python C API)
                 // str() the exception (might give a decent error string for now)
                  
@@ -409,22 +493,34 @@ done:
                 PyErr_Fetch(&pyErrType, &pyErrValue, &pyErrTraceback);
                 PyErr_NormalizeException(&pyErrType, &pyErrValue, &pyErrTraceback);
 
+                unsigned int scriptErrorCode = 0;
                 if (PyErr_GivenExceptionMatches(pyErrType, PyExc_SyntaxError))
                 {
                     PyObject* pyFileName = PyObject_GetAttrString(pyErrValue, "filename");
                     PyObject* pyLineNumber = PyObject_GetAttrString(pyErrValue, "lineno");
-                    CodeGenerator::Output::Error("Python syntax error during run_scripts.\nSyntax error at %s:%s\n", PyString_AsString(pyFileName), PyString_AsString(PyObject_Str(pyLineNumber)));
+                    PyObject* pyLineNumberString = PyObject_Str(pyLineNumber);
+                    CodeGenerator::Output::Error("Python syntax error during run_scripts.\nSyntax error at %s:%s\n", PyUnicode_AsUTF8(pyFileName), PyUnicode_AsUTF8(pyLineNumberString));
+                    scriptErrorCode = ScriptErrors::InvalidSyntax;
+                    Py_DECREF(pyLineNumberString);
+                    Py_DECREF(pyLineNumber);
+                    Py_DECREF(pyFileName);
                 }
                 else
                 {
                     PyObject* pyErrStr = PyObject_Str(pyErrValue);
-                    CodeGenerator::Output::Error("Python errored during run_scripts.\nPython error string: %s\n", PyString_AsString(pyErrStr));
+                    CodeGenerator::Output::Error("Python returned an error during run_scripts: %s\n", PyUnicode_AsUTF8(pyErrStr));
+                    scriptErrorCode = ScriptErrors::RunScriptsError;
+                    Py_DECREF(pyErrStr);
                 }
                 // End custom error handling
 
                 // Clear the error
                 PyErr_Clear();
-                return CodeGenerator::ErrorCodes::ScriptError;
+                return CodeGenerator::ErrorCodes::ScriptError + scriptErrorCode;
+            }
+            else if (!g_runScriptsResult)
+            {
+                return CodeGenerator::ErrorCodes::ScriptError + ScriptErrors::RunScriptsErrorWithReturnedValue;
             }
 
             // Decrement reference since it was incremented for us by PyRun_StringFlags
@@ -447,14 +543,19 @@ done:
 
     void PythonScriptEngine::InitializePython(char* programName)
     {
-        Py_SetProgramName(programName);
-        Py_SetPythonHome(const_cast<char*>(PYTHON_HOME.c_str()));
+        Py_SetProgramName(Py_DecodeLocale(programName, nullptr));
+        Py_SetPythonHome(Py_DecodeLocale(PYTHON_HOME.c_str(), nullptr));
+
+        PyImport_AppendInittab("azcg_extension", PyInitAzcgExtension);
 
         // Init without importing site.py (it's not in the current folder)
         Py_NoSiteFlag = 1;
 
         // Might be necessary at some point, this SHOULD prevent PYTHONHOME and PYTHONPATH from being found in the environment, which we overwrite anyway
         //Py_IgnoreEnvironmentFlag = 1;
+
+        // Don't write pyc files which can conflict with each other since build servers and the like share drives
+        Py_DontWriteBytecodeFlag = 1;
 
         // Show all imports into Python, useful for debugging just where it is able to import something from and which paths it is trying first
         //Py_VerboseFlag = INT_MAX;
@@ -490,13 +591,6 @@ done:
         // Now import site.py
         PyImport_ImportModule("site");
         PyImport_ImportModule("encodings");
-    }
-
-    void PythonScriptEngine::ExtendPython()
-    {
-        const char* pythonExtensionModuleName = "azcg_extension";
-        Py_InitModule(pythonExtensionModuleName, ExtensionMethods);
-        PyImport_ImportModule(pythonExtensionModuleName);
     }
 }
 

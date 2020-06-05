@@ -12,6 +12,7 @@
 #pragma once
 
 #include <AzCore/Component/ComponentBus.h>
+#include <AzFramework/Input/User/LocalUserId.h>
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 class UiCanvasManagerInterface
@@ -31,11 +32,15 @@ public:
     //! Unload a canvas
     virtual void UnloadCanvas(AZ::EntityId canvasEntityId) = 0;
 
-    //! Find a loaded canvas by pathname
-    virtual AZ::EntityId FindLoadedCanvasByPathName(const AZStd::string& canvasPathname) = 0;
+    //! Find a canvas by path, optionally load the canvas if it was not found
+    virtual AZ::EntityId FindLoadedCanvasByPathName(const AZStd::string& canvasPathname, bool loadIfNotFound = false) = 0;
 
     //! Get a list of canvases that are loaded in game, this is sorted by draw order
     virtual CanvasEntityList GetLoadedCanvases() = 0;
+
+    //! Set the local user id that will be used to filter incoming input events for all canvases.
+    //! Can be overriden for an individual canvas using UiCanvasInterface::SetLocalUserIdInputFilter.
+    virtual void SetLocalUserIdInputFilterForAllCanvases(AzFramework::LocalUserId localUserId) = 0;
 };
 typedef AZ::EBus<UiCanvasManagerInterface> UiCanvasManagerBus;
 

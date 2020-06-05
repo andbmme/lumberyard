@@ -22,6 +22,12 @@
 
 #include <AzFramework/Input/Devices/Mouse/InputDeviceMouse.h>
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#undef AZ_RESTRICTED_SECTION
+#define D3DPOSTPROCESS_CPP_SECTION_1 1
+#define D3DPOSTPROCESS_CPP_SECTION_2 2
+#endif
+
 #pragma warning(disable: 4244)
 
 enum COLORSPACES
@@ -81,8 +87,23 @@ void SD3DPostEffectsUtils::ResolveRT(CTexture*& pDst, const RECT* pSrcRect)
         }
         box.back = 1;
 
+
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DPOSTPROCESS_CPP_SECTION_1
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DPostProcess_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DPostProcess_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DPostProcess_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+    #else
         ID3D11Resource* pSrcResource;
         pOrigRT->GetResource(&pSrcResource);
+    #endif
 
         HRESULT hr = 0;
         gcpRendD3D->m_RP.m_PS[gcpRendD3D->m_RP.m_nProcessThreadID].m_RTCopied++;
@@ -158,13 +179,62 @@ void SD3DPostEffectsUtils::CopyScreenToTexture(CTexture*& pDst, const RECT* pSrc
     gcpRendD3D->GetViewport(&iTempX, &iTempY, &iWidth, &iHeight);
 
     CTexture* source = gcpRendD3D->FX_GetCurrentRenderTarget(0);
-    if (source && source->GetDstFormat() == pDst->GetDstFormat())
+    if (source)
     {
-        ResolveRT(pDst, pSrcRegion);
+        if (source->GetDstFormat() == pDst->GetDstFormat())
+        {
+            ResolveRT(pDst, pSrcRegion);
+        }
+        else
+        {
+            StretchRect(source, pDst, false, false, false, false, SPostEffectsUtils::eDepthDownsample_None, false, pSrcRegion);
+        }
     }
     else
     {
-        StretchRect(source, pDst, false, false, false, false, SPostEffectsUtils::eDepthDownsample_None, false, pSrcRegion);
+        CDeviceTexture* dstResource = pDst->GetDevTexture();
+        ID3D11RenderTargetView* sourceRT = gcpRendD3D->FX_GetCurrentRenderTargetSurface(0);
+        if (sourceRT)
+        {
+            D3D11_RENDER_TARGET_VIEW_DESC backbufferDesc;
+            sourceRT->GetDesc(&backbufferDesc);
+            const D3DFormat dstFmt = CTexture::DeviceFormatFromTexFormat(pDst->GetDstFormat());
+            const D3DFormat srcFmt = backbufferDesc.Format;        
+
+            if (dstFmt == srcFmt)
+            {
+                ID3D11Resource* srcResource;
+                sourceRT->GetResource(&srcResource);
+
+                ID3D11Texture2D* srcTex2D = static_cast<ID3D11Texture2D*>(srcResource);
+                D3D11_TEXTURE2D_DESC srcTex2desc;
+                srcTex2D->GetDesc(&srcTex2desc);
+
+                if (pSrcRegion)
+                {
+                    D3D11_BOX box = { 0 };
+                    box.left = pSrcRegion->left;
+                    box.right = pSrcRegion->right;
+                    box.top = pSrcRegion->top;
+                    box.bottom = pSrcRegion->bottom;
+                    box.front = 0;
+                    box.back = 1;
+                    gcpRendD3D->GetDeviceContext().CopySubresourceRegion(dstResource->Get2DTexture(), 0, 0, 0, 0, srcResource, 0, &box);
+                }
+                else
+                {
+                    gcpRendD3D->GetDeviceContext().CopySubresourceRegion(dstResource->Get2DTexture(), 0, 0, 0, 0, srcResource, 0, NULL);
+                }
+            }
+            else
+            {
+                AZ_Assert(false, "Pixel formats differ");
+            }
+        }
+        else
+        {
+            AZ_Assert(false, "No source texture present");
+        }
     }
 }
 
@@ -197,10 +267,19 @@ void SD3DPostEffectsUtils::StretchRect(CTexture* pSrc, CTexture*& pDst, bool bCl
 
     const D3DFormat dstFmt = CTexture::DeviceFormatFromTexFormat(pDst->GetDstFormat());
     const D3DFormat srcFmt = CTexture::DeviceFormatFromTexFormat(pSrc->GetDstFormat());
+
+    bool destinationBaseTextureExists = pDst->GetDevTexture() && pDst->GetDevTexture()->GetBaseTexture();
+    AZ_Error("Rendering", destinationBaseTextureExists, "'%s' used as destination texture in call to SD3DPostProcessUtils::StretchRect, but it does not have a valid device texture.", pDst->GetName());
+    bool sourceBaseTextureExists = pSrc->GetDevTexture() && pSrc->GetDevTexture()->GetBaseTexture();
+    AZ_Error("Rendering", sourceBaseTextureExists, "'%s' used as source texture in call to SD3DPostProcessUtils::StretchRect, but it does not have a valid device texture.", pSrc->GetName());
+
     if (bResample == false && gRenDev->m_RP.m_FlagsShader_RT == 0 && dstFmt == srcFmt)
     {
-        gcpRendD3D->GetDeviceContext().CopyResource(pDst->GetDevTexture()->GetBaseTexture(), pSrc->GetDevTexture()->GetBaseTexture());
-        gRenDev->m_RP.m_FlagsShader_RT = nSaveFlagsShader_RT;
+        if (sourceBaseTextureExists && destinationBaseTextureExists)
+        {
+            gcpRendD3D->GetDeviceContext().CopyResource(pDst->GetDevTexture()->GetBaseTexture(), pSrc->GetDevTexture()->GetBaseTexture());
+            gRenDev->m_RP.m_FlagsShader_RT = nSaveFlagsShader_RT;
+        }
         return;
     }
 
@@ -297,6 +376,16 @@ void SD3DPostEffectsUtils::StretchRect(CTexture* pSrc, CTexture*& pDst, bool bCl
 
 void SD3DPostEffectsUtils::SwapRedBlue(CTexture* pSrc, CTexture* pDst)
 {
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DPOSTPROCESS_CPP_SECTION_2
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DPostProcess_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DPostProcess_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DPostProcess_cpp_salem.inl"
+    #endif
+#endif
 }
 
 void SD3DPostEffectsUtils::DownsampleDepth(CTexture* pSrc, CTexture* pDst, bool bFromSingleChannel)
@@ -322,14 +411,14 @@ void SD3DPostEffectsUtils::DownsampleDepth(CTexture* pSrc, CTexture* pDst, bool 
 
     rd->FX_PushRenderTarget(0, pDst, NULL);
 
-    // CONFETTI BEGIN: David Srour
     // Metal Load/Store Actions
     rd->FX_SetColorDontCareActions(0, true, false);
     rd->FX_SetDepthDontCareActions(0, true, true);
     rd->FX_SetStencilDontCareActions(0, true, true);
-    // CONFETTI END
 
-    rd->RT_SetViewport(0, 0, pDst->GetWidth(), pDst->GetHeight());
+    int dstWidth  = pDst->GetWidth();
+    int dstHeight = pDst->GetHeight();
+    rd->RT_SetViewport(0, 0, dstWidth, dstHeight);
 
     if (bUseDeviceDepth)
     {
@@ -358,16 +447,12 @@ void SD3DPostEffectsUtils::DownsampleDepth(CTexture* pSrc, CTexture* pDst, bool 
         SetTexture(pSrc, 0, FILTER_POINT, 1);
     }
 
-    //  Confetti BEGIN: Igor Lobanchikov
 #if defined(CRY_USE_METAL) || defined(ANDROID)
     const Vec2& vDownscaleFactor = gcpRendD3D->m_RP.m_CurDownscaleFactor;
     gRenDev->RT_SetScissor(true, 0, 0, pDst->GetWidth() * vDownscaleFactor.x + 0.5f, pDst->GetHeight() * vDownscaleFactor.y + 0.5f);
 #endif
-    //  Confetti End: Igor Lobanchikov
 
-#if defined(OPENGL_ES)
-    uint32 glVersion = RenderCapabilities::GetDeviceGLVersion();
-    if (glVersion == DXGLES_VERSION_30)
+    if (GetShaderLanguage() == eSL_GLES3_0)
     {
         // There's a bug in Qualcomm OpenGL ES 3.0 drivers that cause the device
         // shader compiler to crash if we use "textureSize" in the shader to get the texture dimensions.
@@ -375,17 +460,16 @@ void SD3DPostEffectsUtils::DownsampleDepth(CTexture* pSrc, CTexture* pDst, bool 
         static CCryNameR texSizeParam("DownsampleDepth_DepthTex_Dimensions");
         CShaderMan::s_shPostEffects->FXSetPSFloat(texSizeParam, &texSize, 1);
     }
-#endif // defined(OPENGL_ES)
 
-    // Handle uneven source size by dropping last row/column
     RECT source = { 0, 0, pDst->GetWidth(), pDst->GetHeight() };
-    DrawFullScreenTri((srcWidth + 1) / 2, (srcHeight + 1) / 2, 0.f, &source);
+    //Round up to even to handle uneven dimensions
+    dstWidth = (dstWidth + 1) & ~1;
+    dstHeight = (dstHeight + 1) & ~1;
+    DrawFullScreenTri(dstWidth, dstHeight, 0.f, &source);
 
-    //  Confetti BEGIN: Igor Lobanchikov
 #if defined(CRY_USE_METAL) || defined(ANDROID)
     gRenDev->RT_SetScissor(false, 0, 0, 0, 0);
 #endif
-    //  Confetti End: Igor Lobanchikov
 
     ShEndPass();
 
@@ -1406,6 +1490,13 @@ void CPostEffectsMgr::End()
     int recursiveLevel = SRendItem::m_RecurseLevel[nThreadID];
     assert(recursiveLevel >= 0);
 
+#if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
+    if (gRenDev->m_RP.m_TI[nThreadID].m_PersFlags & RBPF_RENDER_SCENE_TO_TEXTURE)
+    {
+        return;
+    }
+#endif // if AZ_RTT_ENABLE
+
     gcpRendD3D->UpdatePreviousFrameMatrices();
 
     const int kFloatMaxContinousInt = 0x1000000;  // 2^24
@@ -1475,34 +1566,55 @@ bool CREPostProcess:: mfDraw(CShader* ef, SShaderPass* sfm)
     CPostEffectDebugVec& activeParams = pPostMgr->GetActiveEffectsParamsDebug();
 #endif
 
+    AZStd::vector<CPostEffect*> effectsToRender;
     for (CPostEffectItor pItor = pPostMgr->GetEffects().begin(), pItorEnd = pPostMgr->GetEffects().end(); pItor != pItorEnd; ++pItor)
     {
-        CPostEffect* pCurrEffect = (*pItor);
-        if (pCurrEffect->Preprocess())
+        CPostEffect* effectToPreprocess = (*pItor);
+        if (effectToPreprocess->Preprocess())
         {
-            uint32 nRenderFlags = pCurrEffect->GetRenderFlags();
-            if (nRenderFlags & PSP_UPDATE_BACKBUFFER)
-            {
-                PostProcessUtils().CopyScreenToTexture(CTexture::s_ptexBackBuffer);
-            }
-# ifndef _RELEASE
-            SPostEffectsDebugInfo* pDebugInfo = NULL;
-            for (uint32 i = 0, nNumEffects = activeEffects.size(); i < nNumEffects; ++i)
-            {
-                if ((pDebugInfo = &activeEffects[i]) && pDebugInfo->pEffect == pCurrEffect)
-                {
-                    pDebugInfo->fTimeOut = POSTSEFFECTS_DEBUGINFO_TIMEOUT;
-                    break;
-                }
-                pDebugInfo = NULL;
-            }
-            if (pDebugInfo == NULL)
-            {
-                activeEffects.push_back(SPostEffectsDebugInfo(pCurrEffect));
-            }
-#endif
-            pCurrEffect->Render();
+            effectsToRender.push_back(effectToPreprocess);
         }
+    }
+
+    for (auto effectIter = effectsToRender.begin(); effectIter != effectsToRender.end(); ++effectIter)
+    {
+        CPostEffect* currentEffect = (*effectIter);
+        uint32 nRenderFlags = currentEffect->GetRenderFlags();
+        if (nRenderFlags & PSP_UPDATE_BACKBUFFER)
+        {
+            PostProcessUtils().CopyScreenToTexture(CTexture::s_ptexBackBuffer);
+        }
+        if (nRenderFlags & PSP_UPDATE_SCENE_SPECULAR)
+        {
+            bool optimizeRT = CRenderer::CV_r_SlimGBuffer == 1;
+            // When optimization is on, we use a single channel format texture for specular. This copy requires full RGBA so use normal map render target instead.
+            PostProcessUtils().CopyScreenToTexture(optimizeRT ? CTexture::s_ptexSceneNormalsMap : CTexture::s_ptexSceneSpecular);
+
+        }
+# ifndef _RELEASE
+        SPostEffectsDebugInfo* pDebugInfo = NULL;
+        for (uint32 i = 0, nNumEffects = activeEffects.size(); i < nNumEffects; ++i)
+        {
+            if ((pDebugInfo = &activeEffects[i]) && pDebugInfo->pEffect == currentEffect)
+            {
+                pDebugInfo->fTimeOut = POSTSEFFECTS_DEBUGINFO_TIMEOUT;
+                break;
+            }
+            pDebugInfo = NULL;
+        }
+        if (pDebugInfo == NULL)
+        {
+            activeEffects.push_back(SPostEffectsDebugInfo(currentEffect));
+        }
+#endif
+        if (CRenderer::CV_r_SkipNativeUpscale > 0 && AZStd::next(effectIter) == effectsToRender.end())
+        {
+            gcpRendD3D->FX_PopRenderTarget(0);
+            gcpRendD3D->RT_SetViewport(0,0, gcpRendD3D->GetNativeWidth(), gcpRendD3D->GetNativeHeight());
+            gcpRendD3D->FX_SetRenderTarget(0, gcpRendD3D->GetBackBuffer(), &gcpRendD3D->m_DepthBufferOrigMSAA);
+            gcpRendD3D->FX_SetActiveRenderTargets();
+        }
+        currentEffect->Render();
     }
 
 # ifndef _RELEASE

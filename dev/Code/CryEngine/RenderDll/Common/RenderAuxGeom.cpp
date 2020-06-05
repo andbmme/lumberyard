@@ -1744,14 +1744,14 @@ void CAuxGeomCB::DrawOBB(const OBB& obb, const Matrix34& matWorld, bool bSolid, 
             AddIndexedPrimitive(pVertices, 24, pIndices, 36, CreateTriangleRenderFlags(true));
 
             AABB aabb(obb.c - obb.h, obb.c + obb.h);
-            Vec3 xyz(matWorld * (obb.m33 * Vec3(aabb.min.x, aabb.min.y, aabb.min.z)));
-            Vec3 xyZ(matWorld * (obb.m33 * Vec3(aabb.min.x, aabb.min.y, aabb.max.z)));
-            Vec3 xYz(matWorld * (obb.m33 * Vec3(aabb.min.x, aabb.max.y, aabb.min.z)));
-            Vec3 xYZ(matWorld * (obb.m33 * Vec3(aabb.min.x, aabb.max.y, aabb.max.z)));
-            Vec3 Xyz(matWorld * (obb.m33 * Vec3(aabb.max.x, aabb.min.y, aabb.min.z)));
-            Vec3 XyZ(matWorld * (obb.m33 * Vec3(aabb.max.x, aabb.min.y, aabb.max.z)));
-            Vec3 XYz(matWorld * (obb.m33 * Vec3(aabb.max.x, aabb.max.y, aabb.min.z)));
-            Vec3 XYZ(matWorld * (obb.m33 * Vec3(aabb.max.x, aabb.max.y, aabb.max.z)));
+            Vec3 xyz(matWorld * (obb.m33* Vec3(aabb.min.x, aabb.min.y, aabb.min.z)));
+            Vec3 xyZ(matWorld * (obb.m33* Vec3(aabb.min.x, aabb.min.y, aabb.max.z)));
+            Vec3 xYz(matWorld * (obb.m33* Vec3(aabb.min.x, aabb.max.y, aabb.min.z)));
+            Vec3 xYZ(matWorld * (obb.m33* Vec3(aabb.min.x, aabb.max.y, aabb.max.z)));
+            Vec3 Xyz(matWorld * (obb.m33* Vec3(aabb.max.x, aabb.min.y, aabb.min.z)));
+            Vec3 XyZ(matWorld * (obb.m33* Vec3(aabb.max.x, aabb.min.y, aabb.max.z)));
+            Vec3 XYz(matWorld * (obb.m33* Vec3(aabb.max.x, aabb.max.y, aabb.min.z)));
+            Vec3 XYZ(matWorld * (obb.m33* Vec3(aabb.max.x, aabb.max.y, aabb.max.z)));
 
             uint32 colDown(PackColor(ScaleColor(col, 0.5f)));
             pVertices[  0 ].xyz = xyz;
@@ -1875,6 +1875,29 @@ void CAuxGeomCB::DrawSphere(const Vec3& pos, float radius, const ColorB& col, bo
     }
 }
 
+void CAuxGeomCB::DrawDisk(const Vec3& pos, const Vec3& dir, float radius, const ColorB& col, bool drawShaded)
+{
+    if (radius > 0.0f && dir.GetLengthSquared() > 0.0f)
+    {
+        SAuxDrawObjParams* pDrawParams(0);
+        AddObject(pDrawParams, CreateObjectRenderFlags(eDOT_Disk));
+
+        Vec3 direction(dir.normalized());
+        Vec3 orthogonal(direction.GetOrthogonal().normalized());
+
+        Matrix33 matRot;
+        matRot.SetIdentity();
+        matRot.SetColumn(0, orthogonal);
+        matRot.SetColumn(1, direction);
+        matRot.SetColumn(2, orthogonal.Cross(direction));
+
+        pDrawParams->m_matWorld = Matrix34::CreateTranslationMat(pos) * matRot * Matrix33::CreateScale(Vec3(radius, 1.0, radius));
+        pDrawParams->m_matWorldRotation = matRot;
+        pDrawParams->m_color = PackColor(col);
+        pDrawParams->m_size = radius;
+        pDrawParams->m_shaded = drawShaded;
+    }
+}
 
 void CAuxGeomCB::DrawCone(const Vec3& pos, const Vec3& dir, float radius, float height, const ColorB& col, bool drawShaded)
 {
@@ -1995,12 +2018,7 @@ void  CAuxGeomCB::RenderText(Vec3 pos, SDrawTextInfo& ti, const char* format, va
 
         int written = vsnprintf_s(str, sizeof(str), sizeof(str) - 1, format, args);
         str[sizeof(str) - 1] = '\0';
-
-        // ti.yscale is currently ignored, input struct can be refactored
-
-        ColorB col(ColorF(ti.color[0], ti.color[1], ti.color[2], ti.color[3]));
-
-        m_cbCurrent->m_TextMessages.PushEntry_Text(pos, col, ti.xscale, ti.flags, str);
+        gEnv->pRenderer->DrawTextQueued(pos, ti, str);
     }
 }
 
@@ -2202,7 +2220,7 @@ void CAuxGeomCB::AddPushBufferEntry(uint32 numVertices, uint32 numIndices, const
     {
         // create new push buffer entry
         auxPushBuffer.push_back(SAuxPushBufferEntry(numVertices, numIndices,
-                AccessData()->m_auxVertexBuffer.size(), AccessData()->m_auxIndexBuffer.size(), GetTransMatrixIndex(), renderFlags));
+            AccessData()->m_auxVertexBuffer.size(), AccessData()->m_auxIndexBuffer.size(), GetTransMatrixIndex(), renderFlags));
     }
 }
 

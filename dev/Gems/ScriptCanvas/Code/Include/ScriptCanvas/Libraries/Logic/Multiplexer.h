@@ -31,6 +31,7 @@ namespace ScriptCanvas
                 ScriptCanvas_Node(Multiplexer,
                     ScriptCanvas_Node::Uuid("{2FE432CB-9969-4273-BE04-DEF949C288F0}")
                     ScriptCanvas_Node::Description("Selects one of the [In#] inputs using [Index] and sends it to [Out]")
+                    ScriptCanvas_Node::Deprecated("This node has been deprecated.")
                 );
 
             public:
@@ -51,21 +52,17 @@ namespace ScriptCanvas
                 ScriptCanvas_In(ScriptCanvas_In::Name("In7", "Input 7"));
 
                 // Outputs
-                ScriptCanvas_Out(ScriptCanvas_Out::Name("Out", "Signalled when the node receives a signal from the selected index"));
+                ScriptCanvas_Out(ScriptCanvas_Out::Name("Out", "Signaled when the node receives a signal from the selected index"));
 
                 // Data
                 ScriptCanvas_Property(int, 
                     ScriptCanvas_Property::Name("Index", "Select which [In#] to send to [Out].  0 <= [Index] <= 7.")
                     ScriptCanvas_Property::Input);
 
-                int m_selectedIndex;
-
             protected:
 
                 void OnInputSignal(const SlotId& slot) override;
 
-            private:
-                int m_inputIndex;
             };
         }
     }

@@ -26,11 +26,10 @@ namespace GraphCanvas
     // BooleanNodePropertyDisplay
     ///////////////////////////////
     BooleanNodePropertyDisplay::BooleanNodePropertyDisplay(BooleanDataInterface* dataInterface)
-        : m_dataInterface(dataInterface)
+        : NodePropertyDisplay(dataInterface)
+        , m_dataInterface(dataInterface)
         , m_checkBox(nullptr)
     {
-        m_dataInterface->RegisterDisplay(this);
-        
         m_disabledLabel = aznew GraphCanvasLabel();
         m_checkBox = aznew GraphCanvasCheckBox();
         
@@ -59,18 +58,18 @@ namespace GraphCanvas
         m_checkBox->SetChecked(value);
     }
 
-    QGraphicsLayoutItem* BooleanNodePropertyDisplay::GetDisabledGraphicsLayoutItem() const
-    {
+    QGraphicsLayoutItem* BooleanNodePropertyDisplay::GetDisabledGraphicsLayoutItem()
+{
         return m_disabledLabel;
     }
 
-    QGraphicsLayoutItem* BooleanNodePropertyDisplay::GetDisplayGraphicsLayoutItem() const
-    {
+    QGraphicsLayoutItem* BooleanNodePropertyDisplay::GetDisplayGraphicsLayoutItem()
+{
         return m_checkBox;
     }
 
-    QGraphicsLayoutItem* BooleanNodePropertyDisplay::GetEditableGraphicsLayoutItem() const
-    {
+    QGraphicsLayoutItem* BooleanNodePropertyDisplay::GetEditableGraphicsLayoutItem()
+{
         return m_checkBox;
     }
 

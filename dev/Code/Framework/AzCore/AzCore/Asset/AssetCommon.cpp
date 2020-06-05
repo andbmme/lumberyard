@@ -9,17 +9,62 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
-#ifndef AZ_UNITY_BUILD
 
 #include <AzCore/Asset/AssetCommon.h>
 #include <AzCore/Asset/AssetManager.h>
 #include <AzCore/Component/ComponentApplicationBus.h>
+#include <AzCore/RTTI/BehaviorContext.h>
+#include <AzCore/Serialization/SerializeContext.h>
 #include <AzCore/std/parallel/lock.h>
+#include <AzCore/std/string/conversions.h>
 
 namespace AZ
 {
     namespace Data
     {
+        AssetId AssetId::CreateString(AZStd::string_view input)
+        {
+            size_t separatorIdx = input.find(':');
+            if (separatorIdx == AZStd::string_view::npos)
+            {
+                return AssetId();
+            }
+
+            AssetId assetId;
+            assetId.m_guid = Uuid::CreateString(input.data(), separatorIdx);
+            if (assetId.m_guid.IsNull())
+            {
+                return AssetId();
+            }
+
+            assetId.m_subId = strtoul(&input[separatorIdx + 1], nullptr, 16);
+
+            return assetId;
+        }
+
+        void AssetId::Reflect(AZ::ReflectContext* context)
+        {
+            if (SerializeContext* serializeContext = azrtti_cast<SerializeContext*>(context))
+            {
+                serializeContext->Class<Data::AssetId>()
+                    ->Version(1)
+                    ->Field("guid", &Data::AssetId::m_guid)
+                    ->Field("subId", &Data::AssetId::m_subId)
+                    ;
+            }
+
+            if (BehaviorContext* behaviorContext = azrtti_cast<BehaviorContext*>(context))
+            {
+                behaviorContext->Class<Data::AssetId>()
+                    ->Attribute(AZ::Script::Attributes::Scope, AZ::Script::Attributes::ScopeFlags::Common)
+                    ->Attribute(AZ::Script::Attributes::Category, "Asset")
+                    ->Attribute(AZ::Script::Attributes::Module, "asset")
+                    ->Method("IsValid", &Data::AssetId::IsValid)
+                        ->Attribute(AZ::Script::Attributes::Alias, "is_valid")
+                    ;
+            }
+        }
+
         namespace AssetInternal
         {
             //=========================================================================
@@ -111,13 +156,39 @@ namespace AZ
 
             }
         }
-        //=========================================================================
-        // RemoveFromDB
-        // [6/19/2012]
-        //=========================================================================
-        void AssetData::RemoveFromDB()
+
+        void AssetData::Reflect(AZ::ReflectContext* context)
         {
-            AssetManager::Instance().ReleaseAsset(this);
+            if (SerializeContext* serializeContext = azrtti_cast<SerializeContext*>(context))
+            {
+                serializeContext->Class<AZ::Data::AssetData>()
+                    ->Version(1)
+                    ;
+            }
+        }
+
+        void AssetData::Acquire()
+        {
+            AZ_Assert(m_useCount >= 0, "AssetData has been deleted")
+            ++m_useCount;
+        }
+
+        void AssetData::Release()
+        {
+            AZ_Assert(m_useCount > 0, "Usecount is already 0!");
+
+            AssetId assetId = m_assetId;
+            int creationToken = m_creationToken;
+            AssetType assetType = GetType();
+            bool removeFromHash = IsRegisterReadonlyAndShareable(); 
+            // default creation token implies that the asset was not created by the asset manager and therefore it cannot be in the asset map. 
+            removeFromHash = creationToken == s_defaultCreationToken ? false : removeFromHash;
+
+
+            if (m_useCount.fetch_sub(1) == 1)
+            {
+                AssetManager::Instance().ReleaseAsset(this, assetId, assetType, removeFromHash, creationToken);
+            }
         }
 
         //=========================================================================
@@ -142,6 +213,37 @@ namespace AZ
                 AssetBusCallbacks::AssetSavedCB(),
                 AssetBusCallbacks::AssetUnloadedCB(),
                 AssetBusCallbacks::AssetErrorCB());
+        }
+
+
+        void AssetBusCallbacks::SetOnAssetReadyCallback(const AssetReadyCB& readyCB)
+        {
+            m_onAssetReadyCB = readyCB;
+        }
+
+        void AssetBusCallbacks::SetOnAssetMovedCallback(const AssetMovedCB& movedCB)
+        {
+            m_onAssetMovedCB = movedCB;
+        }
+
+        void AssetBusCallbacks::SetOnAssetReloadedCallback(const AssetReloadedCB& reloadedCB)
+        {
+            m_onAssetReloadedCB = reloadedCB;
+        }
+
+        void AssetBusCallbacks::SetOnAssetSavedCallback(const AssetSavedCB& savedCB)
+        {
+            m_onAssetSavedCB = savedCB;
+        }
+
+        void AssetBusCallbacks::SetOnAssetUnloadedCallback(const AssetUnloadedCB& unloadedCB)
+        {
+            m_onAssetUnloadedCB = unloadedCB;
+        }
+
+        void AssetBusCallbacks::SetOnAssetErrorCallback(const AssetErrorCB& errorCB)
+        {
+            m_onAssetErrorCB = errorCB;
         }
 
         //=========================================================================
@@ -215,7 +317,14 @@ namespace AZ
                 m_onAssetErrorCB(asset, *this);
             }
         }
+
+        //=========================================================================
+        // AssetFilterNoAssetLoading
+        //=========================================================================
+        /*static*/ bool AssetFilterNoAssetLoading(const Asset<Data::AssetData>& /*asset*/)
+        {
+            return false;
+        }
+
     }   // namespace Data
 }   // namespace AZ
-
-#endif // #ifndef AZ_UNITY_BUILD

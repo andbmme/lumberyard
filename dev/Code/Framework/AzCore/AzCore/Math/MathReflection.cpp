@@ -9,23 +9,25 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
-#ifndef AZ_UNITY_BUILD
 
 #include <AzCore/Math/MathReflection.h>
 
+#include <AzCore/Serialization/Json/RegistrationContext.h>
 #include <AzCore/Serialization/SerializeContext.h>
 
 #include <AzCore/Script/ScriptContext.h>
 #include <AzCore/RTTI/BehaviorContext.h>
 
-
 #include <AzCore/Math/Uuid.h>
+#include <AzCore/Math/UuidSerializer.h>
 #include <AzCore/Math/Crc.h>
 
 #include <AzCore/Math/Vector2.h>
 #include <AzCore/Math/Vector3.h>
 #include <AzCore/Math/Vector4.h>
+#include <AzCore/Math/MathVectorSerializer.h>
 #include <AzCore/Math/Color.h>
+#include <AzCore/Math/ColorSerializer.h>
 
 #include <AzCore/Math/Quaternion.h>
 
@@ -204,9 +206,9 @@ namespace AZ
                 (void)textVersion;
 
                 float floats[NumFloats];
-                size_t numRead = FloatArrayTextSerializer::TextToData(text, floats, NumFloats, isDataBigEndian);
+                size_t numBytesRead = FloatArrayTextSerializer::TextToData(text, floats, NumFloats, isDataBigEndian);
                 stream.Seek(0, IO::GenericStream::ST_SEEK_BEGIN);
-                return static_cast<size_t>(stream.Write(numRead * sizeof(float), reinterpret_cast<void*>(&floats)));
+                return static_cast<size_t>(stream.Write(numBytesRead, reinterpret_cast<void*>(&floats)));
             }
 
             bool    Load(void* classPtr, IO::GenericStream& stream, unsigned int /*version*/, bool isDataBigEndian = false) override
@@ -2259,7 +2261,9 @@ namespace AZ
         context.Constant("FloatEpsilonSq", BehaviorConstant(static_cast<float>(g_fltEpsSq)));
 
          context.Class<MathGlobals>("Math")
-            ->Method("DegToRad", &DegToRad, {{{"Degrees", ""}}})
+            ->Attribute(AZ::Script::Attributes::Scope, AZ::Script::Attributes::ScopeFlags::Common)
+            ->Attribute(AZ::Script::Attributes::Module, "math")
+            ->Method("DegToRad", &DegToRad, { {{"Degrees", ""}} })
             ->Method("RadToDeg", &RadToDeg, {{{"Radians", ""}}})
             ->Method("Sin", &sinf)
             ->Method("Cos", &cosf)
@@ -2288,10 +2292,13 @@ namespace AZ
                 ->Attribute(AZ::Script::Attributes::ExcludeFrom, AZ::Script::Attributes::ExcludeFlags::All)
                 ->Attribute(AZ::Script::Attributes::MethodOverride, &Internal::VectorFloatGetSinCosMultipleReturn)
             ->Method<bool(double, double, double)>("IsClose", &AZ::IsClose, context.MakeDefaultValues(static_cast<double>(g_fltEps)))
+            ->Method<float(float)>("Abs", &GetAbs)
              ;
 
         // Vector2
         context.Class<Vector2>()->
+            Attribute(AZ::Script::Attributes::Scope, AZ::Script::Attributes::ScopeFlags::Common)->
+            Attribute(AZ::Script::Attributes::Module, "math")->
             Attribute(AZ::Script::Attributes::ExcludeFrom, AZ::Script::Attributes::ExcludeFlags::All)->
             Constructor<float>()->
             Constructor<float, float>()->
@@ -2312,6 +2319,7 @@ namespace AZ
             Method<const Vector2(Vector2::*)(float) const>("DivideFloat",&Vector2::operator/)->
                 Attribute(AZ::Script::Attributes::MethodOverride, &Internal::Vector2DivideGeneric)->
                 Attribute(AZ::Script::Attributes::Operator, AZ::Script::Attributes::OperatorType::Div)->
+                Attribute(AZ::Script::Attributes::ExcludeFrom, AZ::Script::Attributes::ExcludeFlags::All)->
             Method<const Vector2(Vector2::*)(const Vector2&) const>("DivideVector2",&Vector2::operator/)->
                 Attribute(AZ::Script::Attributes::Ignore,0)-> // ignore for script since we already got the generic divide above
             Method("Equal",&Vector2::operator==)->
@@ -2353,6 +2361,10 @@ namespace AZ
             Method("IsNormalized", &Vector2::IsNormalized, context.MakeDefaultValues(static_cast<float>(g_simdTolerance)))->
             Method("GetDistance", &Vector2::GetDistance)->
             Method("GetDistanceSq", &Vector2::GetDistanceSq)->
+            Method("Angle", &Vector2::Angle)->
+            Method("AngleDeg", &Vector2::AngleDeg)->
+            Method("AngleSafe", &Vector2::AngleSafe)->
+            Method("AngleSafeDeg", &Vector2::AngleSafeDeg)->
             Method("Lerp", &Vector2::Lerp)->
             Method("Slerp", &Vector2::Slerp)->
             Method("Dot", &Vector2::Dot)->
@@ -2409,6 +2421,8 @@ namespace AZ
 
         // Vector3
         context.Class<Vector3>()->
+            Attribute(AZ::Script::Attributes::Scope, AZ::Script::Attributes::ScopeFlags::Common)->
+            Attribute(AZ::Script::Attributes::Module, "math")->
             Attribute(AZ::Script::Attributes::ExcludeFrom, AZ::Script::Attributes::ExcludeFlags::All)->
             Constructor<const VectorFloat&>()->
             Constructor<const VectorFloat&, const VectorFloat&, const VectorFloat&>()->
@@ -2430,6 +2444,7 @@ namespace AZ
             Method<const Vector3(Vector3::*)(const VectorFloat&) const>("DivideFloat",&Vector3::operator/)->
                 Attribute(AZ::Script::Attributes::MethodOverride, &Internal::Vector3DivideGeneric)->
                 Attribute(AZ::Script::Attributes::Operator, AZ::Script::Attributes::OperatorType::Div)->
+                Attribute(AZ::Script::Attributes::ExcludeFrom, AZ::Script::Attributes::ExcludeFlags::All)->
             Method<const Vector3(Vector3::*)(const Vector3&) const>("DivideVector3",&Vector3::operator/)->
                 Attribute(AZ::Script::Attributes::Ignore,0)-> // ignore for script since we already got the generic divide above
             Method("Clone", [](const Vector3& rhs) -> Vector3 { return rhs; })->
@@ -2476,6 +2491,10 @@ namespace AZ
                 Attribute(AZ::Script::Attributes::ExcludeFrom, AZ::Script::Attributes::ExcludeFlags::All)->
             Method("GetDistance", &Vector3::GetDistanceExact)->
             Method("GetDistanceSq", &Vector3::GetDistanceSq)->
+            Method("Angle", &Vector3::Angle)->
+            Method("AngleDeg", &Vector3::AngleDeg)->
+            Method("AngleSafe", &Vector3::AngleSafe)->
+            Method("AngleSafeDeg", &Vector3::AngleSafeDeg)->
             Method("Lerp", &Vector3::Lerp)->
             Method("Slerp", &Vector3::Slerp)->
             Method("Dot", &Vector3::Dot)->
@@ -2544,6 +2563,8 @@ namespace AZ
             
         // Vector4
         context.Class<Vector4>()->
+            Attribute(AZ::Script::Attributes::Scope, AZ::Script::Attributes::ScopeFlags::Common)->
+            Attribute(AZ::Script::Attributes::Module, "math")->
             Attribute(AZ::Script::Attributes::ExcludeFrom, AZ::Script::Attributes::ExcludeFlags::All)->
             Constructor<const VectorFloat&>()->
             Constructor<const VectorFloat&, const VectorFloat&, const VectorFloat&, const VectorFloat&>()->
@@ -2566,6 +2587,7 @@ namespace AZ
             Method<const Vector4(Vector4::*)(const VectorFloat&) const>("DivideFloat", &Vector4::operator/)->
                 Attribute(AZ::Script::Attributes::MethodOverride, &Internal::Vector4DivideGeneric)->
                 Attribute(AZ::Script::Attributes::Operator, AZ::Script::Attributes::OperatorType::Div)->
+            Attribute(AZ::Script::Attributes::ExcludeFrom, AZ::Script::Attributes::ExcludeFlags::All)->
             Method<const Vector4(Vector4::*)(const Vector4&) const>("DivideVector4", &Vector4::operator/)->
                 Attribute(AZ::Script::Attributes::Ignore, 0)-> // ignore for script since we already got the generic divide above
             Method("Clone", [](const Vector4& rhs) -> Vector4 { return rhs; })->
@@ -2645,6 +2667,8 @@ namespace AZ
         
         // Color
         context.Class<Color>()->
+            Attribute(AZ::Script::Attributes::Scope, AZ::Script::Attributes::ScopeFlags::Common)->
+            Attribute(AZ::Script::Attributes::Module, "math")->
             Attribute(AZ::Script::Attributes::ExcludeFrom, AZ::Script::Attributes::ExcludeFlags::All)->
             Attribute(AZ::Script::Attributes::Storage, AZ::Script::Attributes::StorageType::Value)->
             Constructor<const VectorFloat&>()->
@@ -2669,6 +2693,7 @@ namespace AZ
             Method<const Color(Color::*)(const VectorFloat&) const>("DivideFloat", &Color::operator/)->
                 Attribute(AZ::Script::Attributes::MethodOverride, &Internal::ColorDivideGeneric)->
                 Attribute(AZ::Script::Attributes::Operator, AZ::Script::Attributes::OperatorType::Div)->
+                Attribute(AZ::Script::Attributes::ExcludeFrom, AZ::Script::Attributes::ExcludeFlags::All)->
             Method<const Color(Color::*)(const Color&) const>("DivideColor", &Color::operator/)->
                 Attribute(AZ::Script::Attributes::Ignore, 0)-> // ignore for script since we already got the generic divide above
                 Attribute(AZ::Script::Attributes::ExcludeFrom, AZ::Script::Attributes::ExcludeFlags::All)->
@@ -2732,6 +2757,8 @@ namespace AZ
 
         // Quaternion
         context.Class<Quaternion>()->
+            Attribute(AZ::Script::Attributes::Scope, AZ::Script::Attributes::ScopeFlags::Common)->
+            Attribute(AZ::Script::Attributes::Module, "math")->
             Attribute(AZ::Script::Attributes::ExcludeFrom, AZ::Script::Attributes::ExcludeFlags::All)->
             Constructor<const VectorFloat&>()->
             Constructor<const VectorFloat&, const VectorFloat&, const VectorFloat&, const VectorFloat&>()->
@@ -2755,6 +2782,7 @@ namespace AZ
             Method<const Quaternion(Quaternion::*)(const VectorFloat&) const>("DivideFloat", &Quaternion::operator/)->
                 Attribute(AZ::Script::Attributes::MethodOverride, &Internal::QuaternionDivideGeneric)->
                 Attribute(AZ::Script::Attributes::Operator, AZ::Script::Attributes::OperatorType::Div)->
+                Attribute(AZ::Script::Attributes::ExcludeFrom, AZ::Script::Attributes::ExcludeFlags::All)->
             Method("Clone", [](const Quaternion& rhs) -> Quaternion { return rhs; })->
                 Attribute(AZ::Script::Attributes::ExcludeFrom, AZ::Script::Attributes::ExcludeFlags::All)->
             Method("Equal", &Quaternion::operator==)->
@@ -2816,6 +2844,8 @@ namespace AZ
 
         // Matrix3x3
         context.Class<Matrix3x3>()->
+            Attribute(AZ::Script::Attributes::Scope, AZ::Script::Attributes::ScopeFlags::Common)->
+            Attribute(AZ::Script::Attributes::Module, "math")->
             Attribute(AZ::Script::Attributes::ExcludeFrom, AZ::Script::Attributes::ExcludeFlags::All)->
             Attribute(AZ::Script::Attributes::Storage, AZ::Script::Attributes::StorageType::Value)->
             Attribute(AZ::Script::Attributes::GenericConstructorOverride, &Internal::Matrix3x3DefaultConstructor)->
@@ -2836,6 +2866,7 @@ namespace AZ
             Method<const Matrix3x3(Matrix3x3::*)(const VectorFloat&) const>("DivideFloat", &Matrix3x3::operator/)->
                 Attribute(AZ::Script::Attributes::MethodOverride, &Internal::Matrix3x3DivideGeneric)->
                 Attribute(AZ::Script::Attributes::Operator, AZ::Script::Attributes::OperatorType::Div)->
+                Attribute(AZ::Script::Attributes::ExcludeFrom, AZ::Script::Attributes::ExcludeFlags::All)->
             Method("Clone", [](const Matrix3x3& rhs) -> Matrix3x3 { return rhs; })->
                 Attribute(AZ::Script::Attributes::ExcludeFrom, AZ::Script::Attributes::ExcludeFlags::All)->
             Method("Equal", &Matrix3x3::operator==)->
@@ -2924,6 +2955,8 @@ namespace AZ
 
         // Matrix4x4
         context.Class<Matrix4x4>()->
+            Attribute(AZ::Script::Attributes::Scope, AZ::Script::Attributes::ScopeFlags::Common)->
+            Attribute(AZ::Script::Attributes::Module, "math")->
             Attribute(AZ::Script::Attributes::ExcludeFrom, AZ::Script::Attributes::ExcludeFlags::All)->
             Attribute(AZ::Script::Attributes::Storage, AZ::Script::Attributes::StorageType::Value)->
             Attribute(AZ::Script::Attributes::GenericConstructorOverride, &Internal::Matrix4x4DefaultConstructor)->
@@ -3032,6 +3065,8 @@ namespace AZ
 
         // Transform
             context.Class<Transform>()->
+                Attribute(AZ::Script::Attributes::Scope, AZ::Script::Attributes::ScopeFlags::Common)->
+                Attribute(AZ::Script::Attributes::Module, "math")->
                 Attribute(AZ::Script::Attributes::ExcludeFrom, AZ::Script::Attributes::ExcludeFlags::All)->
                 Attribute(AZ::Script::Attributes::Storage, AZ::Script::Attributes::StorageType::Value)->
                 Attribute(AZ::Script::Attributes::GenericConstructorOverride, &Internal::TransformDefaultConstructor)->
@@ -3146,6 +3181,8 @@ namespace AZ
 
         // Uuid
         context.Class<Uuid>("Uuid")->
+            Attribute(AZ::Script::Attributes::Scope, AZ::Script::Attributes::ScopeFlags::Common)->
+            Attribute(AZ::Script::Attributes::Module, "math")->
             Attribute(AZ::Script::Attributes::ExcludeFrom, AZ::Script::Attributes::ExcludeFlags::Preview)->
             Attribute(AZ::Script::Attributes::Storage, AZ::Script::Attributes::StorageType::Value)->
             Attribute(AZ::Script::Attributes::ConstructorOverride, &Internal::ScriptUuidConstructor)->
@@ -3173,7 +3210,7 @@ namespace AZ
 
         // Random
         context.Class<SimpleLcgRandom>("Random")->
-            Attribute(AZ::Script::Attributes::ExcludeFrom, AZ::Script::Attributes::ExcludeFlags::Preview)->
+            Attribute(AZ::Script::Attributes::ExcludeFrom, AZ::Script::Attributes::ExcludeFlags::All)->
             Attribute(AZ::Script::Attributes::ConstructorOverride, &Internal::ScriptRandomConstructor)->
             Method("SetSeed", &SimpleLcgRandom::SetSeed, {{{ "Seed", "" }}})->
             Method("GetRandom", &SimpleLcgRandom::GetRandom)->
@@ -3181,6 +3218,8 @@ namespace AZ
 
         // Crc
         context.Class<Crc32>()->
+            Attribute(AZ::Script::Attributes::Scope, AZ::Script::Attributes::ScopeFlags::Common)->
+            Attribute(AZ::Script::Attributes::Module, "math")->
             Attribute(AZ::Script::Attributes::ExcludeFrom, AZ::Script::Attributes::ExcludeFlags::All)->
             Attribute(AZ::Script::Attributes::Storage, AZ::Script::Attributes::StorageType::Value)->
             Attribute(AZ::Script::Attributes::ConstructorOverride, &Internal::ScriptCrc32Constructor)->
@@ -3192,16 +3231,19 @@ namespace AZ
                 Attribute(AZ::Script::Attributes::ExcludeFrom, AZ::Script::Attributes::ExcludeFlags::All)->
             Method("Clone", [](const Crc32& rhs) -> Crc32 { return rhs; })->
                 Attribute(AZ::Script::Attributes::ExcludeFrom, AZ::Script::Attributes::ExcludeFlags::All)->
-            Method<void(Crc32::*)(const char*)>("Add", &Crc32::Add)->
+            Method<void(Crc32::*)(AZStd::string_view)>("Add", &Crc32::Add)->
                 Attribute(AZ::Script::Attributes::MethodOverride, &Internal::Crc32AddGeneric)->
                 Attribute(AZ::Script::Attributes::ExcludeFrom, AZ::Script::Attributes::ExcludeFlags::All)->
-            Property("stringValue", nullptr, [](Crc32* thisPtr, AZStd::string_view value) { *thisPtr  = Crc32(value.data()); })->
-            Method("CreateCrc32", [](AZStd::string_view value) -> Crc32 { return Crc32(value.data()); }, { { { "value", "String to compute to Crc32" } } })
+            Property("stringValue", nullptr, [](Crc32* thisPtr, AZStd::string_view value) { *thisPtr  = Crc32(value); })->
+            Method("CreateCrc32", [](AZStd::string_view value) -> Crc32 { return Crc32(value); }, { { { "value", "String to compute to Crc32" } } })->
+            Constructor<AZStd::string_view>()
             ;
 
         // Aabb
         context.Class<Aabb>()->
-            Attribute(AZ::Script::Attributes::ExcludeFrom, AZ::Script::Attributes::ExcludeFlags::Preview)->
+            Attribute(AZ::Script::Attributes::Scope, AZ::Script::Attributes::ScopeFlags::Common)->
+            Attribute(AZ::Script::Attributes::Module, "math")->
+            Attribute(AZ::Script::Attributes::ExcludeFrom, AZ::Script::Attributes::ExcludeFlags::All)->
             Attribute(AZ::Script::Attributes::Storage, AZ::Script::Attributes::StorageType::Value)->
             Attribute(AZ::Script::Attributes::GenericConstructorOverride, &Internal::AabbDefaultConstructor)->
             Property("min", &Aabb::GetMin, &Aabb::SetMin)->
@@ -3324,13 +3366,21 @@ namespace AZ
 
         // Interpolation
         context.Class<InterpolationMode>()->
+            Attribute(AZ::Script::Attributes::ExcludeFrom, AZ::Script::Attributes::ExcludeFlags::All)->
             Enum<(int)AZ::InterpolationMode::NoInterpolation>("NoInterpolation")->
             Enum<(int)AZ::InterpolationMode::LinearInterpolation>("LinearInterpolation");
 
         // Other math function
     }
 
-
+    void MathReflect(JsonRegistrationContext& context)
+    {
+        context.Serializer<JsonColorSerializer>()->HandlesType<Color>();
+        context.Serializer<JsonUuidSerializer>()->HandlesType<Uuid>();
+        context.Serializer<JsonVector2Serializer>()->HandlesType<Vector2>();
+        context.Serializer<JsonVector3Serializer>()->HandlesType<Vector3>();
+        context.Serializer<JsonVector4Serializer>()->HandlesType<Vector4>();
+    }
 
     void MathReflect(ReflectContext* context)
     {
@@ -3347,8 +3397,12 @@ namespace AZ
             {
                 MathReflect(*behaviorContext);
             }
+
+            JsonRegistrationContext* jsonContext = azrtti_cast<JsonRegistrationContext*>(context);
+            if (jsonContext)
+            {
+                MathReflect(*jsonContext);
+            }
         }
     }
 }
-
-#endif // #ifndef AZ_UNITY_BUILD

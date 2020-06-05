@@ -1,2 +1,6 @@
 CloudGemFramework.LambdaSettings
 CloudGemFramework.LambdaService
+CloudGemDynamicContent.Constant
+CloudGemFramework.lib
+CloudGemFramework.ResourceManagerCommon
+CloudGemFramework.Utils

@@ -10,12 +10,14 @@
 *
 */
 
-// include the required headers
 #include "RenderViewWidget.h"
 #include "RenderPlugin.h"
 #include "../EMStudioCore.h"
 #include "../PreferencesWindow.h"
+#include <AzCore/Component/ComponentApplicationBus.h>
 #include <EMotionFX/CommandSystem/Source/SelectionList.h>
+#include <AzToolsFramework/UI/PropertyEditor/ReflectedPropertyEditor.hxx>
+
 #include <QMenuBar>
 
 
@@ -78,7 +80,7 @@ namespace EMStudio
         CreateEntry(viewMenu, "Solid",                  "Solid.png",            RENDER_SOLID);
         CreateEntry(viewMenu, "Wireframe",              "Wireframe.png",        RENDER_WIREFRAME);
         viewMenu->addSeparator();
-        CreateEntry(viewMenu, "Texturing",              "Texturing.png",        RENDER_TEXTURING);
+        CreateEntry(viewMenu, "Texturing",              "Texturing.png",        RENDER_TEXTURING, false);
         CreateEntry(viewMenu, "Lighting",               "Lighting.png",         RENDER_LIGHTING);
         CreateEntry(viewMenu, "Shadows",                "Shadows.png",          RENDER_SHADOWS, false);
         CreateEntry(viewMenu, "Backface Culling",       "BackfaceCulling.png",  RENDER_BACKFACECULLING);
@@ -88,9 +90,14 @@ namespace EMStudio
         CreateEntry(viewMenu, "Tangents",               "Tangents.png",         RENDER_TANGENTS);
         viewMenu->addSeparator();
         CreateEntry(viewMenu, "Actor Bounding Boxes",   "BoundingBoxes.png",    RENDER_AABB);
-        CreateEntry(viewMenu, "Node OBBs",              "OBBs.png",             RENDER_OBB);
-        CreateEntry(viewMenu, "Collision Meshes",       "CollisionMeshes.png",  RENDER_COLLISIONMESHES);
-        CreateEntry(viewMenu, "Physics",                "Physics.png",          RENDER_PHYSICS);
+        CreateEntry(viewMenu, "Node OBBs",              "OBBs.png",             RENDER_OBB, false);
+        CreateEntry(viewMenu, "Collision Meshes",       "CollisionMeshes.png",  RENDER_COLLISIONMESHES, false);
+        CreateEntry(viewMenu, "Ragdoll Colliders",      QIcon(":/EMotionFX/RagdollCollider_Orange.png"), true,      RENDER_RAGDOLL_COLLIDERS);
+        CreateEntry(viewMenu, "Ragdoll Joint Limits",   QIcon(":/EMotionFX/RagdollJointLimit_Orange.png"), true,    RENDER_RAGDOLL_JOINTLIMITS);
+        CreateEntry(viewMenu, "Hit Detection Colliders",QIcon(":/EMotionFX/HitDetection_Blue.png"), true,           RENDER_HITDETECTION_COLLIDERS);
+        CreateEntry(viewMenu, "Simulated Object Colliders", QIcon(":/EMotionFX/SimulatedObjectCollider.png"), true, RENDER_SIMULATEDOBJECT_COLLIDERS);
+        CreateEntry(viewMenu, "Simulated Joints",       QIcon(":/EMotionFX/SimulatedObject.png"), true, RENDER_SIMULATEJOINTS);
+        CreateEntry(viewMenu, "Cloth Colliders",        QIcon(":/EMotionFX/ClothCollider_Purple.png"), true,        RENDER_CLOTH_COLLIDERS);
         viewMenu->addSeparator();
         CreateEntry(viewMenu, "Skeleton",               "Skeleton.png",         RENDER_SKELETON);
         CreateEntry(viewMenu, "Line Skeleton",          "SkeletonLines.png",    RENDER_LINESKELETON);
@@ -103,33 +110,33 @@ namespace EMStudio
         CreateEntry(viewMenu, "Gradient Background",    "",                     RENDER_USE_GRADIENTBACKGROUND);// don't add to the toolbar
 
         viewMenu->addSeparator();
-        viewMenu->addAction("Reset", this, SLOT(OnReset()));
+        viewMenu->addAction("Reset", this, &RenderViewWidget::OnReset);
 
         viewMenu->addSeparator();
-        viewMenu->addAction("Render Options", this, SLOT(OnOptions()));
+        viewMenu->addAction("Render Options", this, &RenderViewWidget::OnOptions);
 
         // the cameras menu
         QMenu* cameraMenu = mMenu->addMenu(tr("&Camera"));
         mCameraMenu = cameraMenu;
 
-        cameraMenu->addAction("Perspective",       this, SLOT(OnOrbitCamera()));
-        cameraMenu->addAction("Front",             this, SLOT(OnOrthoFrontCamera()));
-        cameraMenu->addAction("Back",              this, SLOT(OnOrthoBackCamera()));
-        cameraMenu->addAction("Left",              this, SLOT(OnOrthoLeftCamera()));
-        cameraMenu->addAction("Right",             this, SLOT(OnOrthoRightCamera()));
-        cameraMenu->addAction("Top",               this, SLOT(OnOrthoTopCamera()));
-        cameraMenu->addAction("Bottom",            this, SLOT(OnOrthoBottomCamera()));
+        cameraMenu->addAction("Perspective",       this, &RenderViewWidget::OnOrbitCamera);
+        cameraMenu->addAction("Front",             this, &RenderViewWidget::OnOrthoFrontCamera);
+        cameraMenu->addAction("Back",              this, &RenderViewWidget::OnOrthoBackCamera);
+        cameraMenu->addAction("Left",              this, &RenderViewWidget::OnOrthoLeftCamera);
+        cameraMenu->addAction("Right",             this, &RenderViewWidget::OnOrthoRightCamera);
+        cameraMenu->addAction("Top",               this, &RenderViewWidget::OnOrthoTopCamera);
+        cameraMenu->addAction("Bottom",            this, &RenderViewWidget::OnOrthoBottomCamera);
         cameraMenu->addSeparator();
-        cameraMenu->addAction("Reset Camera",      this, SLOT(OnResetCamera()));
-        cameraMenu->addAction("Show Selected",     this, SLOT(OnShowSelected()));
-        cameraMenu->addAction("Show Entire Scene", this, SLOT(OnShowEntireScene()));
+        cameraMenu->addAction("Reset Camera",      [this]() { this->OnResetCamera(); });
+        cameraMenu->addAction("Show Selected",     this, &RenderViewWidget::OnShowSelected);
+        cameraMenu->addAction("Show Entire Scene", this, &RenderViewWidget::OnShowEntireScene);
         cameraMenu->addSeparator();
 
         mFollowCharacterAction = cameraMenu->addAction(tr("Follow Character"));
         mFollowCharacterAction->setCheckable(true);
         mFollowCharacterAction->setChecked(true);
         //mFollowCharacterAction->setChecked(IsCharacterFollowModeActive());
-        connect(mFollowCharacterAction, SIGNAL(triggered()), this, SLOT(OnFollowCharacter()));
+        connect(mFollowCharacterAction, &QAction::triggered, this, &RenderViewWidget::OnFollowCharacter);
 
         Reset();
     }
@@ -141,7 +148,7 @@ namespace EMStudio
         SetRenderFlag(RENDER_WIREFRAME, false);
 
         SetRenderFlag(RENDER_LIGHTING, true);
-        SetRenderFlag(RENDER_TEXTURING, true);
+        SetRenderFlag(RENDER_TEXTURING, false);
         SetRenderFlag(RENDER_SHADOWS, true);
 
         SetRenderFlag(RENDER_VERTEXNORMALS, false);
@@ -151,7 +158,12 @@ namespace EMStudio
         SetRenderFlag(RENDER_AABB, false);
         SetRenderFlag(RENDER_OBB, false);
         SetRenderFlag(RENDER_COLLISIONMESHES, false);
-        SetRenderFlag(RENDER_PHYSICS, false);
+        SetRenderFlag(RENDER_RAGDOLL_COLLIDERS, true);
+        SetRenderFlag(RENDER_RAGDOLL_JOINTLIMITS, true);
+        SetRenderFlag(RENDER_HITDETECTION_COLLIDERS, true);
+        SetRenderFlag(RENDER_CLOTH_COLLIDERS, true);
+        SetRenderFlag(RENDER_SIMULATEDOBJECT_COLLIDERS, true);
+        SetRenderFlag(RENDER_SIMULATEJOINTS, true);
 
         SetRenderFlag(RENDER_SKELETON, false);
         SetRenderFlag(RENDER_LINESKELETON, false);
@@ -183,6 +195,17 @@ namespace EMStudio
 
     void RenderViewWidget::CreateEntry(QMenu* menu, const char* menuEntryName, const char* toolbarIconFileName, int32 actionIndex, bool visible)
     {
+        AZStd::string iconFileName = "Images/Rendering/";
+        iconFileName += toolbarIconFileName;
+        const QIcon& icon = MysticQt::GetMysticQt()->FindIcon(iconFileName.c_str());
+
+        const bool addToToolbar = strcmp(toolbarIconFileName, "") != 0;
+        CreateEntry(menu, menuEntryName, icon, addToToolbar, actionIndex, visible);
+    }
+
+
+    void RenderViewWidget::CreateEntry(QMenu* menu, const char* menuEntryName, const QIcon& icon, bool addToToolbar, int32 actionIndex, bool visible)
+    {
         // menu entry
         mActions[actionIndex] = menu->addAction(menuEntryName);
         mActions[actionIndex]->setCheckable(true);
@@ -191,14 +214,12 @@ namespace EMStudio
             mActions[actionIndex]->setVisible(visible);
         }
 
-        if (strcmp(toolbarIconFileName, "") != 0)
+        if (addToToolbar)
         {
             // toolbar button
             QPushButton* toolbarButton = new QPushButton();
             mToolbarButtons[actionIndex] = toolbarButton;
-            MCore::String iconFileName = "Images/Rendering/";
-            iconFileName += toolbarIconFileName;
-            toolbarButton->setIcon(MysticQt::GetMysticQt()->FindIcon(iconFileName.AsChar()));
+            toolbarButton->setIcon(icon);
             toolbarButton->setCheckable(true);
             toolbarButton->setToolTip(menuEntryName);
 
@@ -216,8 +237,8 @@ namespace EMStudio
             toolbarButton->setIconSize(buttonSize - QSize(2, 2));
 
             // connect the menu entry with the toolbar button
-            connect(toolbarButton, SIGNAL(clicked()), mActions[actionIndex], SLOT(trigger()));
-            connect(mActions[actionIndex], SIGNAL(toggled(bool)), this, SLOT(UpdateToolBarButton(bool)));
+            connect(toolbarButton, &QPushButton::clicked, mActions[actionIndex], &QAction::trigger);
+            connect(mActions[actionIndex], &QAction::toggled, this, &RenderViewWidget::UpdateToolBarButton);
         }
     }
 
@@ -236,7 +257,33 @@ namespace EMStudio
         {
             mRenderOptionsWindow = new PreferencesWindow(this);
             mRenderOptionsWindow->Init();
-            mRenderOptionsWindow->AddCategoriesFromPlugin(mPlugin);
+
+            AzToolsFramework::ReflectedPropertyEditor* generalPropertyWidget = mRenderOptionsWindow->FindPropertyWidgetByName("General");
+            if (!generalPropertyWidget)
+            {
+                generalPropertyWidget = mRenderOptionsWindow->AddCategory("General", "Images/Preferences/General.png", false);
+                generalPropertyWidget->ClearInstances();
+                generalPropertyWidget->InvalidateAll();
+            }
+
+            AZ::SerializeContext* serializeContext = nullptr;
+            AZ::ComponentApplicationBus::BroadcastResult(serializeContext, &AZ::ComponentApplicationBus::Events::GetSerializeContext);
+            if (!serializeContext)
+            {
+                AZ_Error("EMotionFX", false, "Can't get serialize context from component application.");
+                return;
+            }
+
+            PluginOptions* pluginOptions = mPlugin->GetOptions();
+            AZ_Assert(pluginOptions, "Expected options in render plugin");
+            generalPropertyWidget->AddInstance(pluginOptions, azrtti_typeid(pluginOptions));
+
+            // Now add EMStudio settings
+            generalPropertyWidget->SetAutoResizeLabels(true);
+            generalPropertyWidget->Setup(serializeContext, nullptr, true);
+            generalPropertyWidget->show();
+            generalPropertyWidget->ExpandAll();
+            generalPropertyWidget->InvalidateAll();
         }
 
         mRenderOptionsWindow->show();
@@ -245,15 +292,13 @@ namespace EMStudio
 
     void RenderViewWidget::OnShowSelected()
     {
-        MCore::AABB sceneAABB = mPlugin->GetSceneAABB(true);
-        mRenderWidget->ViewCloseup(sceneAABB, DEFAULT_FLIGHT_TIME);
+        mRenderWidget->ViewCloseup(true, DEFAULT_FLIGHT_TIME);
     }
 
 
     void RenderViewWidget::OnShowEntireScene()
     {
-        MCore::AABB sceneAABB = mPlugin->GetSceneAABB(false);
-        mRenderWidget->ViewCloseup(sceneAABB, DEFAULT_FLIGHT_TIME);
+        mRenderWidget->ViewCloseup(false, DEFAULT_FLIGHT_TIME);
     }
 
 
@@ -270,8 +315,7 @@ namespace EMStudio
 
         if (followInstance && GetIsCharacterFollowModeActive() && mRenderWidget)
         {
-            MCore::AABB sceneAABB = mPlugin->GetSceneAABB(true);
-            mRenderWidget->ViewCloseup(sceneAABB, DEFAULT_FLIGHT_TIME, 1);
+            mRenderWidget->ViewCloseup(true, DEFAULT_FLIGHT_TIME, 1);
         }
     }
 
@@ -299,6 +343,11 @@ namespace EMStudio
             const bool isEnabled = settings->value(name, mActions[i]->isChecked()).toBool();
             SetRenderFlag((ERenderFlag)i, isEnabled);
         }
+
+        // Override some settings as we removed those from the menu.
+        SetRenderFlag(RENDER_OBB, false);
+        SetRenderFlag(RENDER_COLLISIONMESHES, false);
+        SetRenderFlag(RENDER_TEXTURING, false);
 
         RenderWidget::CameraMode cameraMode = (RenderWidget::CameraMode)settings->value("CameraMode", (int32)mRenderWidget->GetCameraMode()).toInt();
         mRenderWidget->SwitchCamera(cameraMode);

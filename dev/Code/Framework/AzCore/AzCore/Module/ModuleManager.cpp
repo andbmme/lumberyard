@@ -9,9 +9,9 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  *
  */
-#ifndef AZ_UNITY_BUILD
 
 #include <AzCore/Module/ModuleManager.h>
+#include <AzCore/Module/Internal/ModuleManagerSearchPathTool.h>
 
 #include <AzCore/Module/Module.h>
 #include <AzCore/RTTI/AttributeReader.h>
@@ -24,6 +24,7 @@
 #include <AzCore/Script/ScriptSystemBus.h>
 #include <AzCore/Script/ScriptContext.h>
 
+#include <AzCore/std/algorithm.h>
 #include <AzCore/std/smart_ptr/make_shared.h>
 
 namespace
@@ -37,41 +38,7 @@ namespace AZ
     {
         const SerializeContext::ClassData* classData = serialize.FindClassData(descriptor.GetUuid());
         AZ_Warning(s_moduleLoggingScope, classData, "Component type %s not reflected to SerializeContext!", descriptor.GetName());
-        if (classData)
-        {
-            if (Attribute* attribute = FindAttribute(Edit::Attributes::SystemComponentTags, classData->m_attributes))
-            {
-                // If the required tags are empty, it is assumed all components with the attribute are required
-                if (requiredTags.empty())
-                {
-                    return true;
-                }
-
-                // Read the tags
-                AZStd::vector<AZ::Crc32> tags;
-                AZ::AttributeReader reader(nullptr, attribute);
-                AZ::Crc32 tag;
-                if (reader.Read<AZ::Crc32>(tag))
-                {
-                    tags.emplace_back(tag);
-                }
-                else
-                {
-                    AZ_Verify(reader.Read<AZStd::vector<AZ::Crc32>>(tags), "Attribute \"AZ::Edit::Attributes::SystemComponentTags\" must be of type AZ::Crc32 or AZStd::vector<AZ::Crc32>");
-                }
-
-                // Match tags to required tags
-                for (const AZ::Crc32& requiredTag : requiredTags)
-                {
-                    if (AZStd::find(tags.begin(), tags.end(), requiredTag) != tags.end())
-                    {
-                        return true;
-                    }
-                }
-            }
-        }
-
-        return false;
+        return Edit::SystemComponentTagsMatchesAtLeastOneTag(classData, requiredTags, false);
     }
 
     //=========================================================================
@@ -143,9 +110,13 @@ namespace AZ
         // If module is from DLL, return DLL name.
         if (m_dynamicHandle)
         {
-            const char* filepath = m_dynamicHandle->GetFilename().c_str();
-            const char* lastSlash = strrchr(filepath, '/');
-            return lastSlash ? lastSlash + 1 : filepath;
+            AZStd::string_view handleFilename(m_dynamicHandle->GetFilename().c_str());
+            AZStd::string_view::size_type lastSlash = handleFilename.find_last_of("\\/");
+            if (lastSlash != AZStd::string_view::npos)
+            {
+                handleFilename.lshorten(lastSlash + 1);
+            }
+            return handleFilename.data();
         }
         // If Module has its own RTTI info, return that name
         else if (m_module && !azrtti_istypeof<Module>(m_module))
@@ -235,7 +206,11 @@ namespace AZ
             moduleHandlesOpen += modulePtr->GetDebugName();
             moduleHandlesOpen += "\n";
         }
-        AZ_Assert(m_notOwnedModules.empty(), "ModuleManager being destroyed, but module handles are still open:\n%s", moduleHandlesOpen.c_str());
+
+        if (!m_notOwnedModules.empty())
+        {
+            AZ_TracePrintf(s_moduleLoggingScope, "ModuleManager being destroyed, but non-owned module handles are still open:\n%s", moduleHandlesOpen.c_str());
+        }
 #endif // AZ_ENABLE_TRACING
 
         // Clear the weak modules list
@@ -248,15 +223,12 @@ namespace AZ
         Internal::ModuleManagerInternalRequestBus::Handler::BusDisconnect();
     }
 
-    //=========================================================================
-    // UnloadModules
-    //=========================================================================
-    void ModuleManager::UnloadModules()
+    void ModuleManager::DeactivateEntities()
     {
         // For all modules that we created an entity for, set them to "Deactivating"
         for (auto& moduleData : m_ownedModules)
         {
-            if (moduleData->m_moduleEntity)
+            if (moduleData->m_moduleEntity && moduleData->m_lastCompletedStep == ModuleInitializationSteps::ActivateEntity)
             {
                 moduleData->m_moduleEntity->SetState(Entity::ES_DEACTIVATING);
             }
@@ -271,12 +243,23 @@ namespace AZ
         // For all modules that we created an entity for, set them to "Init" (meaning not Activated)
         for (auto& moduleData : m_ownedModules)
         {
-            if (moduleData->m_moduleEntity)
+            if (moduleData->m_moduleEntity && moduleData->m_lastCompletedStep == ModuleInitializationSteps::ActivateEntity)
             {
                 moduleData->m_moduleEntity->SetState(Entity::ES_INIT);
+                moduleData->m_lastCompletedStep = ModuleInitializationSteps::RegisterComponentDescriptors;
             }
         }
 
+        // Since the system components have been deactivated clear out the vector.
+        m_systemComponents.clear();
+    }
+
+    //=========================================================================
+    // UnloadModules
+    //=========================================================================
+    void ModuleManager::UnloadModules()
+    {
+        DeactivateEntities();
         // Because everything is unique_ptr, we don't need to explicitly delete anything
         // Shutdown in reverse order of initialization, just in case the order matters.
         while (!m_ownedModules.empty())
@@ -303,6 +286,22 @@ namespace AZ
     }
 
     //=========================================================================
+    // SetSystemComponentTags
+    //=========================================================================
+    void ModuleManager::SetSystemComponentTags(AZStd::string_view tags)
+    {
+        // Split the tag list
+        AZStd::vector<AZStd::string_view> tagList;
+        AZStd::tokenize<AZStd::string_view>(tags, ",", tagList);
+
+        m_systemComponentTags.resize(tagList.size());
+        AZStd::transform(tagList.begin(), tagList.end(), m_systemComponentTags.begin(), [](const AZStd::string_view& tag)
+        {
+            return AZ::Crc32(tag.data(), tag.length(), true);
+        });
+    }
+
+    //=========================================================================
     // EnumerateModules
     //=========================================================================
     void ModuleManager::EnumerateModules(EnumerateModulesCallback perModuleCallback)
@@ -324,10 +323,10 @@ namespace AZ
     AZ::OSString ModuleManager::PreProcessModule(const AZ::OSString& moduleName)
     {
         // This is the list of modules that have been deprecated as of version 1.10
-        // Update this list accordingly.  
+        // Update this list accordingly.
         static const char* legacyModules[] = { "LmbrCentral",
                                                "LmbrCentralEditor" };
-        // List of modules (Gems) that represents the upgrade from the legacyModules 
+        // List of modules (Gems) that represents the upgrade from the legacyModules
         static const char* legacyUpgradeModules[] = { "Gem.LmbrCentral.ff06785f7145416b9d46fde39098cb0c.v0.1.0",
                                                       "Gem.LmbrCentral.Editor.ff06785f7145416b9d46fde39098cb0c.v0.1.0" };
 
@@ -561,9 +560,14 @@ namespace AZ
     {
         LoadModulesResult results;
 
+        Internal::ModuleManagerSearchPathTool moduleSearchPathHelper;
+
         // Load DLLs specified in the application descriptor
         for (const auto& moduleDescriptor : modules)
         {
+           // For each module that is loaded, attempt to set the module's folder as a path for dependent module resolution
+            moduleSearchPathHelper.SetModuleSearchPath(moduleDescriptor);
+
             LoadModuleOutcome result = LoadDynamicModule(moduleDescriptor.m_dynamicLibraryPath.c_str(), lastStepToPerform, maintainReferences);
             results.emplace_back(AZStd::move(result));
         }
@@ -730,31 +734,24 @@ namespace AZ
         componentsToActivate.insert(componentsToActivate.begin(), m_systemComponents.begin(), m_systemComponents.end());
 
         // Get all the components from the System Entity, to include for sorting purposes
-        // This is so that components in modules may have dependencies on components on the system entity
         if (systemEntity)
         {
             const Entity::ComponentArrayType& systemEntityComponents = systemEntity->GetComponents();
             componentsToActivate.insert(componentsToActivate.begin(), systemEntityComponents.begin(), systemEntityComponents.end());
         }
-
+        
         // Topo sort components, activate them
-        Entity::DependencySortResult result = ModuleEntity::DependencySort(componentsToActivate);
-        switch (result)
+        Entity::DependencySortOutcome outcome = ModuleEntity::DependencySort(componentsToActivate);
+        if (!outcome.IsSuccess())
         {
-        case Entity::DSR_MISSING_REQUIRED:
-            AZ_Error(s_moduleLoggingScope, false, "Module Entities have missing required services and cannot be activated.");
+            AZ_Error(s_moduleLoggingScope, false, "Modules Entities cannot be activated. %s", outcome.GetError().m_message.c_str());
             return;
-        case Entity::DSR_CYCLIC_DEPENDENCY:
-            AZ_Error(s_moduleLoggingScope, false, "Module Entities' components order have cyclic dependency and cannot be activated.");
-            return;
-        case Entity::DSR_OK:
-            break;
         }
-
+        
         for (auto componentIt = componentsToActivate.begin(); componentIt != componentsToActivate.end(); )
         {
             Component* component = *componentIt;
-
+        
             // Remove the system entity and already activated components, we don't need to activate or store those
             if (component->GetEntityId() == SystemEntityId ||
                 AZStd::find(m_systemComponents.begin(), m_systemComponents.end(), component) != m_systemComponents.end())
@@ -766,6 +763,7 @@ namespace AZ
                 ++componentIt;
             }
         }
+        
 
         // Activate the entities in the appropriate order
         for (Component* component : componentsToActivate)
@@ -787,4 +785,3 @@ namespace AZ
         m_systemComponents.insert(m_systemComponents.end(), componentsToActivate.begin(), componentsToActivate.end());
     }
 } // namespace AZ
-#endif // #ifndef AZ_UNITY_BUILD

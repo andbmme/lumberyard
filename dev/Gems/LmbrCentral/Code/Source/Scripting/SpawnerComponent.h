@@ -27,6 +27,7 @@ namespace LmbrCentral
         , private SpawnerComponentRequestBus::Handler
         , private AzFramework::SliceInstantiationResultBus::MultiHandler
         , private AZ::EntityBus::MultiHandler
+        , private AZ::Data::AssetBus::Handler
     {
     public:
         AZ_COMPONENT(SpawnerComponent, SpawnerComponentTypeId);
@@ -54,7 +55,8 @@ namespace LmbrCentral
 
         //////////////////////////////////////////////////////////////////////////
         // SpawnerComponentRequestBus::Handler
-        void SetDynamicSlice(const AZ::Data::Asset<AZ::Data::AssetData>& dynamicSliceAsset) override;
+        void SetDynamicSlice(const AZ::Data::Asset<AZ::DynamicSliceAsset>& dynamicSliceAsset) override;
+        void SetDynamicSliceByAssetId(AZ::Data::AssetId& assetId) override;
         void SetSpawnOnActivate(bool spawnOnActivate) override;
         bool GetSpawnOnActivate() override;
         AzFramework::SliceInstantiationTicket Spawn() override;
@@ -75,12 +77,17 @@ namespace LmbrCentral
         // SliceInstantiationResultBus::MultiHandler
         void OnSlicePreInstantiate(const AZ::Data::AssetId& sliceAssetId, const AZ::SliceComponent::SliceInstanceAddress& sliceAddress) override;
         void OnSliceInstantiated(const AZ::Data::AssetId& sliceAssetId, const AZ::SliceComponent::SliceInstanceAddress& sliceAddress) override;
-        void OnSliceInstantiationFailed(const AZ::Data::AssetId& sliceAssetId) override;
+        void OnSliceInstantiationFailedOrCanceled(const AZ::Data::AssetId& sliceAssetId, bool canceled) override;
         //////////////////////////////////////////////////////////////////////////
 
         //////////////////////////////////////////////////////////////////////////
         // EntityBus::MultiHandler
         void OnEntityDestruction(const AZ::EntityId& entityId) override;
+        //////////////////////////////////////////////////////////////////////////
+
+        //////////////////////////////////////////////////////////////////////////
+        // AssetBus::Handler
+        void OnAssetReady(AZ::Data::Asset<AZ::Data::AssetData> asset) override;
         //////////////////////////////////////////////////////////////////////////
 
         //////////////////////////////////////////////////////////////////////////
@@ -93,7 +100,8 @@ namespace LmbrCentral
 
         //////////////////////////////////////////////////////////////////////////
         // Private helpers
-        AzFramework::SliceInstantiationTicket SpawnSliceInternal(const AZ::Data::Asset<AZ::Data::AssetData>& slice, const AZ::Transform& relative);
+        AzFramework::SliceInstantiationTicket SpawnSliceInternalAbsolute(const AZ::Data::Asset<AZ::Data::AssetData>& slice, const AZ::Transform& world);
+        AzFramework::SliceInstantiationTicket SpawnSliceInternalRelative(const AZ::Data::Asset<AZ::Data::AssetData>& slice, const AZ::Transform& relative);
         //////////////////////////////////////////////////////////////////////////
 
         //////////////////////////////////////////////////////////////////////////

@@ -3,9 +3,9 @@
 * its licensors.
 *
 * For complete copyright and license terms please see the LICENSE at the root of this
-* distribution(the "License").All use of this software is governed by the License,
-* or, if provided, by the license below or the license accompanying this file.Do not
-* remove or modify any license notices.This file is distributed on an "AS IS" BASIS,
+* distribution (the "License"). All use of this software is governed by the License,
+* or, if provided, by the license below or the license accompanying this file. Do not
+* remove or modify any license notices. This file is distributed on an "AS IS" BASIS,
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
@@ -15,6 +15,7 @@
 
 #include "Common/GraphicsPipeline.h"
 #include "Common/GraphicsPipelineStateSet.h"
+#include <RenderBus.h>
 
 class CAutoExposurePass;
 class CBloomPass;
@@ -24,6 +25,7 @@ class CScreenSpaceSSSPass;
 class CMotionBlurPass;
 class DepthOfFieldPass;
 class PostAAPass;
+class VideoRenderPass;
 class CCamera;
 
 struct DepthOfFieldParameters;
@@ -38,9 +40,11 @@ enum ERenderableTechnique
 
 class CStandardGraphicsPipeline
     : public CGraphicsPipeline
+    , AZ::RenderNotificationsBus::Handler
 {
 public:
-    virtual ~CStandardGraphicsPipeline() {}
+    CStandardGraphicsPipeline();
+    virtual ~CStandardGraphicsPipeline();
 
     struct ViewParameters
     {
@@ -117,11 +121,15 @@ public:
     void RenderPostAA();
     void RenderTemporalAA(CTexture* sourceTexture, CTexture* outputTarget, const DepthOfFieldParameters& depthOfFieldParameters);
 
+    void RenderVideo(const AZ::VideoRenderer::DrawArguments& drawArguments);
+
     AzRHI::ConstantBufferPtr GetPerViewConstantBuffer() const      { return m_PerViewConstantBuffer; }
     CDeviceResourceSetPtr GetDefaultMaterialResources() const      { return m_pDefaultMaterialResources; }
     CDeviceResourceSetPtr GetDefaultInstanceExtraResources() const { return m_pDefaultInstanceExtraResources; }
 
 private:
+    void OnRendererFreeResources(int flags) override;
+
     CAutoExposurePass*            m_pAutoExposurePass;
     CBloomPass*                   m_pBloomPass;
     CScreenSpaceObscurancePass*   m_pScreenSpaceObscurancePass;
@@ -130,6 +138,7 @@ private:
     CMotionBlurPass*              m_pMotionBlurPass;
     DepthOfFieldPass*            m_pDepthOfFieldPass;
     PostAAPass*                  m_pPostAAPass;
+    VideoRenderPass*              m_pVideoRenderPass;
 
     AzRHI::ConstantBufferPtr      m_PerFrameConstantBuffer;
     AzRHI::ConstantBufferPtr      m_PerViewConstantBuffer;

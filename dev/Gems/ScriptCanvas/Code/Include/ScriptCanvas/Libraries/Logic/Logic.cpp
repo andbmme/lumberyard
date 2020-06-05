@@ -10,9 +10,9 @@
 *
 */
 
-#include "precompiled.h"
 #include <Libraries/Libraries.h>
 #include "Logic.h"
+#include <ScriptCanvas/Core/Attributes.h>
 
 namespace ScriptCanvas
 {
@@ -20,6 +20,8 @@ namespace ScriptCanvas
     {
         void Logic::Reflect(AZ::ReflectContext* reflection)
         {
+            Nodes::Logic::WeightedRandomSequencer::ReflectDataTypes(reflection);
+
             AZ::SerializeContext* serializeContext = azrtti_cast<AZ::SerializeContext*>(reflection);
             if (serializeContext)
             {
@@ -33,7 +35,8 @@ namespace ScriptCanvas
                     editContext->Class<Logic>("Logic", "")->
                         ClassElement(AZ::Edit::ClassElements::EditorData, "")->
                         Attribute(AZ::Edit::Attributes::Icon, "Editor/Icons/ScriptCanvas/Libraries/Logic.png")->
-                        Attribute(AZ::Edit::Attributes::CategoryStyle, ".logic")
+                        Attribute(AZ::Edit::Attributes::CategoryStyle, ".logic")->
+                        Attribute(ScriptCanvas::Attributes::Node::TitlePaletteOverride, "LogicNodeTitlePalette")
                         ;
                 }
 
@@ -44,6 +47,7 @@ namespace ScriptCanvas
         {
             using namespace ScriptCanvas::Nodes::Logic;
             AddNodeToRegistry<Logic, And>(nodeRegistry);
+            AddNodeToRegistry<Logic, Any>(nodeRegistry);
             AddNodeToRegistry<Logic, Boolean>(nodeRegistry);
             AddNodeToRegistry<Logic, Gate>(nodeRegistry);
             AddNodeToRegistry<Logic, Indexer>(nodeRegistry);
@@ -52,13 +56,18 @@ namespace ScriptCanvas
             AddNodeToRegistry<Logic, Not>(nodeRegistry);
             AddNodeToRegistry<Logic, Once>(nodeRegistry);
             AddNodeToRegistry<Logic, Or>(nodeRegistry);
-            AddNodeToRegistry<Logic, Sequencer>(nodeRegistry);
+            AddNodeToRegistry<Logic, OrderedSequencer>(nodeRegistry);
+            AddNodeToRegistry<Logic, Sequencer>(nodeRegistry);            
+            AddNodeToRegistry<Logic, TargetedSequencer>(nodeRegistry);
+            AddNodeToRegistry<Logic, WeightedRandomSequencer>(nodeRegistry);
+            AddNodeToRegistry<Logic, Cycle>(nodeRegistry);
         }
 
         AZStd::vector<AZ::ComponentDescriptor*> Logic::GetComponentDescriptors()
         {
             return AZStd::vector<AZ::ComponentDescriptor*>({
                 ScriptCanvas::Nodes::Logic::And::CreateDescriptor(),
+                ScriptCanvas::Nodes::Logic::Any::CreateDescriptor(),
                 ScriptCanvas::Nodes::Logic::Boolean::CreateDescriptor(),
                 ScriptCanvas::Nodes::Logic::Gate::CreateDescriptor(),
                 ScriptCanvas::Nodes::Logic::Indexer::CreateDescriptor(),
@@ -67,7 +76,11 @@ namespace ScriptCanvas
                 ScriptCanvas::Nodes::Logic::Not::CreateDescriptor(),
                 ScriptCanvas::Nodes::Logic::Once::CreateDescriptor(),
                 ScriptCanvas::Nodes::Logic::Or::CreateDescriptor(),
+                ScriptCanvas::Nodes::Logic::OrderedSequencer::CreateDescriptor(),
                 ScriptCanvas::Nodes::Logic::Sequencer::CreateDescriptor(),
+                ScriptCanvas::Nodes::Logic::TargetedSequencer::CreateDescriptor(),
+                ScriptCanvas::Nodes::Logic::WeightedRandomSequencer::CreateDescriptor(),
+                ScriptCanvas::Nodes::Logic::Cycle::CreateDescriptor(),
             });
         }
     }

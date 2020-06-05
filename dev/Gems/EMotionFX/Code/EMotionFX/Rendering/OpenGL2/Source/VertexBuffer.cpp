@@ -10,6 +10,7 @@
 *
 */
 
+#include <AzCore/std/string/string.h>
 #include <MCore/Source/Config.h>
 #include "GLInclude.h"
 
@@ -115,7 +116,7 @@ namespace RenderGL
         // is the data valid?
         if (data == nullptr)
         {
-            MCore::String strLock = " ";
+            AZStd::string strLock = " ";
             switch (lockMode)
             {
             case LOCK_WRITEONLY:
@@ -130,7 +131,7 @@ namespace RenderGL
             }
 
             GLint errorCode = glGetError();
-            MCore::LogError("Failed to lock OpenGL %s vertex buffer [glGetError=%d or 0x%x].", strLock.AsChar(), errorCode, errorCode);
+            MCore::LogError("Failed to lock OpenGL %s vertex buffer [glGetError=%d or 0x%x].", strLock.c_str(), errorCode, errorCode);
         }
 
         return data;
@@ -148,5 +149,15 @@ namespace RenderGL
         glBindBuffer(GL_ARRAY_BUFFER, mBufferID);
         glUnmapBuffer(GL_ARRAY_BUFFER);
         glBindBuffer(GL_ARRAY_BUFFER, 0);
+    }
+
+    bool VertexBuffer::GetIsSuccess() const
+    {
+        return (glGetError() == GL_NO_ERROR);
+    }
+
+    bool VertexBuffer::GetHasError() const
+    {
+        return (glGetError() != GL_NO_ERROR);
     }
 }

@@ -43,10 +43,11 @@
                 "description": "Returns information about a specific file to the portal.",
                 "parameters": [
                     {
-						"description": "The pak file name to retrieve information about.",
+                        "description": "The pak file name to retrieve information about.",
                         "name": "file_name",
                         "in": "path",
-                        "type": "string"
+                        "type": "string",
+                        "required": true
                     }
                 ],
                 "responses": {
@@ -75,7 +76,8 @@
 						"description": "The pak file name to retrieve information about.",
                         "name": "file_name",
                         "in": "path",
-                        "type": "string"
+                        "type": "string",
+                        "required": true
                     }
                 ],
                 "responses": {
@@ -214,6 +216,10 @@
                     "items": {
                         "type": "string"
                     }
+                },
+                "ManifestData": {
+                    "description": "Flag to indicate data usually found in the manifest should be included (Hash, size)",
+                    "type": "boolean"
                 }
             },
             "required": [
@@ -262,6 +268,12 @@
                     "type": "string"
                 },
                 "Signature": {
+                    "type": "string"
+                },
+                "Size": {
+                    "type": "string"
+                },
+                "Hash": {
                     "type": "string"
                 }
             },

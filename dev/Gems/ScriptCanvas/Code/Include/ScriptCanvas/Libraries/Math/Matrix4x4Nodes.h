@@ -12,7 +12,6 @@
 
 #pragma once
 
-#include <AzFramework/Math/MathUtils.h>
 #include <ScriptCanvas/Core/NodeFunctionGeneric.h>
 
 namespace ScriptCanvas
@@ -42,13 +41,13 @@ namespace ScriptCanvas
         }
         SCRIPT_CANVAS_GENERIC_FUNCTION_NODE(FromMatrix3x3, "Math/Matrix4x4", "{C7EB3FB9-CAA7-48B3-BFCA-F03BF14E9778}", "returns a matrix from the from the Matrix3x3", "Source");
 
-        AZ_INLINE Data::Matrix4x4Type FromQuaternion(const Data::RotationType& source)
+        AZ_INLINE Data::Matrix4x4Type FromQuaternion(const Data::QuaternionType& source)
         {
             return Data::Matrix4x4Type::CreateFromQuaternion(source);
         }
-        SCRIPT_CANVAS_GENERIC_FUNCTION_NODE(FromQuaternion, "Math/Matrix4x4", "{08EACF1F-E32F-4099-8F87-DFC9BF485FBA}", "returns a rotation matrix using the supplied quaternion", "Source");
+        SCRIPT_CANVAS_GENERIC_FUNCTION_NODE(FromQuaternion, "Math/Matrix4x4", "{B838FE73-B028-45E0-B847-1621B22A2185}", "returns a rotation matrix using the supplied quaternion", "Source");
 
-        AZ_INLINE Data::Matrix4x4Type FromQuaternionAndTranslation(const Data::RotationType& rotation, const Data::Vector3Type& translation)
+        AZ_INLINE Data::Matrix4x4Type FromQuaternionAndTranslation(const Data::QuaternionType& rotation, const Data::Vector3Type& translation)
         {
             return Data::Matrix4x4Type::CreateFromQuaternionAndTranslation(rotation, translation);
         }
@@ -167,7 +166,7 @@ namespace ScriptCanvas
             source.GetRows(&row0, &row1, &row2, &row3);
             return std::make_tuple(row0, row1, row2, row3);
         }
-        SCRIPT_CANVAS_GENERIC_FUNCTION_MULTI_RESULTS_NODE(GetRows, "Math/Matrix4x4", "{DDF76F4C-0C79-4856-B577-7DBA092CE59B}", "returns all rows from matrix", "Source", "Row1", "Row2", "Row3", "Row4");
+        SCRIPT_CANVAS_GENERIC_FUNCTION_MULTI_RESULTS_NODE(GetRows, "Math/Matrix4x4", "{594636A1-749C-4821-A0D3-ED43E112601E}", "returns all rows from matrix", "Source", "Row1", "Row2", "Row3", "Row4");
 
         AZ_INLINE Data::Matrix4x4Type Invert(const Data::Matrix4x4Type& source)
         {
@@ -192,7 +191,7 @@ namespace ScriptCanvas
         {
             return lhs * rhs;
         }
-        SCRIPT_CANVAS_GENERIC_FUNCTION_NODE(MultiplyByMatrix, "Math/Matrix4x4", "{72A041D0-BEB3-415B-9771-E869797B293B}", "returns result of multiplying both matrices (A * B)", "A", "B");
+        SCRIPT_CANVAS_GENERIC_FUNCTION_NODE_DEPRECATED(MultiplyByMatrix, "Math/Matrix4x4", "{72A041D0-BEB3-415B-9771-E869797B293B}", "This node is deprecated, use Multiply (*), it provides contextual type and slots", "A", "B");
 
         AZ_INLINE Data::Vector4Type MultiplyByVector(const Data::Matrix4x4Type& lhs, const Data::Vector4Type& rhs)
         {

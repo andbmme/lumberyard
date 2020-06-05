@@ -13,11 +13,12 @@
 #ifndef __RENDERGL_GLSLSHADER_H
 #define __RENDERGL_GLSLSHADER_H
 
+#include <AzCore/std/string/string.h>
 #include "Shader.h"
-#include <MCore/Source/UnicodeString.h>
 
 // include OpenGL
 #include "GLInclude.h"
+#include <MCore/Source/Array.h>
 
 
 namespace RenderGL
@@ -31,16 +32,16 @@ namespace RenderGL
         GLSLShader();
         virtual ~GLSLShader();
 
-        virtual void Activate() override;
-        virtual void Deactivate() override;
+        void Activate() override;
+        void Deactivate() override;
 
         uint32 FindAttributeLocation(const char* name);
-        virtual uint32 GetType() const override;
+        uint32 GetType() const override;
 
         MCORE_INLINE unsigned int GetProgram() const                                    { return mProgram; }
         bool CheckIfIsDefined(const char* attributeName);
 
-        bool Init(const char* vertexFileName, const char* pixelFileName, MCore::Array<MCore::String>& defines);
+        bool Init(const char* vertexFileName, const char* pixelFileName, MCore::Array<AZStd::string>& defines);
         void SetAttribute(const char* name, uint32 dim, uint32 type, uint32 stride, size_t offset) override;
 
         void SetUniform(const char* name, float value) override;
@@ -49,13 +50,12 @@ namespace RenderGL
         void SetUniform(const char* name, const AZ::Vector2& vector) override;
         void SetUniform(const char* name, const AZ::Vector3& vector) override;
         void SetUniform(const char* name, const AZ::Vector4& vector) override;
-        void SetUniform(const char* name, const MCore::Matrix& matrix) override;
-        void SetUniform(const char* name, const MCore::Matrix& matrix, bool transpose) override;
-        void SetUniform(const char* name, const MCore::Matrix* matrices, uint32 count) override;
+        void SetUniform(const char* name, const AZ::Matrix4x4& matrix) override;
+        void SetUniform(const char* name, const AZ::Matrix4x4& matrix, bool transpose) override;
+        void SetUniform(const char* name, const AZ::Matrix4x4* matrices, uint32 count) override;
         void SetUniform(const char* name, Texture* texture) override;
         void SetUniformTextureID(const char* name, uint32 textureID);
         void SetUniform(const char* name, const float* values, uint32 numFloats) override;
-        void SetUniform(const char* name, const AZ::PackedVector3f* values, uint32 numVectors) override;
 
         static const uint32 TypeID = 0x00000001;
 
@@ -64,7 +64,7 @@ namespace RenderGL
         {
             ShaderParameter(const char* name, GLint loc, bool isAttrib);
 
-            MCore::String       mName;
+            AZStd::string       mName;
             GLint               mLocation;
             GLenum              mType;
             uint32              mSize;
@@ -80,13 +80,13 @@ namespace RenderGL
         bool CompileShader(const GLenum type, unsigned int* outShader, const char* filename);
         void InfoLog(unsigned int object);
 
-        MCore::String                   mFileName;
+        AZStd::string                   mFileName;
 
         MCore::Array<uint32>            mActivatedAttribs;
         MCore::Array<uint32>            mActivatedTextures;
         MCore::Array<ShaderParameter>   mUniforms;
         MCore::Array<ShaderParameter>   mAttributes;
-        MCore::Array<MCore::String>     mDefines;
+        MCore::Array<AZStd::string>     mDefines;
 
         unsigned int                    mVertexShader;
         unsigned int                    mPixelShader;

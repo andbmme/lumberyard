@@ -16,10 +16,14 @@
 #include "ActorInstance.h"
 #include "MorphSetup.h"
 #include <MCore/Source/Random.h>
-
+#include <EMotionFX/Source/Allocators.h>
+#include <MCore/Source/LogManager.h>
 
 namespace EMotionFX
 {
+    AZ_CLASS_ALLOCATOR_IMPL(EyeBlinker, EyeBlinkerAllocator, 0)
+
+
     EyeBlinker::EyeBlinker(ActorInstance* actorInstance)
         : BaseObject()
     {
@@ -47,7 +51,7 @@ namespace EMotionFX
     // creation method
     EyeBlinker* EyeBlinker::Create(ActorInstance* actorInstance)
     {
-        return new EyeBlinker(actorInstance);
+        return aznew EyeBlinker(actorInstance);
     }
 
 

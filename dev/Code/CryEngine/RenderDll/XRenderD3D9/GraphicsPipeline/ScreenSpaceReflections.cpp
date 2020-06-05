@@ -3,9 +3,9 @@
 * its licensors.
 *
 * For complete copyright and license terms please see the LICENSE at the root of this
-* distribution(the "License").All use of this software is governed by the License,
-* or, if provided, by the license below or the license accompanying this file.Do not
-* remove or modify any license notices.This file is distributed on an "AS IS" BASIS,
+* distribution (the "License"). All use of this software is governed by the License,
+* or, if provided, by the license below or the license accompanying this file. Do not
+* remove or modify any license notices. This file is distributed on an "AS IS" BASIS,
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
@@ -50,6 +50,11 @@ void CScreenSpaceReflectionsPass::Execute()
 
     PROFILE_LABEL_SCOPE("SS_REFLECTIONS");
 
+    if (CRenderer::CV_r_SlimGBuffer)
+    {
+        rd->m_RP.m_FlagsShader_RT |= g_HWSR_MaskBit[HWSR_SLIM_GBUFFER];
+    }
+
     // Store current state
     const uint32 prevPersFlags = rd->m_RP.m_TI[rd->m_RP.m_nProcessThreadID].m_PersFlags;
 
@@ -62,13 +67,28 @@ void CScreenSpaceReflectionsPass::Execute()
         rd->GetGraphicsPipeline().UpdatePerViewConstantBuffer();
     }
 
-    const int frameID = SPostEffectsUtils::m_iFrameCounter;
     Matrix44 mViewport(0.5f, 0,    0,    0,
         0,   -0.5f, 0,    0,
         0,    0,    1.0f, 0,
         0.5f, 0.5f, 0,    1.0f);
-    uint32 numGPUs = rd->GetActiveGPUCount();
+    const uint32 numGPUs = rd->GetActiveGPUCount();
+
+#if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
+    const CCamera& camera = rd->m_RP.m_TI[rd->m_RP.m_nProcessThreadID].m_cam;
+    const AZ::EntityId cameraID = camera.GetEntityId();
+    const int frameID = camera.GetFrameUpdateId();
+    const uint32 prevViewProjID = max((frameID - (int)numGPUs) % MAX_GPU_NUM, 0);
+    auto iter = m_prevViewProj[prevViewProjID].find(cameraID);
+    if (iter == m_prevViewProj[prevViewProjID].end())
+    {
+        // initialize with the current view projection in case this is a one-off render.
+        m_prevViewProj[prevViewProjID].insert({cameraID, mViewProj});
+    }
+    Matrix44 mViewProjPrev = m_prevViewProj[prevViewProjID][cameraID] * mViewport;
+#else
+    const int frameID = SPostEffectsUtils::m_iFrameCounter;
     Matrix44 mViewProjPrev = m_prevViewProj[max((frameID - (int)numGPUs) % MAX_GPU_NUM, 0)] * mViewport;
+#endif //if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
 
     int texStateLinear = CTexture::GetTexState(STexState(FILTER_LINEAR, true));
     int texStatePoint = CTexture::GetTexState(STexState(FILTER_POINT, true));
@@ -79,14 +99,18 @@ void CScreenSpaceReflectionsPass::Execute()
     {
         PROFILE_LABEL_SCOPE("SSR_RAYTRACE");
 
+        if (CRenderer::CV_r_SlimGBuffer)
+        {
+            rd->m_RP.m_FlagsShader_RT |= g_HWSR_MaskBit[HWSR_SLIM_GBUFFER];
+        }
+
         CCryNameTSCRC techRaytrace("SSR_Raytrace");
         static CCryNameR viewProjName("g_mViewProj");
         static CCryNameR viewProjprevName("g_mViewProjPrev");
-
         CTexture* destRT = CRenderer::CV_r_SSReflHalfRes ? CTexture::s_ptexHDRTargetScaled[0] : CTexture::s_ptexHDRTarget;
 
         m_passRaytracing.SetRenderTarget(0, destRT);
-        m_passRaytracing.SetTechnique(pShader, techRaytrace, 0);
+        m_passRaytracing.SetTechnique(pShader, techRaytrace, rd->m_RP.m_FlagsShader_RT);
         m_passRaytracing.SetState(GS_NODEPTHTEST);
         m_passRaytracing.SetTextureSamplerPair(0, CTexture::s_ptexZTarget, texStatePoint);
         m_passRaytracing.SetTextureSamplerPair(1, CTexture::s_ptexSceneNormalsMap, texStateLinear);
@@ -120,15 +144,29 @@ void CScreenSpaceReflectionsPass::Execute()
     {
         PROFILE_LABEL_SCOPE("SSR_COMPOSE");
 
+        if (CRenderer::CV_r_SlimGBuffer)
+        {
+            rd->m_RP.m_FlagsShader_RT |= g_HWSR_MaskBit[HWSR_SLIM_GBUFFER];
+        }
+
         static CCryNameTSCRC techComposition("SSReflection_Comp");
 
         CTexture* destTex = CTexture::s_ptexHDRTargetScaledTmp[0];
         destTex->Unbind();
 
         m_passComposition.SetRenderTarget(0, destTex);
-        m_passComposition.SetTechnique(pShader, techComposition, 0);
+        m_passComposition.SetTechnique(pShader, techComposition, rd->m_RP.m_FlagsShader_RT);
         m_passComposition.SetState(GS_NODEPTHTEST);
-        m_passComposition.SetTextureSamplerPair(0, CTexture::s_ptexSceneSpecular, texStateLinear);
+        
+        CTexture* smoothnessTex = CTexture::s_ptexSceneSpecular;
+        
+        // smoothness is encoded in the normal texture for slim GBuffer optimization
+        if (CRenderer::CV_r_SlimGBuffer)
+        {
+            smoothnessTex = CTexture::s_ptexSceneNormalsMap;
+        }
+
+        m_passComposition.SetTextureSamplerPair(0, smoothnessTex, texStateLinear);
         m_passComposition.SetTextureSamplerPair(1, CTexture::s_ptexHDRTargetScaled[0], texStateLinear);
         m_passComposition.SetTextureSamplerPair(2, CTexture::s_ptexHDRTargetScaled[1], texStateLinear);
         m_passComposition.SetTextureSamplerPair(3, CTexture::s_ptexHDRTargetScaled[2], texStateLinear);
@@ -138,8 +176,12 @@ void CScreenSpaceReflectionsPass::Execute()
         m_passComposition.Execute();
     }
 
+#if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
+    m_prevViewProj[frameID % MAX_GPU_NUM][cameraID] = mViewProj;
+#else
     // Update array used for MGPU support
     m_prevViewProj[frameID % MAX_GPU_NUM] = mViewProj;
+#endif // if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
 
     // Restore original state
     rd->m_RP.m_TI[rd->m_RP.m_nProcessThreadID].m_PersFlags = prevPersFlags;

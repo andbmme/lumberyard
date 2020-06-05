@@ -32,6 +32,7 @@ namespace Input
     class InputConfigurationComponent
         : public AZ::Component
         , private AZ::Data::AssetBus::Handler
+        , private AZ::InputComponentRequestBus::Handler
         , private AZ::PlayerProfileNotificationBus::Handler
         , private AZ::InputContextNotificationBus::MultiHandler
         , public AzFramework::EditorEntityEvents
@@ -39,7 +40,7 @@ namespace Input
     public:
 
         AZ_COMPONENT(InputConfigurationComponent, "{3106EE2A-4816-433E-B855-D17A6484D5EC}", AzFramework::EditorEntityEvents);
-        virtual ~InputConfigurationComponent() = default;
+        virtual ~InputConfigurationComponent();
         InputConfigurationComponent() = default;
         static void GetProvidedServices(AZ::ComponentDescriptor::DependencyArrayType& provided);
         static void Reflect(AZ::ReflectContext* reflection);
@@ -57,6 +58,12 @@ namespace Input
         //////////////////////////////////////////////////////////////////////////
     private:
         InputConfigurationComponent(const InputConfigurationComponent&) = delete;
+
+        //////////////////////////////////////////////////////////////////////////
+        // AZ::InputComponentRequestBus::Handler
+        void SetLocalUserId(AzFramework::LocalUserId localUserId) override;
+        //////////////////////////////////////////////////////////////////////////
+
         //////////////////////////////////////////////////////////////////////////
         // AZ::PlayerProfileNotificationBus::Handler
         void OnProfileSaving() override;
@@ -71,16 +78,23 @@ namespace Input
         //////////////////////////////////////////////////////////////////////////
         /// AZ::Data::AssetBus::Handler
         void OnAssetReady(AZ::Data::Asset<AZ::Data::AssetData> asset) override;
+        void OnAssetReloaded(AZ::Data::Asset<AZ::Data::AssetData> asset) override;
         //////////////////////////////////////////////////////////////////////////
 
-        //////////////////////////////////////////////////////////////////////////
-        // Non Reflected Data
-        AZStd::string m_associatedProfileName;
+        void ActivateBindingsIfAppropriate();
 
         //////////////////////////////////////////////////////////////////////////
         // Reflected Data
         InputEventBindings m_inputEventBindings;
         AZStd::vector<AZStd::string> m_inputContexts;
         AZ::Data::Asset<InputEventBindingsAsset> m_inputEventBindingsAsset;
+        AZ::u32 m_localPlayerIndex = std::numeric_limits<AZ::u32>::max();
+
+        AzFramework::LocalUserId m_localUserId = AzFramework::LocalUserIdAny;
+        bool m_isContextActive = false;
+
+        // Unlike the definition of most assets, the input asset requires additional preparation after its loaded
+        // in order to actually be prepared to be used.
+        bool m_isAssetPrepared = false;
     };
 } // namespace Input

@@ -345,7 +345,7 @@ void ContainerMenuHandler::onMenuChildRemove()
 
 void PropertyRowContainer::labelChanged()
 {
-    swprintf(buttonLabel_, sizeof(buttonLabel_) / sizeof(buttonLabel_[0]), L"%i", count());
+    swprintf(buttonLabel_, sizeof(buttonLabel_) / sizeof(buttonLabel_[0]), L"%zi", count());
 }
 
 void PropertyRowContainer::serializeValue(IArchive& ar)
@@ -433,7 +433,7 @@ bool PropertyRowContainer::onKeyDown(QPropertyTree* tree, const QKeyEvent* ev)
 
 int PropertyRowContainer::widgetSizeMin(const QPropertyTree* tree) const
 {
-    return inlined_ ? 0 : (userWidgetSize() >= 0 ? userWidgetSize() : tree->_defaultRowHeight()* 1.7f);
+    return inlined_ ? 0 : (userWidgetSize() >= 0 ? userWidgetSize() : aznumeric_cast<int>(tree->_defaultRowHeight() * 1.7f));
 }
 
 #include <QPropertyTree/PropertyRowContainer.moc>

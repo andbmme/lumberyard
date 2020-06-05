@@ -22,6 +22,9 @@
 #include <AzCore/Serialization/SerializeContext.h>
 #include <AzCore/std/hash.h>
 #include <AzCore/Component/EntityUtils.h>
+#include <AzCore/Component/NamedEntityId.h>
+
+#include <Core/NamedId.h>
 
 // #define EXPRESSION_TEMPLATES_ENABLED
 
@@ -33,7 +36,16 @@ namespace AZ
 
 namespace ScriptCanvas
 {
-    static const AZ::EntityId SelfReferenceId = AZ::EntityId(0xacedc0de);
+    // A place holder identifier for the AZ::Entity that owns the graph.
+    // The actual value in each location initialized to GraphOwnerId is populated with the owning entity at editor-time, Asset Processor-time, or runtime, as soon as the owning entity is known.
+    using GraphOwnerIdType = AZ::EntityId;
+    static const GraphOwnerIdType GraphOwnerId = AZ::EntityId(0xacedc0de);
+    
+    // A place holder identifier for unique runtime graph on Entity that is running more than one instance of the same graph.
+    // This allows multiple instances of the same graph to be addressed individually on the same entity.
+    // The actual value in each location initialized to UniqueId is populated at run-time.
+    using RuntimeIdType = AZ::EntityId;
+    static const RuntimeIdType UniqueId = AZ::EntityId(0xfee1baad);
 
     class Node;
     class Edge;
@@ -43,6 +55,13 @@ namespace ScriptCanvas
     using NodePtrList = AZStd::vector<Node*>;
     using NodePtrConstList = AZStd::vector<const Node*>;
     
+    enum class ExecutionMode : AZ::u8
+    {
+        GraphTraversal,
+        Interpreted,
+        Native,
+    };
+
     struct SlotId
     {
         AZ_TYPE_INFO(SlotId, "{14C629F6-467B-46FE-8B63-48FDFCA42175}");
@@ -64,22 +83,36 @@ namespace ScriptCanvas
 
         static void Reflect(AZ::ReflectContext* context);
 
-        inline bool IsValid() const
+        bool IsValid() const
         {
             return m_id != AZ::Uuid::CreateNull();
         }
 
-        inline bool operator==(const SlotId& rhs) const
+        AZStd::string ToString() const
+        {
+            return m_id.ToString<AZStd::string>();
+        }
+
+        bool operator==(const SlotId& rhs) const
         {
             return m_id == rhs.m_id;
         }
 
-        inline bool operator!=(const SlotId& rhs) const
+        bool operator!=(const SlotId& rhs) const
         {
             return m_id != rhs.m_id;
         }
 
     };
+
+    using NamedActiveEntityId = AZ::NamedEntityId;    
+    using NamedNodeId = NamedId<AZ::EntityId>;
+    using NamedSlotId = NamedId<SlotId>;
+
+    using NodeTypeIdentifier = AZStd::size_t;
+    using EBusEventId = AZ::Crc32;
+    using EBusBusId = AZ::Crc32;
+    using ScriptCanvasId = AZ::EntityId;
 }
 
 namespace AZStd
@@ -97,30 +130,4 @@ namespace AZStd
     };
 }
 
-#if defined(SCRIPTCANVAS_ERRORS_ENABLED)
-
-#define SCRIPT_CANVAS_INFINITE_LOOP_DETECTION_COUNT (1000)
-
-#define SCRIPTCANVAS_RETURN_IF_NOT_GRAPH_RECOVERABLE(graph)\
-    if (graph.IsInIrrecoverableErrorState()) { Deactivate(); return; }
-
-#define SCRIPTCANVAS_HANDLE_ERROR(node)\
-    if ((node).GetGraph()->IsInErrorState())\
-    {\
-        (node).GetGraph()->HandleError((node));\
-    }
-
-#define SCRIPTCANVAS_REPORT_ERROR(node, ...)\
-    (node).GetGraph()->ReportError((node), __VA_ARGS__)
-
-#define SCRIPTCANVAS_RETURN_IF_ERROR_STATE(node)\
-    if ((node).GetGraph()->IsInErrorState()) { return; }  
-
-#else
-
-#define SCRIPTCANVAS_RETURN_IF_NOT_GRAPH_RECOVERABLE(graph)
-#define SCRIPTCANVAS_HANDLE_ERROR(node)
-#define SCRIPTCANVAS_REPORT_ERROR(node, ...)
-#define SCRIPTCANVAS_RETURN_IF_ERROR_STATE(node)
-
-#endif // defined(SCRIPTCANVAS_ERRORS_ENABLED)
+#define SCRIPT_CANVAS_INFINITE_LOOP_DETECTION_COUNT (2000000)

@@ -83,6 +83,18 @@ void D3DHMDRenderer::OnResolutionChanged()
 
 void D3DHMDRenderer::RenderSocialScreen()
 {
+#if defined(AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DHMDRenderer_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DHMDRenderer_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DHMDRenderer_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#else
     //Only render the social screen if we're rendering to the main viewport
     if (!gcpRendD3D->m_CurrContext->m_bMainViewport)
     {
@@ -114,6 +126,7 @@ void D3DHMDRenderer::RenderSocialScreen()
             AZ_Assert(false, "Unknown social screen type specified in HMD renderer");
             break;
     }
+#endif
 }
 
 void D3DHMDRenderer::PrepareFrame()

@@ -9,28 +9,23 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
-#ifndef AZCORE_STACKTRACER_H
-#define AZCORE_STACKTRACER_H 1
+
+#pragma once
 
 #include <AzCore/base.h>
+#include <AzCore/AzCore_Traits_Platform.h>
 
 namespace AZ
 {
     namespace Debug
     {
-#if defined(AZ_PLATFORM_WINDOWS)
-        typedef unsigned __int64 ProgramCounterType;
-#else
-        typedef void*   ProgramCounterType;
-#endif
-
         struct StackFrame
         {
             StackFrame()
                 : m_programCounter(0)  {}
             AZ_FORCE_INLINE bool IsValid() const { return m_programCounter != 0; }
 
-            ProgramCounterType  m_programCounter;       ///< Currently we store and use only the program counter.
+            uintptr_t  m_programCounter;       ///< Currently we store and use only the program counter.
         };
 
         /**
@@ -44,9 +39,9 @@ namespace AZ
             * \param frames array of frames to store the stack into.
             * \param suppressCount This specifies how many levels of the stack to hide. By default it is 0,
             *                      which will just hide this function itself.
-            * \param nativeContext pointer to native context if we don't want to capture the current one. (example PCONTEXT on windows)
+            * \param nativeThread pointer to thread native type to capture a stack other than the currently running stack
             */
-            static unsigned int Record(StackFrame* frames, unsigned int maxNumOfFrames, unsigned int suppressCount = 0, void* nativeContext = 0);
+            static unsigned int Record(StackFrame* frames, unsigned int maxNumOfFrames, unsigned int suppressCount = 0, void* nativeThread = 0);
         };
 
         class SymbolStorage
@@ -61,9 +56,11 @@ namespace AZ
 
             struct ModuleInfo
             {
+                char    m_modName[256];
                 char    m_fileName[1024];
                 u64     m_fileVersion;
                 u64     m_baseAddress;
+                u32     m_size;
             };
 
             typedef char StackLine[256];
@@ -71,11 +68,9 @@ namespace AZ
             /**
              * Use to load module info data captured at a different system.
              */
-            /// Load module data symbols (X360 export) // ACCEPTED_USE
+            /// Load module data symbols (deprecated platform export)
             static void         LoadModuleData(const void* moduleInfoData, unsigned int moduleInfoDataSize);
 
-            /// Return size in bytes of the module information. Can be used to store or transport the data
-            static unsigned int GetModuleInfoDataSize();
             /// Return pointer to the data with module information. Data is platform dependent
             static void         StoreModuleInfoData(void* data, unsigned int dataSize);
 
@@ -97,9 +92,9 @@ namespace AZ
              * IMPORTANT: textLines should point to an array of StackLine at least numFrames long.
              */
             static void     DecodeFrames(const StackFrame* frames, unsigned int numFrames, StackLine* textLines);
+
+            static void     FindFunctionFromIP(void* address, StackLine* func, StackLine* file, StackLine* module, int& line, void*& baseAddr);
         };
+
     } // namespace Debug
 } // namespace AZ
-
-#endif // AZCORE_STACKTRACER_H
-#pragma once

@@ -735,14 +735,14 @@ namespace CharacterTool {
 
             string fileExt = GetExt(filename);
 
-            bool IsCGA = (0 == stricmp(fileExt, "cga"));
+            bool IsCGA = (0 == azstricmp(fileExt, "cga"));
             if (IsCGA)
             {
                 m_compressedCharacter = m_characterManager->CreateInstance(filename, CA_CharEditModel);
                 m_uncompressedCharacter = m_characterManager->CreateInstance(filename, CA_CharEditModel);
             }
 
-            bool IsCDF = (0 == stricmp(fileExt, "cdf"));
+            bool IsCDF = (0 == azstricmp(fileExt, "cdf"));
             if (IsCDF)
             {
                 if (characterEntry->content.cdf.skeleton.empty())
@@ -774,8 +774,8 @@ namespace CharacterTool {
                 m_characterManager->ClearCDFCache();
             }
 
-            bool IsSKEL = (0 == stricmp(fileExt, CRY_SKEL_FILE_EXT));
-            bool IsSKIN = (0 == stricmp(fileExt, CRY_SKIN_FILE_EXT));
+            bool IsSKEL = (0 == azstricmp(fileExt, CRY_SKEL_FILE_EXT));
+            bool IsSKIN = (0 == azstricmp(fileExt, CRY_SKIN_FILE_EXT));
             if (IsSKEL || IsSKIN)
             {
                 m_compressedCharacter = m_characterManager->CreateInstance(filename, CA_CharEditModel);
@@ -864,7 +864,7 @@ namespace CharacterTool {
             AnimationSetFilter filter;
             {
                 string chrparamsFilename;
-                if (stricmp(PathUtil::GetExt(filename), "cga") == 0)
+                if (azstricmp(PathUtil::GetExt(filename), "cga") == 0)
                 {
                     string chrparamsFilenameForCga = PathUtil::ReplaceExtension(filename, ".chrparams");
                     if (gEnv->pCryPak->IsFileExist(chrparamsFilenameForCga.c_str()))
@@ -1101,7 +1101,7 @@ namespace CharacterTool {
             return;
         }
 
-        if (stricmp(entry->path.c_str(), m_loadedCharacterFilename.c_str()) != 0)
+        if (azstricmp(entry->path.c_str(), m_loadedCharacterFilename.c_str()) != 0)
         {
             return;
         }
@@ -1192,7 +1192,7 @@ namespace CharacterTool {
 
     void CharacterDocument::OnCharacterSavedAs(const char* oldName, const char* newName)
     {
-        if (stricmp(m_system->scene->characterPath.c_str(), oldName) == 0)
+        if (azstricmp(m_system->scene->characterPath.c_str(), oldName) == 0)
         {
             m_system->scene->characterPath = newName;
             m_system->scene->CharacterChanged();
@@ -1201,7 +1201,7 @@ namespace CharacterTool {
 
     void CharacterDocument::OnCharacterDeleted(const char* path)
     {
-        if (stricmp(m_system->scene->characterPath.c_str(), path) == 0)
+        if (azstricmp(m_system->scene->characterPath.c_str(), path) == 0)
         {
             m_system->scene->characterPath.clear();
             m_system->scene->CharacterChanged();
@@ -1728,11 +1728,11 @@ namespace CharacterTool {
             bool singleLine = l.animation.empty();
             if (!singleLine)
             {
-                renderer->Draw2dLabel(20, y, 1.5f, color, false, "%s", l.animation.c_str());
+                renderer->Draw2dLabel(20.f, aznumeric_cast<float>(y), 1.5f, color, false, "%s", l.animation.c_str());
                 y += 18;
             }
 
-            renderer->Draw2dLabel(singleLine ? 20 : 40, y, singleLine ? 1.5f : 1.2f, color, false, "%s", l.text.c_str());
+            renderer->Draw2dLabel(singleLine ? 20.f : 40.f, aznumeric_cast<float>(y), singleLine ? 1.5f : 1.2f, color, false, "%s", l.text.c_str());
             y += singleLine ? 18 : 16;
         }
     }

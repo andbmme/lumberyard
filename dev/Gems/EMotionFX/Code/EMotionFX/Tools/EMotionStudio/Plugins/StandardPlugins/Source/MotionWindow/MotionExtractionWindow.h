@@ -16,7 +16,6 @@
 // include MCore
 #include "../StandardPluginsConfig.h"
 #include <MCore/Source/StandardHeaders.h>
-#include <MCore/Source/UnicodeString.h>
 #include "../../../../EMStudioSDK/Source/NodeSelectionWindow.h"
 #include <MysticQt/Source/LinkWidget.h>
 #include <EMotionFX/Source/PlayBackInfo.h>
@@ -25,6 +24,11 @@
 
 QT_FORWARD_DECLARE_CLASS(QPushButton)
 QT_FORWARD_DECLARE_CLASS(QCheckBox)
+
+namespace MysticQt
+{
+    class LinkWidget;
+}
 
 namespace EMStudio
 {
@@ -78,7 +82,7 @@ namespace EMStudio
 
         // motion extraction node selection
         NodeSelectionWindow*            mMotionExtractionNodeSelectionWindow;
-        QWidget*                        mWarningSelectNodeLink;
+        MysticQt::LinkWidget*           mWarningSelectNodeLink;
 
         // helper functions
         void CreateFlagsWidget();

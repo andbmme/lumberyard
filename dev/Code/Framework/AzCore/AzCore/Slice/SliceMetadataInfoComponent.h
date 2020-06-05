@@ -18,8 +18,9 @@
 #pragma once
 
 #include <AzCore/Component/Component.h>
+#include <AzCore/Component/EntityBus.h>
 #include <AzCore/Slice/SliceMetadataInfoBus.h>
-#include <AzCore/Component/ComponentApplicationBus.h>
+#include <AzCore/Component/ComponentExport.h>
 
 namespace AZ
 {
@@ -36,7 +37,7 @@ namespace AZ
     class SliceMetadataInfoComponent
         : public AZ::Component
         , public SliceMetadataInfoRequestBus::Handler
-        , private ComponentApplicationEventBus::Handler
+        , public AZ::EntityBus::MultiHandler
         , public SliceMetadataInfoManipulationBus::Handler
     {
     public:
@@ -84,14 +85,14 @@ namespace AZ
         friend SliceComponent;
 
         //////////////////////////////////////////////////////////////////////////
-        // ComponentApplicationEventBus
-        void OnEntityRemoved(const AZ::EntityId& entityId) override;
+        // EntityBus
+        void OnEntityDestruction(const AZ::EntityId& entityId) override;
         //////////////////////////////////////////////////////////////////////////
 
         //////////////////////////////////////////////////////////////////////////
         // SliceMetadataInfoRequestBus
         bool IsAssociated(EntityId entityId) override;
-        void GetAssociatedEntities(AZStd::unordered_set<EntityId>& associatedEntityIds) override;
+        void GetAssociatedEntities(AZStd::set<EntityId>& associatedEntityIds) override;
         AZ::EntityId GetParentId() override;
         void GetChildIDs(AZStd::unordered_set<EntityId>& childEntityIds) override;
         size_t GetAssociationCount() override;
@@ -105,7 +106,7 @@ namespace AZ
 
         /**
         * Component Descriptor - Incompatible Services
-        * @param provided An array to fill out with all the services this component is incompatible with
+        * @param incompatible An array to fill out with all the services this component is incompatible with
         */
         static void GetIncompatibleServices(AZ::ComponentDescriptor::DependencyArrayType& incompatible);
 
@@ -120,10 +121,20 @@ namespace AZ
         */
         void CheckDependencyCount();
 
+        /**
+        * Handles the runtime export of the SliceMetadataInfoComponent.  
+        * The SliceMetadataInfo component shouldn't exist at runtime, so the export function returns a null component.
+        * @param thisComponent The source component that is being exported.
+        * @param platformTags The set of platforms to export for.
+        * @return The exported component, along with a flag on whether or not to delete it at the end of the export process.
+        */
+        AZ::ExportedComponent ExportComponent(AZ::Component* thisComponent, const AZ::PlatformTagSet& platformTags);
+
+
         SliceMetadataInfoNotificationBus::BusPtr m_notificationBus; /**< A bus pointer for emitting addressed notifications */
 
         //! Entity Association Data
-        EntityIdSet m_associatedEntities; /**< A list of editor entities associated with this slice metadata 
+        AZStd::set<AZ::EntityId> m_associatedEntities; /**< A list of editor entities associated with this slice metadata
                                             *  An associated entity is one that is new to this slice as opposed to an entity cloned
                                             *  from a referenced slice. Every editor entity should always be associated with exactly
                                             *  one metadata entity. Entities that are not part of slices are associated with the
@@ -139,5 +150,7 @@ namespace AZ
         bool m_persistent; /**< The persistence flag indicates that the object is valid even without dependencies and will not emit the
                              *  OnMetadataDependenciesRemoved notification when it's dependency count goes to 0.
                              *  For example: The Root Slice. */
+    private:
+        static bool VersionConverter(AZ::SerializeContext& context, AZ::SerializeContext::DataElementNode& classElement);
     };
 } // namespace AZ

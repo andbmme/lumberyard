@@ -9,7 +9,6 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
-#ifndef AZ_UNITY_BUILD
 
 #include <AzCore/Debug/Profiler.h>
 
@@ -89,6 +88,23 @@ namespace GridMate
             return m_replica->GetRepId();
         }
         return InvalidReplicaId;
+    }
+    //-----------------------------------------------------------------------------
+    PeerId ReplicaChunkBase::GetPeerId() const
+    {
+        PeerId peerId = InvalidReplicaPeerId;
+
+        if (m_replica != nullptr)
+        {
+            ReplicaContext context(m_replica->GetMyContext());
+
+            if (context.m_peer != nullptr)
+            {
+                peerId = context.m_peer->GetId();
+            }
+        }
+
+        return peerId;
     }
     //-----------------------------------------------------------------------------
     ReplicaManager* ReplicaChunkBase::GetReplicaManager()
@@ -266,6 +282,12 @@ namespace GridMate
             m_flags |= RepChunk_Updated;
         });
     }
+
+    bool ReplicaChunkBase::ShouldBindToNetwork()
+    {
+        return GetReplica() && GetReplica()->IsActive();
+    }
+
     //-----------------------------------------------------------------------------
     AZ::u32 ReplicaChunkBase::CalculateDirtyDataSetMask(MarshalContext& mc)
     {
@@ -286,7 +308,7 @@ namespace GridMate
             if (mc.m_marshalFlags & ReplicaMarshalFlags::Reliable)
             {
                 dataSetMask = (*m_reliableDirtyBits.data());
-            }
+        }
             else
             {
                 dataSetMask = (*m_unreliableDirtyBits.data());
@@ -743,5 +765,3 @@ namespace GridMate
         ClearPendingRPCs();
     }
 } // namespace GridMate
-
-#endif // #ifndef AZ_UNITY_BUILD

@@ -11,3 +11,14 @@
 */
 
 #pragma once
+
+#include <AzCore/Math/ToString.h>
+
+#include <PhysX/MathConversion.h>
+#include <PxPhysicsAPI.h>
+#include <AzCore/std/smart_ptr/make_shared.h>
+#include <AzCore/std/containers/vector.h>
+
+#ifndef _RELEASE
+#define AZ_PHYSICS_DEBUG_ENABLED
+#endif

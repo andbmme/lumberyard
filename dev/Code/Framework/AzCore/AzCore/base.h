@@ -9,16 +9,12 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
-#ifndef AZCORE_BASE_H
-#define AZCORE_BASE_H 1
+#pragma once
 
 #include <AzCore/PlatformDef.h> ///< Platform/compiler specific defines
+#include <AzCore/base_Platform.h>
 
-#if defined(AZ_DEBUG_BUILD) && defined(AZ_PLATFORM_WINDOWS) && !defined(AZ_PLATFORM_WINDOWS_X64)
-// for x86 we need to stop FPO (Frame Pointer Omit) so we can record good callstack fast!
-// Note: StackWalk64 is slow and used only for exceptions - where no other option is possible.
-#pragma optimize("y",off)
-#endif // defined(AZ_DEBUG_BUILD) && defined(AZ_PLATFORM_WINDOWS) && !defined(AZ_PLATFORM_WINDOWS_X64)
+#include <AzCore/AzCore_Traits_Platform.h>
 
 #ifndef AZ_ARRAY_SIZE
 /// Return an array size for static arrays.
@@ -40,120 +36,22 @@
 
 namespace AZ
 {
-    /**
-     * Enum of supported platforms. Just for user convenience.
-     */
-    enum PlatformID
+    static inline bool IsBigEndian(PlatformID /*id*/)
     {
-        PLATFORM_WINDOWS_32 = 0,
-        PLATFORM_WINDOWS_64,
-        PLATFORM_XBOX_360, // ACCEPTED_USE
-        PLATFORM_XBONE, // ACCEPTED_USE
-        PLATFORM_PS3, // ACCEPTED_USE
-        PLATFORM_PS4, // ACCEPTED_USE
-        PLATFORM_WII, // ACCEPTED_USE
-        PLATFORM_LINUX_64,
-        PLATFORM_ANDROID,       // ARMv7 / 32-bit
-        PLATFORM_APPLE_IOS,
-        PLATFORM_APPLE_OSX,
-        PLATFORM_APPLE_TV,
-        PLATFORM_ANDROID_64,    // ARMv8 / 64-bit
-        // Add new platforms here
-
-        PLATFORM_MAX  ///< Must be last
-    };
-
-#if defined(AZ_PLATFORM_WINDOWS_X64)
-    static const PlatformID g_currentPlatform = PLATFORM_WINDOWS_64;
-#elif defined(AZ_PLATFORM_WINDOWS)
-    static const PlatformID g_currentPlatform = PLATFORM_WINDOWS_32;
-#elif defined(AZ_PLATFORM_LINUX_X64)
-    static const PlatformID g_currentPlatform = PLATFORM_LINUX_64;
-#elif defined(AZ_PLATFORM_ANDROID_X32)
-    static const PlatformID g_currentPlatform = PLATFORM_ANDROID;
-#elif defined(AZ_PLATFORM_ANDROID_X64)
-    static const PlatformID g_currentPlatform = PLATFORM_ANDROID_64;
-#elif defined(AZ_PLATFORM_APPLE_IOS)
-    static const PlatformID g_currentPlatform = PLATFORM_APPLE_IOS;
-#elif defined(AZ_PLATFORM_APPLE_TV)
-    static const PlatformID g_currentPlatform = PLATFORM_APPLE_TV;
-#elif defined(AZ_PLATFORM_APPLE_OSX)
-    static const PlatformID g_currentPlatform = PLATFORM_APPLE_OSX;
-#else
-#   error Platform Not supported!
-#endif
-
-    static inline bool IsBigEndian(PlatformID id)
-    {
-        switch (id)
-        {
-        case PLATFORM_XBOX_360: // ACCEPTED_USE
-        case PLATFORM_PS3: // ACCEPTED_USE
-            return true;
-        default:
-            return false;
-        }
+        return false;
     }
 
     const char* GetPlatformName(PlatformID platform);
 } // namespace AZ
 
-#if defined(AZ_COMPILER_GCC) && ((AZ_COMPILER_GCC > 3) || ((AZ_COMPILER_GCC == 3) && (__GNUC_MINOR__ >= 4)))
-#define AZSTD_STATIC_ASSERT_BOOL_CAST(_x) ((_x) == 0 ? false : true)
-#else
-#define AZSTD_STATIC_ASSERT_BOOL_CAST(_x) (bool)(_x)
-#endif
-
 #define AZ_JOIN(X, Y) AZSTD_DO_JOIN(X, Y)
 #define AZSTD_DO_JOIN(X, Y) AZSTD_DO_JOIN2(X, Y)
 #define AZSTD_DO_JOIN2(X, Y) X##Y
 
-#ifdef AZ_COMPILER_MSVC
-#   if AZ_COMPILER_MSVC < 1600
-#       define AZ_STATIC_ASSERT(_Exp, _Str)                                        \
-    typedef ::AZ::static_assert_test<                                              \
-    sizeof(::AZ::STATIC_ASSERTION_FAILURE< AZSTD_STATIC_ASSERT_BOOL_CAST(_Exp) >)> \
-        AZ_JOIN (azstd_static_assert_typedef_, __COUNTER__)
-#   else // AZ_COMPILER_MSVC >= 1600
-#       define  AZ_STATIC_ASSERT(_Exp, _Str) static_assert((_Exp), _Str)
-#endif //
-#elif defined(AZ_COMPILER_CLANG) || defined(AZ_COMPILER_GCC)
-#   define AZ_STATIC_ASSERT(_Exp, _Str) static_assert((_Exp), _Str)
-#else
-// generic version
-namespace AZ
-{
-    template<bool x>
-    struct STATIC_ASSERTION_FAILURE;
-    template<>
-    struct STATIC_ASSERTION_FAILURE<true>
-    {
-        enum
-        {
-            value = 1
-        };
-    };
-    template<int x>
-    struct static_assert_test{};
-} //namespace AZ
-#define AZ_STATIC_ASSERT(_Exp, _Str)                                               \
-    typedef ::AZ::static_assert_test<                                              \
-    sizeof(::AZ::STATIC_ASSERTION_FAILURE< AZSTD_STATIC_ASSERT_BOOL_CAST(_Exp) >)> \
-        AZ_JOIN (azstd_static_assert_typedef_, __LINE__)
-#endif //
-
-#if defined(AZ_COMPILER_MSVC)
-#    define AZ_STRINGIZE(text) AZ_STRINGIZE_A((text))
-#    define AZ_STRINGIZE_A(arg) AZ_STRINGIZE_I arg
-#elif defined(AZ_COMPILER_MWERKS)
-#    define AZ_STRINGIZE(text) AZ_STRINGIZE_OO((text))
-#    define AZ_STRINGIZE_OO(par) AZ_STRINGIZE_I ## par
-# else
-#    define AZ_STRINGIZE(text) AZ_STRINGIZE_I(text)
-# endif
-
-# define AZ_STRINGIZE_I(text) #text
-//////////////////////////////////////////////////////////////////////////
+// LUMBERYARD_DEPRECATED_BEGIN
+#define AZ_STATIC_ASSERT(_Exp, _Str) static_assert((_Exp), _Str)
+#define AZSTD_STATIC_ASSERT_BOOL_CAST(_x) (bool)(_x)
+// LUMBERYARD_DEPRECATED_END
 
 /**
  * Macros for calling into strXXX functions. These are simple wrappers that call into the platform
@@ -166,7 +64,7 @@ namespace AZ
 #if AZ_TRAIT_USE_SECURE_CRT_FUNCTIONS
 #   define azsnprintf(_buffer, _size, ...)        _snprintf_s(_buffer, _size, _size-1, __VA_ARGS__)
 #   define azvsnprintf(_buffer, _size, ...)       _vsnprintf_s(_buffer, _size, _size-1, __VA_ARGS__)
-#   define azswnprintf(_buffer, _size, ...)       _snwprintf_s(_buffer, _size, _size-1, __VA_ARGS__)
+#   define azsnwprintf(_buffer, _size, ...)       _snwprintf_s(_buffer, _size, _size-1, __VA_ARGS__)
 #   define azvsnwprintf(_buffer, _size, ...)      _vsnwprintf_s(_buffer, _size, _size-1, __VA_ARGS__)
 #   define azstrtok(_buffer, _size, _delim, _context)  strtok_s(_buffer, _delim, _context)
 #   define azstrcat         strcat_s
@@ -178,15 +76,33 @@ namespace AZ
 #   define azstrncpy        strncpy_s
 #   define azstricmp        _stricmp
 #   define azstrnicmp       _strnicmp
-#   define isfinite         _finite
+#   define azisfinite       _finite
+#   define azltoa           _ltoa_s
+#   define azitoa           _itoa_s
+#   define azui64toa        _ui64toa_s
+#   define azswscanf        swscanf_s
+#   define azwcsicmp        _wcsicmp
+#   define azwcsnicmp       _wcsnicmp
+#   define azmemicmp        _memicmp
+
+// note: for cross-platform compatibility, do not use the return value of azfopen. On Windows, it's an errno_t and 0 indicates success. On other platforms, the return value is a FILE*, and a 0 value indicates failure.
+#   define azfopen          fopen_s
+
+#   define azsprintf(_buffer, ...)      sprintf_s(_buffer, AZ_ARRAY_SIZE(_buffer), __VA_ARGS__)
+#   define azstrlwr         _strlwr_s
+#   define azvsprintf       vsprintf_s
+#   define azwcscpy         wcscpy_s
+#   define azstrtime        _strtime_s
+#   define azstrdate        _strdate_s
+#   define azlocaltime(time, result) localtime_s(result, time)
 #else
 #   define azsnprintf       snprintf
 #   define azvsnprintf      vsnprintf
 #   if AZ_TRAIT_COMPILER_DEFINE_AZSWNPRINTF_AS_SWPRINTF
-#       define azswnprintf  swprintf
+#       define azsnwprintf  swprintf
 #       define azvsnwprintf vswprintf
 #   else
-#       define azswnprintf  snwprintf
+#       define azsnwprintf  snwprintf
 #       define azvsnwprintf vsnwprintf
 #   endif
 #   define azstrtok(_buffer, _size, _delim, _context)  strtok(_buffer, _delim)
@@ -197,19 +113,38 @@ namespace AZ
 #   define azstrncpy(_dest, _destSize, _src, _count) strncpy(_dest, _src, _count)
 #   define azstricmp        strcasecmp
 #   define azstrnicmp       strncasecmp
+#   if defined(NDK_REV_MAJOR) && NDK_REV_MAJOR < 16
+#       define azisfinite   __isfinitef
+#   else
+#       define azisfinite   isfinite
+#   endif
+#   define azltoa(_value, _buffer, _size, _radix) ltoa(_value, _buffer, _radix)
+#   define azitoa(_value, _buffer, _size, _radix) itoa(_value, _buffer, _radix)
+#   define azui64toa(_value, _buffer, _size, _radix) _ui64toa(_value, _buffer, _radix)
+#   define azswscanf        swscanf
+#   define azwcsicmp        wcsicmp
+#   define azwcsnicmp       wcsnicmp
+#   define azmemicmp        memicmp
+
+// note: for cross-platform compatibility, do not use the return value of azfopen. On Windows, it's an errno_t and 0 indicates success. On other platforms, the return value is a FILE*, and a 0 value indicates failure.
+#   define azfopen(_fp, _filename, _attrib) *(_fp) = fopen(_filename, _attrib)
+
+#   define azsprintf       sprintf
+#   define azstrlwr(_buffer, _size)             strlwr(_buffer)
+#   define azvsprintf       vsprintf
+#   define azwcscpy(_dest, _size, _buffer)      wcscpy(_dest, _buffer)
+#   define azstrtime        _strtime
+#   define azstrdate        _strdate
+#   define azlocaltime      localtime_r
 #endif
 
-#if defined(AZ_PLATFORM_APPLE) || defined(AZ_PLATFORM_ANDROID) || defined(AZ_PLATFORM_LINUX)
+#if AZ_TRAIT_USE_POSIX_STRERROR_R
 #   define azstrerror_s(_dst, _num, _err)   strerror_r(_err, _dst, _num)
 #else
 #   define azstrerror_s strerror_s
 #endif
 
-#ifdef AZ_OS64
 #define AZ_INVALID_POINTER  reinterpret_cast<void*>(0x0badf00dul)
-#else
-#define AZ_INVALID_POINTER  reinterpret_cast<void*>(0x0badf00d)
-#endif
 
 // Variadic MACROS util functions
 
@@ -268,13 +203,6 @@ namespace AZ
 // Based on boost macro expansion fix...
 #define AZ_PREVENT_MACRO_SUBSTITUTION
 
-// Windows X64 bad crt code
-#ifdef AZ_PLATFORM_WINDOWS_X64
-#   pragma warning( push )
-#   pragma warning( disable : 4985 ) // warning C4985: 'ceil': attributes not present on previous declaration.
-#   include <math.h>
-#   pragma warning( pop )
-#endif
 
 //////////////////////////////////////////////////////////////////////////
 
@@ -289,13 +217,10 @@ using std::ptrdiff_t;
  * they have native type equivalent, which should take precedence.
  */
 
-#if AZ_TRAIT_COMPILER_INCLUDE_CSTDINT
 #include <cstdint>
-#endif
 
 namespace AZ
 {
-#if AZ_TRAIT_COMPILER_INCLUDE_CSTDINT
     typedef int8_t    s8;
     typedef uint8_t   u8;
     typedef int16_t   s16;
@@ -310,19 +235,6 @@ namespace AZ
     typedef uint64_t  u64;
 #   endif //
 
-#else
-    typedef char                    s8;
-    typedef unsigned char           u8;
-    typedef short                   s16;
-    typedef unsigned short          u16;
-    typedef int                     s32;
-    typedef unsigned int            u32;
-
-    #if defined(AZ_COMPILER_MSVC)
-    typedef __int64                 s64;
-    typedef unsigned __int64        u64;
-    #endif
-#endif
 
     typedef struct
     {
@@ -334,10 +246,10 @@ namespace AZ
     } u128;
 
     template<typename T>
-    inline T SizeAlignUp(T s, size_t a) { return (s+(a-1)) & ~(a-1); }
+    inline T SizeAlignUp(T s, size_t a) { return static_cast<T>((s+(a-1)) & ~(a-1)); }
 
     template<typename T>
-    inline T SizeAlignDown(T s, size_t a)   { return (s) & ~(a-1); }
+    inline T SizeAlignDown(T s, size_t a) { return static_cast<T>((s) & ~(a-1)); }
 
     template<typename T>
     inline T* PointerAlignUp(T* p, size_t a)    { return reinterpret_cast<T*>((reinterpret_cast<size_t>(p)+(a-1)) & ~(a-1));    }
@@ -352,7 +264,7 @@ namespace AZ
     template<typename T, typename S>
     T AliasCast(S source)
     {
-        AZ_STATIC_ASSERT(sizeof(T) == sizeof(S), "Source and target should be the same size!");
+        static_assert(sizeof(T) == sizeof(S), "Source and target should be the same size!");
         union
         {
             S source;
@@ -363,15 +275,6 @@ namespace AZ
     }
 }
 
-// Platform includes
-#ifdef AZ_PLATFORM_WINDOWS
-#elif defined(AZ_PLATFORM_LINUX)
-
-#elif defined(AZ_PLATFORM_ANDROID)
-#elif defined(AZ_PLATFORM_APPLE)
-#else
-    #error Invalid platform
-#endif
 
 #include <AzCore/Debug/Trace.h> // Global access to AZ_Assert,AZ_Error,AZ_Warning, etc.
 
@@ -379,43 +282,49 @@ namespace AZ
 // with SSE and __force_inline. This is not longer an issue, so we can just deprecate this.
 # define AZ_MATH_FORCE_INLINE AZ_FORCE_INLINE
 
-#if defined(AZ_COMPILER_SNC)
-// warning 1646: two-argument (aligned) member new missing -- using single argument version <-- we handle this in our memory manager
-#pragma diag_suppress=1646
-#endif
-
 
 // \ref AZ::AliasCast
 #define azalias_cast AZ::AliasCast
 
 // Macros to disable the auto-generated copy/move constructors and assignment operators for a class
-#define AZ_DISABLE_COPY(_Class) _Class(const _Class&) = delete; _Class& operator=(const _Class&) = delete;
-#define AZ_DISABLE_MOVE(_Class) _Class(const _Class&&) = delete; _Class& operator=(const _Class&&) = delete;
-#define AZ_DISABLE_COPY_MOVE(_Class) AZ_DISABLE_COPY(_Class) AZ_DISABLE_MOVE(_Class)
+// Note: AZ_DISABLE_COPY must also set the move constructor and move assignment operator
+// to `=default`, otherwise they will be implicitly disabled by the compiler.
+// If you wish to implement your own move constructor and assignment operator, you must
+// explicitly delete the copy and assignment operator without the use of this macro.
+#define AZ_DISABLE_COPY(_Class) \
+    _Class(const _Class&) = delete; _Class& operator=(const _Class&) = delete; \
+    _Class(_Class&&) = default; _Class& operator=(_Class&&) = default;
+// Note: AZ_DISABLE_MOVE is DEPRECATED and will be removed.
+// The preferred approach to use if a type is to be copy only is to simply provide copy and
+// assignment operators (either `=default` or user provided), moves will be implicitly disabled.
+#define AZ_DISABLE_MOVE(_Class) \
+    _Class(_Class&&) = delete; _Class& operator=(_Class&&) = delete;
+// Note: Setting the move constructor and move assignment operator to `=delete` here is not
+// strictly necessary (as they will be implicitly disabled when the copy/assignment operators
+// are declared) but is done to be explicit that this is the intention.
+#define AZ_DISABLE_COPY_MOVE(_Class) \
+    _Class(const _Class&) = delete; _Class& operator=(const _Class&) = delete; AZ_DISABLE_MOVE(_Class)
 
 // Macros to default the auto-generated copy/move constructors and assignment operators for a class
 #define AZ_DEFAULT_COPY(_Class) _Class(const _Class&) = default; _Class& operator=(const _Class&) = default;
-// MSVC only supports default move constructors and assignment operators starting from version 14.0,
-// so we can't add macros for AZ_DEFAULT_MOVE/AZ_DEFAULT_COPY_MOVE while we're supporting MSVC 12.0
+#define AZ_DEFAULT_MOVE(_Class) _Class(_Class&&) = default; _Class& operator=(_Class&&) = default;
+#define AZ_DEFAULT_COPY_MOVE(_Class) AZ_DEFAULT_COPY(_Class) AZ_DEFAULT_MOVE(_Class)
 
 // Macro that can be used to avoid unreferenced variable warnings
 #define AZ_UNUSED(x) (void)x;
 
 #define AZ_DEFINE_ENUM_BITWISE_OPERATORS(EnumType) \
-inline EnumType operator | (EnumType a, EnumType b) \
+inline constexpr EnumType operator | (EnumType a, EnumType b) \
     { return EnumType(((AZStd::underlying_type<EnumType>::type)a) | ((AZStd::underlying_type<EnumType>::type)b)); } \
-inline EnumType &operator |= (EnumType &a, EnumType b) \
-    { return (EnumType &)(((AZStd::underlying_type<EnumType>::type &)a) |= ((AZStd::underlying_type<EnumType>::type)b)); } \
-inline EnumType operator & (EnumType a, EnumType b) \
+inline constexpr EnumType& operator |= (EnumType &a, EnumType b) \
+    { return a = a | b; } \
+inline constexpr EnumType operator & (EnumType a, EnumType b) \
     { return EnumType(((AZStd::underlying_type<EnumType>::type)a) & ((AZStd::underlying_type<EnumType>::type)b)); } \
-inline EnumType &operator &= (EnumType &a, EnumType b) \
-    { return (EnumType &)(((AZStd::underlying_type<EnumType>::type &)a) &= ((AZStd::underlying_type<EnumType>::type)b)); } \
-inline EnumType operator ~ (EnumType a) \
+inline constexpr EnumType& operator &= (EnumType &a, EnumType b) \
+    { return a = a & b; } \
+inline constexpr EnumType operator ~ (EnumType a) \
     { return EnumType(~((AZStd::underlying_type<EnumType>::type)a)); } \
-inline  EnumType operator ^ (EnumType a, EnumType b) \
+inline constexpr EnumType operator ^ (EnumType a, EnumType b) \
     { return EnumType(((AZStd::underlying_type<EnumType>::type)a) ^ ((AZStd::underlying_type<EnumType>::type)b)); } \
-inline EnumType &operator ^= (EnumType &a, EnumType b) \
-    { return (EnumType &)(((AZStd::underlying_type<EnumType>::type &)a) ^= ((AZStd::underlying_type<EnumType>::type)b)); }
-
-#endif // AZCORE_BASE_H
-#pragma once
+inline constexpr EnumType& operator ^= (EnumType &a, EnumType b) \
+    { return a = a ^ b; }

@@ -17,7 +17,6 @@
 #include "CrySimpleJobCache.hpp"
 #include <Core/Common.h>
 #include <Core/Error.hpp>
-#include <unordered_map>
 
 
 class CCrySimpleJobCompile
@@ -29,18 +28,17 @@ public:
 
     virtual bool                            Execute(const TiXmlElement* pElement);
 
-    static volatile long            GlobalCompileTasks(){return m_GlobalCompileTasks; }
-    static volatile long            GlobalCompileTasksMax(){return m_GlobalCompileTasksMax; }
+    static long            GlobalCompileTasks(){return m_GlobalCompileTasks; }
+    static long            GlobalCompileTasksMax(){return m_GlobalCompileTasksMax; }
 
 private:
-    static volatile AtomicCountType             m_GlobalCompileTasks;
-    static volatile AtomicCountType             m_GlobalCompileTasksMax;
+    static AZStd::atomic_long             m_GlobalCompileTasks;
+    static AZStd::atomic_long             m_GlobalCompileTasksMax;
     static volatile int32_t             m_RemoteServerID;
     static volatile int64_t m_GlobalCompileTime;
 
     EProtocolVersion                    m_Version;
     std::vector<uint8_t>*           m_pRVec;
-    std::unordered_map<std::string, std::string> m_platformToCompilerMap;
 
     virtual size_t                      SizeOf(std::vector<uint8_t>& rVec) = 0;
 
@@ -51,9 +49,9 @@ class CCompilerError
     : public ICryError
 {
 public:
-    CCompilerError(std::string entry, std::string errortext, std::string ccs, std::string IP,
-        std::string requestLine, std::string program, std::string project,
-        std::string platform, std::string tags, std::string profile);
+    CCompilerError(const std::string& entry, const std::string& errortext, const std::string& ccs, const std::string& IP,
+        const std::string& requestLine, const std::string& program, const std::string& project,
+        const std::string& platform, const std::string& compiler, const std::string& language, const std::string& tags, const std::string& profile);
 
     virtual ~CCompilerError() {}
 
@@ -85,7 +83,7 @@ private:
 
     std::string m_entry, m_errortext, m_hasherrors, m_IP,
                 m_program, m_project, m_shader,
-                m_platform, m_tags, m_profile;
+                m_platform, m_compiler, m_language, m_tags, m_profile;
     int m_uniqueID;
 
     friend CCompilerError;

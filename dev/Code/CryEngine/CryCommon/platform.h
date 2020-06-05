@@ -1,6 +1,6 @@
 /*
 * All or portions of this file Copyright (c) Amazon.com, Inc. or its affiliates or
-* its licensors.	
+* its licensors.
 *
 * For complete copyright and license terms please see the LICENSE at the root of this
 * distribution (the "License"). All use of this software is governed by the License,
@@ -14,10 +14,26 @@
 // Description : Platform dependend stuff.
 //               Include this file instead of windows h
 
-
-#ifndef CRYINCLUDE_CRYCOMMON_PLATFORM_H
-#define CRYINCLUDE_CRYCOMMON_PLATFORM_H
 #pragma once
+
+#if defined(AZ_RESTRICTED_PLATFORM)
+#undef AZ_RESTRICTED_SECTION
+#define PLATFORM_H_SECTION_1 1
+#define PLATFORM_H_SECTION_2 2
+#define PLATFORM_H_SECTION_3 3
+#define PLATFORM_H_SECTION_4 4
+#define PLATFORM_H_SECTION_5 5
+#define PLATFORM_H_SECTION_6 6
+#define PLATFORM_H_SECTION_7 7
+#define PLATFORM_H_SECTION_8 8
+#define PLATFORM_H_SECTION_9 9
+#define PLATFORM_H_SECTION_10 10
+#define PLATFORM_H_SECTION_11 11
+#define PLATFORM_H_SECTION_12 12
+#define PLATFORM_H_SECTION_13 13
+#define PLATFORM_H_SECTION_14 14
+#define PLATFORM_H_SECTION_15 15
+#endif
 
 #if !defined(_WIN32_WINNT)
 #define _WIN32_WINNT 0x0600
@@ -31,34 +47,26 @@
 // #define _DISALLOW_ENUM_CLASS
 
 #if defined(_MSC_VER)
-    #if (_MSC_VER >= 1700)
-        #define _ALLOW_KEYWORD_MACROS
-    #endif
-
-    #if (_MSC_FULL_VER < 180031101)
-        #define _DISALLOW_INITIALIZER_LISTS
-        #define _DISALLOW_ENUM_CLASS
-    #endif
+    #define _ALLOW_KEYWORD_MACROS
 
     #define alignof _alignof
+    #if !defined(_HAS_EXCEPTIONS)
+        #define _HAS_EXCEPTIONS 0
+    #endif
 #elif defined(__GNUC__)
     #define alignof __alignof__
 #endif
 
 // Alignment|InitializerList support.
-#if defined(_MSC_VER) && (_MSC_VER >= 1800)
-    #define _ALLOW_INITIALIZER_LISTS
-#elif defined(__GNUC__) || defined(__clang__)
-    #define _ALLOW_INITIALIZER_LISTS
-#endif
+#define _ALLOW_INITIALIZER_LISTS
 
 #if (defined(LINUX) && !defined(ANDROID)) || defined(APPLE)
 #define _FILE_OFFSET_BITS 64 // define large file support > 2GB
 #endif
 
-#if defined(NOT_USE_CRY_MEMORY_MANAGER)
+#include <AzCore/PlatformIncl.h>
+
 #include <cstring>
-#endif
 
 #if defined(_MSC_VER) // We want the class name to be included, but __FUNCTION__ doesn't contain that on GCC/clang
     #define __FUNC__ __FUNCTION__
@@ -66,7 +74,19 @@
     #define __FUNC__ __PRETTY_FUNCTION__
 #endif
 
-#if   defined(_DEBUG) && !defined(LINUX) && !defined(APPLE)
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION PLATFORM_H_SECTION_1
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/platform_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/platform_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/platform_h_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#elif defined(_DEBUG) && !defined(LINUX) && !defined(APPLE)
     #include <crtdbg.h>
 #endif
 
@@ -107,7 +127,21 @@
 //////////////////////////////////////////////////////////////////////////
 // Available predefined compiler macros for Visual C++.
 //      _MSC_VER                                        // Indicates MS Visual C compiler version
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION PLATFORM_H_SECTION_2
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/platform_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/platform_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/platform_h_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#else
 //      _WIN32, _WIN64       // Indicates target OS
+#endif
 //      _M_IX86, _M_PPC                         // Indicates target processor
 //      _DEBUG                                          // Building in Debug mode
 //      _DLL                                                // Linking with DLL runtime libs
@@ -124,8 +158,20 @@
     #define NDEBUG
 #endif
 
-#if   defined(MOBILE)
-	#define CONSOLE
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION PLATFORM_H_SECTION_3
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/platform_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/platform_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/platform_h_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#elif defined(MOBILE)
+    #define CONSOLE
 #endif
 
 //render thread settings, as this is accessed inside 3dengine and renderer and needs to be compile time defined, we need to do it here
@@ -140,11 +186,25 @@
 
 
 // We use WIN macros without _.
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION PLATFORM_H_SECTION_4
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/platform_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/platform_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/platform_h_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#else
 #if defined(_WIN32) && !defined(LINUX32) && !defined(LINUX64) && !defined(APPLE) && !defined(WIN32)
     #define WIN32
 #endif
 #if defined(_WIN64) && !defined(WIN64)
     #define WIN64
+#endif
 #endif
 
 // In Win32 Release we use static linkage
@@ -158,28 +218,52 @@
 
 #endif //WIN32
 
-#if   defined(LINUX) || defined(APPLE)
-	#define __STDC_FORMAT_MACROS
-	#include <inttypes.h>
-	#if defined(APPLE) || defined(LINUX64)
-	// int64 is not the same type as the operating system's int64_t
-		#undef PRIX64
-		#undef PRIx64
-		#undef PRId64
-		#undef PRIu64
-		#define PRIX64 "llX"
-		#define PRIx64 "llx"
-		#define PRId64 "lld"
-		#define PRIu64 "llu"
-	#endif
-	#define PLATFORM_I64(x) x##ll
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION PLATFORM_H_SECTION_5
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/platform_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/platform_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/platform_h_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#elif defined(LINUX) || defined(APPLE)
+    #define __STDC_FORMAT_MACROS
+    #include <inttypes.h>
+    #if defined(APPLE) || defined(LINUX64)
+    // int64 is not the same type as the operating system's int64_t
+        #undef PRIX64
+        #undef PRIx64
+        #undef PRId64
+        #undef PRIu64
+        #define PRIX64 "llX"
+        #define PRIx64 "llx"
+        #define PRId64 "lld"
+        #define PRIu64 "llu"
+    #endif
+    #define PLATFORM_I64(x) x##ll
 #else
-	#include <inttypes.h>
-	#define PLATFORM_I64(x) x##i64
+    #include <inttypes.h>
+    #define PLATFORM_I64(x) x##i64
 #endif
 
 #if !defined(PRISIZE_T)
-    #if   defined(WIN64)
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION PLATFORM_H_SECTION_6
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/platform_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/platform_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/platform_h_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+    #elif defined(WIN64)
         #define PRISIZE_T "I64u" //size_t defined as unsigned __int64
     #elif defined(WIN32) || defined(LINUX32)
         #define PRISIZE_T "u"
@@ -190,7 +274,19 @@
     #endif
 #endif
 #if !defined(PRI_THREADID)
-    #if   defined(MAC) || defined(IOS) && defined(__LP64__) || defined(APPLETV) && defined(__LP64__)
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION PLATFORM_H_SECTION_7
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/platform_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/platform_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/platform_h_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+    #elif defined(MAC) || defined(IOS) && defined(__LP64__) || defined(APPLETV) && defined(__LP64__)
         #define PRI_THREADID "lld"
     #elif defined(LINUX64) || defined(ANDROID)
         #define PRI_THREADID "ld"
@@ -241,7 +337,7 @@
   #define PRINTF_EMPTY_FORMAT ""
 #endif
 
-#if defined(IOS) || defined(APPLETV) || (defined(ANDROID) && defined(__clang__))
+#if defined(IOS) || defined(APPLETV)
 #define USE_PTHREAD_TLS
 #endif
 
@@ -249,11 +345,7 @@
 // THEADLOCAL should NOT be defined to empty because that creates some
 // really hard to find issues.
 #if !defined(USE_PTHREAD_TLS)
-#if defined(__GNUC__) || defined(MAC)
-    #define THREADLOCAL __thread
-#else
-    #define THREADLOCAL __declspec(thread)
-#endif
+#   define THREADLOCAL AZ_TRAIT_COMPILER_THREAD_LOCAL
 #endif //!defined(USE_PTHREAD_TLS)
 
 
@@ -288,29 +380,38 @@ static inline void  __dmb()
     #define MEMORY_RW_REORDERING_BARRIER do { /*not implemented*/} while (0)
 
 //default stack size for threads, currently only used on pthread platforms
-#if   defined(LINUX) || defined(APPLE)
-	#if !defined(_DEBUG)
-		#define SIMPLE_THREAD_STACK_SIZE_KB (256)
-	#else
-		#define SIMPLE_THREAD_STACK_SIZE_KB (256 * 4)
-	#endif
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION PLATFORM_H_SECTION_8
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/platform_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/platform_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/platform_h_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#elif defined(LINUX) || defined(APPLE)
+    #if !defined(_DEBUG)
+        #define SIMPLE_THREAD_STACK_SIZE_KB (256)
+    #else
+        #define SIMPLE_THREAD_STACK_SIZE_KB (256 * 4)
+    #endif
 #else
-	#define SIMPLE_THREAD_STACK_SIZE_KB (32)
+    #define SIMPLE_THREAD_STACK_SIZE_KB (32)
 #endif
 
+#include <AzCore/PlatformDef.h>
 
-#if defined(__GNUC__)
-    #define DLL_EXPORT __attribute__ ((visibility("default")))
-    #define DLL_IMPORT __attribute__ ((visibility("default")))
-#else
-    #if defined(AZ_MONOLITHIC_BUILD)
-        #define DLL_EXPORT
-        #define DLL_IMPORT
-    #else // AZ_MONOLITHIC_BUILD
-        #define DLL_EXPORT __declspec(dllexport)
-        #define DLL_IMPORT __declspec(dllimport)
-    #endif // AZ_MONOLITHIC_BUILD
-#endif
+#if defined(AZ_MONOLITHIC_BUILD)
+    #define DLL_EXPORT
+    #define DLL_IMPORT
+#else // AZ_MONOLITHIC_BUILD
+    #define DLL_EXPORT AZ_DLL_EXPORT
+    #define DLL_IMPORT AZ_DLL_IMPORT
+#endif // AZ_MONOLITHIC_BUILD
+
 
 //////////////////////////////////////////////////////////////////////////
 // Define BIT macro for use in enums and bit masks.
@@ -352,6 +453,19 @@ static inline void  __dmb()
 #endif
 
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION PLATFORM_H_SECTION_9
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/platform_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/platform_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/platform_h_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#else
     #if defined(WIN32) && !defined(WIN64)
         #include "Win32specific.h"
     #endif
@@ -359,6 +473,7 @@ static inline void  __dmb()
     #if defined(WIN64)
         #include "Win64specific.h"
     #endif
+#endif
 
 #if defined(LINUX64) && !defined(ANDROID)
 #include "Linux64Specific.h"
@@ -373,7 +488,16 @@ static inline void  __dmb()
 #endif
 
 
-
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION PLATFORM_H_SECTION_10
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/platform_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/platform_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/platform_h_salem.inl"
+    #endif
+#endif
 
 #if defined(MAC)
 #include "MacSpecific.h"
@@ -437,27 +561,7 @@ ILINE DestinationType alias_cast(SourceType pPtr)
 
 //////////////////////////////////////////////////////////////////////////
 
-/////////////////////////////////////////////////////////////////////////
-// CryModule memory manager routines must always be included.
-// They are used by any module which doesn't define NOT_USE_CRY_MEMORY_MANAGER
-// No Any STL includes must be before this line.
-//////////////////////////////////////////////////////////////////////////
-#if 1  //#ifndef NOT_USE_CRY_MEMORY_MANAGER
-#define USE_NEWPOOL
 #include "CryMemoryManager.h"
-#else
-namespace CryMemory
-{
-    inline int IsHeapValid()
-    {
-    #if defined(_DEBUG) && !defined(RELEASE_RUNTIME)
-        return _CrtCheckMemory();
-    #else
-        return true;
-    #endif
-    }
-}
-#endif // NOT_USE_CRY_MEMORY_MANAGER
 
 // Memory manager breaks strdup
 // Use something higher level, like CryString
@@ -473,13 +577,8 @@ namespace CryMemory
 //////////////////////////////////////////////////////////////////////////
 // compile time error stuff
 //////////////////////////////////////////////////////////////////////////
-template<bool>
-struct CompileTimeError;
-template<>
-struct CompileTimeError<true> {};
 #undef STATIC_CHECK
-#define STATIC_CHECK(expr, msg) \
-    { CompileTimeError<((expr) != 0)> ERROR_##msg; (void)ERROR_##msg; }
+#define STATIC_CHECK(expr, msg) static_assert(expr, #msg)
 
 // Assert dialog box macros
 #include "CryAssert.h"
@@ -503,15 +602,18 @@ void   CryGetCurrentDirectory(unsigned int nBufferLength, char* lpBuffer);
 short  CryGetAsyncKeyState(int vKey);
 unsigned int CryGetFileAttributes(const char* lpFileName);
 
-#if defined(LINUX) || defined(APPLE)
-#define CrySwprintf swprintf
-#else
-#define CrySwprintf _snwprintf
-#endif
-
 inline void CryHeapCheck()
 {
-#if   !defined(LINUX) && !defined(APPLE) // todo: this might be readded with later xdks?
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION PLATFORM_H_SECTION_11
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/platform_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/platform_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/platform_h_salem.inl"
+    #endif
+#elif !defined(LINUX) && !defined(APPLE) // todo: this might be readded with later xdks?
     int Result = _heapchk();
     assert(Result != _HEAPBADBEGIN);
     assert(Result != _HEAPBADNODE);
@@ -678,8 +780,16 @@ void SetFlags(T& dest, U flags, bool b)
 // Wrapper code for non-windows builds.
 #if defined(LINUX) || defined(APPLE)
     #include "Linux_Win32Wrapper.h"
+#elif defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION PLATFORM_H_SECTION_12
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/platform_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/platform_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/platform_h_salem.inl"
+    #endif
 #endif
-
 
 // Platform wrappers must be included before CryString.h
 #   include "CryString.h"
@@ -748,11 +858,11 @@ __declspec(dllimport) int __stdcall TlsSetValue(unsigned long dwTlsIndex, void* 
     #define TLS_DEFINE_DEFAULT_VALUE(type, var, value)                                \
     int var##idx;                                                                     \
     struct Init##var {                                                                \
-        Init##var() { var##idx = TlsAlloc(); TlsSetValue(var##idx, (void*)(value)); } \
+        Init##var() { var##idx = TlsAlloc(); TlsSetValue(var##idx, reinterpret_cast<void*>(value)); } \
     };                                                                                \
     Init##var g_init##var;
     #define TLS_GET(type, var) (type)TlsGetValue(var##idx)
-    #define TLS_SET(var, val) TlsSetValue(var##idx, (void*)(val))
+    #define TLS_SET(var, val) TlsSetValue(var##idx, reinterpret_cast<void*>(val))
 #elif defined(USE_PTHREAD_TLS)
     #define TLS_DECLARE(_TYPE, _VAR) extern SCryPthreadTLS<_TYPE> _VAR##TLSKey;
     #define TLS_DEFINE(_TYPE, _VAR) SCryPthreadTLS<_TYPE> _VAR##TLSKey;
@@ -773,7 +883,16 @@ __declspec(dllimport) int __stdcall TlsSetValue(unsigned long dwTlsIndex, void* 
     #error "There's no support for thread local storage"
 #endif
 
-#if   !defined(LINUX) && !defined(APPLE)
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION PLATFORM_H_SECTION_13
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/platform_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/platform_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/platform_h_salem.inl"
+    #endif
+#elif !defined(LINUX) && !defined(APPLE)
 typedef int socklen_t;
 #endif
 
@@ -802,19 +921,711 @@ typedef int socklen_t;
 
 // In RELEASE disable printf and fprintf
 #if defined(_RELEASE) && !defined(RELEASE_LOGGING)
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION PLATFORM_H_SECTION_14
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/platform_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/platform_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/platform_h_salem.inl"
+    #endif
+    #endif
 #endif
 
 #define _STRINGIFY(x) #x
 #define STRINGIFY(x) _STRINGIFY(x)
 
-#if   defined(WIN32) || defined(WIN64)
-	#define MESSAGE(msg) message(__FILE__ "(" STRINGIFY(__LINE__) "): " msg)
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION PLATFORM_H_SECTION_15
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/platform_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/platform_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/platform_h_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#elif defined(WIN32) || defined(WIN64)
+    #define MESSAGE(msg) message(__FILE__ "(" STRINGIFY(__LINE__) "): " msg)
 #else
-	#define MESSAGE(msg)
+    #define MESSAGE(msg)
 #endif
 
-#if !defined(BINFOLDER_NAME)
-#error ("BINFOLDER_NAME not defined in the project preprocessor settings")
-#endif
 
-#endif // CRYINCLUDE_CRYCOMMON_PLATFORM_H
+template <class T>
+class StaticInstanceSpecialization
+{
+};
+
+// Specializations for std::vector and std::map which allows us to modify the 
+// least amount of legacy code by mirroring the std APIs that are in use
+// These are not intended to be complete, just enough to shim existing legacy code
+template <typename U, class A>
+class StaticInstanceSpecialization<std::vector<U, A>>
+{
+public:
+    using Container = std::vector<U, A>;
+    using reference = typename Container::reference;
+    using const_reference = typename Container::const_reference;
+    using iterator = typename Container::iterator;
+    using const_iterator = typename Container::const_iterator;
+    using pointer = typename Container::pointer;
+    using const_pointer = typename Container::const_pointer;
+    using size_type = typename Container::size_type;
+
+    template <class Integral>
+    AZ_FORCE_INLINE 
+    typename AZStd::enable_if<AZStd::is_integral<Integral>::value, reference>::type
+    operator[](Integral index)
+    {
+        return get()[size_type(index)];
+    }
+
+    template <class Integral>
+    AZ_FORCE_INLINE
+    typename AZStd::enable_if<AZStd::is_integral<Integral>::value, const_reference>::type
+    operator[](Integral index) const
+    {
+        return get()[size_type(index)];
+    }
+
+    AZ_FORCE_INLINE iterator begin()
+    {
+        return get().begin();
+    }
+
+    AZ_FORCE_INLINE const_iterator begin() const
+    {
+        return get().begin();
+    }
+
+    AZ_FORCE_INLINE iterator end()
+    {
+        return get().end();
+    }
+
+    AZ_FORCE_INLINE const_iterator end() const
+    {
+        return get().end();
+    }
+
+    AZ_FORCE_INLINE iterator erase(iterator it)
+    {
+        return get().erase(it);
+    }
+
+    AZ_FORCE_INLINE iterator erase(iterator first, iterator last)
+    {
+        return get().erase(first, last);
+    }
+
+    AZ_FORCE_INLINE void resize(size_t size)
+    {
+        get().resize(size);
+    }
+
+    AZ_FORCE_INLINE void reserve(size_t size)
+    {
+        get().reserve(size);
+    }
+
+    AZ_FORCE_INLINE void clear()
+    {
+        get().clear();
+    }
+
+    AZ_FORCE_INLINE size_type size()
+    {
+        return get().size();
+    }
+
+    AZ_FORCE_INLINE void push_back(U&& val)
+    {
+        get().push_back(val);
+    }
+
+    AZ_FORCE_INLINE void push_back(const U& val)
+    {
+        get().push_back(val);
+    }
+
+    AZ_FORCE_INLINE bool empty() const
+    {
+        return get().empty();
+    }
+
+    AZ_FORCE_INLINE iterator insert(U&& val)
+    {
+        return get().insert(val);
+    }
+
+    AZ_FORCE_INLINE iterator insert(iterator it, U&& val)
+    {
+        return get().insert(it, val);
+    }
+
+    AZ_FORCE_INLINE reference front()
+    {
+        return get().front();
+    }
+
+    AZ_FORCE_INLINE const_reference front() const
+    {
+        return get().front();
+    }
+
+    AZ_FORCE_INLINE reference back()
+    {
+        return get().back();
+    }
+
+    AZ_FORCE_INLINE const_reference back() const
+    {
+        return get().back();
+    }
+
+    AZ_FORCE_INLINE void pop_back()
+    {
+        get().pop_back();
+    }
+
+    AZ_FORCE_INLINE pointer data()
+    {
+        return get().data();
+    }
+
+    AZ_FORCE_INLINE const_pointer data() const
+    {
+        return get().data();
+    }
+
+    void swap(Container& other)
+    {
+        get().swap(other);
+    }
+
+private:
+    Container& get() const;
+};
+
+
+template <typename U, class A>
+class StaticInstanceSpecialization<std::list<U, A>>
+{
+public:
+    using Container = std::list<U, A>;
+    using reference = typename Container::reference;
+    using const_reference = typename Container::const_reference;
+    using iterator = typename Container::iterator;
+    using const_iterator = typename Container::const_iterator;
+    using pointer = typename Container::pointer;
+    using const_pointer = typename Container::const_pointer;
+    using size_type = typename Container::size_type;
+
+    AZ_FORCE_INLINE iterator begin()
+    {
+        return get().begin();
+    }
+
+    AZ_FORCE_INLINE const_iterator begin() const
+    {
+        return get().begin();
+    }
+
+    AZ_FORCE_INLINE iterator end()
+    {
+        return get().end();
+    }
+
+    AZ_FORCE_INLINE const_iterator end() const
+    {
+        return get().end();
+    }
+
+    AZ_FORCE_INLINE iterator erase(iterator it)
+    {
+        return get().erase(it);
+    }
+
+    AZ_FORCE_INLINE iterator erase(iterator first, iterator last)
+    {
+        return get().erase(first, last);
+    }
+
+    AZ_FORCE_INLINE void resize(size_t size)
+    {
+        get().resize(size);
+    }
+
+    AZ_FORCE_INLINE void reserve(size_t size)
+    {
+        get().reserve(size);
+    }
+
+    AZ_FORCE_INLINE void clear()
+    {
+        get().clear();
+    }
+
+    AZ_FORCE_INLINE size_type size()
+    {
+        return get().size();
+    }
+
+    AZ_FORCE_INLINE void push_back(U&& val)
+    {
+        get().push_back(val);
+    }
+
+    AZ_FORCE_INLINE void push_back(const U& val)
+    {
+        get().push_back(val);
+    }
+
+    AZ_FORCE_INLINE void push_front(U&& val)
+    {
+        get().push_front(val);
+    }
+
+    AZ_FORCE_INLINE void push_front(const U& val)
+    {
+        get().push_front(val);
+    }
+
+    AZ_FORCE_INLINE bool empty() const
+    {
+        return get().empty();
+    }
+
+    AZ_FORCE_INLINE iterator insert(U&& val)
+    {
+        return get().insert(val);
+    }
+
+    AZ_FORCE_INLINE iterator insert(iterator it, U&& val)
+    {
+        return get().insert(it, val);
+    }
+
+    AZ_FORCE_INLINE reference front()
+    {
+        return get().front();
+    }
+
+    AZ_FORCE_INLINE const_reference front() const
+    {
+        return get().front();
+    }
+
+    AZ_FORCE_INLINE reference back()
+    {
+        return get().back();
+    }
+
+    AZ_FORCE_INLINE const_reference back() const
+    {
+        return get().back();
+    }
+
+    AZ_FORCE_INLINE void pop_back()
+    {
+        get().pop_back();
+    }
+
+    AZ_FORCE_INLINE pointer data()
+    {
+        return get().data();
+    }
+
+    AZ_FORCE_INLINE const_pointer data() const
+    {
+        return get().data();
+    }
+
+    void swap(Container& other)
+    {
+        get().swap(other);
+    }
+
+private:
+    Container& get() const;
+};
+
+template <class K, class V, class Less, class Allocator>
+class StaticInstanceSpecialization<std::map<K, V, Less, Allocator>>
+{
+public:
+    using Container = std::map<K, V, Less, Allocator>;
+    using reference = typename Container::reference;
+    using const_reference = typename Container::const_reference;
+    using iterator = typename Container::iterator;
+    using const_iterator = typename Container::const_iterator;
+    using key_type = typename Container::key_type;
+    using mapped_type = typename Container::mapped_type;
+    using value_type = typename Container::value_type;
+    using size_type = typename Container::size_type;
+
+    using pair_iter_bool = std::pair<iterator, bool>;
+    
+
+    AZ_FORCE_INLINE iterator begin()
+    {
+        return get().begin();
+    }
+
+    AZ_FORCE_INLINE const_iterator begin() const
+    {
+        return get().begin();
+    }
+
+    AZ_FORCE_INLINE iterator end()
+    {
+        return get().end();
+    }
+
+    AZ_FORCE_INLINE const_iterator end() const
+    {
+        return get().end();
+    }
+
+    AZ_FORCE_INLINE iterator erase(iterator it)
+    {
+        return get().erase(it);
+    }
+
+    AZ_FORCE_INLINE size_t erase(const key_type& key)
+    {
+        return get().erase(key);
+    }
+
+    AZ_FORCE_INLINE mapped_type& operator[](const key_type& key)
+    {
+        return get()[key];
+    }
+
+    template <class K2>
+    AZ_FORCE_INLINE 
+    typename AZStd::enable_if<AZStd::is_constructible<key_type, K2>::value, mapped_type&>::type
+    operator[](const K2& keylike)
+    {
+        return get()[key_type(keylike)];
+    }
+
+    AZ_FORCE_INLINE iterator find(const key_type& key)
+    {
+        return get().find(key);
+    }
+
+    AZ_FORCE_INLINE const_iterator find(const key_type& key) const
+    {
+        return get().find(key);
+    }
+
+    AZ_FORCE_INLINE void clear()
+    {
+        get().clear();
+    }
+
+    AZ_FORCE_INLINE bool empty() const
+    {
+        return get().empty();
+    }
+
+    AZ_FORCE_INLINE iterator insert(iterator hint, const value_type& kv)
+    {
+        return get().insert(hint, kv);
+    }
+
+    AZ_FORCE_INLINE pair_iter_bool insert(const value_type& kv)
+    {
+        return get().insert(kv);
+    }
+
+    AZ_FORCE_INLINE size_type size() const
+    {
+        return get().size();
+    }
+
+    void swap(Container& cont)
+    {
+        get().swap(cont);
+    }
+
+private:
+    Container& get() const;
+};
+
+template <class K, class V, class Less, class Allocator>
+class StaticInstanceSpecialization<std::multimap<K, V, Less, Allocator>>
+{
+public:
+    using Container = std::multimap<K, V, Less, Allocator>;
+    using reference = typename Container::reference;
+    using const_reference = typename Container::const_reference;
+    using iterator = typename Container::iterator;
+    using const_iterator = typename Container::const_iterator;
+    using key_type = typename Container::key_type;
+    using mapped_type = typename Container::mapped_type;
+    using value_type = typename Container::value_type;
+    using size_type = typename Container::size_type;
+
+    AZ_FORCE_INLINE iterator begin()
+    {
+        return get().begin();
+    }
+
+    AZ_FORCE_INLINE const_iterator begin() const
+    {
+        return get().begin();
+    }
+
+    AZ_FORCE_INLINE iterator end()
+    {
+        return get().end();
+    }
+
+    AZ_FORCE_INLINE const_iterator end() const
+    {
+        return get().end();
+    }
+
+    AZ_FORCE_INLINE iterator erase(iterator it)
+    {
+        return get().erase(it);
+    }
+
+    AZ_FORCE_INLINE size_t erase(const key_type& key)
+    {
+        return get().erase(key);
+    }
+
+    AZ_FORCE_INLINE iterator find(const key_type& key)
+    {
+        return get().find(key);
+    }
+
+    AZ_FORCE_INLINE const_iterator find(const key_type& key) const
+    {
+        return get().find(key);
+    }
+
+    AZ_FORCE_INLINE void clear()
+    {
+        get().clear();
+    }
+
+    AZ_FORCE_INLINE bool empty() const
+    {
+        return get().empty();
+    }
+
+    AZ_FORCE_INLINE iterator insert(value_type&& kv)
+    {
+        return get().insert(kv);
+    }
+
+    AZ_FORCE_INLINE iterator insert(const value_type& kv)
+    {
+        return get().insert(kv);
+    }
+
+    AZ_FORCE_INLINE size_type size() const
+    {
+        return get().size();
+    }
+
+private:
+    Container& get() const;
+};
+
+template <class T, class Less, class Allocator>
+class StaticInstanceSpecialization<std::set<T, Less, Allocator>>
+{
+public:
+    using Container = std::set<T, Less, Allocator>;
+    using reference = typename Container::reference;
+    using const_reference = typename Container::const_reference;
+    using iterator = typename Container::iterator;
+    using const_iterator = typename Container::const_iterator;
+    using value_type = typename Container::value_type;
+    using size_type = typename Container::size_type;
+
+    using pair_iter_bool = std::pair<iterator, bool>;
+
+    AZ_FORCE_INLINE iterator begin()
+    {
+        return get().begin();
+    }
+
+    AZ_FORCE_INLINE const_iterator begin() const
+    {
+        return get().begin();
+    }
+
+    AZ_FORCE_INLINE iterator end()
+    {
+        return get().end();
+    }
+
+    AZ_FORCE_INLINE const_iterator end() const
+    {
+        return get().end();
+    }
+
+    AZ_FORCE_INLINE iterator erase(iterator it)
+    {
+        return get().erase(it);
+    }
+
+    AZ_FORCE_INLINE size_t erase(const value_type& key)
+    {
+        return get().erase(key);
+    }
+
+    AZ_FORCE_INLINE iterator find(const value_type& key)
+    {
+        return get().find(key);
+    }
+
+    AZ_FORCE_INLINE const_iterator find(const value_type& key) const
+    {
+        return get().find(key);
+    }
+
+    AZ_FORCE_INLINE void clear()
+    {
+        get().clear();
+    }
+
+    AZ_FORCE_INLINE bool empty() const
+    {
+        return get().empty();
+    }
+
+    AZ_FORCE_INLINE pair_iter_bool insert(value_type&& kv)
+    {
+        return get().insert(kv);
+    }
+
+    AZ_FORCE_INLINE pair_iter_bool insert(const value_type& kv)
+    {
+        return get().insert(kv);
+    }
+
+    AZ_FORCE_INLINE size_type size() const
+    {
+        return get().size();
+    }
+
+private:
+    Container& get() const;
+};
+
+// This is a non-thread safe version of AZStd::static_storage, used purely to lazy
+// initialize various Cry DLL statics/singletons. They are created on first access.
+template <class T, class Destructor=AZStd::default_destruct<T>>
+class StaticInstance
+    : public StaticInstanceSpecialization<T>
+{
+public:
+    template <class ...Args>
+    StaticInstance(Args&& ...args)
+    {
+        // We need to pass args as a copy to avoid taking references to values that dont support it.
+        // For example, if an enum value is being passed in args, we would lost the value inside the lambda
+        m_ctor = [=]()
+        {
+            return Create(args...);
+        };
+    }
+
+    ~StaticInstance()
+    {
+        if (m_instance)
+        {
+            Destructor()(m_instance);
+        }
+    }
+
+    AZ_FORCE_INLINE T* operator->() const
+    {
+        return Get();
+    }
+
+    AZ_FORCE_INLINE operator T*() const
+    {
+        return Get();
+    }
+
+    AZ_FORCE_INLINE operator T&() const
+    {
+        return *Get();
+    }
+
+    AZ_FORCE_INLINE T* operator&() const
+    {
+        return Get();
+    }
+
+    AZ_FORCE_INLINE operator bool() const
+    {
+        return m_instance != nullptr;
+    }
+
+private:
+    StaticInstance(const StaticInstance&) = delete;
+    StaticInstance(StaticInstance&&) = delete;
+    StaticInstance& operator=(const StaticInstance&) = delete;
+
+    template <class ...Args>
+    T* Create(Args&& ...args) const
+    {
+        return new((void*)&m_storage) T(AZStd::forward<Args>(args)...);
+    }
+
+    T* Get() const
+    {
+        if (!m_instance)
+        {
+            m_instance = m_ctor();
+        }
+        return m_instance;
+    }
+
+    mutable T* m_instance = nullptr;
+    mutable typename AZStd::aligned_storage<sizeof(T), AZStd::alignment_of<T>::value>::type m_storage;
+    AZStd::function<T*()> m_ctor;
+};
+
+template <typename U, class A>
+std::vector<U, A>& StaticInstanceSpecialization<std::vector<U, A>>::get() const
+{
+    return *(*static_cast<const StaticInstance<std::vector<U, A>>*>(this));
+}
+
+template <typename U, class A>
+std::list<U, A>& StaticInstanceSpecialization<std::list<U, A>>::get() const
+{
+    return *(*static_cast<const StaticInstance<std::list<U, A>>*>(this));
+}
+
+template <class K, class V, class Less, class Allocator>
+std::map<K, V, Less, Allocator>& StaticInstanceSpecialization<std::map<K, V, Less, Allocator>>::get() const
+{
+    return *(*static_cast<const StaticInstance<std::map<K, V, Less, Allocator>>*>(this));
+}
+
+template <class K, class V, class Less, class Allocator>
+std::multimap<K, V, Less, Allocator>& StaticInstanceSpecialization<std::multimap<K, V, Less, Allocator>>::get() const
+{
+    return *(*static_cast<const StaticInstance<std::multimap<K, V, Less, Allocator>>*>(this));
+}
+
+template <class T, class Less, class Allocator>
+std::set<T, Less, Allocator>& StaticInstanceSpecialization<std::set<T, Less, Allocator>>::get() const
+{
+    return *(*static_cast<const StaticInstance<std::set<T, Less, Allocator>>*>(this));
+}

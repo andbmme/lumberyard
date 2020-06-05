@@ -16,11 +16,19 @@
 #include <AzCore/Serialization/SerializeContext.h>
 #include <AzCore/std/containers/vector.h>
 #include <AzToolsFramework/API/EntityCompositionRequestBus.h>
+#include <AzQtComponents/Components/Widgets/Card.h>
+#include <AzToolsFramework/ComponentMode/EditorComponentModeBus.h>
 
 #include <QFrame>
 #include <QIcon>
 
 class QVBoxLayout;
+
+namespace AzQtComponents
+{
+    class CardHeader;
+    class CardNotification;
+}
 
 namespace AZ
 {
@@ -31,7 +39,6 @@ namespace AZ
 namespace AzToolsFramework
 {
     class ComponentEditorHeader;
-    class ComponentEditorNotification;
     class IPropertyEditorNotify;
     class ReflectedPropertyEditor;
     enum PropertyModificationRefreshLevel : int;
@@ -40,11 +47,13 @@ namespace AzToolsFramework
      * Widget for editing an AZ::Component (or multiple components of the same type).
      */
     class ComponentEditor
-        : public QFrame
+        : public AzQtComponents::Card
     {
         Q_OBJECT;
     public:
-        ComponentEditor(AZ::SerializeContext* context, IPropertyEditorNotify* notifyTarget = nullptr, QWidget* parent = nullptr);
+        explicit ComponentEditor(
+            AZ::SerializeContext* context, IPropertyEditorNotify* notifyTarget = nullptr, QWidget* parent = nullptr);
+        ~ComponentEditor();
 
         void AddInstance(AZ::Component* componentInstance, AZ::Component* aggregateInstance, AZ::Component* compareInstance);
         void ClearInstances(bool invalidateImmediately);
@@ -54,6 +63,8 @@ namespace AzToolsFramework
 
         void InvalidateAll(const char* filter = nullptr);
         void QueuePropertyEditorInvalidation(PropertyModificationRefreshLevel refreshLevel);
+        void CancelQueuedRefresh();
+        void PreventRefresh(bool shouldPrevent);
         void contextMenuEvent(QContextMenuEvent *event) override;
 
         void UpdateExpandability();
@@ -72,10 +83,19 @@ namespace AzToolsFramework
 
         bool HasComponentWithId(AZ::ComponentId componentId);
 
-        ComponentEditorHeader* GetHeader();
+        ComponentEditorHeader* GetHeader() const;
         ReflectedPropertyEditor* GetPropertyEditor();
         AZStd::vector<AZ::Component*>& GetComponents();
         const AZStd::vector<AZ::Component*>& GetComponents() const;
+
+        const AZ::Uuid& GetComponentType() const { return m_componentType; }
+
+        void SetComponentOverridden(const bool overridden);
+
+        // Calls match EditorComponentModeNotificationBus - called from EntityPropertyEditor
+        void EnteredComponentMode(const AZStd::vector<AZ::Uuid>& componentModeTypes);
+        void LeftComponentMode(const AZStd::vector<AZ::Uuid>& componentModeTypes);
+        void ActiveComponentModeChanged(const AZ::Uuid& componentType);
 
     Q_SIGNALS:
         void OnExpansionContractionDone();
@@ -98,16 +118,15 @@ namespace AzToolsFramework
         void OnExpanderChanged(bool expanded);
         void OnContextMenuClicked(const QPoint& position);
 
-        ComponentEditorNotification* CreateNotification(const QString& message);
-        ComponentEditorNotification* CreateNotificationForConflictingComponents(const QString& message);
-        ComponentEditorNotification* CreateNotificationForMissingComponents(const QString& message, const AZStd::vector<AZ::ComponentServiceType>& services);
+        AzQtComponents::CardNotification* CreateNotification(const QString& message);
+        AzQtComponents::CardNotification* CreateNotificationForConflictingComponents(const QString& message, const AZ::Entity::ComponentArrayType& conflictingComponents);
+        AzQtComponents::CardNotification* CreateNotificationForMissingComponents(const QString& message, const AZStd::vector<AZ::ComponentServiceType>& services);
 
         bool AreAnyComponentsDisabled() const;
         AzToolsFramework::EntityCompositionRequests::PendingComponentInfo GetPendingComponentInfoForAllComponents() const;
         AzToolsFramework::EntityCompositionRequests::PendingComponentInfo GetPendingComponentInfoForAllComponentsInReverse() const;
         QIcon m_warningIcon;
 
-        ComponentEditorHeader* m_header = nullptr;
         ReflectedPropertyEditor* m_propertyEditor = nullptr;
         QVBoxLayout* m_mainLayout = nullptr;
 
@@ -117,11 +136,7 @@ namespace AzToolsFramework
         AZ::Uuid m_componentType = AZ::Uuid::CreateNull();
 
         AZStd::vector<AZ::Component*> m_components;
-        AZStd::vector<QWidget*> m_notifications;
         AZ::Crc32 m_savedKeySeed;
-        bool m_selected;
-        bool m_dragged;
-        bool m_dropTarget;
     };
 
 } // namespace AzToolsFramework

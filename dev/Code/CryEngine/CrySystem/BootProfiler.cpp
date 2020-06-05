@@ -23,7 +23,7 @@
 
 namespace
 {
-    CBootProfiler gProfilerInstance;
+    StaticInstance<CBootProfiler, AZStd::no_destruct<CBootProfiler>> gProfilerInstance;
     enum
     {
         eMAX_THREADS_TO_PROFILE = 32,
@@ -59,7 +59,8 @@ public:
     LARGE_INTEGER m_freq;
 
     CBootProfilerRecord* m_pParent;
-    std::vector<CBootProfilerRecord*> m_Childs;
+    typedef AZStd::vector<CBootProfilerRecord*> ChildVector;
+    ChildVector m_Childs;
 
     CryFixedStringT<256> m_args;
 
@@ -81,7 +82,7 @@ public:
         // childs are allocated via pool as well, the destructors of each child
         // is called explicitly, for the purpose of freeing memory occupied by
         // m_Child vector. Otherwise there will be a memory leak.
-        std::vector<CBootProfilerRecord*>::iterator it = m_Childs.begin();
+        ChildVector::iterator it = m_Childs.begin();
         while (it != m_Childs.end())
         {
             (*it)->~CBootProfilerRecord();
@@ -121,6 +122,7 @@ public:
                 m_args.replace(">", "&gt;");
                 m_args.replace("\"", "&quot;");
                 m_args.replace("'", "&apos;");
+                m_args.replace("%", "&#37;");
             }
 
             sprintf_s(buf, buf_size, "%s<block name=\"%s\" totalTimeMS=\"%f\" startTime=\"%" PRIu64 "\" stopTime=\"%" PRIu64 "\" args=\"%s\"> \n",
@@ -285,8 +287,11 @@ CBootProfilerSession::~CBootProfilerSession()
         // Since m_pRoot is allocated using memory pool (line 296),
         // its destructor is called explicitly to free the memory of
         // m_Childs and each of its child.
-        profile.m_pRoot->~CBootProfilerRecord();
 
+        if (profile.m_pRoot)
+        {
+            profile.m_pRoot->~CBootProfilerRecord();
+        }
         delete m_threadsRecordsPool[i];
     }
 }
@@ -378,10 +383,15 @@ void CBootProfilerSession::StopBlock(CBootProfilerRecord* record)
 
 void CBootProfilerSession::CollectResults(const char* filename, const float timeThreshold)
 {
+    if (!gEnv || !gEnv->pCryPak)
+    {
+        AZ_Warning("BootProfiler", false, "CryPak not set - skipping CollectResults");
+        return;
+    }
     static const char* szTestResults = "@cache@\\TestResults";
     string filePath = string(szTestResults) + "\\" + "bp_" + filename + ".xml";
     char path[ICryPak::g_nMaxPath] = "";
-    gEnv->pCryPak->AdjustFileName(filePath.c_str(), path, ICryPak::FLAGS_PATH_REAL | ICryPak::FLAGS_FOR_WRITING);
+    gEnv->pCryPak->AdjustFileName(filePath.c_str(), path, AZ_ARRAY_SIZE(path), ICryPak::FLAGS_PATH_REAL | ICryPak::FLAGS_FOR_WRITING);
     gEnv->pCryPak->MakeDir(szTestResults);
 
     AZ::IO::HandleType fileHandle = AZ::IO::InvalidHandle;
@@ -453,6 +463,7 @@ CBootProfiler::CBootProfiler()
 
 CBootProfiler::~CBootProfiler()
 {
+    AZStd::lock_guard<AZStd::recursive_mutex> recordGuard{ m_recordMutex };
     for (TSessionMap::iterator it = m_sessions.begin(); it != m_sessions.end(); ++it)
     {
         CBootProfilerSession* session = it->second;
@@ -463,8 +474,7 @@ CBootProfiler::~CBootProfiler()
 // start session
 void CBootProfiler::StartSession(const char* sessionName)
 {
-    //if(!sys_BootProfiler)
-    //  return; // disable profiler
+    AZStd::lock_guard<AZStd::recursive_mutex> recordGuard{ m_recordMutex };
 
     TSessionMap::const_iterator it = m_sessions.find(sessionName);
     if (it == m_sessions.end())
@@ -478,6 +488,7 @@ void CBootProfiler::StartSession(const char* sessionName)
 // stop session
 void CBootProfiler::StopSession(const char* sessionName)
 {
+    AZStd::lock_guard<AZStd::recursive_mutex> recordGuard{ m_recordMutex };
     if (m_pCurrentSession)
     {
         TSessionMap::iterator it = m_sessions.find(sessionName);
@@ -500,6 +511,7 @@ void CBootProfiler::StopSession(const char* sessionName)
 
 CBootProfilerRecord* CBootProfiler::StartBlock(const char* name, const char* args)
 {
+    AZStd::lock_guard<AZStd::recursive_mutex> recordGuard{ m_recordMutex };
     if (m_pCurrentSession)
     {
         return m_pCurrentSession->StartBlock(name, args);
@@ -509,6 +521,7 @@ CBootProfilerRecord* CBootProfiler::StartBlock(const char* name, const char* arg
 
 void CBootProfiler::StopBlock(CBootProfilerRecord* record)
 {
+    AZStd::lock_guard<AZStd::recursive_mutex> recordGuard{ m_recordMutex };
     if (m_pCurrentSession)
     {
         m_pCurrentSession->StopBlock(record);
@@ -517,6 +530,7 @@ void CBootProfiler::StopBlock(CBootProfilerRecord* record)
 
 void CBootProfiler::StartFrame(const char* name)
 {
+    AZStd::lock_guard<AZStd::recursive_mutex> recordGuard{ m_recordMutex };
     if (CV_sys_bp_frames)
     {
         StartSession("frames");
@@ -526,6 +540,7 @@ void CBootProfiler::StartFrame(const char* name)
 
 void CBootProfiler::StopFrame()
 {
+    AZStd::lock_guard<AZStd::recursive_mutex> recordGuard{ m_recordMutex };
     if (m_pCurrentSession && CV_sys_bp_frames)
     {
         StopBlock(m_pFrameRecord);
@@ -608,4 +623,8 @@ void CBootProfiler::OnSystemEvent(ESystemEvent event, UINT_PTR wparam, UINT_PTR 
     }
 }
 
+void CBootProfiler::SetFrameCount(int frameCount)
+{
+    CV_sys_bp_frames = frameCount;
+}
 #endif

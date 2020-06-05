@@ -22,10 +22,6 @@
 
 #include <AzCore/std/parallel/atomic.h>
 
-#if !defined(AZ_COMPILER_MSVC) || _MSC_VER >= 1900
-#define AZ_TEST_ALIGNED_ATOMIC
-#endif
-
 namespace UnitTest
 {
     class Atomics
@@ -114,8 +110,7 @@ namespace UnitTest
         unsigned long long,
         wchar_t,
         int*,
-        const int*,
-        IntWrapper
+        const int*
     >;
 
     using IntegralAtomicTypes = ::testing::Types<
@@ -823,7 +818,6 @@ namespace UnitTest
         }
     }
 
-#if defined(AZ_TEST_ALIGNED_ATOMIC)
     TEST_F(Atomics, AtomicFlagDefault)
     {
         AZStd::atomic_flag f;
@@ -837,7 +831,6 @@ namespace UnitTest
             zero.~A();
         }
     }
-#endif
 
     TEST_F(Atomics, AtomicFlagInit)
     {
@@ -1023,14 +1016,12 @@ namespace UnitTest
         EXPECT_TRUE((obj -= AZStd::ptrdiff_t(3)) == T(2 * sizeof(X)));
         EXPECT_TRUE(obj == T(2 * sizeof(X)));
 
-#if defined(AZ_TEST_ALIGNED_ATOMIC)
         {
             alignas(A) char storage[sizeof(A)] = { 23 };
             A& zero = *new (storage) A();
             EXPECT_TRUE(zero == T(0));
             zero.~A();
         }
-#endif
     }
 
     template <class A, class T>
@@ -1212,7 +1203,6 @@ namespace UnitTest
             EXPECT_TRUE((obj = true) == true);
             EXPECT_TRUE(obj == true);
         }
-#if defined(AZ_TEST_ALIGNED_ATOMIC)
         {
             typedef AZStd::atomic<bool> A;
             alignas(A) char storage[sizeof(A)] = { 1 };
@@ -1220,7 +1210,6 @@ namespace UnitTest
             EXPECT_TRUE(zero == false);
             zero.~A();
         }
-#endif
     }
 
     template <class A, class T>
@@ -1280,14 +1269,12 @@ namespace UnitTest
         EXPECT_TRUE((obj ^= T(0xF)) == T(8));
         EXPECT_TRUE(obj == T(8));
 
-#if defined(AZ_TEST_ALIGNED_ATOMIC)
         {
             alignas(A) char storage[sizeof(A)] = { 23 };
             A& zero = *new (storage) A();
             EXPECT_TRUE(zero == 0);
             zero.~A();
         }
-#endif
     }
 
     template <class A, class T>
@@ -1311,15 +1298,16 @@ namespace UnitTest
         test_atomic_integral_variations<AZStd::atomic_llong, long long>();
         test_atomic_integral_variations<AZStd::atomic_ullong, unsigned long long>();
 
-        test_atomic_integral_variations<volatile AZStd::atomic_char, char>();
-        test_atomic_integral_variations<volatile AZStd::atomic_uchar, unsigned char>();
-        test_atomic_integral_variations<volatile AZStd::atomic_short, short>();
-        test_atomic_integral_variations<volatile AZStd::atomic_ushort, unsigned short>();
-        test_atomic_integral_variations<volatile AZStd::atomic_int, int>();
-        test_atomic_integral_variations<volatile AZStd::atomic_uint, unsigned int>();
-        test_atomic_integral_variations<volatile AZStd::atomic_long, long>();
-        test_atomic_integral_variations<volatile AZStd::atomic_ulong, unsigned long>();
-        test_atomic_integral_variations<volatile AZStd::atomic_llong, long long>();
-        test_atomic_integral_variations<volatile AZStd::atomic_ullong, unsigned long long>();
+        test_atomic_integral_variations<AZStd::atomic_size_t, size_t>();
+        test_atomic_integral_variations<AZStd::atomic_ptrdiff_t, ptrdiff_t>();
+
+        test_atomic_integral_variations<AZStd::atomic_int8_t, int8_t>();
+        test_atomic_integral_variations<AZStd::atomic_uint8_t, uint8_t>();
+        test_atomic_integral_variations<AZStd::atomic_int16_t, int16_t>();
+        test_atomic_integral_variations<AZStd::atomic_uint16_t, uint16_t>();
+        test_atomic_integral_variations<AZStd::atomic_int32_t, int32_t>();
+        test_atomic_integral_variations<AZStd::atomic_uint32_t, uint32_t>();
+        test_atomic_integral_variations<AZStd::atomic_int64_t, int64_t>();
+        test_atomic_integral_variations<AZStd::atomic_uint64_t, uint64_t>();
     }
 }

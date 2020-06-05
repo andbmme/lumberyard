@@ -3,9 +3,9 @@
 * its licensors.
 *
 * For complete copyright and license terms please see the LICENSE at the root of this
-* distribution(the "License").All use of this software is governed by the License,
-* or, if provided, by the license below or the license accompanying this file.Do not
-* remove or modify any license notices.This file is distributed on an "AS IS" BASIS,
+* distribution (the "License"). All use of this software is governed by the License,
+* or, if provided, by the license below or the license accompanying this file. Do not
+* remove or modify any license notices. This file is distributed on an "AS IS" BASIS,
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 */
 
@@ -15,13 +15,17 @@
 
 #include <AzCore/Component/Component.h>
 
-#include <CloudCanvas/CloudCanvasIdentityBus.h>
+#include <AzCore/std/containers/map.h>
 
+#include <CloudCanvas/CloudCanvasIdentityBus.h>
 #include <CloudCanvasCommon/CloudCanvasCommonBus.h>
 
-#pragma warning(push)
-#pragma warning(disable: 4355) // <future> includes ppltasks.h which throws a C4355 warning: 'this' used in base member initializer list
-#pragma warning(disable: 4819) // Invalid character not in default code page
+// The AWS Native SDK AWSAllocator triggers a warning due to accessing members of std::allocator directly.
+// AWSAllocator.h(70): warning C4996: 'std::allocator<T>::pointer': warning STL4010: Various members of std::allocator are deprecated in C++17.
+// Use std::allocator_traits instead of accessing these members directly.
+// You can define _SILENCE_CXX17_OLD_ALLOCATOR_MEMBERS_DEPRECATION_WARNING or _SILENCE_ALL_CXX17_DEPRECATION_WARNINGS to acknowledge that you have received this warning.
+
+AZ_PUSH_DISABLE_WARNING(4251 4355 4819 4996, "-Wunknown-warning-option")
 #include <aws/core/utils/memory/stl/AWSStreamFwd.h>
 #include <aws/cognito-identity/CognitoIdentityClient.h>
 #include <aws/cognito-idp/CognitoIdentityProviderClient.h>
@@ -31,7 +35,7 @@
 #include <aws/core/auth/AWSCredentialsProvider.h>
 #include <aws/core/utils/memory/stl/AWSMap.h>
 #include <aws/core/utils/memory/stl/AWSString.h>
-#pragma warning(pop)
+AZ_POP_DISABLE_WARNING
 
 ///////////////////////////////////////// WARNING /////////////////////////////////////////
 // Support for the auth_token cvar has been deprecated and disabled by default.
@@ -82,14 +86,23 @@ namespace CloudGemFramework
         virtual bool ResetPlayerIdentity() override;
         virtual AZStd::string GetIdentityId() override;
 
-        ////////////////////////////////////////////////////////////////////////
-        // CloudCanvasCommonNotification Events
-        void OnPostInitialization() override;
     protected:
         Aws::Map<Aws::String, std::shared_ptr<TokenRetrievalStrategy> > InitializeTokenRetrievalStrategies(const std::shared_ptr<Aws::Lambda::LambdaClient>& client, const char* lambdaName);
         bool GetRefreshTokenForProvider(AZStd::string& refreshToken, const AZStd::string& provider);
+        bool GetServerIdentity();
+
+        // CloudCanvasCommonNotificationBus
+        void ApiInitialized() override;
 
     private:
+        CloudCanvasPlayerIdentityComponent(const CloudCanvasPlayerIdentityComponent&) = delete;
+
+        bool BeginResetIdentity();
+        void EndResetIdentity();
+
+        // Http Access Checks
+        bool CheckRegionHttpAccess(const AZStd::string& identityPoolId) const;
+        int CheckAwsEndpointResponse(const AZStd::string& regionStr) const;
 
         std::shared_ptr<Aws::CognitoIdentity::CognitoIdentityClient> m_cognitoIdentityClientAnonymous;
         std::shared_ptr<Aws::CognitoIdentity::CognitoIdentityClient> m_cognitoIdentityClientAuthenticated;
@@ -98,9 +111,12 @@ namespace CloudGemFramework
         std::shared_ptr<Aws::Auth::CognitoCachingCredentialsProvider> m_authCredsProvider;
         std::shared_ptr<Aws::Auth::PersistentCognitoIdentityProvider> m_authIdentityProvider;
 
-        Aws::Map<Aws::String, std::shared_ptr<TokenRetrievalStrategy> > m_additionalStrategyMappings;
+        AZStd::map<Aws::String, std::shared_ptr<TokenRetrievalStrategy> > m_additionalStrategyMappings;
 
         std::shared_ptr<Aws::Auth::AWSCredentialsProvider> m_credsProvider;
+
+        AZStd::atomic<bool> m_resettingIdentity{ false };
+        AZStd::mutex m_credentialsMutex;
     };
 }
 

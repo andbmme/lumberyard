@@ -58,9 +58,29 @@ namespace AZ
             return "*.slice";
         }
 
+        static constexpr u32 GetAssetSubId()
+        {
+            return 1;
+        }
+
+        /**
+        * Invoked by the AssetManager to determine if this SliceAsset data object should be reloaded
+        * when a change to the asset on disk is detected.
+        * Checks the state of m_ignoreNextAutoReload to determine this and sets m_ignoreNextAutoReload to false at the end.
+        * During a Create Slice operation in Editor the reload is prevented as we have already built the asset in memory
+        * and a reload is not needed.
+        */
+        bool HandleAutoReload() override;
+
+        void SetIgnoreNextAutoReload(bool ignoreNextAutoReload)
+        {
+            m_ignoreNextAutoReload = ignoreNextAutoReload;
+        }
+
     protected:
         Entity* m_entity; ///< Root entity that should contain only the slice component
         SliceComponent* m_component; ///< Slice component for this asset
+        bool m_ignoreNextAutoReload;
     };
 
     /**
@@ -73,9 +93,20 @@ namespace AZ
         AZ_CLASS_ALLOCATOR(DynamicSliceAsset, AZ::SystemAllocator, 0);
         AZ_RTTI(DynamicSliceAsset, "{78802ABF-9595-463A-8D2B-D022F906F9B1}", SliceAsset);
 
+        DynamicSliceAsset(const Data::AssetId& assetId = Data::AssetId())
+            : SliceAsset(assetId)
+        {
+        }
+        ~DynamicSliceAsset() = default;
+
         static const char* GetFileFilter()
         {
             return "*.dynamicslice";
+        }
+
+        static constexpr u32 GetAssetSubId()
+        {
+            return 2;
         }
     };
 
@@ -87,7 +118,28 @@ namespace AZ
 
     /// @deprecated Use DynamicSliceAsset.
     using DynamicPrefabAsset = DynamicSliceAsset;
-}
 
+    namespace Data
+    {
+        /// Asset filter helper for stripping all assets except slices.
+        bool AssetFilterSourceSlicesOnly(const AZ::Data::Asset<AZ::Data::AssetData>& asset);
+    }
+
+} // namespace AZ
+
+namespace AZStd
+{
+    // hash specialization
+    template <>
+    struct hash<AZ::Data::Asset<AZ::SliceAsset>>
+    {
+        using argument_type = AZ::Uuid;
+        using result_type = size_t;
+        size_t operator()(const AZ::Data::Asset<AZ::SliceAsset>& asset) const
+        {
+            return asset.GetId().m_guid.GetHash();
+        }
+    };
+}
 #endif // AZCORE_SLICE_ASSET_H
 #pragma once

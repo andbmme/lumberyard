@@ -31,6 +31,11 @@ enum BrushType
 
 struct CTerrainBrush
 {
+    AZ_CLASS_ALLOCATOR(CTerrainBrush, AZ::SystemAllocator, 0);
+    AZ_RTTI(CTerrainBrush, "{AFD7C51F-45B4-4F2B-AEC6-5F538E785172}");
+
+    virtual ~CTerrainBrush() = default;
+
     // Type of this brush.
     BrushType type;
     //! Outside Radius of brush.
@@ -109,7 +114,11 @@ public:
     void AdjustBrushValues();
     void SyncBrushRadiuses(bool bSync);
 
+    //! Paints at the current mouse location as it is raycasted into the terrain.
     void Paint();
+
+    //! Paints at the current world x,y location with the current brush.
+    void PaintAtWorldXY(float x, float y);
 
     void SetExternalUIPanel(class CTerrainModifyPanel* pPanel);
     void ClearCtrlPressedState() { m_isCtrlPressed = false; }
@@ -120,6 +129,10 @@ public:
     static void Command_Flatten();
     static void Command_Smooth();
     static void Command_RiseLower();
+    static void Command_PaintAtWorldXY(float worldX, float worldY);
+    static CTerrainBrush Command_GetTerrainBrushParams();
+    static void Command_SetTerrainBrushParams(const CTerrainBrush& brush);
+    static int Debug_GetCurrentBrushType();
     //////////////////////////////////////////////////////////////////////////
 
 private:
@@ -139,6 +152,8 @@ private:
     bool m_bQueryHeightMode;
     int m_nPaintingMode;
 
+    bool m_isSmoothing;
+
     static bool m_bSyncBrushRadiuses;
 
     QPoint m_MButtonDownPos;
@@ -155,5 +170,24 @@ private:
     QCursor m_hSmoothCursor;
 };
 
+#include <AzCore/Component/Component.h>
+
+namespace AzToolsFramework
+{
+    //! A component to reflect scriptable commands for the Editor
+    class TerrainModifyPythonFuncsHandler
+        : public AZ::Component
+    {
+    public:
+        AZ_COMPONENT(TerrainModifyPythonFuncsHandler, "{50AD3A1B-9431-498F-889F-A9C323741730}")
+
+        static void Reflect(AZ::ReflectContext* context);
+
+        // AZ::Component ...
+        void Activate() override {}
+        void Deactivate() override {}
+    };
+
+} // namespace AzToolsFramework
 
 #endif // CRYINCLUDE_EDITOR_TERRAINMODIFYTOOL_H

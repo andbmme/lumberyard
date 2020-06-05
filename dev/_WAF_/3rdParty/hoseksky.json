@@ -1,15 +1,15 @@
 {
     "name": "hoseksky",
-    "source": "@ROOT@/Code/GFXPrefabLab/3rdParty/HosekSky",
+    "source": "@ROOT@/Code/RHISampleFramework/3rdParty/HosekSky",
     "description": "Hosek Sky Model",
-    "includes": [
+    "system_includes": [
         "include"
     ],
     "defines": [],
     "suppress_warning": "True",
     "lib_required": "True",
     "platform": {
-        "win_x64_vs2015": {
+        "win_x64_vs2017": {
             "libpath": [
                 "lib"
             ],

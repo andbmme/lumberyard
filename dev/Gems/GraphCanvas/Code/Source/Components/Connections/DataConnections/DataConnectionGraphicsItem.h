@@ -13,6 +13,7 @@
 
 #include <QColor>
 
+#include <GraphCanvas/Components/Slots/Data/DataSlotBus.h>
 #include <Components/Connections/ConnectionVisualComponent.h>
 
 namespace GraphCanvas
@@ -41,8 +42,10 @@ namespace GraphCanvas
 
     class DataConnectionGraphicsItem
         : public ConnectionGraphicsItem
+        , public RootGraphicsItemNotificationBus::Handler
+        , public DataSlotNotificationBus::MultiHandler
     {
-    public:	
+    public:
         AZ_CLASS_ALLOCATOR(DataConnectionGraphicsItem, AZ::SystemAllocator, 0);
         
         DataConnectionGraphicsItem(const AZ::EntityId& connectionEntityId);
@@ -55,12 +58,20 @@ namespace GraphCanvas
         void OnSourceSlotIdChanged(const AZ::EntityId& oldSlotId, const AZ::EntityId& newSlotId) override;
         void OnTargetSlotIdChanged(const AZ::EntityId& oldSlotId, const AZ::EntityId& newSlotId) override;
 
+        // DataSlotNotificationBus
+        void OnDisplayTypeChanged(const AZ::Uuid& dataTypeId, const AZStd::vector<AZ::Uuid>& typeIds) override;
+        ////
+
         void UpdateDataColors();
 
+        // RootGraphicsItemNotifications
+        void OnDisplayStateChanged(RootGraphicsItemDisplayState oldState, RootGraphicsItemDisplayState newState) override;
+        ////
+
     protected:
+        Styling::ConnectionCurveType GetCurveStyle() const override;
         void UpdatePen() override;
         void OnPathChanged() override;
-        void OnDisplayStateChanged() override;
         
     private:
     

@@ -15,9 +15,8 @@
 #include <AzCore/Memory/Memory.h>
 #include <AzCore/std/allocator.h>
 
-#if defined(AZ_PLATFORM_LINUX)
-#include <malloc.h>
-#endif
+// OS Allocations macros AZ_OS_MALLOC/AZ_OS_FREE
+#include <AzCore/Memory/OSAllocator_Platform.h>
 
 namespace AZ
 {
@@ -28,13 +27,14 @@ namespace AZ
      * debug data (like drillers, memory trackng, etc.)
      */
     class OSAllocator
-        : public IAllocator
+        : public AllocatorBase
+        , public IAllocatorAllocate
     {
     public:
         AZ_TYPE_INFO(OSAllocator, "{9F835EE3-F23C-454E-B4E3-011E2F3C8118}")
 
         OSAllocator();
-        ~OSAllocator();
+        ~OSAllocator() override;
 
         /**
          * You can override the default allocation policy.
@@ -48,24 +48,25 @@ namespace AZ
 
         bool Create(const Descriptor& desc);
 
-        void Destroy();
+        void Destroy() override;
 
         //////////////////////////////////////////////////////////////////////////
         // IAllocator
-        virtual const char*     GetName() const                 { return "OSAllocator"; }
-        virtual const char*     GetDescription() const          { return "OS allocator, allocating memory directly from the OS (C heap)!"; }
+        AllocatorDebugConfig GetDebugConfig() override;
 
-        virtual pointer_type    Allocate(size_type byteSize, size_type alignment, int flags = 0, const char* name = 0, const char* fileName = 0, int lineNum = 0, unsigned int suppressStackRecord = 0);
-        virtual void            DeAllocate(pointer_type ptr, size_type byteSize = 0, size_type alignment = 0);
-        virtual size_type       Resize(pointer_type ptr, size_type newSize) { return m_custom ? m_custom->Resize(ptr, newSize) : 0; }
-        virtual pointer_type    ReAllocate(pointer_type ptr, size_type newSize, size_type newAlignment)     { return m_custom ? m_custom->ReAllocate(ptr, newSize, newAlignment) : NULL; }
-        virtual size_type       AllocationSize(pointer_type ptr) { return m_custom ? m_custom->AllocationSize(ptr) : 0; }
+        //////////////////////////////////////////////////////////////////////////
+        // IAllocatorAllocate
+        pointer_type    Allocate(size_type byteSize, size_type alignment, int flags = 0, const char* name = 0, const char* fileName = 0, int lineNum = 0, unsigned int suppressStackRecord = 0) override;
+        void            DeAllocate(pointer_type ptr, size_type byteSize = 0, size_type alignment = 0) override;
+        size_type       Resize(pointer_type ptr, size_type newSize) override { return m_custom ? m_custom->Resize(ptr, newSize) : 0; }
+        pointer_type    ReAllocate(pointer_type ptr, size_type newSize, size_type newAlignment) override     { return m_custom ? m_custom->ReAllocate(ptr, newSize, newAlignment) : NULL; }
+        size_type       AllocationSize(pointer_type ptr) override { return m_custom ? m_custom->AllocationSize(ptr) : 0; }
 
-        virtual size_type       NumAllocatedBytes() const       { return m_custom ? m_custom->NumAllocatedBytes() : m_numAllocatedBytes; }
-        virtual size_type       Capacity() const                { return m_custom ? m_custom->Capacity() : AZ_CORE_MAX_ALLOCATOR_SIZE; } // custom size or unlimited
-        virtual size_type       GetMaxAllocationSize() const    { return m_custom ? m_custom->GetMaxAllocationSize() : AZ_CORE_MAX_ALLOCATOR_SIZE; } // custom size or unlimited
-        virtual IAllocatorAllocate*  GetSubAllocator()          { return m_custom ? m_custom : NULL; }
-
+        size_type       NumAllocatedBytes() const override       { return m_custom ? m_custom->NumAllocatedBytes() : m_numAllocatedBytes; }
+        size_type       Capacity() const override                { return m_custom ? m_custom->Capacity() : AZ_CORE_MAX_ALLOCATOR_SIZE; } // custom size or unlimited
+        size_type       GetMaxAllocationSize() const override    { return m_custom ? m_custom->GetMaxAllocationSize() : AZ_CORE_MAX_ALLOCATOR_SIZE; } // custom size or unlimited
+        IAllocatorAllocate*  GetSubAllocator() override          { return m_custom ? m_custom : NULL; }
+         
     protected:
         OSAllocator(const OSAllocator&);
         OSAllocator& operator=(const OSAllocator&);
@@ -76,30 +77,6 @@ namespace AZ
 
     typedef AZStdAlloc<OSAllocator> OSStdAllocator;
 }
-
-////////////////////////////////////////////////////////////////////////////////////////////
-// OS Allocations macros
-#if AZ_TRAIT_OS_USE_WINDOWS_ALIGNED_MALLOC
-#   define AZ_OS_MALLOC(byteSize, alignment) _aligned_malloc(byteSize, alignment)
-#   define AZ_OS_FREE(pointer) _aligned_free(pointer)
-#else
-#   if defined(AZ_PLATFORM_APPLE)
-inline void* memalign(size_t blocksize, size_t bytes)
-{
-    void* ptr = nullptr;
-    int result = posix_memalign(&ptr, blocksize < sizeof(void*) ? sizeof(void*) : blocksize, bytes);
-    AZ_Assert(result == 0, "Posix memalign failed %d", result);
-    (void)result;   // avoid unused variable warning
-    return ptr;
-}
-
-#       define AZ_OS_MALLOC(byteSize, alignment) memalign(alignment, byteSize)
-#   else
-#       define AZ_OS_MALLOC(byteSize, alignment) memalign(alignment, byteSize)
-#   endif
-#   define AZ_OS_FREE(pointer) free(pointer)
-#endif
-/////////////////////////////////////////////////////////////////////////////////////////////
 
 #endif // AZCORE_OS_ALLOCATOR_H
 #pragma once

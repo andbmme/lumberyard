@@ -5,11 +5,13 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>Starter Game</string>
+	<string>StarterGame</string>
 	<key>CFBundleExecutable</key>
 	<string>StarterGameLauncher</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.amazon.StarterGame</string>
+	<string>com.amazon.lumberyard.StarterGame</string>
+	<key>LSApplicationCategoryType</key>
+	<string></string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
@@ -17,15 +19,15 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.0</string>
+	<string>1.5</string>
 	<key>CFBundleSignature</key>
 	<string>????</string>
 	<key>CFBundleVersion</key>
-	<string>1.0</string>
+	<string>1.5</string>
 	<key>UIRequiredDeviceCapabilities</key>
 	<array>
-		<string>arm64</string>
-		<string>metal</string>
+		<string>armv7</string>
+		<string>opengles-3</string>
 	</array>
 	<key>UIRequiresFullScreen</key>
 	<true/>

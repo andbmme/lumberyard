@@ -3,9 +3,9 @@
 * its licensors.
 *
 * For complete copyright and license terms please see the LICENSE at the root of this
-* distribution(the "License").All use of this software is governed by the License,
-* or, if provided, by the license below or the license accompanying this file.Do not
-* remove or modify any license notices.This file is distributed on an "AS IS" BASIS,
+* distribution (the "License"). All use of this software is governed by the License,
+* or, if provided, by the license below or the license accompanying this file. Do not
+* remove or modify any license notices. This file is distributed on an "AS IS" BASIS,
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 */
 
@@ -19,15 +19,23 @@
 #include <AzCore/std/parallel/mutex.h>
 #include <AzCore/std/smart_ptr/shared_ptr.h>
 #include <AzCore/std/string/string.h>
+#include <AzCore/std/string/string_view.h>
 
 #include <CloudCanvas/CloudCanvasMappingsBus.h>
 
 #include <CrySystemBus.h>
+#include <IConsole.h>
 
 #undef GetObject
+// The AWS Native SDK AWSAllocator triggers a warning due to accessing members of std::allocator directly.
+// AWSAllocator.h(70): warning C4996: 'std::allocator<T>::pointer': warning STL4010: Various members of std::allocator are deprecated in C++17.
+// Use std::allocator_traits instead of accessing these members directly.
+// You can define _SILENCE_CXX17_OLD_ALLOCATOR_MEMBERS_DEPRECATION_WARNING or _SILENCE_ALL_CXX17_DEPRECATION_WARNINGS to acknowledge that you have received this warning.
 
+AZ_PUSH_DISABLE_WARNING(4251 4996, "-Wunknown-warning-option")
 #include <aws/core/utils/StringUtils.h>
 #include <aws/core/utils/json/JsonSerializer.h>
+AZ_POP_DISABLE_WARNING
 
 namespace CloudGemFramework
 {
@@ -126,12 +134,17 @@ namespace CloudGemFramework
         virtual void ClearData();
 
         virtual bool LoadLogicalMappingsFromJson(const Aws::Utils::Json::JsonValue& mappingsJsonData);
-        void HandleCustomResourceMapping(const Aws::String& logicalName, const Aws::String& resourceType, const std::pair<Aws::String, Aws::Utils::Json::JsonValue>& mapping);
+        void HandleCustomResourceMapping(const Aws::String& logicalName, const Aws::String& resourceType, const std::pair<Aws::String, Aws::Utils::Json::JsonView>& mapping);
 
-        void InitializeGameMappings();
+        static void ConsoleCommandSetLauncherDeployment(IConsoleCmdArgs* pCmdArgs);
+
+        void InitializeGameMappings() override;
         AZStd::string GetLogicalMappingsPath() const;
         AZStd::string GetCurrentDeploymentFromConfig() const;
         AZStd::string GetMappingsFileName(const AZStd::string &dep, const AZStd::string &role) const;
+        AZStd::string GetOverrideDeployment() const;
+
+        static void SetOverrideDeployment(AZStd::string_view newDeployment);
 
         // Any special mapping handling (Such as for Configuration values)
         void HandleMappingType(const AZStd::string& resourceType, const AZStd::string& logicalName, const AZStd::string& physicalName);

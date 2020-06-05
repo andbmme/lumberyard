@@ -12,6 +12,7 @@
 
 #include <AzQtComponents/Components/Widgets/ProgressBar.h>
 #include <AzQtComponents/Components/Style.h>
+#include <AzQtComponents/Components/ConfigHelpers.h>
 
 #include <QSettings>
 #include <QStyleFactory>
@@ -21,11 +22,9 @@ namespace AzQtComponents
 
 ProgressBar::Config ProgressBar::loadConfig(QSettings& settings)
 {
-    Q_UNUSED(settings);
-
     Config config = defaultConfig();
 
-    config.height = settings.value("Height", config.height).toInt();
+    ConfigHelpers::read<int>(settings, QStringLiteral("Height"), config.height);
 
     return config;
 }
@@ -34,7 +33,7 @@ ProgressBar::Config ProgressBar::defaultConfig()
 {
     Config config;
 
-    config.height = 7;
+    config.height = 5;
 
     return config;
 }

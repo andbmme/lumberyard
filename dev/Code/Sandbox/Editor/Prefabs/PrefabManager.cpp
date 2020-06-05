@@ -24,8 +24,6 @@
 
 #include "Objects/PrefabObject.h"
 
-#include "PrefabEvents.h"
-
 #define PREFABS_LIBS_PATH "Prefabs/"
 
 //////////////////////////////////////////////////////////////////////////
@@ -173,28 +171,17 @@ void CUndoAddObjectsToPrefab::Redo()
 // CPrefabManager implementation.
 //////////////////////////////////////////////////////////////////////////
 CPrefabManager::CPrefabManager()
-    : m_pPrefabEvents(NULL)
 {
     m_bUniqNameMap = true;
     m_pLevelLibrary = (CBaseLibrary*)AddLibrary("Level", true);
 
-    m_pPrefabEvents = new CPrefabEvents();
-
     m_skipPrefabUpdate = false;
-}
-
-//////////////////////////////////////////////////////////////////////////
-CPrefabManager::~CPrefabManager()
-{
-    SAFE_DELETE(m_pPrefabEvents);
 }
 
 //////////////////////////////////////////////////////////////////////////
 void CPrefabManager::ClearAll()
 {
     CBaseLibraryManager::ClearAll();
-
-    m_pPrefabEvents->RemoveAllEventData();
 
     m_pLevelLibrary = (CBaseLibrary*)AddLibrary("Level", true);
 }
@@ -300,12 +287,12 @@ void CPrefabManager::AddSelectionToPrefab()
         if (objects[i]->GetType() == OBJTYPE_AZENTITY)
         {
             // Component entities cannot be added to legacy prefabs.
-            Warning("Object %s is a component entity and not compatible with legacy prefabs. Use Slices instead.", objects[i]->GetName());
+            Warning("Object %s is a component entity and not compatible with legacy prefabs. Use Slices instead.", objects[i]->GetName().toUtf8().constData());
             invalidAddOperation = true;
         }
         else if (!pPrefab->CanObjectBeAddedAsMember(objects[i]))
         {
-            Warning("Object %s is already part of a prefab (%s)", objects[i]->GetName(), objects[i]->GetPrefab()->GetName());
+            Warning("Object %s is already part of a prefab (%s)", objects[i]->GetName().toUtf8().constData(), objects[i]->GetPrefab()->GetName().toUtf8().constData());
             invalidAddOperation = true;
         }
     }

@@ -66,6 +66,7 @@ void CRiverObject::InitVariables()
     AddVariable(mv_waterVolumeDepth, "VolumeDepth", "Depth", functor(*this, &CRiverObject::OnRiverPhysicsParamChange));
     AddVariable(mv_waterStreamSpeed, "StreamSpeed", "Speed", functor(*this, &CRiverObject::OnRiverPhysicsParamChange));
     AddVariable(mv_waterFogDensity, "FogDensity", "FogDensity", functor(*this, &CRiverObject::OnRiverParamChange));
+    mv_waterFogDensity.SetLimits(0.001f, 100.0f);
     AddVariable(mv_waterFogColor, "FogColor", "FogColor", functor(*this, &CRiverObject::OnRiverParamChange), IVariable::DT_COLOR);
     AddVariable(mv_waterFogColorMultiplier, "FogColorMultiplier", "FogColorMultiplier", functor(*this, &CRiverObject::OnRiverParamChange));
     AddVariable(mv_waterFogColorAffectedBySun, "FogColorAffectedBySun", "FogColorAffectedBySun", functor(*this, &CRiverObject::OnRiverParamChange));
@@ -167,7 +168,7 @@ void CRiverObject::SetMaterial(CMaterial* mtl)
         const SShaderItem& si = mtl->GetMatInfo()->GetShaderItem();
         if (si.m_pShader && si.m_pShader->GetShaderType() != eST_Water)
         {
-            CryWarning(VALIDATOR_MODULE_3DENGINE, VALIDATOR_ERROR, "Incorrect shader set for water / water fog volume \"%s\"!", GetName());
+            CryWarning(VALIDATOR_MODULE_3DENGINE, VALIDATOR_ERROR, "Incorrect shader set for water / water fog volume \"%s\"!", GetName().toUtf8().constData());
         }
     }
 

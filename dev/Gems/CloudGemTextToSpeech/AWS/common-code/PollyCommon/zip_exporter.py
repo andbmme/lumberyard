@@ -12,7 +12,8 @@
 from __future__ import print_function
 
 import tts
-import urllib
+from six.moves.urllib.request import urlretrieve
+from six import iteritems
 import boto3
 import zipfile
 import json
@@ -22,6 +23,9 @@ import uuid
 import csv
 
 from errors import ClientError
+from botocore.client import Config
+
+import text_to_speech_s3
 
 PACKAGEDVOICELINES = 'packagedvoicelines'
 ID_PACKAGES_FOLDER = "idPackages/"
@@ -58,7 +62,7 @@ def check_url(name, in_lib = True):
     return url
 
 def get_generated_packages():
-    s3_client = boto3.client('s3')
+    s3_client = text_to_speech_s3.get_s3_client()
     response = s3_client.list_objects(Bucket = CloudCanvas.get_setting(PACKAGEDVOICELINES))
 
     generated_packages = []
@@ -81,7 +85,7 @@ def create_zip_file(tts_info_list, name, UUID):
     character_custom_mapping = 'Character'
     line_custom_mapping = 'Line'
     custom_mappings = tts.get_custom_mappings()
-    for key, value in custom_mappings.items():
+    for key, value in iteritems(custom_mappings):
         if value == 'character':
             character_custom_mapping = key
         elif value == 'line':
@@ -116,7 +120,7 @@ def create_zip_file(tts_info_list, name, UUID):
     print(message)
 
 def delete_zip_file(key):
-    client = boto3.client('s3')
+    client = text_to_speech_s3.get_s3_client()
     try:
         client.delete_object(Bucket=CloudCanvas.get_setting(PACKAGEDVOICELINES), Key = key)
     except ClientError as e:
@@ -142,7 +146,7 @@ def __add_to_zip(key, url, zip_file_name):
     zf = zipfile.ZipFile(zip_file_name, 'a')
     try:
         if not key.rstrip('/') in zf.namelist():
-            urllib.urlretrieve(url, '/tmp/' + key)
+            urlretrieve(url, '/tmp/' + key)
             zf.write('/tmp/' + key, key)
     except:
         error_message = 'Could not add {} to the zip file {}.'.format(key, zip_file_name)
@@ -203,7 +207,7 @@ def __create_speech_definitions_file(zip_file_name, speech_line_definitions, spe
         zf.close()
 
 def __upload_zip_file(file_name, key):
-    s3 = boto3.resource('s3')
+    s3 = boto3.resource('s3', config=Config(signature_version='s3v4'))
     try:
         s3.meta.client.upload_file(file_name, CloudCanvas.get_setting(PACKAGEDVOICELINES), key)
     except:
@@ -211,7 +215,7 @@ def __upload_zip_file(file_name, key):
         raise ClientError(error_message)
 
 def __generate_presigned_url(key):
-    s3_client = boto3.client('s3')
+    s3_client = text_to_speech_s3.get_s3_client()
     try:
         presigned_url = s3_client.generate_presigned_url('get_object', Params =
             {

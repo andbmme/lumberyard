@@ -17,7 +17,7 @@
 #include <AzCore/std/smart_ptr/unique_ptr.h>
 
 #include <GraphCanvas/GraphCanvasBus.h>
-#include <Styling/PseudoElement.h>
+#include <GraphCanvas/Styling/PseudoElement.h>
 
 namespace GraphCanvas
 {
@@ -42,33 +42,30 @@ namespace GraphCanvas
         ////
 
         // GraphCanvasRequestBus
+        AZ::Entity* CreateBookmarkAnchor() const override;
+
         AZ::Entity* CreateScene() const override;
 
         AZ::Entity* CreateCoreNode() const override;
         AZ::Entity* CreateGeneralNode(const char* nodeType) const override;
         AZ::Entity* CreateCommentNode() const override;
-        AZ::Entity* CreateBlockCommentNode() const override;
         AZ::Entity* CreateWrapperNode(const char* nodeType) const override;
 
-        AZ::Entity* CreateDataSlot(const AZ::EntityId& nodeId, const AZ::Uuid& typeId, const SlotConfiguration& slotConfiguration) const override;
-        AZ::Entity* CreateVariableSourceSlot(const AZ::EntityId& nodeId, const AZ::Uuid& typeId, const SlotConfiguration& slotConfiguration) const override;
-        AZ::Entity* CreateVariableReferenceSlot(const AZ::EntityId& nodeId, const AZ::Uuid& typeId, const SlotConfiguration& slotConfiguration) const override;
+        AZ::Entity* CreateNodeGroup() const override;
+        AZ::Entity* CreateCollapsedNodeGroup(const CollapsedNodeGroupConfiguration& groupedNodeConfiguration) const override;
+
+        AZ::Entity* CreateSlot(const AZ::EntityId& nodeId, const SlotConfiguration& slotConfiguration) const override;
 
         NodePropertyDisplay* CreateBooleanNodePropertyDisplay(BooleanDataInterface* dataInterface) const override;
+        NodePropertyDisplay* CreateNumericNodePropertyDisplay(NumericDataInterface* dataInterface) const override;
+        NodePropertyDisplay* CreateComboBoxNodePropertyDisplay(ComboBoxDataInterface* dataInterface) const override;
         NodePropertyDisplay* CreateEntityIdNodePropertyDisplay(EntityIdDataInterface* dataInterface) const override;
-        NodePropertyDisplay* CreateDoubleNodePropertyDisplay(DoubleDataInterface* dataInterface) const override;
         NodePropertyDisplay* CreateReadOnlyNodePropertyDisplay(ReadOnlyDataInterface* dataInterface) const override;
         NodePropertyDisplay* CreateStringNodePropertyDisplay(StringDataInterface* dataInterface) const override;
-        NodePropertyDisplay* CreateVariableReferenceNodePropertyDisplay(VariableReferenceDataInterface* dataInterface) const override;
         NodePropertyDisplay* CreateVectorNodePropertyDisplay(VectorDataInterface* dataInterface) const override;
-
-        AZ::Entity* CreateExecutionSlot(const AZ::EntityId& nodeId, const SlotConfiguration& slotConfiguration) const override;
+        NodePropertyDisplay* CreateAssetIdNodePropertyDisplay(AssetIdDataInterface* dataInterface) const override;
 
         AZ::Entity* CreatePropertySlot(const AZ::EntityId& nodeId, const AZ::Crc32& propertyId, const SlotConfiguration& slotConfiguration) const override;
-
-        AZ::Entity* CreateDefaultConnection(const Endpoint& sourceEndpoint, const Endpoint& targetEndpoint) const override;
-
-        SceneRequests* GetSceneRequests(AZ::Entity* sceneEntity) const override;
         ////
 
         // PseudoElementRequestBus

@@ -14,7 +14,7 @@
 #define QCopyableWidget_h__
 
 #include <QWidget>
-#include "qmenu.h"
+
 #include <functional>
 
 #include "../api.h"
@@ -51,7 +51,7 @@ public:
     virtual void LaunchMenu(QPoint pos);
 
     //Does not check for existing options in menu, call in order you want them.
-    virtual void RebuildMenu();
+    virtual void BuildMenu(QMenu *menu);
 protected:
     virtual void mousePressEvent(QMouseEvent* event) override;
     virtual void keyPressEvent(QKeyEvent* event) override;
@@ -59,9 +59,9 @@ protected:
 private slots:
 
 protected:
-    QMenu* m_menu;
     COPY_MENU_FLAGS m_flags;
 
+    AZ_PUSH_DISABLE_DLL_EXPORT_MEMBER_WARNING
     //callbacks for each menu event, these need to be set outside of class
     std::function<void()> onCopyCallback;
     std::function<void()> onPasteCallback;
@@ -72,5 +72,6 @@ protected:
 
     //callback for custom menu additions
     std::function<void(QMenu*)> onCustomMenuCreationCallback;
+    AZ_POP_DISABLE_DLL_EXPORT_MEMBER_WARNING
 };
 #endif // QCopyableWidget_h__

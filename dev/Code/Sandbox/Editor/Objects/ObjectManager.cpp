@@ -36,6 +36,7 @@
 #include "ActorEntity.h"
 #include "SimpleEntity.h"
 #include "MiscEntities.h"
+#include "NullEditTool.h"
 #include "Vehicles/VehiclePrototype.h"
 #include "Vehicles/VehicleHelperObject.h"
 #include "Vehicles/VehiclePart.h"
@@ -82,10 +83,6 @@
 #include "IAIObject.h"
 #include "../EditMode/DeepSelection.h"
 #include "Objects/EnvironmentProbeObject.h"
-#include "HyperGraph/FlowGraphManager.h"
-
-#include "Util/BoostPythonHelpers.h"
-#include "HyperGraph/FlowGraphHelpers.h"
 
 #include "GameEngine.h"
 
@@ -97,6 +94,9 @@
 #include "Util/GuidUtil.h"
 
 #include <AzCore/Debug/Profiler.h>
+#include <AzCore/Math/Uuid.h>
+
+#include <AzFramework/Entity/EntityDebugDisplayBus.h>
 
 #include <AzToolsFramework/API/ToolsApplicationAPI.h>
 #include <AzToolsFramework/API/ComponentEntityObjectBus.h>
@@ -105,6 +105,11 @@
 
 #include <AzToolsFramework/Metrics/LyEditorMetricsBus.h>
 #include <LegacyEntityConversion/LegacyEntityConversion.h>
+#include <Plugins/ComponentEntityEditorPlugin/Objects/ComponentEntityObject.h>
+
+#include "ObjectManagerLegacyUndo.h"
+
+#include <AzCore/RTTI/BehaviorContext.h>
 
 /*!
  *  Class Description used for object templates.
@@ -144,249 +149,16 @@ public:
     virtual int GameCreationOrder() { return superType->GameCreationOrder(); };
 };
 
-//////////////////////////////////////////////////////////////////////////
-//! Prefab helper functions
-// Because a prefab consist of multiple object but it is defined as a single GUID,
-// we want to extract all the childs GUIDs. We need this info if we undo redo new/delete
-// operations on prefabs, since we want to NOT generate new IDs for the childs, otherwise
-// other UNDO operations depending on the guids won't work
-static void ExtractRemapingInformation(CBaseObject* pPrefab, TGUIDRemap& remapInfo)
+void CBaseObjectsCache::AddObject(CBaseObject* object)
 {
-    TBaseObjects childs;
-    pPrefab->GetAllPrefabFlagedChildren(childs);
-
-    for (size_t i = 0, count = childs.size(); i < count; ++i)
+    m_objects.push_back(object);
+    if (object->GetType() == OBJTYPE_AZENTITY)
     {
-        remapInfo.insert(std::make_pair(childs[i]->GetIdInPrefab(), childs[i]->GetId()));
+        auto componentEntityObject = static_cast<CComponentEntityObject*>(object);
+        m_entityIds.push_back(componentEntityObject->GetAssociatedEntityId());
     }
 }
 
-static void RemapObjectsInPrefab(CBaseObject* pPrefab, const TGUIDRemap& remapInfo)
-{
-    IObjectManager* pObjMan = GetIEditor()->GetObjectManager();
-
-    TBaseObjects childs;
-    pPrefab->GetAllPrefabFlagedChildren(childs);
-
-    for (size_t i = 0, count = childs.size(); i < count; ++i)
-    {
-        TGUIDRemap::const_iterator it = remapInfo.find(childs[i]->GetIdInPrefab());
-        if (it != remapInfo.end())
-        {
-            pObjMan->ChangeObjectId(childs[i]->GetId(), (*it).second);
-        }
-    }
-}
-
-//////////////////////////////////////////////////////////////////////////
-//! Undo New Object
-class CUndoBaseObjectNew
-    : public IUndoObject
-{
-public:
-    CUndoBaseObjectNew(CBaseObject* pObj)
-    {
-        m_object = pObj;
-
-        m_isPrefab = qobject_cast<CPrefabObject*>(pObj) != nullptr;
-
-        if (m_isPrefab)
-        {
-            ExtractRemapingInformation(pObj, m_remaping);
-        }
-    }
-protected:
-    virtual int GetSize() { return sizeof(*this); }; // Return size of xml state.
-    virtual QString GetDescription() { return "New BaseObject"; };
-    virtual QString GetObjectName(){ return m_object->GetName(); };
-
-    virtual void Undo(bool bUndo)
-    {
-        if (bUndo)
-        {
-            m_redo = XmlHelpers::CreateXmlNode("Redo");
-            // Save current object state.
-            CObjectArchive ar(GetIEditor()->GetObjectManager(), m_redo, false);
-            ar.bUndo = true;
-            m_object->Serialize(ar);
-            m_object->SetLayerModified();
-        }
-
-        m_object->UpdatePrefab(eOCOT_Delete);
-
-        // Delete this object.
-        GetIEditor()->DeleteObject(m_object);
-    }
-    virtual void Redo()
-    {
-        if (m_redo)
-        {
-            IObjectManager* pObjMan = GetIEditor()->GetObjectManager();
-            {
-                CObjectArchive ar(pObjMan, m_redo, true);
-                ar.bUndo = true;
-                ar.MakeNewIds(false);
-                ar.LoadObject(m_redo, m_object);
-            }
-            pObjMan->ClearSelection();
-            pObjMan->SelectObject(m_object);
-            m_object->SetLayerModified();
-
-            if (m_isPrefab)
-            {
-                RemapObjectsInPrefab(m_object, m_remaping);
-            }
-
-            m_object->UpdatePrefab(eOCOT_Add);
-        }
-    }
-
-private:
-    CBaseObjectPtr m_object;
-    TGUIDRemap m_remaping;
-    XmlNodeRef m_redo;
-    bool m_isPrefab;
-};
-
-//////////////////////////////////////////////////////////////////////////
-//! Undo Delete Object
-class CUndoBaseObjectDelete
-    : public IUndoObject
-{
-public:
-    CUndoBaseObjectDelete(CBaseObject* pObj)
-    {
-        pObj->SetTransformDelegate(nullptr);
-        m_object = pObj;
-        // Save current object state.
-        m_undo = XmlHelpers::CreateXmlNode("Undo");
-        CObjectArchive ar(GetIEditor()->GetObjectManager(), m_undo, false);
-        ar.bUndo = true;
-        m_bSelected = m_object->IsSelected();
-        m_object->Serialize(ar);
-        m_object->SetLayerModified();
-
-        m_isPrefab = qobject_cast<CPrefabObject*>(pObj);
-
-        if (m_isPrefab)
-        {
-            ExtractRemapingInformation(m_object, m_remaping);
-        }
-    }
-protected:
-    virtual int GetSize() { return sizeof(*this); }; // Return size of xml state.
-    virtual QString GetDescription() { return "Delete BaseObject"; };
-    virtual QString GetObjectName(){ return m_object->GetName(); };
-
-    virtual void Undo(bool bUndo)
-    {
-        IObjectManager* pObjMan = GetIEditor()->GetObjectManager();
-        {
-            CObjectArchive ar(pObjMan, m_undo, true);
-            ar.bUndo = true;
-            ar.MakeNewIds(false);
-            ar.LoadObject(m_undo, m_object);
-            m_object->ClearFlags(OBJFLAG_SELECTED);
-        }
-        if (m_bSelected)
-        {
-            pObjMan->ClearSelection();
-            pObjMan->SelectObject(m_object);
-        }
-        m_object->SetLayerModified();
-
-        if (m_isPrefab)
-        {
-            RemapObjectsInPrefab(m_object, m_remaping);
-        }
-
-        m_object->UpdatePrefab(eOCOT_Add);
-    }
-    virtual void Redo()
-    {
-        // Delete this object.
-        m_object->SetLayerModified();
-        m_object->UpdatePrefab(eOCOT_Delete);
-        GetIEditor()->DeleteObject(m_object);
-    }
-
-private:
-    CBaseObjectPtr m_object;
-    XmlNodeRef m_undo;
-    TGUIDRemap m_remaping;
-    bool m_bSelected;
-    bool m_isPrefab;
-};
-
-//////////////////////////////////////////////////////////////////////////
-//! Undo Select Object
-class CUndoBaseObjectSelect
-    : public IUndoObject
-{
-public:
-    CUndoBaseObjectSelect(CBaseObject* pObj)
-    {
-        assert(pObj != 0);
-        m_guid = pObj->GetId();
-        m_bUndoSelect = pObj->IsSelected();
-    }
-protected:
-    virtual void Release() { delete this; };
-    virtual int GetSize() { return sizeof(*this); }; // Return size of xml state.
-    virtual QString GetDescription() { return "Select Object"; };
-    virtual QString GetObjectName()
-    {
-        CBaseObject* pObject = GetIEditor()->GetObjectManager()->FindObject(m_guid);
-        if (!pObject)
-        {
-            return "";
-        }
-
-        return pObject->GetName();
-    }
-
-    virtual void Undo(bool bUndo)
-    {
-        CBaseObject* pObject = GetIEditor()->GetObjectManager()->FindObject(m_guid);
-        if (!pObject)
-        {
-            return;
-        }
-
-        if (bUndo)
-        {
-            m_bRedoSelect = pObject->IsSelected();
-        }
-
-        if (m_bUndoSelect)
-        {
-            GetIEditor()->GetObjectManager()->SelectObject(pObject);
-        }
-        else
-        {
-            GetIEditor()->GetObjectManager()->UnselectObject(pObject);
-        }
-    }
-    virtual void Redo()
-    {
-        if (CBaseObject* pObject = GetIEditor()->GetObjectManager()->FindObject(m_guid))
-        {
-            if (m_bRedoSelect)
-            {
-                GetIEditor()->GetObjectManager()->SelectObject(pObject);
-            }
-            else
-            {
-                GetIEditor()->GetObjectManager()->UnselectObject(pObject);
-            }
-        }
-    }
-
-private:
-    GUID m_guid;
-    bool m_bUndoSelect;
-    bool m_bRedoSelect;
-};
 
 //////////////////////////////////////////////////////////////////////////
 // CObjectManager implementation.
@@ -395,8 +167,7 @@ CObjectManager* g_pObjectManager = 0;
 
 //////////////////////////////////////////////////////////////////////////
 CObjectManager::CObjectManager()
-    : m_bVisibleObjectValid(true)
-    , m_lastHideMask(0)
+    : m_lastHideMask(0)
     , m_maxObjectViewDistRatio(0.00001f)
     , m_currSelection(&m_defaultSelection)
     , m_nLastSelCount(0)
@@ -426,11 +197,16 @@ CObjectManager::CObjectManager()
     m_objectsByName.reserve(1024);
     m_converter.reset(aznew AZ::LegacyConversion::Converter());
     LoadRegistry();
+
+    AzToolsFramework::ComponentModeFramework::EditorComponentModeNotificationBus::Handler::BusConnect(
+        AzToolsFramework::GetEntityContextId());
 }
 
 //////////////////////////////////////////////////////////////////////////
 CObjectManager::~CObjectManager()
 {
+    AzToolsFramework::ComponentModeFramework::EditorComponentModeNotificationBus::Handler::BusDisconnect();
+
     m_converter.reset();
     m_bExiting = true;
     SaveRegistry();
@@ -447,11 +223,7 @@ void CObjectManager::RegisterObjectClasses()
     // Register default classes.
     CClassFactory* cf = CClassFactory::Instance();
     cf->RegisterClass(new CTemplateObjectClassDesc<CTagPoint>("StdTagPoint", "", "Editor/ObjectIcons/TagPoint.bmp", OBJTYPE_TAGPOINT));
-    //cf->RegisterClass( new CTemplateObjectClassDesc<CRespawnPoint>("Respawn", "TagPoint", "", OBJTYPE_TAGPOINT) );
-    //cf->RegisterClass( new CTemplateObjectClassDesc<CSpawnPoint>("SpawnPoint", "TagPoint", "", OBJTYPE_TAGPOINT) );
     cf->RegisterClass(new CTemplateObjectClassDesc<CTagComment>("Comment", "Misc", "", OBJTYPE_TAGPOINT));
-    //cf->RegisterClass( new CStaticObjectClassDesc );
-    //cf->RegisterClass( new CBuildingClassDesc );
     cf->RegisterClass(new CTemplateObjectClassDesc<CEntityObject>("StdEntity", "", "", OBJTYPE_ENTITY, 200, "*EntityClass"));
     cf->RegisterClass(new CTemplateObjectClassDesc<CSimpleEntity>("SimpleEntity", "", "", OBJTYPE_ENTITY, 202, "*.cgf;*.chr;*.cga;*.cdf"));
     cf->RegisterClass(new CTemplateObjectClassDesc<CGeomEntity>("GeomEntity", "Geom Entity", "", OBJTYPE_ENTITY, 201, "*.cgf;*.chr;*.cga;*.cdf"));
@@ -478,7 +250,6 @@ void CObjectManager::RegisterObjectClasses()
     cf->RegisterClass(new CTemplateObjectClassDesc<CGameShapeLedgeObject>("Ledge", "Custom", "", OBJTYPE_SHAPE, 50));
     cf->RegisterClass(new CTemplateObjectClassDesc<CGameShapeLedgeStaticObject>("LedgeStatic", "Custom", "", OBJTYPE_SHAPE, 50));
     cf->RegisterClass(new CTemplateObjectClassDesc<CNavigationAreaObject>("NavigationArea", "AI", "", OBJTYPE_SHAPE, 50));
-    //cf->RegisterClass( new CAIStreamingAreaObjectClassDesc );
     cf->RegisterClass(new CTemplateObjectClassDesc<CBrushObject>("Brush", "Brush", "", OBJTYPE_BRUSH, 150, "Objects/*.cgf"));
     cf->RegisterClass(new CTemplateObjectClassDesc<CCameraObject>("Camera", "Misc", "", OBJTYPE_ENTITY, 202));
     cf->RegisterClass(new CTemplateObjectClassDesc<CCameraObjectTarget>("CameraTarget", "", "", OBJTYPE_ENTITY, 202));
@@ -507,12 +278,10 @@ void CObjectManager::RegisterObjectClasses()
     cf->RegisterClass(new CTemplateObjectClassDesc<CRopeObject>("Rope", "Misc", "Editor/ObjectIcons/rope.bmp", OBJTYPE_OTHER, 300));
     cf->RegisterClass(new CTemplateObjectClassDesc<CCharacterAttachHelperObject>("CharAttachHelper", "Misc", "Editor/ObjectIcons/Magnet.bmp", OBJTYPE_ENTITY, 200));
     cf->RegisterClass(new CTemplateObjectClassDesc<CEnvironementProbeObject>("EnvironmentProbe", "Misc", "Editor/ObjectIcons/environmentProbe.bmp", OBJTYPE_ENTITY, 202));
-    //  cf->RegisterClass( new CLightClassDesc );
     cf->RegisterClass(new CTemplateObjectClassDesc<CRefPicture>("ReferencePicture", "Misc", "", OBJTYPE_REFPICTURE));
     cf->RegisterClass(new CTemplateObjectClassDesc<CConstraintEntity>("Entity::Constraint", "", "", OBJTYPE_ENTITY, 203, "*.cgf;*.chr;*.cga;*.cdf"));
     cf->RegisterClass(new CTemplateObjectClassDesc<CWindAreaEntity>("Entity::WindArea", "", "", OBJTYPE_ENTITY, 203, "*.cgf;*.chr;*.cga;*.cdf"));
     cf->RegisterClass(new CTemplateObjectClassDesc<CNavigationSeedPoint>("NavigationSeedPoint", "AI", "", OBJTYPE_TAGPOINT));
-    //  cf->RegisterClass( new CTemplateObjectClassDesc<CEnvironementProbeTODObject>("EnvironmentProbeTOD", "Misc", "Editor/ObjectIcons/environmentProbe.bmp", OBJTYPE_ENTITY, 202) );
 #if defined(USE_GEOM_CACHES)
     cf->RegisterClass(new CTemplateObjectClassDesc<CGeomCacheEntity>("Entity::GeomCache", "", "", OBJTYPE_GEOMCACHE, 204, "*.cax"));
 #endif
@@ -530,7 +299,7 @@ void    CObjectManager::LoadRegistry()
 }
 
 //////////////////////////////////////////////////////////////////////////
-CBaseObject* CObjectManager::NewObject(CObjectClassDesc* cls, CBaseObject* prev, const QString& file)
+CBaseObject* CObjectManager::NewObject(CObjectClassDesc* cls, CBaseObject* prev, const QString& file, const char* newObjectName)
 {
     // Suspend undo operations when initializing object.
     GetIEditor()->SuspendUndo();
@@ -542,14 +311,21 @@ CBaseObject* CObjectManager::NewObject(CObjectClassDesc* cls, CBaseObject* prev,
         CObjectLayer* destLayer = obj->SupportsLayers() ? m_pLayerManager->GetCurrentLayer() : m_pLayerManager->FindLayerByName("Main");
         obj->SetLayer(destLayer);
         obj->InitVariables();
-        obj->m_guid = QUuid::createUuid();    // generate uniq GUID for this object.
+        obj->m_guid = AZ::Uuid::CreateRandom();    // generate uniq GUID for this object.
 
         GetIEditor()->GetErrorReport()->SetCurrentValidatorObject(obj);
         if (obj->Init(GetIEditor(), prev, file))
         {
-            if (obj->GetName().isEmpty())
+            if ((newObjectName)&&(newObjectName[0]))
             {
-                obj->GenerateUniqueName();
+                obj->SetName(newObjectName);
+            }
+            else
+            {
+                if (obj->GetName().isEmpty())
+                {
+                    obj->GenerateUniqueName();
+                }
             }
 
             // Create game object itself.
@@ -612,7 +388,7 @@ CBaseObject* CObjectManager::NewObject(CObjectArchive& ar, CBaseObject* pUndoObj
     if (!objNode->getAttr("Id", id))
     {
         // Make new ID for object that doesn't have if.
-        id = QUuid::createUuid();
+        id = AZ::Uuid::CreateRandom();
     }
 
     idInPrefab = id;
@@ -620,7 +396,7 @@ CBaseObject* CObjectManager::NewObject(CObjectArchive& ar, CBaseObject* pUndoObj
     if (bMakeNewId)
     {
         // Make new guid for this object.
-        GUID newId = QUuid::createUuid();
+        GUID newId = AZ::Uuid::CreateRandom();
         ar.RemapID(id, newId);  // Mark this id remapped.
         id = newId;
     }
@@ -734,7 +510,7 @@ CBaseObject* CObjectManager::NewObject(CObjectArchive& ar, CBaseObject* pUndoObj
 }
 
 //////////////////////////////////////////////////////////////////////////
-CBaseObject* CObjectManager::NewObject(const QString& typeName, CBaseObject* prev, const QString& file)
+CBaseObject* CObjectManager::NewObject(const QString& typeName, CBaseObject* prev, const QString& file, const char* newObjectName)
 {
     // [9/22/2009 evgeny] If it is "Entity", figure out if a CEntity subclass is actually needed
     QString fullName = typeName + "::" + file;
@@ -749,7 +525,7 @@ CBaseObject* CObjectManager::NewObject(const QString& typeName, CBaseObject* pre
         GetIEditor()->GetSystem()->GetILog()->Log("Warning: RuntimeClass %s (as well as %s) not registered", typeName.toUtf8().data(), fullName.toUtf8().data());
         return 0;
     }
-    CBaseObject* pObject = NewObject(cls, prev, file);
+    CBaseObject* pObject = NewObject(cls, prev, file, newObjectName);
     return pObject;
 }
 
@@ -940,6 +716,7 @@ void CObjectManager::DeleteAllObjects()
 
     m_aiTerritoryObjects.clear();
     m_aiWaveObjects.clear();
+    m_animatedAttachedEntities.clear();
 
     RefreshEntitiesAssignedToSelectedTnW();
 
@@ -1060,6 +837,14 @@ bool CObjectManager::AddObject(CBaseObject* obj)
         {
             m_aiWaveObjects.insert(waveObj);
         }
+        else if (CEntityObject* entityObj = qobject_cast<CEntityObject*>(obj))
+        {
+            CEntityObject::EAttachmentType attachType = entityObj->GetAttachType();
+            if (attachType == CEntityObject::EAttachmentType::eAT_GeomCacheNode || attachType == CEntityObject::EAttachmentType::eAT_CharacterBone)
+            {
+                m_animatedAttachedEntities.insert(entityObj);
+            }
+        }
     }
 
     const AZ::Crc32 nameCrc(obj->GetName().toUtf8().data(), obj->GetName().toUtf8().count(), true);
@@ -1074,6 +859,8 @@ bool CObjectManager::AddObject(CBaseObject* obj)
 //////////////////////////////////////////////////////////////////////////
 void CObjectManager::RemoveObject(CBaseObject* obj)
 {
+    AzToolsFramework::EditorMetricsEventBusSelectionChangeHelper selectionChangeMetricsHelper;
+
     assert(obj != 0);
 
     InvalidateVisibleList();
@@ -1087,6 +874,10 @@ void CObjectManager::RemoveObject(CBaseObject* obj)
         else if (CAIWaveObject* waveObj = qobject_cast<CAIWaveObject*>(obj))
         {
             m_aiWaveObjects.erase(waveObj);
+        }
+        else if (CEntityObject* entityObj = qobject_cast<CEntityObject*>(obj))
+        {
+            m_animatedAttachedEntities.erase(entityObj);
         }
     }
 
@@ -1323,7 +1114,10 @@ void CObjectManager::Update()
 
     m_pPhysicsManager->Update();
 
-    UpdateAttachedEntities();
+    if (!GetIEditor()->IsNewViewportInteractionModelEnabled())
+    {
+        UpdateAttachedEntities();
+    }
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -1411,11 +1205,6 @@ bool CObjectManager::SelectObject(CBaseObject* obj, bool bUseMask)
         return false;
     }
 
-    if (!obj->IsSelectable())
-    {
-        return false;
-    }
-
     if (m_selectCallback)
     {
         if (!m_selectCallback->OnSelectObject(obj))
@@ -1424,23 +1213,31 @@ bool CObjectManager::SelectObject(CBaseObject* obj, bool bUseMask)
         }
     }
 
-    /*
-    if (GetIEditor()->IsUndoRecording() && !obj->IsSelected())
-    {
-        GetIEditor()->RecordUndo( new CUndoBaseObjectSelect(obj) );
-    }
-    */
+    AzToolsFramework::EditorMetricsEventBusSelectionChangeHelper selectionChangeMetricsHelper;
 
     m_currSelection->AddObject(obj);
-    SetObjectSelected(obj, true);
 
-    GetIEditor()->Notify(eNotify_OnSelectionChange);
+    // while in ComponentMode we never explicitly change selection (the entity will always be selected).
+    // this check is to handle the case where an undo or redo action has occurred and
+    // the entity has been destroyed and recreated as part of the deserialization step.
+    // we want the internal state to stay consistent but do not want to notify other systems of the change.
+    if (AzToolsFramework::ComponentModeFramework::InComponentMode())
+    {
+        obj->SetSelected(true);
+    }
+    else
+    {
+        SetObjectSelected(obj, true);
+        GetIEditor()->Notify(eNotify_OnSelectionChange);
+    }
 
     return true;
 }
 
 void CObjectManager::SelectEntities(std::set<CEntityObject*>& s)
 {
+    AzToolsFramework::EditorMetricsEventBusSelectionChangeHelper selectionChangeMetricsHelper;
+
     for (std::set<CEntityObject*>::iterator it = s.begin(), end = s.end(); it != end; ++it)
     {
         SelectObject(*it);
@@ -1449,13 +1246,21 @@ void CObjectManager::SelectEntities(std::set<CEntityObject*>& s)
 
 void CObjectManager::UnselectObject(CBaseObject* obj)
 {
-    /*
-    if (GetIEditor()->IsUndoRecording() && obj->IsSelected())
+    AzToolsFramework::EditorMetricsEventBusSelectionChangeHelper selectionChangeMetricsHelper;
+
+    // while in ComponentMode we never explicitly change selection (the entity will always be selected).
+    // this check is to handle the case where an undo or redo action has occurred and
+    // the entity has been destroyed and recreated as part of the deserialization step.
+    // we want the internal state to stay consistent but do not want to notify other systems of the change.
+    if (AzToolsFramework::ComponentModeFramework::InComponentMode())
     {
-        GetIEditor()->RecordUndo( new CUndoBaseObjectSelect(obj) );
+        obj->SetSelected(false);
     }
-    */
-    SetObjectSelected(obj, false);
+    else
+    {
+        SetObjectSelected(obj, false);
+    }
+    
     m_currSelection->RemoveObject(obj);
 }
 
@@ -1596,11 +1401,48 @@ void CObjectManager::SerializeNameSelection(XmlNodeRef& rootNode, bool bLoading)
 int CObjectManager::ClearSelection()
 {
     AZ_PROFILE_FUNCTION(AZ::Debug::ProfileCategory::Editor);
+
+    AzToolsFramework::EditorMetricsEventBusSelectionChangeHelper selectionChangeMetricsHelper;
+
+    // Make sure to unlock selection.
+    GetIEditor()->LockSelection(false);
+
     int numSel = m_currSelection->GetCount();
-    UnselectCurrent();
+
+    // Handle Undo/Redo of Component Entities
+    bool isUndoRecording = GetIEditor()->IsUndoRecording();
+    if (isUndoRecording)
+    {
+        m_processingBulkSelect = true;
+        GetIEditor()->RecordUndo(new CUndoBaseObjectClearSelection(*m_currSelection));
+    }
+
+    // Handle legacy entities separately so the selection group can be cleared safely. 
+    // This prevents every AzEntity from being removed one by one from a vector.
+    m_currSelection->RemoveAllExceptLegacySet();
+
+    // Kick off Deselect for Legacy Entities
+    for (CBaseObjectPtr legacyObject : m_currSelection->GetLegacyObjects())
+    {
+        if (isUndoRecording && legacyObject->IsSelected())
+        {
+            GetIEditor()->RecordUndo(new CUndoBaseObjectSelect(legacyObject));
+        }
+
+        SetObjectSelected(legacyObject, false);
+    }
+
+    // Legacy set is cleared
     m_defaultSelection.RemoveAll();
     m_currSelection = &m_defaultSelection;
     m_bSelectionChanged = true;
+
+    // Unselect all component entities as one bulk operation instead of individually
+    AzToolsFramework::ToolsApplicationRequestBus::Broadcast(
+        &AzToolsFramework::ToolsApplicationRequests::SetSelectedEntities, 
+        AzToolsFramework::EntityIdList());
+
+    m_processingBulkSelect = false;
 
     if (!m_bExiting)
     {
@@ -1614,6 +1456,9 @@ int CObjectManager::ClearSelection()
 int CObjectManager::InvertSelection()
 {
     AZ_PROFILE_FUNCTION(AZ::Debug::ProfileCategory::Editor);
+
+    AzToolsFramework::EditorMetricsEventBusSelectionChangeHelper selectionChangeMetricsHelper;
+
     int selCount = 0;
     // iterate all objects.
     for (Objects::const_iterator it = m_objects.begin(); it != m_objects.end(); ++it)
@@ -1640,6 +1485,8 @@ void CObjectManager::SetSelection(const QString& name)
     CSelectionGroup* selection = stl::find_in_map(m_selections, name, (CSelectionGroup*)0);
     if (selection)
     {
+        AzToolsFramework::EditorMetricsEventBusSelectionChangeHelper selectionChangeMetricsHelper;
+
         UnselectCurrent();
         assert(selection != 0);
         m_currSelection = selection;
@@ -1650,6 +1497,9 @@ void CObjectManager::SetSelection(const QString& name)
 void CObjectManager::RemoveSelection(const QString& name)
 {
     AZ_PROFILE_FUNCTION(AZ::Debug::ProfileCategory::Editor);
+
+    AzToolsFramework::EditorMetricsEventBusSelectionChangeHelper selectionChangeMetricsHelper;
+
     QString selName = name;
     CSelectionGroup* selection = stl::find_in_map(m_selections, name, (CSelectionGroup*)0);
     if (selection)
@@ -1670,6 +1520,8 @@ void CObjectManager::CheckAndFixSelection()
 {
     AZ_PROFILE_FUNCTION(AZ::Debug::ProfileCategory::Editor);
     bool bObjectMode = qobject_cast<CObjectMode*>(GetIEditor()->GetEditTool()) != nullptr;
+
+    AzToolsFramework::EditorMetricsEventBusSelectionChangeHelper selectionChangeMetricsHelper;
 
     if (m_currSelection->GetCount() == 0)
     {
@@ -1729,6 +1581,8 @@ void CObjectManager::CheckAndFixSelection()
 
 void CObjectManager::SelectCurrent()
 {
+    AzToolsFramework::EditorMetricsEventBusSelectionChangeHelper selectionChangeMetricsHelper;
+
     AZ_PROFILE_FUNCTION(AZ::Debug::ProfileCategory::Editor);
     for (int i = 0; i < m_currSelection->GetCount(); i++)
     {
@@ -1745,7 +1599,7 @@ void CObjectManager::SelectCurrent()
 void CObjectManager::UnselectCurrent()
 {
     AZ_PROFILE_FUNCTION(AZ::Debug::ProfileCategory::Editor);
-    
+
     // Make sure to unlock selection.
     GetIEditor()->LockSelection(false);
 
@@ -1768,19 +1622,45 @@ void CObjectManager::UnselectCurrent()
 //////////////////////////////////////////////////////////////////////////
 void CObjectManager::Display(DisplayContext& dc)
 {
-    Vec3 org;
+    AZ_PROFILE_FUNCTION(AZ::Debug::ProfileCategory::Editor);
 
-    FUNCTION_PROFILER(GetIEditor()->GetSystem(), PROFILE_EDITOR);
-
-    if (!m_bVisibleObjectValid || gSettings.objectHideMask != m_lastHideMask)
+    int currentHideMask = GetIEditor()->GetDisplaySettings()->GetObjectHideMask();
+    if (m_lastHideMask != currentHideMask)
     {
-        m_lastHideMask = gSettings.objectHideMask;
+        // a setting has changed which may cause the set of currently visible objects to change, so invalidate the serial number
+        // so that viewports and anyone else that needs to update settings knows it has to.
+        m_lastHideMask = currentHideMask;
+        ++m_visibilitySerialNumber;
+    }
+
+    // the object manager itself has a visibility list, so it also has to update its cache when the serial has changed
+    if (m_visibilitySerialNumber != m_lastComputedVisibility)
+    {
+        m_lastComputedVisibility = m_visibilitySerialNumber;
         UpdateVisibilityList();
     }
 
-    if (dc.settings->IsDisplayHelpers() ||  dc.view->GetVisibleObjectsCache()->GetObjectCount() == 0)     // is display helpers or list is not populated (needed to select objects)
+    bool viewIsDirty = dc.settings->IsDisplayHelpers(); // displaying helpers require computing all the bound boxes and things anyway.
+
+    if (!viewIsDirty)
     {
-        FindDisplayableObjects(dc, true);
+        if (CBaseObjectsCache* cache = dc.view->GetVisibleObjectsCache())
+        {
+            // if the current rendering viewport has an out-of-date cache serial number, it needs to be refreshed too.
+            // views set their cache empty when they indicate they need to force a refresh.
+            if ((cache->GetObjectCount() == 0) || (cache->GetSerialNumber() != m_visibilitySerialNumber))
+            {
+                viewIsDirty = true;
+            }
+        }
+    }
+
+    if (viewIsDirty)
+    {
+        FindDisplayableObjects(dc, true);  // this also actually draws the helpers.
+
+        // Also broadcast for anyone else that needs to draw global debug to do so now
+        AzFramework::DebugDisplayEventBus::Broadcast(&AzFramework::DebugDisplayEvents::DrawGlobalDebugInfo);
     }
 
     if (m_gizmoManager)
@@ -1796,7 +1676,15 @@ void CObjectManager::ForceUpdateVisibleObjectCache(DisplayContext& dc)
 
 void CObjectManager::FindDisplayableObjects(DisplayContext& dc, bool bDisplay)
 {
+    AZ_PROFILE_FUNCTION(AZ::Debug::ProfileCategory::Editor);
+
     CBaseObjectsCache* pDispayedViewObjects = dc.view->GetVisibleObjectsCache();
+    if (!pDispayedViewObjects)
+    {
+        return;
+    }
+
+    pDispayedViewObjects->SetSerialNumber(m_visibilitySerialNumber); // update viewport to be latest serial number
 
     const CCamera& camera = GetIEditor()->GetSystem()->GetViewCamera();
     AABB bbox;
@@ -1807,6 +1695,8 @@ void CObjectManager::FindDisplayableObjects(DisplayContext& dc, bool bDisplay)
     pDispayedViewObjects->Reserve(m_visibleObjects.size());
 
     CEditTool* pEditTool = GetIEditor()->GetEditTool();
+
+    const bool newViewportInteractionModelEnabled = GetIEditor()->IsNewViewportInteractionModelEnabled();
 
     if (dc.flags & DISPLAY_2D)
     {
@@ -1822,7 +1712,11 @@ void CObjectManager::FindDisplayableObjects(DisplayContext& dc, bool bDisplay)
 
                 if (bDisplay && dc.settings->IsDisplayHelpers() && (gSettings.viewports.nShowFrozenHelpers || !obj->IsFrozen()))
                 {
-                    obj->Display(dc);
+                    if (!newViewportInteractionModelEnabled)
+                    {
+                        obj->Display(dc);
+                    }
+
                     if (pEditTool)
                     {
                         pEditTool->DrawObjectHelpers(obj, dc);
@@ -1870,7 +1764,6 @@ void CObjectManager::FindDisplayableObjects(DisplayContext& dc, bool bDisplay)
         {
             CBaseObject* obj = m_visibleObjects[i];
 
-            obj->GetBoundBox(bbox);
             if (obj && obj->IsInCameraView(camera))
             {
                 // Check if object is too far.
@@ -1881,7 +1774,11 @@ void CObjectManager::FindDisplayableObjects(DisplayContext& dc, bool bDisplay)
 
                     if (bDisplay && dc.settings->IsDisplayHelpers() && (gSettings.viewports.nShowFrozenHelpers || !obj->IsFrozen()) && !obj->CheckFlags(OBJFLAG_HIDE_HELPERS))
                     {
-                        obj->Display(dc);
+                        if (!newViewportInteractionModelEnabled)
+                        {
+                            obj->Display(dc);
+                        }
+
                         if (pEditTool)
                         {
                             pEditTool->DrawObjectHelpers(obj, dc);
@@ -1968,10 +1865,6 @@ int CObjectManager::SelectObjects(const AABB& box, bool bUnselect)
         CBaseObject* obj = it->second;
 
         if (obj->IsHidden())
-        {
-            continue;
-        }
-        if (obj->IsFrozen())
         {
             continue;
         }
@@ -2103,6 +1996,8 @@ void CObjectManager::DeleteSelection()
 {
     AZ_PROFILE_FUNCTION(AZ::Debug::ProfileCategory::Editor);
 
+    AzToolsFramework::EditorMetricsEventBusSelectionChangeHelper selectionChangeMetricsHelper;
+
     // Make sure to unlock selection.
     GetIEditor()->LockSelection(false);
 
@@ -2126,13 +2021,13 @@ void CObjectManager::DeleteSelection()
     m_defaultSelection.RemoveAll();
 
     DeleteSelection(&objects);
-
-    GetIEditor()->GetFlowGraphManager()->SendNotifyEvent(EHG_GRAPH_INVALIDATE);
 }
 
 //////////////////////////////////////////////////////////////////////////
 bool CObjectManager::HitTestObject(CBaseObject* obj, HitContext& hc)
 {
+    AZ_PROFILE_FUNCTION(AZ::Debug::ProfileCategory::Editor);
+
     if (obj->IsFrozen())
     {
         return false;
@@ -2204,7 +2099,7 @@ bool CObjectManager::HitTestObject(CBaseObject* obj, HitContext& hc)
 //////////////////////////////////////////////////////////////////////////
 bool CObjectManager::HitTest(HitContext& hitInfo)
 {
-    FUNCTION_PROFILER(GetIEditor()->GetSystem(), PROFILE_EDITOR);
+    AZ_PROFILE_FUNCTION(AZ::Debug::ProfileCategory::Editor);
 
     hitInfo.object = nullptr;
     hitInfo.dist = FLT_MAX;
@@ -2274,11 +2169,7 @@ bool CObjectManager::HitTest(HitContext& hitInfo)
 
         if (HitTestObject(obj, hc))
         {
-            if (!hc.object)
-            {
-                hc.object = obj;
-            }
-            if (m_selectCallback && !m_selectCallback->CanSelectObject(hc.object))
+            if (m_selectCallback && !m_selectCallback->CanSelectObject(obj))
             {
                 continue;
             }
@@ -2300,13 +2191,6 @@ bool CObjectManager::HitTest(HitContext& hitInfo)
 
             if (hc.dist < mindist || (!iconHit && hc.iconHit))
             {
-                // If collided object specified, accept it, otherwise take tested object itself.
-                CBaseObject* hitObj = hc.object;
-                if (!hitObj)
-                {
-                    hitObj = obj;
-                }
-
                 if (hc.iconHit)
                 {
                     iconHit = true;
@@ -2314,11 +2198,11 @@ bool CObjectManager::HitTest(HitContext& hitInfo)
 
                 mindist = hc.dist;
                 name = hc.name;
-                selected = hitObj;
+                selected = obj;
             }
-            
-            // Clear the object pointer if an object was hit, not just if the collision 
-            // was closer than any previous. Not all paths from HitTestObject set the object pointer and so you could get 
+
+            // Clear the object pointer if an object was hit, not just if the collision
+            // was closer than any previous. Not all paths from HitTestObject set the object pointer and so you could get
             // an object from a previous (rejected) result but with collision information about a closer hit.
             hc.object = nullptr;
             hc.iconHit = false;
@@ -2368,6 +2252,7 @@ void CObjectManager::FindObjectsInRect(CViewport* view, const QRect& rect, std::
         HitTestObjectAgainstRect(pObj, view, hc, guids);
     }
 }
+
 //////////////////////////////////////////////////////////////////////////
 void CObjectManager::SelectObjectsInRect(CViewport* view, const QRect& rect, bool bSelect)
 {
@@ -2387,14 +2272,47 @@ void CObjectManager::SelectObjectsInRect(CViewport* view, const QRect& rect, boo
     hc.rect = rect;
     hc.bUseSelectionHelpers = view->GetAdvancedSelectModeFlag();
 
-    CBaseObjectsCache* pDispayedViewObjects = view->GetVisibleObjectsCache();
-    int numVis = pDispayedViewObjects->GetObjectCount();
+    bool isUndoRecording = GetIEditor()->IsUndoRecording();
+    if (isUndoRecording)
+    {
+        m_processingBulkSelect = true;
+    }
+
+    CBaseObjectsCache* displayedViewObjects = view->GetVisibleObjectsCache();
+    int numVis = displayedViewObjects->GetObjectCount();
+
+    // Tracking the previous selection allows proper undo/redo functionality of additional 
+    // selections (CTRL + drag select)
+    AZStd::unordered_set<const CBaseObject*> previousSelection;
+
     for (int i = 0; i < numVis; ++i)
     {
-        CBaseObject* pObj = pDispayedViewObjects->GetObject(i);
+        CBaseObject* object = displayedViewObjects->GetObject(i);
 
-        SelectObjectInRect(pObj, view, hc, bSelect);
+        if (object->IsSelected())
+        {
+            previousSelection.insert(object);
+        }
+        else
+        {
+            // This will update m_currSelection
+            SelectObjectInRect(object, view, hc, bSelect);
+
+            // Legacy undo/redo does not go through the Ebus system and must be done individually 
+            if (isUndoRecording && object->GetType() != OBJTYPE_AZENTITY)
+            {
+                GetIEditor()->RecordUndo(new CUndoBaseObjectSelect(object, true));
+            }
+        }
     }
+
+    if (isUndoRecording && m_currSelection)
+    {
+        // Component Entities can handle undo/redo in bulk due to Ebuses
+        GetIEditor()->RecordUndo(new CUndoBaseObjectBulkSelect(previousSelection, *m_currSelection));
+    }
+
+    m_processingBulkSelect = false;
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -2628,8 +2546,7 @@ void CObjectManager::RegisterClassTemplate(const XmlNodeRef& templ)
     classDesc->type = typeName;
     classDesc->category = category;
     classDesc->fileSpec = fileSpec;
-    classDesc->guid = QUuid::createUuid();
-    //classDesc->properties = templ->findChild( "Properties" );
+    classDesc->guid = AZ::Uuid::CreateRandom();
 
     CClassFactory::Instance()->RegisterClass(classDesc);
 }
@@ -2655,6 +2572,16 @@ void CObjectManager::LoadClassTemplates(const QString& path)
             }
         }
     }
+}
+
+//////////////////////////////////////////////////////////////////////////
+void CObjectManager::RegisterCVars()
+{
+    REGISTER_CVAR2("AxisHelperHitRadius",
+        &m_axisHelperHitRadius,
+        20,
+        VF_DEV_ONLY,
+        "Adjust the hit radius used for axis helpers, like the transform gizmo.");
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -2873,7 +2800,7 @@ void CObjectManager::InvalidateVisibleList()
     {
         return;
     }
-    m_bVisibleObjectValid = false;
+    ++m_visibilitySerialNumber;
     m_visibleObjects.clear();
 }
 
@@ -2894,9 +2821,13 @@ void CObjectManager::UpdateVisibilityList()
         // entities not isolated in Isolation Mode will be invisible
         bool isObjectIsolated = obj->IsIsolated();
         visible = visible && (!isInIsolationMode || isObjectIsolated);
-
         obj->UpdateVisibility(visible);
-        if (visible)
+
+        // when the new viewport interaction model is enabled we always want to add objects
+        // in the view (frustum) to the visible objects list so we can draw feedback for
+        // entities being hidden in the viewport when selected in the  entity outliner
+        // (EditorVisibleEntityDataCache must be populated even if entities are 'hidden')
+        if (visible || GetIEditor()->IsNewViewportInteractionModelEnabled())
         {
             // Prefabs are not added into visible list.
             if (!obj->CheckFlags(OBJFLAG_PREFAB))
@@ -2905,7 +2836,6 @@ void CObjectManager::UpdateVisibilityList()
             }
         }
     }
-    m_bVisibleObjectValid = true;
     m_isUpdateVisibilityList = false;
 }
 
@@ -2961,6 +2891,7 @@ bool CObjectManager::ConvertToType(CBaseObject* pObject, const QString& typeName
 //////////////////////////////////////////////////////////////////////////
 void CObjectManager::SetObjectSelected(CBaseObject* pObject, bool bSelect)
 {
+    AZ_PROFILE_FUNCTION(AZ::Debug::ProfileCategory::Editor);
     // Only select/unselect once.
     if ((pObject->IsSelected() && bSelect) || (!pObject->IsSelected() && !bSelect))
     {
@@ -2968,7 +2899,7 @@ void CObjectManager::SetObjectSelected(CBaseObject* pObject, bool bSelect)
     }
 
     // Store selection undo.
-    if (CUndo::IsRecording())
+    if (CUndo::IsRecording() && !m_processingBulkSelect)
     {
         CUndo::Record(new CUndoBaseObjectSelect(pObject));
     }
@@ -3148,7 +3079,7 @@ CBaseObject* CObjectManager::FindPhysicalObjectOwner(IPhysicalEntity* pPhysicalE
     break;
     case PHYS_FOREIGN_ID_ENTITY:
     {
-        IEntity* pIEntity = gEnv->pEntitySystem->GetEntityFromPhysics(pPhysicalEntity);
+        IEntity* pIEntity = gEnv->pEntitySystem ? gEnv->pEntitySystem->GetEntityFromPhysics(pPhysicalEntity) : nullptr;
         if (pIEntity)
         {
             return CEntityObject::FindFromEntityId(pIEntity->GetId());
@@ -3672,7 +3603,7 @@ void CObjectManager::ResolveMissingObjects()
             {
                 pModelVar->Set(newFilename);
             }
-            Log("%s: %s <- %s", obj->GetName(), geometryFile, newFilename);
+            Log("%s: %s <- %s", obj->GetName().toUtf8().constData(), geometryFile.toUtf8().constData(), newFilename.toUtf8().constData());
             continue;
         }
 
@@ -3727,12 +3658,12 @@ void CObjectManager::ResolveMissingObjects()
                     pModelVar->Set(newFilename);
                 }
                 locationMap[geometryFile] = newFilename;
-                Log("%s: %s <- %s", obj->GetName(), geometryFile, newFilename);
+                Log("%s: %s <- %s", obj->GetName().toUtf8().constData(), geometryFile.toUtf8().constData(), newFilename.toUtf8().constData());
                 isUpdated = true;
             }
             else
             {
-                GetIEditor()->GetSystem()->GetILog()->LogWarning("Can't resolve object: %s: %s", obj->GetName(), geometryFile);
+                GetIEditor()->GetSystem()->GetILog()->LogWarning("Can't resolve object: %s: %s", obj->GetName().toUtf8().constData(), geometryFile.toUtf8().constData());
             }
         }
     }
@@ -3794,7 +3725,7 @@ void CObjectManager::ResolveMissingMaterials()
             if (pNewMaterial)
             {
                 obj->SetMaterial(pNewMaterial);
-                Log("%s: %s <- %s", pMat->GetName(), oldFilename, newFilename);
+                Log("%s: %s <- %s", pMat->GetName().toUtf8().constData(), oldFilename.toUtf8().constData(), newFilename.toUtf8().constData());
             }
             continue;
         }
@@ -3835,13 +3766,13 @@ void CObjectManager::ResolveMissingMaterials()
                 {
                     obj->SetMaterial(pNewMaterial);
                     locationMap[oldFilename] = newFilename;
-                    Log("%s: %s <- %s", pMat->GetName(), oldFilename, newFilename);
+                    Log("%s: %s <- %s", pMat->GetName().toUtf8().constData(), oldFilename.toUtf8().constData(), newFilename.toUtf8().constData());
                     isUpdated = true;
                 }
             }
             else
             {
-                GetIEditor()->GetSystem()->GetILog()->LogWarning("Can't resolve material: %s: %s", pMat->GetName(), oldFilename);
+                GetIEditor()->GetSystem()->GetILog()->LogWarning("Can't resolve material: %s: %s", pMat->GetName().toUtf8().constData(), oldFilename.toUtf8().constData());
             }
         }
     }
@@ -3858,14 +3789,9 @@ void CObjectManager::ResolveMissingMaterials()
 //////////////////////////////////////////////////////////////////////////
 void CObjectManager::UpdateAttachedEntities()
 {
-    for (Objects::iterator it = m_objects.begin(); it != m_objects.end(); ++it)
+    for (CEntityObject* attachedEntityObj : m_animatedAttachedEntities)
     {
-        CBaseObject* obj = it->second;
-        if (qobject_cast<CEntityObject*>(obj))
-        {
-            CEntityObject* pEntity = static_cast<CEntityObject*>(obj);
-            pEntity->UpdateTransform();
-        }
+        attachedEntityObj->UpdateTransform();
     }
 }
 
@@ -3959,28 +3885,52 @@ void CObjectManager::SelectObjectInRect(CBaseObject* pObj, CViewport* view, HitC
     }
 }
 
+void CObjectManager::EnteredComponentMode(const AZStd::vector<AZ::Uuid>& /*componentModeTypes*/)
+{
+    // provide an EditTool that does nothing.
+    // note: will hide rotation gizmo when active (CRotateTool)
+    GetIEditor()->SetEditTool(new NullEditTool());
+
+    // hide current gizmo for entity (translate/rotate/scale)
+    IGizmoManager* gizmoManager = GetGizmoManager();
+    const size_t gizmoCount = static_cast<size_t>(gizmoManager->GetGizmoCount());
+    for (size_t i = 0; i < gizmoCount; ++i)
+    {
+        gizmoManager->RemoveGizmo(gizmoManager->GetGizmoByIndex(i));
+    }
+}
+
+void CObjectManager::LeftComponentMode(const AZStd::vector<AZ::Uuid>& /*componentModeTypes*/)
+{
+    // return to default EditTool (in whatever transform mode is set)
+    GetIEditor()->SetEditTool(nullptr);
+
+    // show translate/rotate/scale gizmo again
+    if (IGizmoManager* gizmoManager = GetGizmoManager())
+    {
+        if (CBaseObject* selectedObject = GetIEditor()->GetSelectedObject())
+        {
+            gizmoManager->AddGizmo(new CAxisGizmo(selectedObject));
+        }
+    }
+}
+
 //////////////////////////////////////////////////////////////////////////
 namespace
 {
-    std::vector<std::string> PyGetAllObjects(const QString& className, const QString& layerName)
+    AZStd::vector<AZStd::string> PyGetAllObjects()
     {
         IObjectManager* pObjMgr = GetIEditor()->GetObjectManager();
         CObjectLayer* pLayer = NULL;
-        if (layerName.isEmpty() == false)
-        {
-            pLayer = pObjMgr->GetLayersManager()->FindLayerByName(layerName);
-        }
         CBaseObjectsArray objects;
         pObjMgr->GetObjects(objects, pLayer);
         int count = pObjMgr->GetObjectCount();
-        std::vector<std::string> result;
+        AZStd::vector<AZStd::string> result;
         for (int i = 0; i < count; ++i)
         {
-            if (className.isEmpty() || objects[i]->GetTypeDescription() == className)
-            {
-                result.push_back(objects[i]->GetName().toUtf8().data());
-            }
+            result.push_back(objects[i]->GetName().toUtf8().data());
         }
+
         return result;
     }
 
@@ -3997,16 +3947,18 @@ namespace
         return result;
     }
 
-    std::vector<std::string> PyGetNamesOfSelectedObjects()
+    AZStd::vector<AZStd::string> PyGetNamesOfSelectedObjects()
     {
         CSelectionGroup* pSel = GetIEditor()->GetSelection();
-        std::vector<std::string> result;
+        AZStd::vector<AZStd::string> result;
         const int selectionCount = pSel->GetCount();
         result.reserve(selectionCount);
+
         for (int i = 0; i < selectionCount; i++)
         {
             result.push_back(pSel->GetObject(i)->GetName().toUtf8().data());
         }
+
         return result;
     }
 
@@ -4021,7 +3973,7 @@ namespace
         }
     }
 
-    void PyUnselectObjects(const std::vector<std::string>& names)
+    void PyUnselectObjects(const AZStd::vector<AZStd::string>& names)
     {
         CUndo undo("Unselect Objects");
 
@@ -4041,7 +3993,7 @@ namespace
         }
     }
 
-    void PySelectObjects(const std::vector<std::string>& names)
+    void PySelectObjects(const AZStd::vector<AZStd::string>& names)
     {
         CUndo undo("Select Objects");
         CBaseObject* pObject;
@@ -4133,6 +4085,16 @@ namespace
         }
     }
 
+    bool PyIsObjectFrozen(const char* objName)
+    {
+        CBaseObject* pObject = GetIEditor()->GetObjectManager()->FindObject(objName);
+        if (!pObject)
+        {
+            throw std::logic_error((QString("\"") + objName + "\" is an invalid object name.").toUtf8().data());
+        }
+        return pObject->IsFrozen();
+    }
+
     void PyDeleteObject(const char* objName)
     {
         CUndo undo("Delete Object");
@@ -4166,7 +4128,7 @@ namespace
         return 0;
     }
 
-    boost::python::tuple PyGetSelectionCenter()
+    AZ::Vector3 PyGetSelectionCenter()
     {
         if (CSelectionGroup* pGroup = GetIEditor()->GetObjectManager()->GetSelection())
         {
@@ -4176,13 +4138,13 @@ namespace
             }
 
             const Vec3 center = pGroup->GetCenter();
-            return boost::python::make_tuple(center.x, center.y, center.z);
+            return AZ::Vector3(center.x, center.y, center.z);
         }
 
         throw std::runtime_error("Nothing selected");
     }
 
-    boost::python::tuple PyGetSelectionAABB()
+    AZ::Aabb PyGetSelectionAABB()
     {
         if (CSelectionGroup* pGroup = GetIEditor()->GetObjectManager()->GetSelection())
         {
@@ -4192,213 +4154,26 @@ namespace
             }
 
             const AABB aabb = pGroup->GetBounds();
-            return boost::python::make_tuple(aabb.min.x, aabb.min.y, aabb.min.z, aabb.max.x, aabb.max.y, aabb.max.z);
+            AZ::Aabb result;
+            result.Set(
+                AZ::Vector3(
+                    aabb.min.x,
+                    aabb.min.y,
+                    aabb.min.z
+                ), 
+                AZ::Vector3(
+                    aabb.max.x,
+                    aabb.max.y,
+                    aabb.max.z
+                )
+            );
+            return result;
         }
 
         throw std::runtime_error("Nothing selected");
     }
 
-    QString PyGetEntityGeometryFile(const char* objName)
-    {
-        CBaseObject* pObject = GetIEditor()->GetObjectManager()->FindObject(objName);
-        if (pObject == NULL)
-        {
-            return "";
-        }
-
-        QString result = "";
-        if (qobject_cast<CBrushObject*>(pObject))
-        {
-            result = static_cast<CBrushObject*>(pObject)->GetGeometryFile();
-        }
-        else if (qobject_cast<CGeomEntity*>(pObject))
-        {
-            result = static_cast<CGeomEntity*>(pObject)->GetGeometryFile();
-        }
-        else if (qobject_cast<CEntityObject*>(pObject))
-        {
-            result = static_cast<CEntityObject*>(pObject)->GetEntityPropertyString("object_Model");
-        }
-
-        result = result.toLower();
-        result.replace("/", "\\");
-        return result;
-    }
-
-    void PySetEntityGeometryFile(const char* objName, const char* filePath)
-    {
-        CUndo undo("Set entity geometry file");
-        CBaseObject* pObject = GetIEditor()->GetObjectManager()->FindObject(objName);
-        if (pObject == NULL)
-        {
-            return;
-        }
-
-        if (qobject_cast<CBrushObject*>(pObject))
-        {
-            static_cast<CBrushObject*>(pObject)->SetGeometryFile(filePath);
-        }
-        else if (qobject_cast<CGeomEntity*>(pObject))
-        {
-            static_cast<CGeomEntity*>(pObject)->SetGeometryFile(filePath);
-        }
-        else if (qobject_cast<CEntityObject*>(pObject))
-        {
-            static_cast<CEntityObject*>(pObject)->SetEntityPropertyString("object_Model", filePath);
-        }
-    }
-
-    QString PyGetDefaultMaterial(const char* objName)
-    {
-        CBaseObject* pObject = GetIEditor()->GetObjectManager()->FindObject(objName);
-        if (pObject == NULL)
-        {
-            return "";
-        }
-
-        QString matName = "";
-        if (qobject_cast<CBrushObject*>(pObject))
-        {
-            CBrushObject* pBrush = static_cast<CBrushObject*>(pObject);
-
-            if (pBrush->GetIStatObj() == NULL)
-            {
-                return "";
-            }
-
-            if (pBrush->GetIStatObj()->GetMaterial() == NULL)
-            {
-                return "";
-            }
-
-            matName = pBrush->GetIStatObj()->GetMaterial()->GetName();
-        }
-        else if (qobject_cast<CEntityObject*>(pObject))
-        {
-            CEntityObject* pEntity = static_cast<CEntityObject*>(pObject);
-            IRenderNode* pEngineNode = pEntity->GetEngineNode();
-
-            if (pEngineNode == NULL)
-            {
-                return "";
-            }
-
-            IStatObj* pEntityStatObj = pEngineNode->GetEntityStatObj();
-            if (pEntityStatObj == NULL)
-            {
-                return "";
-            }
-
-            matName = pEntityStatObj->GetMaterial()->GetName();
-        }
-
-        matName = matName.toLower();
-        matName.replace("/", "\\");
-        return matName;
-    }
-
-    QString PyGetCustomMaterial(const char* objName)
-    {
-        CBaseObject* pObject = GetIEditor()->GetObjectManager()->FindObject(objName);
-        if (pObject == NULL)
-        {
-            return "";
-        }
-
-        CMaterial* pMtl = pObject->GetMaterial();
-        if (pMtl == NULL)
-        {
-            return "";
-        }
-
-        QString matName = pMtl->GetName().toLower();
-        matName.replace("/", "\\");
-        return matName;
-    }
-
-    QString PyGetAssignedMaterial(const char* pName)
-    {
-        CBaseObject* pObject = GetIEditor()->GetObjectManager()->FindObject(pName);
-        if (!pObject)
-        {
-            throw std::runtime_error("Invalid object name.");
-        }
-
-        QString assignedMaterialName = PyGetCustomMaterial(pName);
-
-        if (assignedMaterialName.isEmpty())
-        {
-            assignedMaterialName = PyGetDefaultMaterial(pName);
-        }
-
-        return assignedMaterialName;
-    }
-
-    void PySetCustomMaterial(const char* objName, const char* matName)
-    {
-        CBaseObject* pObject = GetIEditor()->GetObjectManager()->FindObject(objName);
-        if (pObject == NULL)
-        {
-            return;
-        }
-
-        CUndo undo("Set Custom Material");
-        pObject->SetMaterial(matName);
-    }
-
-    std::vector<std::string> PyGetSequencesUsingThis(const char* objName)
-    {
-        std::vector<std::string> list;
-        CBaseObject* pObject = GetIEditor()->GetObjectManager()->FindObject(objName);
-        if (pObject == NULL)
-        {
-            return list;
-        }
-
-        if (qobject_cast<CEntityObject*>(pObject))
-        {
-            CTrackViewAnimNodeBundle bundle = GetIEditor()->GetSequenceManager()->GetAllRelatedAnimNodes(static_cast<CEntityObject*>(pObject));
-
-            for (unsigned int i = 0; i < bundle.GetCount(); ++i)
-            {
-                CTrackViewSequence* pSequence = bundle.GetNode(i)->GetSequence();
-                if (pSequence)
-                {
-                    stl::push_back_unique(list, pSequence->GetName());
-                }
-            }
-        }
-
-        return list;
-    }
-
-    std::vector<std::string> PyGetFlowGraphsUsingThis(const char* objName)
-    {
-        std::vector<std::string> list;
-        CBaseObject* pObject = GetIEditor()->GetObjectManager()->FindObject(objName);
-        if (pObject == NULL)
-        {
-            return list;
-        }
-
-        if (qobject_cast<CEntityObject*>(pObject))
-        {
-            CEntityObject* pEntity = static_cast<CEntityObject*>(pObject);
-            std::vector<CFlowGraph*> flowgraphs;
-            CFlowGraph* pEntityFG = 0;
-            FlowGraphHelpers::FindGraphsForEntity(pEntity, flowgraphs, pEntityFG);
-            for (size_t i = 0; i < flowgraphs.size(); ++i)
-            {
-                QString name;
-                FlowGraphHelpers::GetHumanName(flowgraphs[i], name);
-                list.push_back(name.toStdString());
-            }
-        }
-
-        return list;
-    }
-
-    boost::python::tuple PyGetObjectPosition(const char* pName)
+    AZ::Vector3 PyGetObjectPosition(const char* pName)
     {
         CBaseObject* pObject = GetIEditor()->GetObjectManager()->FindObject(pName);
         if (!pObject)
@@ -4406,10 +4181,10 @@ namespace
             throw std::logic_error((QString("\"") + pName + "\" is an invalid object.").toUtf8().data());
         }
         Vec3 position = pObject->GetPos();
-        return boost::python::make_tuple(position.x, position.y, position.z);
+        return AZ::Vector3(position.x, position.y, position.z);
     }
 
-    boost::python::tuple PyGetWorldObjectPosition(const char* pName)
+    AZ::Vector3 PyGetWorldObjectPosition(const char* pName)
     {
         CBaseObject* pObject = GetIEditor()->GetObjectManager()->FindObject(pName);
         if (!pObject)
@@ -4417,7 +4192,7 @@ namespace
             throw std::logic_error((QString("\"") + pName + "\" is an invalid object.").toUtf8().data());
         }
         Vec3 position = pObject->GetWorldPos();
-        return boost::python::make_tuple(position.x, position.y, position.z);
+        return AZ::Vector3(position.x, position.y, position.z);
     }
 
     void PySetObjectPosition(const char* pName, float fValueX, float fValueY, float fValueZ)
@@ -4431,7 +4206,7 @@ namespace
         pObject->SetPos(Vec3(fValueX, fValueY, fValueZ));
     }
 
-    boost::python::tuple PyGetObjectRotation(const char* pName)
+    AZ::Vector3 PyGetObjectRotation(const char* pName)
     {
         CBaseObject* pObject = GetIEditor()->GetObjectManager()->FindObject(pName);
         if (!pObject)
@@ -4439,7 +4214,7 @@ namespace
             throw std::logic_error((QString("\"") + pName + "\" is an invalid object.").toUtf8().data());
         }
         Ang3 ang = RAD2DEG(Ang3(pObject->GetRotation()));
-        return boost::python::make_tuple(ang.x, ang.y, ang.z);
+        return AZ::Vector3(ang.x, ang.y, ang.z);
     }
 
     void PySetObjectRotation(const char* pName, float fValueX, float fValueY, float fValueZ)
@@ -4453,7 +4228,7 @@ namespace
         pObject->SetRotation(Quat(DEG2RAD(Ang3(fValueX, fValueY, fValueZ))));
     }
 
-    boost::python::tuple PyGetObjectScale(const char* pName)
+    AZ::Vector3 PyGetObjectScale(const char* pName)
     {
         CBaseObject* pObject = GetIEditor()->GetObjectManager()->FindObject(pName);
         if (!pObject)
@@ -4461,7 +4236,7 @@ namespace
             throw std::logic_error((QString("\"") + pName + "\" is an invalid object.").toUtf8().data());
         }
         Vec3 scaleVec3 = pObject->GetScale();
-        return boost::python::make_tuple(scaleVec3.x, scaleVec3.y, scaleVec3.z);
+        return AZ::Vector3(scaleVec3.x, scaleVec3.y, scaleVec3.z);
     }
 
     void PySetObjectScale(const char* pName, float fValueX, float fValueY, float fValueZ)
@@ -4473,173 +4248,6 @@ namespace
         }
         CUndo undo("Set Object Scale");
         pObject->SetScale(Vec3(fValueX, fValueY, fValueZ));
-    }
-
-    std::vector<std::string> PyGetObjectLayer(const std::vector<std::string>& names)
-    {
-        std::vector<std::string> result;
-        std::set<std::string> tempSet;
-        CBaseObjectsArray objectArray;
-        GetIEditor()->GetObjectManager()->GetObjects(objectArray);
-
-        for (int i = 0; i < objectArray.size(); i++)
-        {
-            for (int j = 0; j < names.size(); j++)
-            {
-                if ((objectArray.at(i))->GetName() == names[j].c_str())
-                {
-                    tempSet.insert(std::string((objectArray.at(i))->GetLayer()->GetName().toUtf8().data()));
-                }
-            }
-        }
-        std::set<std::string>::iterator it;
-        for (it = tempSet.begin(); it != tempSet.end(); it++)
-        {
-            result.push_back(it->c_str());
-        }
-        return result;
-    }
-
-    void PySetObjectLayer(const std::vector<std::string>& names, const char* pLayerName)
-    {
-        CObjectLayer* pLayer = GetIEditor()->GetObjectManager()->GetLayersManager()->FindLayerByName(pLayerName);
-        if (!pLayer)
-        {
-            throw std::logic_error("Invalid layer.");
-        }
-
-        CBaseObjectsArray objectArray;
-        GetIEditor()->GetObjectManager()->GetObjects(objectArray);
-        bool isLayerChanged(false);
-        CUndo undo("Set Object Layer");
-        for (int i = 0; i < objectArray.size(); i++)
-        {
-            for (int j = 0; j < names.size(); j++)
-            {
-                if ((objectArray.at(i))->GetName() == names[j].c_str() && objectArray.at(i)->SupportsLayers())
-                {
-                    (objectArray.at(i))->SetLayer(pLayer);
-                    isLayerChanged = true;
-                }
-            }
-        }
-        if (isLayerChanged)
-        {
-            GetIEditor()->GetObjectManager()->GetLayersManager()->NotifyLayerChange(pLayer);
-        }
-    }
-
-    std::vector<std::string> PyGetAllObjectsOnLayer(const char* pLayerName)
-    {
-        CObjectLayer* pLayer = GetIEditor()->GetObjectManager()->GetLayersManager()->FindLayerByName(pLayerName);
-        if (!pLayer)
-        {
-            throw std::logic_error("Invalid layer.");
-        }
-
-        CBaseObjectsArray objectArray;
-        GetIEditor()->GetObjectManager()->GetObjects(objectArray);
-
-        std::vector<std::string> vectorObjects;
-
-        for (int i = 0; i < objectArray.size(); i++)
-        {
-            if ((objectArray.at(i))->GetLayer()->GetName() == QString(pLayerName))
-            {
-                vectorObjects.push_back(static_cast<std::string>((objectArray.at(i))->GetName().toUtf8().data()));
-            }
-        }
-
-        return vectorObjects;
-    }
-
-    QString PyGetObjectParent(const char* pName)
-    {
-        CBaseObject* pObject = GetIEditor()->GetObjectManager()->FindObject(pName);
-        if (!pObject)
-        {
-            throw std::runtime_error((QString("\"") + pName + "\" is an invalid object.").toUtf8().data());
-        }
-
-        CBaseObject* pParentObject = pObject->GetParent();
-        if (!pParentObject)
-        {
-            return "";
-        }
-        return pParentObject->GetName();
-    }
-
-    std::vector<std::string> PyGetObjectChildren(const char* pName)
-    {
-        CBaseObject* pObject = GetIEditor()->GetObjectManager()->FindObject(pName);
-        if (!pObject)
-        {
-            throw std::runtime_error((QString("\"") + pName + "\" is an invalid object.").toUtf8().data());
-        }
-        std::vector<_smart_ptr<CBaseObject> > objectVector;
-        std::vector<std::string> result;
-        pObject->GetAllChildren(objectVector);
-        if (objectVector.empty())
-        {
-            return result;
-        }
-
-        for (std::vector<_smart_ptr<CBaseObject> >::iterator it = objectVector.begin(); it != objectVector.end(); it++)
-        {
-            result.push_back(static_cast<std::string>(it->get()->GetName().toUtf8().data()));
-        }
-        return result;
-    }
-
-    void PyGenerateCubemap(const char* pObjectName)
-    {
-        CBaseObject* pObject = GetIEditor()->GetObjectManager()->FindObject(pObjectName);
-        if (!pObject)
-        {
-            throw std::runtime_error("Invalid object.");
-        }
-
-        if (pObject->GetTypeName() != "EnvironmentProbe")
-        {
-            throw std::runtime_error("Invalid environment probe.");
-        }
-        static_cast<CEnvironementProbeObject*>(pObject)->GenerateCubemap();
-    }
-
-    QString PyGetObjectType(const char* pName)
-    {
-        CBaseObject* pObject = GetIEditor()->GetObjectManager()->FindObject(pName);
-        if (!pObject)
-        {
-            throw std::runtime_error("Invalid object.");
-        }
-
-        return pObject->GetTypeName();
-    }
-
-    int PyGetObjectLodsCount(const char* pName)
-    {
-        CBaseObject* pObject = GetIEditor()->GetObjectManager()->FindObject(pName);
-        if (!pObject)
-        {
-            throw std::runtime_error("Invalid object name.");
-        }
-
-        if (!qobject_cast<CBrushObject*>(pObject))
-        {
-            throw std::runtime_error("Invalid object type.");
-        }
-
-        IStatObj* pStatObj = pObject->GetIStatObj();
-        if (!pObject)
-        {
-            throw std::runtime_error("Invalid stat object");
-        }
-
-        IStatObj::SStatistics objectStats;
-        pStatObj->GetStatistics(objectStats);
-
-        return objectStats.nLods;
     }
 
     void PyRenameObject(const char* pOldName, const char* pNewName)
@@ -4658,260 +4266,60 @@ namespace
         CUndo undo("Rename object");
         pObject->SetName(pNewName);
     }
+}
 
-    void PyAttachObject(const char* pParent, const char* pChild, const char* pAttachmentType, const char* pAttachmentTarget)
+namespace AzToolsFramework
+{
+    void ObjectManagerFuncsHandler::Reflect(AZ::ReflectContext* context)
     {
-        CBaseObject* pParentObject = GetIEditor()->GetObjectManager()->FindObject(pParent);
-        if (!pParentObject)
+        if (auto behaviorContext = azrtti_cast<AZ::BehaviorContext*>(context))
         {
-            throw std::runtime_error("Could not find parent object");
-        }
-
-        CBaseObject* pChildObject = GetIEditor()->GetObjectManager()->FindObject(pChild);
-        if (!pChildObject)
-        {
-            throw std::runtime_error("Could not find child object");
-        }
-
-        CEntityObject::EAttachmentType attachmentType = CEntityObject::eAT_Pivot;
-        if (strcmp(pAttachmentType, "CharacterBone") == 0)
-        {
-            attachmentType = CEntityObject::eAT_CharacterBone;
-        }
-        else if (strcmp(pAttachmentType, "GeomCacheNode") == 0)
-        {
-            attachmentType = CEntityObject::eAT_GeomCacheNode;
-        }
-        else if (strcmp(pAttachmentType, "") != 0)
-        {
-            throw std::runtime_error("Invalid attachment type");
-        }
-
-        if (attachmentType != CEntityObject::eAT_Pivot)
-        {
-            if (qobject_cast<CEntityObject*>(pParentObject) == nullptr || qobject_cast<CEntityObject*>(pChildObject) == nullptr)
+            // this will put these methods into the 'azlmbr.legacy.general' module
+            auto addLegacyGeneral = [](AZ::BehaviorContext::GlobalMethodBuilder methodBuilder)
             {
-                throw std::runtime_error("Both parent and child must be entities if attaching to bone or node");
-            }
+                methodBuilder->Attribute(AZ::Script::Attributes::Scope, AZ::Script::Attributes::ScopeFlags::Automation)
+                    ->Attribute(AZ::Script::Attributes::Category, "Legacy/Editor")
+                    ->Attribute(AZ::Script::Attributes::Module, "legacy.general");
+            };
+            addLegacyGeneral(behaviorContext->Method("get_all_objects", PyGetAllObjects, nullptr, "Gets the list of names of all objects in the whole level."));
+            addLegacyGeneral(behaviorContext->Method("get_names_of_selected_objects", PyGetNamesOfSelectedObjects, nullptr, "Get the name from selected object/objects."));
 
-            if (strcmp(pAttachmentTarget, "") == 0)
-            {
-                throw std::runtime_error("Please specify a target");
-            }
+            addLegacyGeneral(behaviorContext->Method("select_object", PySelectObject, nullptr, "Selects a specified object."));
+            addLegacyGeneral(behaviorContext->Method("unselect_objects", PyUnselectObjects, nullptr, "Unselects a list of objects."));
+            addLegacyGeneral(behaviorContext->Method("select_objects", PySelectObjects, nullptr, "Selects a list of objects."));
+            addLegacyGeneral(behaviorContext->Method("get_num_selected", PyGetNumSelectedObjects, nullptr, "Returns the number of selected objects."));
+            addLegacyGeneral(behaviorContext->Method("clear_selection", PyClearSelection, nullptr, "Clears selection."));
 
-            CEntityObject* pChildEntity = static_cast<CEntityObject*>(pChildObject);
-            pChildEntity->SetAttachType(attachmentType);
-            pChildEntity->SetAttachTarget(pAttachmentTarget);
+            addLegacyGeneral(behaviorContext->Method("get_selection_center", PyGetSelectionCenter, nullptr, "Returns the center point of the selection group."));
+            addLegacyGeneral(behaviorContext->Method("get_selection_aabb", PyGetSelectionAABB, nullptr, "Returns the aabb of the selection group."));
+
+            addLegacyGeneral(behaviorContext->Method("hide_object", PyHideObject, nullptr, "Hides a specified object."));
+            addLegacyGeneral(behaviorContext->Method("is_object_hidden", PyIsObjectHidden, nullptr, "Checks if object is hidden and returns a bool value."));
+            addLegacyGeneral(behaviorContext->Method("unhide_object", PyUnhideObject, nullptr, "Unhides a specified object."));
+            addLegacyGeneral(behaviorContext->Method("hide_all_objects", PyHideAllObjects, nullptr, "Hides all objects."));
+            addLegacyGeneral(behaviorContext->Method("unhide_all_objects", PyUnHideAllObjects, nullptr, "Unhides all objects."));
+
+            addLegacyGeneral(behaviorContext->Method("freeze_object", PyFreezeObject, nullptr, "Freezes a specified object."));
+            addLegacyGeneral(behaviorContext->Method("is_object_frozen", PyIsObjectFrozen, nullptr, "Checks if object is frozen and returns a bool value."));
+            addLegacyGeneral(behaviorContext->Method("unfreeze_object", PyUnfreezeObject, nullptr, "Unfreezes a specified object."));
+
+            addLegacyGeneral(behaviorContext->Method("delete_object", PyDeleteObject, nullptr, "Deletes a specified object."));
+            addLegacyGeneral(behaviorContext->Method("delete_selected", PyDeleteSelected, nullptr, "Deletes selected object(s)."));
+
+            addLegacyGeneral(behaviorContext->Method("get_position", PyGetObjectPosition, nullptr, "Gets the position of an object."));
+            addLegacyGeneral(behaviorContext->Method("set_position", PySetObjectPosition, nullptr, "Sets the position of an object."));
+
+            addLegacyGeneral(behaviorContext->Method("get_rotation", PyGetObjectRotation, nullptr, "Gets the rotation of an object."));
+            addLegacyGeneral(behaviorContext->Method("set_rotation", PySetObjectRotation, nullptr, "Sets the rotation of an object."));
+
+            addLegacyGeneral(behaviorContext->Method("get_scale", PyGetObjectScale, nullptr, "Gets the scale of an object."));
+            addLegacyGeneral(behaviorContext->Method("set_scale", PySetObjectScale, nullptr, "Sets the scale of an object."));
+
+            addLegacyGeneral(behaviorContext->Method("rename_object", PyRenameObject, nullptr, "Renames object with oldObjectName to newObjectName."));
+
+
         }
-
-        CUndo undo("Attach object");
-        pParentObject->AttachChild(pChildObject);
-    }
-
-    void PyDetachObject(const char* pObjectName)
-    {
-        CBaseObject* pObject = GetIEditor()->GetObjectManager()->FindObject(pObjectName);
-        if (!pObject)
-        {
-            throw std::runtime_error("Could not find object");
-        }
-
-        if (!pObject->GetParent())
-        {
-            throw std::runtime_error("Object has no parent");
-        }
-
-        CUndo undo("Detach object");
-        pObject->DetachThis(true);
-    }
-
-    void PyAddEntityLink(const char* pObjectName, const char* pTargetName, const char* pName)
-    {
-        CBaseObject* pObject = GetIEditor()->GetObjectManager()->FindObject(pObjectName);
-        if (!pObject)
-        {
-            throw std::runtime_error("Could not find object");
-        }
-
-        CBaseObject* pTargetObject = GetIEditor()->GetObjectManager()->FindObject(pTargetName);
-        if (!pTargetObject)
-        {
-            throw std::runtime_error("Could not find target object");
-        }
-
-        if (qobject_cast<CEntityObject*>(pObject) == nullptr || qobject_cast<CEntityObject*>(pTargetObject) == nullptr)
-        {
-            throw std::runtime_error("Both object and target must be entities");
-        }
-
-        if (strcmp(pName, "") == 0)
-        {
-            throw std::runtime_error("Please specify a name");
-        }
-
-        CUndo undo("Add entity link");
-        CEntityObject* pEntity = static_cast<CEntityObject*>(pObject);
-        pEntity->AddEntityLink(pName, pTargetObject->GetId());
     }
 }
 
-REGISTER_ONLY_PYTHON_COMMAND_WITH_EXAMPLE(PyGetAllObjects, general, get_all_objects,
-    "Gets the name list of all objects of a certain type in a specific layer or in the whole level if an invalid layer name given.",
-    "general.get_all_objects(str className, str layerName)");
-REGISTER_ONLY_PYTHON_COMMAND_WITH_EXAMPLE(PyGetAllLayers, general, get_all_layers,
-    "Gets the list of all layer names in the level.",
-    "general.get_all_layers()");
-REGISTER_ONLY_PYTHON_COMMAND_WITH_EXAMPLE(PyGetNamesOfSelectedObjects, general, get_names_of_selected_objects,
-    "Get the name from selected object/objects.",
-    "general.get_names_of_selected_objects()");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PySelectObject, general, select_object,
-    "Selects a specified object.",
-    "general.select_object(str objectName)");
-REGISTER_ONLY_PYTHON_COMMAND_WITH_EXAMPLE(PyUnselectObjects, general, unselect_objects,
-    "Unselects a list of objects.",
-    "general.unselect_objects(list [str objectName,])");
-REGISTER_ONLY_PYTHON_COMMAND_WITH_EXAMPLE(PySelectObjects, general, select_objects,
-    "Selects a list of objects.",
-    "general.select_objects(list [str objectName,])");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyIsObjectHidden, general, is_object_hidden,
-    "Checks if object is hidden and returns a bool value.",
-    "general.is_object_hidden(str objectName)");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyHideAllObjects, general, hide_all_objects,
-    "Hides all objects.",
-    "general.hide_all_objects()");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyUnHideAllObjects, general, unhide_all_objects,
-    "Unhides all object.",
-    "general.unhide_all_objects()");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyHideObject, general, hide_object,
-    "Hides a specified object.",
-    "general.hide_object(str objectName)");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyUnhideObject, general, unhide_object,
-    "Unhides a specified object.",
-    "general.unhide_object(str objectName)");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyFreezeObject, general, freeze_object,
-    "Freezes a specified object.",
-    "general.freeze_object(str objectName)");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyUnfreezeObject, general, unfreeze_object,
-    "Unfreezes a specified object.",
-    "general.unfreeze_object(str objectName)");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyDeleteObject, general, delete_object,
-    "Deletes a specified object.",
-    "general.delete_object(str objectName)");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyClearSelection, general, clear_selection,
-    "Clears selection.",
-    "general.clear_selection()");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyDeleteSelected, general, delete_selected,
-    "Deletes selected object(s).",
-    "general.delete_selected()");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyGetNumSelectedObjects, general, get_num_selected,
-    "Returns the number of selected objects",
-    "general.get_num_selected()");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyGetSelectionCenter, general, get_selection_center,
-    "Returns the center point of the selection group",
-    "general.get_selection_center()");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyGetSelectionAABB, general, get_selection_aabb,
-    "Returns the aabb of the selection group",
-    "general.selection_aabb()");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyGetEntityGeometryFile, general, get_entity_geometry_file,
-    "Gets the geometry file name of a given entity.",
-    "general.get_entity_geometry_file(str geometryName)");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PySetEntityGeometryFile, general, set_entity_geometry_file,
-    "Sets the geometry file name of a given entity.",
-    "general.set_entity_geometry_file(str geometryName, str cgfName)");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyGetDefaultMaterial, general, get_default_material,
-    "Gets the default material of a given object geometry.",
-    "general.get_default_material(str objectName)");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyGetCustomMaterial, general, get_custom_material,
-    "Gets the user material assigned to a given object geometry.",
-    "general.get_custom_material(str objectName)");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PySetCustomMaterial, general, set_custom_material,
-    "Assigns a user material to a given object geometry.",
-    "general.set_custom_material(str objectName, str materialName)");
-REGISTER_ONLY_PYTHON_COMMAND_WITH_EXAMPLE(PyGetSequencesUsingThis, general, get_sequences_using_this,
-    "Gets the name list of all sequences which control this object.",
-    "general.get_sequences_using_this(str objectName)");
-REGISTER_ONLY_PYTHON_COMMAND_WITH_EXAMPLE(PyGetFlowGraphsUsingThis, general, get_flowgraphs_using_this,
-    "Gets the name list of all flow graphs which control this object.",
-    "general.get_flowgraphs_using_this");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyGetObjectPosition, general, get_position,
-    "Gets the position of an object.",
-    "general.get_position(str objectName)");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyGetWorldObjectPosition, general, get_world_position,
-    "Gets the world position of an object.",
-    "general.get_world_position(str objectName)");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PySetObjectPosition, general, set_position,
-    "Sets the position of an object.",
-    "general.set_position(str objectName, float xValue, float yValue, float zValue)");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyGetObjectRotation, general, get_rotation,
-    "Gets the rotation of an object.",
-    "general.get_rotation(str objectName)");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PySetObjectRotation, general, set_rotation,
-    "Sets the rotation of the object.",
-    "general.set_rotation(str objectName, float xValue, float yValue, float zValue)");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyGetObjectScale, general, get_scale,
-    "Gets the scale of an object.",
-    "general.get_scale(str objectName)");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PySetObjectScale, general, set_scale,
-    "Sets the scale of ab object.",
-    "general.set_scale(str objectName, float xValue, float yValue, float zValue)");
-REGISTER_ONLY_PYTHON_COMMAND_WITH_EXAMPLE(PyGetObjectLayer, general, get_object_layer,
-    "Gets the name of the layer of an object.",
-    "general.get_object_layer(list [str objectName,])");
-REGISTER_ONLY_PYTHON_COMMAND_WITH_EXAMPLE(PySetObjectLayer, general, set_object_layer,
-    "Moves an object to an other layer.",
-    "general.set_object_layer(list [str objectName,], str layerName)");
-REGISTER_ONLY_PYTHON_COMMAND_WITH_EXAMPLE(PyGetAllObjectsOnLayer, general, get_all_objects_of_layer,
-    "Gets all objects of a layer.",
-    "general.get_all_objects_of_layer(str layerName)");
-REGISTER_ONLY_PYTHON_COMMAND_WITH_EXAMPLE(PyGetObjectParent, general, get_object_parent,
-    "Gets parent name of an object.",
-    "general.get_object_parent(str objectName)");
-REGISTER_ONLY_PYTHON_COMMAND_WITH_EXAMPLE(PyGetObjectChildren, general, get_object_children,
-    "Gets children names of an object.",
-    "general.get_object_children(str objectName)");
-REGISTER_ONLY_PYTHON_COMMAND_WITH_EXAMPLE(PyGenerateCubemap, general, generate_cubemap,
-    "Generates a cubemap (only for environment probes).",
-    "general.generate_cubemap(str environmentProbeName)");
-REGISTER_ONLY_PYTHON_COMMAND_WITH_EXAMPLE(PyGetObjectType, general, get_object_type,
-    "Gets the type of an object as a string.",
-    "general.get_object_type(str objectName)");
-REGISTER_ONLY_PYTHON_COMMAND_WITH_EXAMPLE(PyGetAssignedMaterial, general, get_assigned_material,
-    "Gets the name of assigned material.",
-    "general.get_assigned_material(str objectName)");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyGetObjectLodsCount, general, get_object_lods_count,
-    "Gets the number of lods of the material of an object.",
-    "general.get_object_lods_count(str objectName)");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyRenameObject, general, rename_object,
-    "Renames object with oldObjectName to newObjectName",
-    "general.rename_object(str oldObjectName, str newObjectName)");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyAttachObject, general, attach_object,
-    "Attaches object with childObjectName to parentObjectName. If attachmentType is 'CharacterBone' or 'GeomCacheNode' attachmentTarget specifies the bone or node path",
-    "general.attach_object(str parentObjectName, str childObjectName, str attachmentType, str attachmentTarget)");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyDetachObject, general, detach_object,
-    "Detaches object from its parent",
-    "general.detach_object(str object)");
-REGISTER_PYTHON_COMMAND_WITH_EXAMPLE(PyAddEntityLink, general, add_entity_link,
-    "Adds an entity link to objectName to targetName with name",
-    "general.add_entity_link(str objectName, str targetName, str name)");
 
-REGISTER_PYTHON_ENUM_BEGIN(ObjectType, general, object_type)
-REGISTER_PYTHON_ENUM_ITEM(OBJTYPE_GROUP, group)
-REGISTER_PYTHON_ENUM_ITEM(OBJTYPE_TAGPOINT, tagpoint)
-REGISTER_PYTHON_ENUM_ITEM(OBJTYPE_AIPOINT, aipoint)
-REGISTER_PYTHON_ENUM_ITEM(OBJTYPE_ENTITY, entity)
-REGISTER_PYTHON_ENUM_ITEM(OBJTYPE_SHAPE, shape)
-REGISTER_PYTHON_ENUM_ITEM(OBJTYPE_VOLUME, volume)
-REGISTER_PYTHON_ENUM_ITEM(OBJTYPE_BRUSH, brush)
-REGISTER_PYTHON_ENUM_ITEM(OBJTYPE_PREFAB, prefab)
-REGISTER_PYTHON_ENUM_ITEM(OBJTYPE_SOLID, solid)
-REGISTER_PYTHON_ENUM_ITEM(OBJTYPE_CLOUD, cloud)
-REGISTER_PYTHON_ENUM_ITEM(OBJTYPE_CLOUDGROUP, cloudgroup)
-REGISTER_PYTHON_ENUM_ITEM(OBJTYPE_ROAD, road)
-REGISTER_PYTHON_ENUM_ITEM(OBJTYPE_OTHER, other)
-REGISTER_PYTHON_ENUM_ITEM(OBJTYPE_DECAL, decal)
-REGISTER_PYTHON_ENUM_ITEM(OBJTYPE_DISTANCECLOUD, distanceclound)
-REGISTER_PYTHON_ENUM_ITEM(OBJTYPE_TELEMETRY, telemetry)
-REGISTER_PYTHON_ENUM_ITEM(OBJTYPE_REFPICTURE, refpicture)
-REGISTER_PYTHON_ENUM_ITEM(OBJTYPE_GEOMCACHE, geomcache)
-REGISTER_PYTHON_ENUM_ITEM(OBJTYPE_ANY, any)
-REGISTER_PYTHON_ENUM_END

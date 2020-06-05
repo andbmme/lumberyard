@@ -20,7 +20,9 @@
 #include <GraphCanvas/Components/Nodes/NodeBus.h>
 #include <GraphCanvas/Components/Nodes/NodeTitleBus.h>
 #include <GraphCanvas/Components/SceneBus.h>
+#include <GraphCanvas/Components/StyleBus.h>
 #include <GraphCanvas/Components/VisualBus.h>
+#include <GraphCanvas/Types/EntitySaveData.h>
 #include <GraphCanvas/Types/TranslationTypes.h>
 #include <Widgets/GraphCanvasLabel.h>
 
@@ -32,6 +34,7 @@ namespace GraphCanvas
     class GeneralNodeTitleComponent
         : public AZ::Component
         , public NodeTitleRequestBus::Handler
+        , public SceneMemberNotificationBus::Handler        
     {
     public:
         AZ_COMPONENT(GeneralNodeTitleComponent, "{67D54B26-A924-4028-8544-5684B16BF04A}");
@@ -78,19 +81,32 @@ namespace GraphCanvas
 
         QGraphicsWidget* GetGraphicsWidget() override;
 
+        void SetDefaultPalette(const AZStd::string& palette) override;
+
         void SetPaletteOverride(const AZStd::string& paletteOverride) override;
         void SetDataPaletteOverride(const AZ::Uuid& uuid) override;
+        void SetColorPaletteOverride(const QColor& color) override;
+
+        void ConfigureIconConfiguration(PaletteIconConfiguration& paletteConfiguration) override;
 
         void ClearPaletteOverride() override;
         /////
+
+        // SceneMemberNotificationBus
+        void OnSceneSet(const AZ::EntityId& graphId) override;
+        ////
 
     private:
         GeneralNodeTitleComponent(const GeneralNodeTitleComponent&) = delete;
 
         TranslationKeyedString m_title;
         TranslationKeyedString m_subTitle;
+
+        AZStd::string          m_basePalette;
+
+        GeneralNodeTitleComponentSaveData m_saveData;
         
-        GeneralNodeTitleGraphicsWidget* m_generalNodeTitleWidget;
+        GeneralNodeTitleGraphicsWidget* m_generalNodeTitleWidget = nullptr;
     };    
 
     //! The Title QGraphicsWidget for displaying a title
@@ -99,13 +115,14 @@ namespace GraphCanvas
         , public SceneNotificationBus::Handler
         , public SceneMemberNotificationBus::Handler
         , public NodeNotificationBus::Handler
+        , public RootGraphicsItemNotificationBus::Handler
     {
     public:
         AZ_TYPE_INFO(GeneralNodeTitleGraphicsWidget, "{9DE7D3C0-D88C-47D8-85D4-5E0F619E60CB}");
         AZ_CLASS_ALLOCATOR(GeneralNodeTitleGraphicsWidget, AZ::SystemAllocator, 0);        
 
         GeneralNodeTitleGraphicsWidget(const AZ::EntityId& entityId);
-        ~GeneralNodeTitleGraphicsWidget() override = default;
+        ~GeneralNodeTitleGraphicsWidget() override;
 
         void Activate();
         void Deactivate();
@@ -113,8 +130,12 @@ namespace GraphCanvas
         void SetTitle(const TranslationKeyedString& title);
         void SetSubTitle(const TranslationKeyedString& subtitle);
 
-        void SetPaletteOverride(const AZStd::string& paletteOverride);
+        void SetPaletteOverride(AZStd::string_view paletteOverride);
         void SetPaletteOverride(const AZ::Uuid& uuid);
+        void SetPaletteOverride(const QColor& color);
+
+        void ConfigureIconConfiguration(PaletteIconConfiguration& paletteConfiguration);
+
         void ClearPaletteOverride();
 
         void UpdateLayout();
@@ -123,16 +144,20 @@ namespace GraphCanvas
         void RefreshDisplay();
     
         // SceneNotificationBus
-        void OnStyleSheetChanged() override;
+        void OnStylesChanged() override;
         ////
 
         // SceneMemberNotificationBus
-        void OnSceneSet(const AZ::EntityId& scene) override;
-        void OnSceneCleared(const AZ::EntityId& scene) override;
+        void OnAddedToScene(const AZ::EntityId& scene) override;
+        void OnRemovedFromScene(const AZ::EntityId& scene) override;
         ////
 
         // NodeNotificationBus
         void OnTooltipChanged(const AZStd::string& tooltip) override;
+        ////
+
+        // RootGraphicsItemNotifications
+        void OnEnabledChanged(RootGraphicsItemEnabledState enabledState) override;
         ////
 
     protected:
@@ -151,7 +176,10 @@ namespace GraphCanvas
 
         AZ::EntityId m_entityId;
 
+        const Styling::StyleHelper* m_disabledPalette;
         const Styling::StyleHelper* m_paletteOverride;
-        Styling::StyleHelper m_styleHelper;
+        Styling::StyleHelper* m_colorOverride;        
+
+        Styling::StyleHelper m_styleHelper;        
     };
 }

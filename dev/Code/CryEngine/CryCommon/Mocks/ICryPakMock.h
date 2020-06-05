@@ -22,12 +22,12 @@ struct CryPakMock
     : public ICryPak
 {
     MOCK_CONST_METHOD0(GetDirectoryDelimiter, const char*());
-    MOCK_METHOD4(AdjustFileName, const char*(const char* src, char dst[g_nMaxPath], unsigned nFlags, bool skipMods));
+    MOCK_METHOD5(AdjustFileNameImpl, const char*(const char* src, char* dst, size_t dstSize, unsigned nFlags, bool skipMods));
     MOCK_METHOD1(Init, bool(const char* szBasePath));
     MOCK_METHOD0(Release, void());
     MOCK_CONST_METHOD1(IsInstalledToHDD, bool(const char* acFilePath));
-    MOCK_METHOD4(OpenPack, bool(const char* pName, unsigned nFlags, IMemoryBlock * pData, CryFixedStringT<ICryPak::g_nMaxPath>* pFullPath));
-    MOCK_METHOD5(OpenPack, bool(const char* pBindingRoot, const char* pName, unsigned nFlags, IMemoryBlock * pData, CryFixedStringT<ICryPak::g_nMaxPath>* pFullPath));
+    MOCK_METHOD5(OpenPack, bool(const char* pName, unsigned nFlags, IMemoryBlock * pData, CryFixedStringT<ICryPak::g_nMaxPath>* pFullPath, bool addLevels));
+    MOCK_METHOD6(OpenPack, bool(const char* pBindingRoot, const char* pName, unsigned nFlags, IMemoryBlock * pData, CryFixedStringT<ICryPak::g_nMaxPath>* pFullPath, bool addLevels));
     MOCK_METHOD2(ClosePack, bool(const char* pName, unsigned nFlags));
     MOCK_METHOD3(OpenPacks, bool(const char* pWildcard, unsigned nFlags, std::vector< CryFixedStringT<ICryPak::g_nMaxPath> >* pFullPaths));
     MOCK_METHOD4(OpenPacks, bool(const char* pBindingRoot, const char* pWildcard, unsigned nFlags, std::vector< CryFixedStringT<ICryPak::g_nMaxPath> >* pFullPaths));
@@ -51,6 +51,7 @@ struct CryPakMock
     MOCK_CONST_METHOD0(GetGameFolder, const char*());
     MOCK_METHOD1(SetLocalizationFolder, void(const char* sLocalizationFolder));
     MOCK_CONST_METHOD0(GetLocalizationFolder, const char*());
+    MOCK_CONST_METHOD0(GetLocalizationRoot, const char*());
     MOCK_METHOD3(GetCachedPakCDROffsetSize, void(const char* szName, uint32 & offset, uint32 & size));
     MOCK_METHOD0(GetPakInfo, ICryPak::PakInfo * ());
     MOCK_METHOD1(FreePakInfo, void(PakInfo*));

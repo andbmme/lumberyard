@@ -11,7 +11,9 @@
 */
 #pragma once
 
+AZ_PUSH_DISABLE_WARNING(4251 4800 4244, "-Wunknown-warning-option")
 #include <QGraphicsWidget>
+AZ_POP_DISABLE_WARNING
 
 #include <Components/Nodes/NodeFrameGraphicsWidget.h>
 #include <GraphCanvas/Components/Nodes/NodeBus.h>
@@ -19,7 +21,7 @@
 #include <GraphCanvas/Components/Nodes/NodeUIBus.h>
 #include <GraphCanvas/Components/VisualBus.h>
 
-#include <Styling/StyleHelper.h>
+#include <GraphCanvas/Styling/StyleHelper.h>
 
 namespace GraphCanvas
 {
@@ -70,14 +72,15 @@ namespace GraphCanvas
         // NodeNotifications
         void OnNodeActivated();
 
-        void OnNodeWrapped(const AZ::EntityId&) override;
-        void OnNodeUnwrapped(const AZ::EntityId&) override;
+        void OnNodeWrapped(const AZ::EntityId& wrappingNode) override;
+        void OnNodeUnwrapped(const AZ::EntityId& wrappingNode) override;
         ////
 
     private:
-        GeneralNodeFrameComponent(const GeneralNodeFrameComponent&) = delete;
 
-        bool                            m_deleteWidget;
+        GeneralNodeFrameComponent(const GeneralNodeFrameComponent&) = delete;
+        const GeneralNodeFrameComponent& operator=(const GeneralNodeFrameComponent&) = delete;
+        bool                            m_shouldDeleteFrame;
         GeneralNodeFrameGraphicsWidget* m_frameWidget;
     };
 
@@ -86,7 +89,7 @@ namespace GraphCanvas
         : public NodeFrameGraphicsWidget
     {
     public:
-        AZ_TYPE_INFO(GeneralNodeFrameGraphicsWidget, "{15200183-8316-4A7D-985E-5C3257CD2463}", NodeFrameGraphicsWidget);
+        AZ_RTTI(GeneralNodeFrameGraphicsWidget, "{15200183-8316-4A7D-985E-5C3257CD2463}", NodeFrameGraphicsWidget);
         AZ_CLASS_ALLOCATOR(GeneralNodeFrameGraphicsWidget, AZ::SystemAllocator, 0);
 
         // Do not allow Serialization of Graphics Ui classes
@@ -94,6 +97,10 @@ namespace GraphCanvas
 
         GeneralNodeFrameGraphicsWidget(const AZ::EntityId& nodeVisual);
         ~GeneralNodeFrameGraphicsWidget() override = default;
+
+        // SceneMemberUIRequestBus
+        QPainterPath GetOutline() const override;
+        ////
 
         // QGraphicsWidget
         void paint(QPainter *painter, const QStyleOptionGraphicsItem *option, QWidget *widget = nullptr) override;

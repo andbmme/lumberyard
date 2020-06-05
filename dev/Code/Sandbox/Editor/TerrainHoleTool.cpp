@@ -16,6 +16,8 @@
 
 #include "StdAfx.h"
 #include "TerrainHoleTool.h"
+
+#include "ViewManager.h"
 #include "Viewport.h"
 #include "TerrainHolePanel.h"
 #include "Terrain/Heightmap.h"
@@ -23,7 +25,9 @@
 #include "MainWindow.h"
 
 #include "I3DEngine.h"
-#include "ITerrain.h"
+#include <Terrain/Bus/LegacyTerrainBus.h>
+
+#include <AzCore/RTTI/BehaviorContext.h>
 
 float CTerrainHoleTool::m_brushRadius = 0.5;
 bool CTerrainHoleTool::m_bMakeHole = true;
@@ -74,31 +78,29 @@ void CTerrainHoleTool::EndEditParams()
 //////////////////////////////////////////////////////////////////////////
 bool CTerrainHoleTool::MouseCallback(CViewport* view, EMouseEvent event, QPoint& point, int flags)
 {
-    bool bHitTerrain(false);
-    Vec3 stPointerPos;
-
-    stPointerPos = view->ViewToWorld(point, &bHitTerrain, true);
-
-    // When there is no terrain, the returned position would be 0,0,0 causing
-    // users to often delete the terrain under this position unintentionally.
-    if (bHitTerrain)
-    {
-        m_pointerPos = stPointerPos;
-    }
+    UpdatePointerPos(view, point);
 
     if (event == eMouseLDown || (event == eMouseMove && (flags & MK_LBUTTON)))
     {
-        if (!GetIEditor()->IsUndoRecording())
+        AzToolsFramework::UndoSystem::URSequencePoint* undoOperation = nullptr;
+        AzToolsFramework::ToolsApplicationRequests::Bus::BroadcastResult(
+            undoOperation, &AzToolsFramework::ToolsApplicationRequests::GetCurrentUndoBatch);
+
+        if (!undoOperation)
         {
-            GetIEditor()->BeginUndo();
+            AzToolsFramework::ToolsApplicationRequests::Bus::BroadcastResult(
+                undoOperation, &AzToolsFramework::ToolsApplicationRequests::BeginUndoBatch, "Modify Terrain");
         }
         Modify();
     }
     else
     {
-        if (GetIEditor()->IsUndoRecording())
+        AzToolsFramework::UndoSystem::URSequencePoint* undoOperation = nullptr;
+        AzToolsFramework::ToolsApplicationRequests::Bus::BroadcastResult(
+            undoOperation, &AzToolsFramework::ToolsApplicationRequests::GetCurrentUndoBatch);
+        if (undoOperation)
         {
-            GetIEditor()->AcceptUndo("Terrain Hole");
+            AzToolsFramework::ToolsApplicationRequests::Bus::Broadcast(&AzToolsFramework::ToolsApplicationRequests::EndUndoBatch);
         }
     }
 
@@ -109,6 +111,12 @@ bool CTerrainHoleTool::MouseCallback(CViewport* view, EMouseEvent event, QPoint&
 void CTerrainHoleTool::Display(DisplayContext& dc)
 {
     if (dc.flags & DISPLAY_2D)
+    {
+        return;
+    }
+
+    // If there's no active terrain, don't draw the hole tool
+    if (!LegacyTerrain::LegacyTerrainDataRequestBus::HasHandlers())
     {
         return;
     }
@@ -187,17 +195,18 @@ bool CTerrainHoleTool::OnKeyUp(CViewport* view, uint32 nChar, uint32 nRepCnt, ui
 }
 
 //////////////////////////////////////////////////////////////////////////
-void CTerrainHoleTool::Modify()
+AZStd::pair<Vec2i, Vec2i> CTerrainHoleTool::Modify()
 {
-    if (!GetIEditor()->Get3DEngine()->GetITerrain())
+    const bool isLegacyTerrainActive = LegacyTerrain::LegacyTerrainDataRequestBus::HasHandlers();
+    if (!isLegacyTerrainActive)
     {
-        return;
+        return {};
     }
 
     CHeightmap* pHeightmap = GetIEditor()->GetHeightmap();
     if (!pHeightmap)
     {
-        return;
+        return {};
     }
 
     Vec2i min;
@@ -205,15 +214,41 @@ void CTerrainHoleTool::Modify()
 
     CalculateHoleArea(min, max);
 
-    if (
-        (max.x - min.x) >= 0
-        &&
-        (max.y - min.y) >= 0
-        )
+    if ((max.x - min.x) >= 0 && (max.y - min.y) >= 0)
     {
+        // If the Terrain Editor is open, make sure it refreshes the view.
+        AABB box;
+        box.min = m_pointerPos - Vec3(m_brushRadius, m_brushRadius, 0);
+        box.max = m_pointerPos + Vec3(m_brushRadius, m_brushRadius, 0);
+        GetIEditor()->UpdateViews(eUpdateHeightmap, &box);
+
         pHeightmap->MakeHole(min.x, min.y, max.x - min.x, max.y - min.y, m_bMakeHole);
+        return AZStd::make_pair(min, max);
+    }
+    else
+    {
+        return {};
     }
 }
+
+//////////////////////////////////////////////////////////////////////////
+bool CTerrainHoleTool::UpdatePointerPos(CViewport* view, const QPoint& pos)
+{
+    bool bHitTerrain(false);
+    Vec3 stPointerPos;
+
+    stPointerPos = view->ViewToWorld(pos, &bHitTerrain, true);
+
+    // When there is no terrain, the returned position would be 0,0,0 causing
+    // users to often delete the terrain under this position unintentionally.
+    if (bHitTerrain)
+    {
+        m_pointerPos = stPointerPos;
+    }
+
+    return bHitTerrain;
+}
+
 //////////////////////////////////////////////////////////////////////////
 bool CTerrainHoleTool::CalculateHoleArea(Vec2i& min, Vec2i& max) const
 {
@@ -239,6 +274,195 @@ bool CTerrainHoleTool::CalculateHoleArea(Vec2i& min, Vec2i& max) const
 
     return true;
 }
+
 //////////////////////////////////////////////////////////////////////////
+class ScriptingBindings
+{
+public:
+    //////////////////////////////////////////////////////////////////////////
+    static void PySetBrushRadius(float radius)
+    {
+        if (CTerrainHoleTool* holeTool = GetTool())
+        {
+            holeTool->SetBrushRadius(radius);
+            RefreshUI(*holeTool);
+        }
+    }
+
+    //////////////////////////////////////////////////////////////////////////
+    static float PyGetBrushRadius()
+    {
+        return CTerrainHoleTool::m_brushRadius;
+    }
+
+    //////////////////////////////////////////////////////////////////////////
+    static void PySetMakeHole(bool bEnable)
+    {
+        CTerrainHoleTool::m_bMakeHole = bEnable;
+
+        if (CTerrainHoleTool* holeTool = GetTool())
+        {
+            RefreshUI(*holeTool);
+        }
+    }
+
+    //////////////////////////////////////////////////////////////////////////
+    static bool PyGetMakeHole()
+    {
+        return CTerrainHoleTool::m_bMakeHole;
+    }
+
+    //////////////////////////////////////////////////////////////////////////
+    static AZStd::vector<AZ::s32> PyPaintHole(float x, float y)
+    {
+        if (CTerrainHoleTool* holeTool = GetTool())
+        {
+            if (holeTool->UpdatePointerPos(GetIEditor()->GetViewManager()->GetGameViewport(), QPoint(x, y)))
+            {
+                AZStd::pair<Vec2i, Vec2i> modifiedArea = holeTool->Modify();
+
+                // ensure that at least something was modified.
+                if (!modifiedArea.first.IsZero() || !modifiedArea.second.IsZero())
+                {
+                    return AZStd::vector<AZ::s32>{modifiedArea.first.y, modifiedArea.first.x, modifiedArea.second.y, modifiedArea.second.x};
+                }
+                else
+                {
+                    AZ_Warning("terrain", false, "Could not ensure the modified areas input(%f,%f) areaOne(%d,%d) areaTwo(%d,%d)",
+                        x, y, modifiedArea.first.y, modifiedArea.first.x, modifiedArea.second.y, modifiedArea.second.x);
+                }
+            }
+            else
+            {
+                AZ_Warning("terrain", false, "PyPaintHole() failed since UpdatePointerPos() with %f and %f did not connect with terrain.", x, y);
+            }
+        }
+        else
+        {
+            AZ_Warning("terrain", false, "CTerrainHoleTool is missing.");
+        }
+
+        return AZStd::vector<AZ::s32>();
+    }
+    
+    //////////////////////////////////////////////////////////////////////////
+    static void PyPaintHoleDirect(int x1, int y1, int x2, int y2)
+    {
+        IEditor* editor = GetIEditor();
+        if (!editor)
+        {
+            return;
+        }
+
+        CHeightmap* heightmap = editor->GetHeightmap();
+        if (!heightmap)
+        {
+            return;
+        }
+
+        if (x1 < 0 || x1 > x2 || x2 >= heightmap->GetHeight() ||
+            y1 < 0 || y1 > y2 || y2 >= heightmap->GetWidth())
+        {
+            return;
+        }
+
+        // x/y need to be swapped due to how the heightmap is exposed in editor
+        heightmap->MakeHole(y1, x1, y2, x2, CTerrainHoleTool::m_bMakeHole);
+    }
+
+    //////////////////////////////////////////////////////////////////////////
+    static bool PyIsHoleAt(int x, int y)
+    {
+        IEditor* editor = GetIEditor();
+        if (!editor)
+        {
+            return false;
+        }
+
+        CHeightmap* heightmap = editor->GetHeightmap();
+        if (!heightmap)
+        {
+            return false;
+        }
+
+        if (x < 0 || x >= heightmap->GetHeight() || y < 0 || y >= heightmap->GetWidth())
+        {
+            return false;
+        }
+
+        // x/y need to be swapped due to how the heightmap is exposed in editor
+        return heightmap->IsHoleAt(y, x);
+    }
+
+private:
+    //////////////////////////////////////////////////////////////////////////
+    static void RefreshUI(CTerrainHoleTool& tool)
+    {
+        if (tool.m_panelId)
+        {
+            tool.m_panel->SetMakeHole(tool.m_bMakeHole);
+            tool.m_panel->SetRadius();
+
+            IEditor* editor = GetIEditor();
+            AZ_Assert(editor, "Editor instance doesn't exist!");
+            if (editor)
+            {
+                editor->Notify(eNotify_OnInvalidateControls);
+            }
+        }
+    }
+
+    //////////////////////////////////////////////////////////////////////////
+    static CTerrainHoleTool* GetTool()
+    {
+        IEditor* editor = GetIEditor();
+        AZ_Assert(editor, "Editor instance doesn't exist!");
+
+        if (!editor)
+        {
+            return nullptr;
+        }
+
+        CEditTool* pTool = editor->GetEditTool();
+
+        if (!pTool || !qobject_cast<CTerrainHoleTool*>(pTool))
+        {
+            editor->SelectRollUpBar(ROLLUP_TERRAIN);
+
+            // This needs to be done after the terrain tab is selected, because in
+            // Cry-Free mode the terrain tool could be closed, whereas in legacy
+            // mode the rollupbar is never deleted, it's only hidden
+            pTool = new CTerrainHoleTool();
+            editor->SetEditTool(pTool);
+
+            MainWindow::instance()->update();
+        }
+
+        return reinterpret_cast<CTerrainHoleTool*>(pTool);
+    }
+};
+
+//////////////////////////////////////////////////////////////////////////
+
+void AzToolsFramework::TerrainHoleToolPythonFuncsHandler::Reflect(AZ::ReflectContext* context)
+{
+    if (auto behaviorContext = azrtti_cast<AZ::BehaviorContext*>(context))
+    {
+        auto addLegacyTerrain = [](AZ::BehaviorContext::GlobalMethodBuilder methodBuilder)
+        {
+            methodBuilder->Attribute(AZ::Script::Attributes::Scope, AZ::Script::Attributes::ScopeFlags::Automation)
+                ->Attribute(AZ::Script::Attributes::Category, "Legacy/Editor")
+                ->Attribute(AZ::Script::Attributes::Module, "legacy.terrain_hole_tool"); // this will put these methods into the 'azlmbr.legacy.terrain_hole_tool' module
+        };
+
+        addLegacyTerrain(behaviorContext->Method("set_brush_radius", ScriptingBindings::PySetBrushRadius, nullptr, "Sets the brush radius of the hole tool."));
+        addLegacyTerrain(behaviorContext->Method("get_brush_radius", ScriptingBindings::PyGetBrushRadius, nullptr, "Gets the brush radius of the hole tool."));
+        addLegacyTerrain(behaviorContext->Method("set_make_hole", ScriptingBindings::PySetMakeHole, nullptr, "Sets making holes to enabled or disabled. Disabling will remove holes."));
+        addLegacyTerrain(behaviorContext->Method("get_make_hole", ScriptingBindings::PyGetMakeHole, nullptr, "Returns whether or not making holes is enabled."));
+        addLegacyTerrain(behaviorContext->Method("paint_hole", ScriptingBindings::PyPaintHole, nullptr, "Paints or removes holes from the terrain based on flags set. X and Y are viewport coordinates."));
+        addLegacyTerrain(behaviorContext->Method("paint_hole_direct", ScriptingBindings::PyPaintHoleDirect, nullptr, "Paints or removes holes directly on the heightmap based on flags set."));
+        addLegacyTerrain(behaviorContext->Method("is_hole_at", ScriptingBindings::PyIsHoleAt, nullptr, "Returns whether or not a hole exists at point X, Y. X and Y are heightmap coordinates."));
+    }
+}
 
 #include <TerrainHoleTool.moc>

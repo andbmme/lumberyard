@@ -10,10 +10,42 @@
 #
 ########################################################################################
 
+from waflib.Build import BuildContext
+
+import shutil
+from waflib import Task, TaskGen
+
+@TaskGen.feature('emfx_copyfiles')
+def make_emfx_copyfiles(self):
+    """
+    Creates tasks to copy files from the source tree to the output tree
+    """
+    platform = self.bld.env['PLATFORM']
+    configuration = self.bld.env['CONFIGURATION']
+
+    if platform == 'project_generator':
+        return
+
+    platform_config = self.bld.get_platform_configuration(platform, configuration)
+
+    if not platform_config.is_test:
+        return
+
+    for source in self.path.ant_glob('Tests/TestAssets/**'):
+        outFolders = self.bld.get_output_folders(platform, configuration, self)
+        for outFolder in outFolders:
+            # Get the location of the source file relative to the output folder
+            target = outFolder.make_node(source.nice_path())
+            self.create_copy_task(source, target)
+
 def build(bld):
 
     msvc_cxx_flags = [
-        '/W4', # warning level
+        '/wd4251', # warning caused by Qt library when class needs to have dll-interface to be used by clients
+    ]
+
+    shared_defines = [
+        #'ENABLE_SINGLEFRAME_MULTISTATETRANSITIONING' # Experimental feature: Allow multiple state transitions within a single frame.
     ]
 
     debug_defines = [
@@ -21,23 +53,21 @@ def build(bld):
     ]
 
     development_defines = [
-        'EMFX_DEVELOPMENT_BUILD',       # This is a dev build.
-        'EMFX_EMSTUDIOBUILD'            # Support EMStudio tools - we'd like to strip this in release builds at some point.
+        'EMFX_DEVELOPMENT_BUILD'        # This is a dev build.
     ]
 
     editor_defines = [
         'EMFX_DEVELOPMENT_BUILD',
-        'EMFX_EMSTUDIOBUILD',
         'EMFX_EMSTUDIOLYEMBEDDED',      # EMotionFX tool needs to know it's embedded in another Qt app.
         'EMOTIONFXANIMATION_EDITOR'     # Editor build of Gem code needs to register additional components.
     ]
-    
+
     shipping_defines = [
         'EMFX_DEVELOPMENT_BUILD'        # To be removed
     ]
 
     # Library containing all editor & runtime common EmotionFX animation gem code, and links into both the runtime and editor modules.
-    bld.CryEngineStaticLibrary(
+    lib_dict = dict(
         target                      = 'EMotionFXStaticLib',
         platforms                   = ['all'],
         configurations              = ['all'],
@@ -48,55 +78,65 @@ def build(bld):
                                        'EMotionFX/CommandSystem/commandsystem.waf_files',
                                        'EMotionFX/Exporters/ExporterLib/exporterlib.waf_files'
                                       ],
-        use                         = ['AzFramework', 'LmbrCentral'],
+        test_all_file_list          = ['emotionfx_shared_tests.waf_files',],
+        use                         = ['AzFramework'],
         win_features                = ['crcfix'],
-        #win_cxxflags               = msvc_cxx_flags,
-        includes                    = ['./Include', 
-                                       './Source', 
+        #msvc_cxxflags               = msvc_cxx_flags,
+        includes                    = ['./Include',
+                                       './Source',
                                        './',
-                                       bld.Path('Gems/LmbrCentral/Code/include')        # Not the right way, use_required_gems should be used, but can't because of an issue (LY-51626).
+                                       bld.Path('Gems/LmbrCentral/Code/include'),        # Not the right way, use_required_gems should be used, but can't because of an issue (LY-51626).
+                                       bld.Path('Code/CryEngine/CryCommon')
                                       ],
         export_includes             = ['./Include', "./"],
         disable_pch                 = True,
         pch                         = '',
-       
-       
-        profile_defines             = list(development_defines),
-        profile_dedicated_defines   = list(development_defines),
-        debug_defines               = list(development_defines) + list(debug_defines),
-        debug_dedicated_defines     = list(development_defines) + list(debug_defines),
-        release_defines             = list(shipping_defines),
-        release_dedicated_defines   = list(shipping_defines),
-        test_all_defines            = list(development_defines)
+
+        profile_defines             = list(shared_defines) + list(development_defines),
+        profile_dedicated_defines   = list(shared_defines) + list(development_defines),
+        debug_defines               = list(shared_defines) + list(development_defines) + list(debug_defines),
+        debug_dedicated_defines     = list(shared_defines) + list(development_defines) + list(debug_defines),
+        release_defines             = list(shared_defines) + list(shipping_defines),
+        release_dedicated_defines   = list(shared_defines) + list(shipping_defines),
+        test_all_defines            = list(shared_defines) + list(development_defines),
+        platform_roots              = [bld.PlatformRoot('Platform', export_includes=False)]
     )
 
-    # Main Gem - Has dependency on EMotionFXStaticLib gem shared library.
-    bld.DefineGem(
+    bld.CryEngineStaticLibrary(**lib_dict)
+
+    # Main Gem - Has dependency on EMotionFXStaticLib
+    gem_dict = dict(
         platforms                   = ['all'],
         file_list                   = ['emotionfx.waf_files'],
         use                         = ['EMotionFXStaticLib'],
+        features                    = ['emfx_copyfiles'],
         win_features                = ['crcfix'],
-        #win_cxxflags               = msvc_cxx_flags,
-        includes                    = ['./Include', 
-                                       './Source', 
-                                       './'
+        #msvc_cxxflags               = msvc_cxx_flags,
+        includes                    = ['./Include',
+                                       './Source',
+                                       './',
+                                       bld.Path('Code/CryEngine/CryCommon')
                                       ],
         export_includes             = ['./Include'],
         disable_pch                 = True,
         pch                         = '',
 
-        profile_defines             = list(development_defines),
-        profile_dedicated_defines   = list(development_defines),
-        debug_defines               = list(development_defines) + list(debug_defines),
-        debug_dedicated_defines     = list(development_defines) + list(debug_defines),
-        release_defines             = list(shipping_defines),
-        release_dedicated_defines   = list(shipping_defines),
-        test_all_defines            = list(development_defines),
+        profile_defines             = list(shared_defines) + list(development_defines),
+        profile_dedicated_defines   = list(shared_defines) + list(development_defines),
+        debug_defines               = list(shared_defines) + list(development_defines) + list(debug_defines),
+        debug_dedicated_defines     = list(shared_defines) + list(development_defines) + list(debug_defines),
+        release_defines             = list(shared_defines) + list(shipping_defines),
+        release_dedicated_defines   = list(shared_defines) + list(shipping_defines),
+        test_all_defines            = list(shared_defines) + list(development_defines),
+
+        win_x64_clang_test_all_enable_rtti = True,
 
         # Editor module - Includes pulls in EmotionFX tools code, and has a dependencies on AzToolsFramework and the EMotionFXStaticLib gem shared library.
         editor = dict(
-            platforms       = ['win', 'darwin'],
-            configurations  = ['debug', 'debug_test', 'profile', 'profile_test'],
+            platforms       = ['win', 'darwin', 'linux'],
+            configurations  = ['all'],
+            exclude_monolithic = True,
+            client_only     = True,
             file_list       = ['emotionfx.waf_files',
                                'emotionfx_editor.waf_files',
                                'MysticQt/mysticqt.waf_files',
@@ -105,40 +145,49 @@ def build(bld):
                                'EMotionFX/Tools/EMotionStudio/Plugins/RenderPlugins/renderplugins.waf_files',
                                'EMotionFX/Rendering/rendering.waf_files',
                                'EMotionFX/Pipeline/SceneAPIExt/sceneapi_ext.waf_files',
-                               'EMotionFX/Pipeline/RCExt/rc_ext.waf_files'
+                               'EMotionFX/Pipeline/RCExt/rc_ext.waf_files',
+                               'EMotionFX/Pipeline/EMotionFXBuilder/emotionfxbuilder.waf_files'
                               ],
-            use             = ['AzToolsFramework', 'EMotionFXStaticLib', 'SceneCore', 'SceneData'] + bld.make_aws_library_task_list(['LyMetricsShared', 'LyIdentity', 'LyMetricsProducer']), #Do not change the order of 'LyMetricsShared', 'LyIdentity', 'LyMetricsProducer'
+            use             = ['AzToolsFramework',
+                               'AzQtComponents',
+                               'EMotionFXStaticLib',
+                               'SceneCore',
+                               'SceneData',
+                               'SceneUI',
+                               'AssetBuilderSDK'
+                              ] + bld.make_aws_library_task_list(['LyMetricsShared', 'LyIdentity', 'LyMetricsProducer']), #Do not change the order of 'LyMetricsShared', 'LyIdentity', 'LyMetricsProducer'
             features        = ['ExternalLyMetrics', 'ExternalLyIdentity'],
             uselib          = ['QT5OPENGL',
                                'AWS_CPP_SDK_CORE',
-                               'AWS_CPP_SDK_COGNITO_IDENTITY_STATIC',
+                               'AWS_CPP_SDK_COGNITO_IDENTITY',
                                'AWS_CPP_SDK_IDENTITY_MANAGEMENT',
-                               'AWS_CPP_SDK_MOBILEANALYTICS'
+                               'AWS_CPP_SDK_MOBILEANALYTICS',
+                               'GLEW'
                               ],
+            test_all_uselib = ['QT5TEST',],
             includes        = ['./Include',
                                './Source',
                                './EMotionFX/Tools',
                                './EMotionFX/Pipeline',
                                './',
-                               bld.Path('Code/SDKs/glew/include'),
                                bld.Path('Code/Sandbox/Plugins/EditorCommon'),
                                bld.Path('Code/Sandbox/Editor'),
                                bld.Path('Code/Sandbox/Editor/Include'),
-                               bld.Path('Code/Tools')
+                               bld.Path('Code/Tools'),
+                               bld.Path('Code/CryEngine/CryCommon')
                               ],
             disable_pch     = True,
             pch             = '',
 
-            debug_defines   = list(editor_defines) + list(debug_defines),
-            profile_defines = list(editor_defines),
+            debug_defines   = list(shared_defines) + list(editor_defines) + list(debug_defines),
+            debug_test_defines = list(shared_defines) + list(editor_defines) + list(debug_defines),
+            profile_defines = list(shared_defines) + list(editor_defines),
+            profile_test_defines = list(shared_defines) + list(editor_defines),
 
-            win_libpath     = [ bld.Path('Code/SDKs/GLEW/lib/win64') ],
-            win_lib         = ['glew32', 'opengl32', 'dxguid', 'dinput8'],
-            #win_cxxflags   = msvc_cxx_flags,
-
-            darwin_libpath  = [ bld.Path('Code/SDKs/GLEW/lib/mac') ],
-            darwin_lib      = ['glew'],
-            
-            copy_dependent_files = ['Bin64/glew32.dll']
+            win_lib         = ['opengl32', 'dxguid', 'dinput8'],
+            msvc_cxxflags   = msvc_cxx_flags,
+            platform_roots = [bld.PlatformRoot('Editor/Platform', export_includes=False)]
         )
     )
+
+    bld.DefineGem(**gem_dict)

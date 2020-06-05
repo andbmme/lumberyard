@@ -18,6 +18,8 @@
 #include <AzCore/Component/EntityId.h>
 #include <Editor/Settings.h>
 
+#include <ScriptCanvas/Core/Core.h>
+
 namespace Ui
 {
     class SettingsDialog;
@@ -62,7 +64,7 @@ namespace ScriptCanvasEditor
         Q_OBJECT
 
     public:
-        SettingsDialog(const QString& title, AZ::EntityId graphId, QWidget* pParent = nullptr);
+        SettingsDialog(const QString& title, ScriptCanvas::ScriptCanvasId scriptCanvasId, QWidget* pParent = nullptr);
         ~SettingsDialog() override;
 
         const QString& GetText() const { return m_text; }
@@ -72,7 +74,6 @@ namespace ScriptCanvasEditor
         void OnOK();
         void OnCancel();
         void OnTextChanged(const QString& text);
-        void keyPressEvent(QKeyEvent* event) override;
         void ConfigurePropertyEditor(AzToolsFramework::ReflectedPropertyEditor*);
 
     private:
@@ -80,11 +81,15 @@ namespace ScriptCanvasEditor
         void SetupGeneralSettings(AZ::SerializeContext* context);
         void SetupGraphSettings(AZ::SerializeContext* context);
 
+        void RevertSettings();
+
         QString m_text;
-        AZ::EntityId m_graphId;
+        ScriptCanvas::ScriptCanvasId m_scriptCanvasId;
+
+        bool m_revertOnClose;
 
         Settings m_originalSettings;
-        EditorSettings::PreviewSettings m_originalPreviewSettings;
+        EditorSettings::ScriptCanvasEditorSettings m_originalEditorSettings;
 
         SettingsType m_settingsType = SettingsType::None;
 

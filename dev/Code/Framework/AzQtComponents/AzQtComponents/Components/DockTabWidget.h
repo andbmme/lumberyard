@@ -13,8 +13,8 @@
 #pragma once
 
 #include <AzQtComponents/AzQtComponentsAPI.h>
+#include <AzQtComponents/Components/Widgets/TabWidget.h>
 
-#include <QTabWidget>
 #include <QMap>
 
 class QDockWidget;
@@ -25,7 +25,7 @@ namespace AzQtComponents
     class DockTabBar;
 
     class AZ_QT_COMPONENTS_API DockTabWidget
-        : public QTabWidget
+        : public TabWidget
     {
         Q_OBJECT
     public:
@@ -35,8 +35,8 @@ namespace AzQtComponents
         void removeTab(QDockWidget* page);
         bool closeTabs();
         void moveTab(int from, int to);
-        void mouseMoveEvent(QMouseEvent* event);
-        void mouseReleaseEvent(QMouseEvent* event);
+        void mouseMoveEvent(QMouseEvent* event) override;
+        void mouseReleaseEvent(QMouseEvent* event) override;
         void finishDrag();
 
     Q_SIGNALS:
@@ -58,6 +58,8 @@ namespace AzQtComponents
         DockTabBar* m_tabBar;
         QWidget* m_mainEditorWindow;
 
+        AZ_PUSH_DISABLE_DLL_EXPORT_MEMBER_WARNING
         QMap<QDockWidget*, QMetaObject::Connection> m_titleBarChangedConnections;
+        AZ_POP_DISABLE_DLL_EXPORT_MEMBER_WARNING
     };
 } // namespace AzQtComponents

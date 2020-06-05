@@ -32,7 +32,7 @@ namespace ScriptCanvasEditor
             : m_nodeId(nodeId)
             , m_slotId(slotId)
         {
-            AZ_STATIC_ASSERT((AZStd::is_base_of<GraphCanvas::DataInterface, InterfaceType>::value), "ScriptCanvasDataInterface given invalid GraphCanvas::DataInterface to inherit.");
+            static_assert((AZStd::is_base_of<GraphCanvas::DataInterface, InterfaceType>::value), "ScriptCanvasDataInterface given invalid GraphCanvas::DataInterface to inherit.");
             ScriptCanvas::NodeNotificationsBus::Handler::BusConnect(nodeId);
         }
 
@@ -40,6 +40,21 @@ namespace ScriptCanvasEditor
 
     public:
         virtual ~ScriptCanvasDataInterface() = default;
+
+        const ScriptCanvas::ScriptCanvasId GetScriptCanvasId() const
+        {
+            ScriptCanvas::ScriptCanvasId scriptCanvasId;
+            ScriptCanvas::NodeRequestBus::EventResult(scriptCanvasId, GetNodeId(), &ScriptCanvas::NodeRequests::GetOwningScriptCanvasId);
+
+            return scriptCanvasId;
+        }
+
+        const GraphCanvas::GraphId GetGraphCanvasGraphId() const
+        {
+            GraphCanvas::GraphId graphCanvasGraphId;
+            GeneralRequestBus::BroadcastResult(graphCanvasGraphId, &GeneralRequests::GetGraphCanvasGraphId, GetScriptCanvasId());
+            return graphCanvasGraphId;
+        }
 
         const AZ::EntityId& GetNodeId() const
         {
@@ -54,17 +69,14 @@ namespace ScriptCanvasEditor
         const ScriptCanvas::Datum* GetSlotObject() const
         {
             const ScriptCanvas::Datum* object = nullptr;
-            ScriptCanvas::EditorNodeRequestBus::EventResult(object, GetNodeId(), &ScriptCanvas::EditorNodeRequests::GetInput, GetSlotId());
+            ScriptCanvas::NodeRequestBus::EventResult(object, GetNodeId(), &ScriptCanvas::NodeRequests::FindDatum, GetSlotId());
             
             return object;
         }
         
-        ScriptCanvas::Datum* GetSlotObject()
+        void ModifySlotObject(ScriptCanvas::ModifiableDatumView& datumView)
         {
-            ScriptCanvas::Datum* object = nullptr;
-            ScriptCanvas::EditorNodeRequestBus::EventResult(object, GetNodeId(), &ScriptCanvas::EditorNodeRequests::ModInput, GetSlotId());
-
-            return object;
+            ScriptCanvas::NodeRequestBus::Event(GetNodeId(), &ScriptCanvas::NodeRequests::FindModifiableDatumView, GetSlotId(), datumView);
         }
 
         // NodeNotificationsBus
@@ -78,9 +90,7 @@ namespace ScriptCanvasEditor
 
         void PostUndoPoint()
         {
-            AZ::EntityId sceneId;
-            ScriptCanvas::EditorNodeRequestBus::EventResult(sceneId, GetNodeId(), &ScriptCanvas::EditorNodeRequests::GetGraphEntityId);
-            GeneralRequestBus::Broadcast(&GeneralRequests::PostUndoPoint, sceneId);
+            GeneralRequestBus::Broadcast(&GeneralRequests::PostUndoPoint, GetScriptCanvasId());
         }
         ////
         

@@ -11,13 +11,14 @@
 */
 // Original file Copyright Crytek GMBH or its affiliates, used under license.
 
-#include "StdAfx.h"
+#include "stdafx.h"
 #include <ICryAnimation.h>
 #include <IAnimEventPlayer.h>
 #include <IAudioSystem.h>
 #include <IMaterialEffects.h>
 #include <CryExtension/Impl/ClassWeaver.h>
 #include <CryExtension/CryCreateClassInstance.h>
+#include <MathConversion.h>
 #include "EffectPlayer.h"
 
 #include "Serialization/Decorators/ResourcesAudio.h"
@@ -212,19 +213,19 @@ namespace CharacterTool {
 
             Matrix34 cameraWithOffset = cameraMatrix;
             cameraWithOffset.SetTranslation(cameraMatrix.GetTranslation() + AUDIO_OFFSET);
-            Audio::SAudioListenerRequestData<Audio::eALRT_SET_POSITION> requestData(cameraWithOffset);
+            Audio::SAudioListenerRequestData<Audio::eALRT_SET_POSITION> requestData(LYTransformToAZTransform(cameraWithOffset));
             requestData.oNewPosition.NormalizeForwardVec();
             requestData.oNewPosition.NormalizeUpVec();
             request.pData = &requestData;
-
 
             Audio::AudioSystemRequestBus::Broadcast(&Audio::AudioSystemRequestBus::Events::PushRequest, request);
 
             if (m_audioProxy)
             {
                 Audio::SATLWorldPosition pos;
-                pos.mPosition = Matrix34(playerLocation);
-                pos.mPosition.SetTranslation(pos.mPosition.GetTranslation() + AUDIO_OFFSET);
+                auto location = Matrix34(playerLocation);
+                location.SetTranslation(location.GetTranslation() + AUDIO_OFFSET);
+                pos.m_transform = LYTransformToAZTransform(location);
                 m_audioProxy->SetPosition(pos);
             }
         }
@@ -241,18 +242,18 @@ namespace CharacterTool {
                 return false;
             }
             const char* name = event.m_EventName ? event.m_EventName : "";
-            if (stricmp(name, "sound") == 0 || stricmp(name, "sound_tp") == 0)
+            if (azstricmp(name, "sound") == 0 || azstricmp(name, "sound_tp") == 0)
             {
                 PlayTrigger(event.m_CustomParameter);
                 return true;
             }
             // If the event is an effect event, spawn the event.
-            else if (stricmp(name, "audio_trigger") == 0)
+            else if (azstricmp(name, "audio_trigger") == 0)
             {
                 PlayTrigger(event.m_CustomParameter);
                 return true;
             }
-            else if (stricmp(name, "audio_rtpc") == 0)
+            else if (azstricmp(name, "audio_rtpc") == 0)
             {
                 string rtpcName;
                 string rtpcValue;
@@ -261,7 +262,7 @@ namespace CharacterTool {
                 SetRTPC(rtpcName.c_str(), float(atof(rtpcValue.c_str())));
                 return true;
             }
-            else if (stricmp(name, "audio_switch") == 0)
+            else if (azstricmp(name, "audio_switch") == 0)
             {
                 string switchName;
                 string switchValue;
@@ -412,7 +413,7 @@ namespace CharacterTool {
         bool Play(ICharacterInstance* character, const AnimEventInstance& event) override
         {
             const char* name = event.m_EventName ? event.m_EventName : "";
-            if (stricmp(name, "footstep") == 0)
+            if (azstricmp(name, "footstep") == 0)
             {
                 SMFXRunTimeEffectParams params;
                 params.pos = GetBonePosition(character, m_playerLocation, event.m_BonePathName);
@@ -437,7 +438,7 @@ namespace CharacterTool {
                 }
                 return true;
             }
-            else if (stricmp(name, "groundEffect") == 0)
+            else if (azstricmp(name, "groundEffect") == 0)
             {
                 // setup sound params
                 SMFXRunTimeEffectParams params;
@@ -461,7 +462,7 @@ namespace CharacterTool {
                 }
                 return true;
             }
-            else if (stricmp(name, "foley") == 0)
+            else if (azstricmp(name, "foley") == 0)
             {
                 // setup sound params
                 SMFXRunTimeEffectParams params;
@@ -594,7 +595,7 @@ namespace CharacterTool {
 
         bool Play(ICharacterInstance* character, const AnimEventInstance& event) override
         {
-            if (stricmp(event.m_EventName, "effect") == 0)
+            if (azstricmp(event.m_EventName, "effect") == 0)
             {
                 if (m_effectPlayer)
                 {

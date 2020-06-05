@@ -11,19 +11,21 @@
 */
 // Original file Copyright Crytek GMBH or its affiliates, used under license.
 
-#ifndef __SHADERCOMPONENTS_H__
-#define __SHADERCOMPONENTS_H__
+#pragma once
 
 #include "../Defs.h"
 #include "ShadersResourcesGroups/PerFrame.h"
 
-
-#if defined(PF_LOCAL) && !(PF_LOCAL == 1)
-// e.g.: In Mac OS X it is defined in a system header
-#error "PF_LOCAL defined somewhere else with a different value"
-#elif !defined(PF_LOCAL)
-#define PF_LOCAL      1
+#if defined(AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/ShaderComponents_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/ShaderComponents_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/ShaderComponents_h_salem.inl"
+    #endif
 #endif
+
 #define PF_SINGLE_COMP 2
 #define PF_DONTALLOW_DYNMERGE 4
 #define PF_INTEGER    8
@@ -452,6 +454,8 @@ enum ECGTexture
     ECGT_COUNT
 };
 
+class CTexAnim;
+
 //-----------------------------------------------------------------------------
 // This is the binding structure for texture data parsed by the shader parser 
 // as well as its binding to the shader (bind slot).
@@ -459,7 +463,7 @@ enum ECGTexture
 struct SCGTexture : SCGBind
 {
     CTexture* m_pTexture;
-    STexAnim* m_pAnimInfo;
+    CTexAnim* m_pAnimInfo;
     ECGTexture m_eCGTextureType;
     bool m_bSRGBLookup;
     bool m_bGlobal;
@@ -490,8 +494,6 @@ struct SCGTexture : SCGBind
             sp.m_BindingSlot == m_BindingSlot &&
             sp.m_Flags == m_Flags &&
             sp.m_pAnimInfo == m_pAnimInfo &&
-            sp.m_pTexture == m_pTexture &&
-            sp.m_eCGTextureType == m_eCGTextureType &&
             sp.m_bSRGBLookup == m_bSRGBLookup &&
             sp.m_bGlobal == m_bGlobal)
         {
@@ -512,6 +514,3 @@ struct SCGTexture : SCGBind
     {
     }
 };
-
-#endif
-

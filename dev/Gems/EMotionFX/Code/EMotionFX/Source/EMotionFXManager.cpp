@@ -23,21 +23,21 @@
 #include "Recorder.h"
 #include "MotionInstancePool.h"
 #include "AnimGraphManager.h"
-#include <MCore/Source/UnicodeString.h>
-#include <MCore/Source/UnicodeStringIterator.h>
-#include <MCore/Source/UnicodeCharacter.h>
-#include <MCore/Source/JobManager.h>
 #include <MCore/Source/MCoreSystem.h>
+#include <MCore/Source/LogManager.h>
 #include <MCore/Source/MemoryTracker.h>
 #include <AzCore/std/algorithm.h>
-#include <AzCore/std/string/conversions.h>
 #include <AzCore/IO/FileIO.h>
-#include <AzFramework/StringFunc/StringFunc.h>
+#include <AzCore/Jobs/JobContext.h>
+#include <AzCore/Jobs/Job.h>
 #include <AzFramework/API/ApplicationAPI.h>
-
+#include <EMotionFX/Source/Allocators.h>
+#include <EMotionFX/Source/DebugDraw.h>
 
 namespace EMotionFX
 {
+    AZ_CLASS_ALLOCATOR_IMPL(EMotionFXManager, EMotionFXManagerAllocator, 0)
+
     // the global EMotion FX manager object
     AZ::EnvironmentVariable<EMotionFXManager*> gEMFX;
 
@@ -52,6 +52,9 @@ namespace EMotionFX
             return true;
         }
 
+        // Create EMotion FX allocators
+        Allocators::Create();
+        
         // create the new object
         gEMFX = AZ::Environment::CreateVariable<EMotionFXManager*>(kEMotionFXInstanceVarName);
         gEMFX.Set(EMotionFXManager::Create());
@@ -76,19 +79,13 @@ namespace EMotionFX
         gEMFX.Get()->GetAnimGraphManager()->Init();
         gEMFX.Get()->SetRecorder              (Recorder::Create());
         gEMFX.Get()->SetMotionInstancePool    (MotionInstancePool::Create());
-        //gEMFX->SetRigManager          ( RigManager::Create() );
+        gEMFX.Get()->SetDebugDraw             (aznew DebugDraw());
         gEMFX.Get()->SetGlobalSimulationSpeed (1.0f);
 
         // set the number of threads
-        uint32 numThreads = MCore::GetJobManager().GetNumThreads();
-        if (numThreads > 0)
-        {
-            gEMFX.Get()->SetNumThreads(numThreads, false, MCore::GetMCore().GetJobListExecuteFunc());
-        }
-        else
-        {
-            gEMFX.Get()->SetNumThreads(1, false);
-        }
+        const AZ::u32 numThreads = AZ::JobContext::GetGlobalContext()->GetJobManager().GetNumWorkerThreads();
+        AZ_Assert(numThreads > 0, "The number of threads is expected to be bigger than 0.");
+        gEMFX.Get()->SetNumThreads(numThreads);
 
         // show details
         gEMFX.Get()->LogInfo();
@@ -102,6 +99,8 @@ namespace EMotionFX
         // delete the global object and reset it to nullptr
         gEMFX.Get()->Destroy();
         gEMFX.Reset();
+
+        Allocators::Destroy();
     }
 
     //-----------------------------------------------------------------------------
@@ -112,10 +111,10 @@ namespace EMotionFX
     {
         mThreadDatas.SetMemoryCategory(EMFX_MEMCATEGORY_EMOTIONFXMANAGER);
         // build the low version string
-        MCore::String lowVersionString;
+        AZStd::string lowVersionString;
         BuildLowVersionString(lowVersionString);
 
-        mVersionString.Format("EMotion FX v%d.%s RC4", EMFX_HIGHVERSION, lowVersionString.AsChar());
+        mVersionString = AZStd::string::format("EMotion FX v%d.%s RC4", EMFX_HIGHVERSION, lowVersionString.c_str());
         mCompilationDate        = MCORE_DATE;
         mHighVersion            = EMFX_HIGHVERSION;
         mLowVersion             = EMFX_LOWVERSION;
@@ -127,9 +126,14 @@ namespace EMotionFX
         mWaveletCache           = nullptr;
         mRecorder               = nullptr;
         mMotionInstancePool     = nullptr;
-        //mRigManager           = nullptr;
+        mDebugDraw              = nullptr;
         mUnitType               = MCore::Distance::UNITTYPE_METERS;
         mGlobalSimulationSpeed  = 1.0f;
+        m_isInEditorMode        = false;
+        m_isInServerMode        = false;
+
+        // EMotionFX will do optimization in server mode when this is enabled.
+        m_enableServerOptimization = true;
 
         if (MCore::GetMCore().GetIsTrackingMemory())
         {
@@ -145,15 +149,36 @@ namespace EMotionFX
         // from the motion nodes when destructing the motions itself
         //mRigManager->Destroy();
         mMotionManager->Destroy();
-        mAnimGraphManager->Destroy();
-        mImporter->Destroy();
-        mActorManager->Destroy();
-        mMotionInstancePool->Destroy();
-        mEventManager->Destroy();
-        mSoftSkinManager->Destroy();
-        mWaveletCache->Destroy();
-        mRecorder->Destroy();
+        mMotionManager = nullptr;
 
+        mAnimGraphManager->Destroy();
+        mAnimGraphManager = nullptr;
+
+        mImporter->Destroy();
+        mImporter = nullptr;
+
+        mActorManager->Destroy();
+        mActorManager = nullptr;
+
+        mMotionInstancePool->Destroy();
+        mMotionInstancePool = nullptr;
+
+        mSoftSkinManager->Destroy();
+        mSoftSkinManager = nullptr;
+
+        mWaveletCache->Destroy();
+        mWaveletCache = nullptr;
+
+        mRecorder->Destroy();
+        mRecorder = nullptr;
+
+        delete mDebugDraw;
+        mDebugDraw = nullptr;
+        
+
+        mEventManager->Destroy();
+        mEventManager = nullptr;
+        
         // delete the thread datas
         for (uint32 i = 0; i < mThreadDatas.GetLength(); ++i)
         {
@@ -166,26 +191,20 @@ namespace EMotionFX
     // create
     EMotionFXManager* EMotionFXManager::Create()
     {
-        return new EMotionFXManager();
+        return aznew EMotionFXManager();
     }
 
 
     // update
     void EMotionFXManager::Update(float timePassedInSeconds)
     {
-        // update the wavelet cache
+        AZ_PROFILE_SCOPE(AZ::Debug::ProfileCategory::Animation, "EMotionFXManager::Update");
+
+        mDebugDraw->Clear();
         mWaveletCache->Update(timePassedInSeconds);
-
-        // update the recorder in playback mode
         mRecorder->UpdatePlayMode(timePassedInSeconds);
-
-        // update all actor instances (the main thing)
         mActorManager->UpdateActorInstances(timePassedInSeconds);
-
-        // update physics
         mEventManager->OnSimulatePhysics(timePassedInSeconds);
-
-        // update the recorder
         mRecorder->Update(timePassedInSeconds);
 
         // sample and apply all anim graphs we recorded
@@ -193,9 +212,6 @@ namespace EMotionFX
         {
             mRecorder->SampleAndApplyAnimGraphs(mRecorder->GetCurrentPlayTime());
         }
-
-        // wait for all jobs to be completed
-        MCore::GetJobManager().NextFrame();
     }
 
 
@@ -203,27 +219,21 @@ namespace EMotionFX
     void EMotionFXManager::LogInfo()
     {
         // turn "0.010" into "01" to for example build the string v3.01 later on
-        MCore::String lowVersionString;
+        AZStd::string lowVersionString;
         BuildLowVersionString(lowVersionString);
 
         MCore::LogInfo("-----------------------------------------------");
         MCore::LogInfo("EMotion FX - Information");
         MCore::LogInfo("-----------------------------------------------");
-        MCore::LogInfo("Version:          v%d.%s", mHighVersion, lowVersionString.AsChar());
-        MCore::LogInfo("Version string:   %s", mVersionString.AsChar());
-        MCore::LogInfo("Compilation date: %s", mCompilationDate.AsChar());
+        MCore::LogInfo("Version:          v%d.%s", mHighVersion, lowVersionString.c_str());
+        MCore::LogInfo("Version string:   %s", mVersionString.c_str());
+        MCore::LogInfo("Compilation date: %s", mCompilationDate.c_str());
 
     #ifdef MCORE_OPENMP_ENABLED
         MCore::LogInfo("OpenMP enabled:   Yes");
     #else
         MCore::LogInfo("OpenMP enabled:   No");
     #endif
-
-        //#if (defined(MCORE_EVALUATION) && defined(MCORE_PLATFORM_WINDOWS) && !defined(MCORE_NO_LICENSESYSTEM))
-        //  MCore::LogInfo("License System:   Yes");
-        //#else
-        //MCore::LogInfo("License System:   No");
-        //#endif
 
         MCore::LogInfo("-----------------------------------------------");
     }
@@ -232,14 +242,14 @@ namespace EMotionFX
     // get the version string
     const char* EMotionFXManager::GetVersionString() const
     {
-        return mVersionString.AsChar();
+        return mVersionString.c_str();
     }
 
 
     // get the compilation date string
     const char* EMotionFXManager::GetCompilationDate() const
     {
-        return mCompilationDate.AsChar();
+        return mCompilationDate.c_str();
     }
 
 
@@ -298,13 +308,6 @@ namespace EMotionFX
         mAnimGraphManager = manager;
     }
 
-    /*
-    // set the rig manager
-    void EMotionFXManager::SetRigManager(RigManager* manager)
-    {
-        mRigManager = manager;
-    }
-    */
 
     // set the recorder
     void EMotionFXManager::SetRecorder(Recorder* recorder)
@@ -312,6 +315,10 @@ namespace EMotionFX
         mRecorder = recorder;
     }
 
+    void EMotionFXManager::SetDebugDraw(DebugDraw* draw)
+    {
+        mDebugDraw = draw;
+    }
 
     // set the motion instance pool
     void EMotionFXManager::SetMotionInstancePool(MotionInstancePool* pool)
@@ -416,28 +423,22 @@ namespace EMotionFX
     }
 
 
-    void EMotionFXManager::GetFilenameRelativeTo(MCore::String* inOutFilename, const char* folderPath)
+    void EMotionFXManager::GetFilenameRelativeTo(AZStd::string* inOutFilename, const char* folderPath)
     {
         AZStd::string baseFolderPath = folderPath;
-        AZStd::string filename = inOutFilename->AsChar();
+        AZStd::string filename = inOutFilename->c_str();
 
         // TODO: Add parameter to not lower case the path once it is in and working.
         EBUS_EVENT(AzFramework::ApplicationRequests::Bus, NormalizePathKeepCase, baseFolderPath);
         EBUS_EVENT(AzFramework::ApplicationRequests::Bus, NormalizePathKeepCase, filename);
 
-        // TODO: Remove the following code as soon as the Systems team has fixed the folder path capitalisation of AZ::IO::FileIOBase::GetInstance()->GetAlias().
-        //       To work around it we'll lower case the media root folder and lower case the same amount of characters for the filename to be actually able to remove the media root from the absolute file path.
-        const size_t baseFolderPathSize = baseFolderPath.size();
-        AZStd::to_lower(baseFolderPath.begin(), baseFolderPath.begin() + baseFolderPathSize);
-        AZStd::to_lower(filename.begin(), filename.begin() + baseFolderPathSize);
-
         // Remove the media root folder from the absolute motion filename so that we get the relative one to the media root folder.
-        *inOutFilename = filename.c_str();
-        inOutFilename->RemoveAllParts(baseFolderPath.c_str());
+        AzFramework::StringFunc::Replace(filename, baseFolderPath.c_str(), "", false /* case sensitive */, true /* replace first */);
+        *inOutFilename = filename;
     }
 
 
-    void EMotionFXManager::GetFilenameRelativeToMediaRoot(MCore::String* inOutFilename) const
+    void EMotionFXManager::GetFilenameRelativeToMediaRoot(AZStd::string* inOutFilename) const
     {
         GetFilenameRelativeTo(inOutFilename, GetMediaRootFolder());
     }
@@ -445,15 +446,13 @@ namespace EMotionFX
 
     // build the low version string
     // this turns 900 into 9, and 50 into 05
-    void EMotionFXManager::BuildLowVersionString(MCore::String& outLowVersionString)
+    void EMotionFXManager::BuildLowVersionString(AZStd::string& outLowVersionString)
     {
-        outLowVersionString.Format("%.2f", EMFX_LOWVERSION / 100.0f);
-        outLowVersionString.TrimLeft(MCore::UnicodeCharacter('0'));
-        outLowVersionString.TrimLeft(MCore::UnicodeCharacter('.'));
-        outLowVersionString.TrimRight(MCore::UnicodeCharacter('0'));
-        outLowVersionString.TrimRight(MCore::UnicodeCharacter('.'));
+        outLowVersionString = AZStd::string::format("%.2f", EMFX_LOWVERSION / 100.0f);
+        AzFramework::StringFunc::Strip(outLowVersionString, '0', true /* case sensitive */, true /* beginning */, true /* ending */);
+        AzFramework::StringFunc::Strip(outLowVersionString, '.', true /* case sensitive */, true /* beginning */, true /* ending */);
 
-        if (outLowVersionString.GetIsEmpty())
+        if (outLowVersionString.empty())
         {
             outLowVersionString = "0";
         }
@@ -475,36 +474,16 @@ namespace EMotionFX
 
 
     // set the number of threads
-    void EMotionFXManager::SetNumThreads(uint32 numThreads, bool adjustJobManagerNumThreads, MCore::JobListExecuteFunctionType jobListExecuteFunction)
+    void EMotionFXManager::SetNumThreads(uint32 numThreads)
     {
-        MCORE_ASSERT(numThreads > 0 && numThreads <= 1024);
+        AZ_Assert(numThreads > 0 && numThreads <= 1024, "Number of threads is expected to be between 0 and 1024");
         if (numThreads == 0)
         {
-            MCore::LogWarning("EMotionFXManager::SetNumThreads() - Cannot set the number of threads to 0, using 1 instead.");
             numThreads = 1;
         }
 
         if (mThreadDatas.GetLength() == numThreads)
         {
-            if (adjustJobManagerNumThreads)
-            {
-                if (MCore::GetJobManager().GetNumThreads() == numThreads)
-                {
-                    return;
-                }
-
-                // if we want one thread, kill all threads and force going onto the main thread instead
-                if (numThreads == 1)
-                {
-                    MCore::GetJobManager().RemoveAllThreads();
-                    MCore::GetMCore().SetJobListExecuteFunc(MCore::JobListExecuteSerial);
-                }
-                else
-                {
-                    MCore::GetJobManager().SetNumThreads(numThreads);
-                    MCore::GetMCore().SetJobListExecuteFunc(jobListExecuteFunction);
-                }
-            }
             return;
         }
 
@@ -522,31 +501,14 @@ namespace EMotionFX
         {
             mThreadDatas[i] = ThreadData::Create(i);
         }
-
-        // set the number of threads inside the job manager (only does that when we use the job system job execute function)
-        if (adjustJobManagerNumThreads)
-        {
-            MCore::GetJobManager().SetNumThreads(numThreads);
-        }
-
-        // if we want one thread, kill all threads and force going onto the main thread instead
-        if (numThreads == 1)
-        {
-            MCore::GetJobManager().RemoveAllThreads();
-            MCore::GetMCore().SetJobListExecuteFunc(MCore::JobListExecuteSerial);
-        }
-        else
-        {
-            MCore::GetMCore().SetJobListExecuteFunc(jobListExecuteFunction);
-        }
     }
+
 
     // shrink internal pools to minimize memory usage
     void EMotionFXManager::ShrinkPools()
     {
-        mAnimGraphManager->GetObjectDataPool().Shrink();
+        Allocators::ShrinkPools();
         mMotionInstancePool->Shrink();
-        //MCore::GetAttributePool().Shrink();
     }
 
 
@@ -611,7 +573,6 @@ namespace EMotionFX
         memTracker.RegisterCategory(EMFX_MEMCATEGORY_ANIMGRAPH_ATTRIBUTEINFOS,                "EMFX_MEMCATEGORY_ANIMGRAPH_ATTRIBUTEINFOS");
         memTracker.RegisterCategory(EMFX_MEMCATEGORY_ANIMGRAPH_OBJECTUNIQUEDATA,              "EMFX_MEMCATEGORY_ANIMGRAPH_OBJECTUNIQUEDATA");
         memTracker.RegisterCategory(EMFX_MEMCATEGORY_ANIMGRAPH_OBJECTS,                       "EMFX_MEMCATEGORY_ANIMGRAPH_OBJECTS");
-        memTracker.RegisterCategory(EMFX_MEMCATEGORY_ANIMGRAPH_CONDITIONS,                    "EMFX_MEMCATEGORY_ANIMGRAPH_CONDITIONS");
         memTracker.RegisterCategory(EMFX_MEMCATEGORY_ANIMGRAPH_TRANSITIONS,                   "EMFX_MEMCATEGORY_ANIMGRAPH_TRANSITIONS");
         memTracker.RegisterCategory(EMFX_MEMCATEGORY_ANIMGRAPH_SYNCTRACK,                     "EMFX_MEMCATEGORY_ANIMGRAPH_SYNCTRACK");
         memTracker.RegisterCategory(EMFX_MEMCATEGORY_ANIMGRAPH_POSE,                          "EMFX_MEMCATEGORY_ANIMGRAPH_POSE");
@@ -681,7 +642,6 @@ namespace EMotionFX
         idValues.push_back(EMFX_MEMCATEGORY_ANIMGRAPH_ATTRIBUTEINFOS);
         idValues.push_back(EMFX_MEMCATEGORY_ANIMGRAPH_OBJECTUNIQUEDATA);
         idValues.push_back(EMFX_MEMCATEGORY_ANIMGRAPH_OBJECTS);
-        idValues.push_back(EMFX_MEMCATEGORY_ANIMGRAPH_CONDITIONS);
         idValues.push_back(EMFX_MEMCATEGORY_ANIMGRAPH_TRANSITIONS);
         idValues.push_back(EMFX_MEMCATEGORY_ANIMGRAPH_SYNCTRACK);
         idValues.push_back(EMFX_MEMCATEGORY_ANIMGRAPH_POSE);

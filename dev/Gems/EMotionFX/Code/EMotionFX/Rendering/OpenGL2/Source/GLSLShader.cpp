@@ -12,10 +12,10 @@
 
 #include <MCore/Source/Config.h>
 #include "GLInclude.h"
-
 #include "GLSLShader.h"
 #include "GraphicsManager.h"
-#include <MCore/Source/DiskTextFile.h>
+#include <QFile>
+#include <QTextStream>
 
 
 namespace RenderGL
@@ -102,37 +102,34 @@ namespace RenderGL
     }
 
 
-    // CompileShader
     bool GLSLShader::CompileShader(const GLenum type, unsigned int* outShader, const char* filename)
     {
-        MCore::DiskTextFile file;
-        if (file.Open(filename, MCore::DiskFile::READ) == false)
+        QFile file(filename);
+        if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
         {
-            MCore::LogError("[GLSL] Failed to open shader file '%s'.", filename);
+            AZ_Error("EMotionFX", false, "[GLSL] Failed to open shader file '%s'.", filename);
             return false;
         }
 
         mFileName = filename;
 
-        MCore::String text;
-        text.Reserve(4096);
+        AZStd::string text;
+        text.reserve(4096);
         text = "#version 120\n";
 
         // build define string
         const uint32 numDefines = mDefines.GetLength();
         for (uint32 n = 0; n < numDefines; ++n)
         {
-            text.FormatAdd("#define %s\n", mDefines[n].AsChar());
+            text += AZStd::string::format("#define %s\n", mDefines[n].c_str());
         }
 
         // read file into a big string
-        MCore::String fileData;
-        fileData.Reserve(1024 * 32); // 32 kb
-        file.ReadAllLinesAsString(fileData, 8192);
-        text += fileData;
+        QTextStream textStream(&file);
+        text += textStream.readAll().toUtf8().data();
 
         // create shader
-        const char* textPtr = text.AsChar();
+        const char* textPtr = text.c_str();
         GLhandleARB shader = glCreateShaderObjectARB(type);
         glShaderSourceARB(shader, 1, (const GLcharARB**)&textPtr, nullptr);
         glCompileShaderARB(shader);
@@ -171,7 +168,7 @@ namespace RenderGL
             // if there are any defines, print that out too
             if (mDefines.GetLength() > 0)
             {
-                MCore::String dStr;
+                AZStd::string dStr;
                 const uint32 numDefines = mDefines.GetLength();
                 for (uint32 n = 0; n < numDefines; ++n)
                 {
@@ -185,21 +182,21 @@ namespace RenderGL
                     }
                 }
 
-                MCore::LogDetailedInfo("[GLSL] Compiling shader '%s', with defines %s", mFileName.AsChar(), dStr.AsChar());
+                MCore::LogDetailedInfo("[GLSL] Compiling shader '%s', with defines %s", mFileName.c_str(), dStr.c_str());
             }
             else
             {
-                MCore::LogDetailedInfo("[GLSL] Compiling shader '%s'", mFileName.AsChar());
+                MCore::LogDetailedInfo("[GLSL] Compiling shader '%s'", mFileName.c_str());
             }
 
-            MCore::LogDetailedInfo(MCore::String(text).AsChar());
+            MCore::LogDetailedInfo(AZStd::string(text).c_str());
             MCore::Free(text);
         }
     }
 
 
     // Init
-    bool GLSLShader::Init(const char* vFile, const char* pFile, MCore::Array<MCore::String>& defines)
+    bool GLSLShader::Init(const char* vFile, const char* pFile, MCore::Array<AZStd::string>& defines)
     {
         /*const char* args[] = { "unroll all",
                                "inline all",
@@ -283,7 +280,7 @@ namespace RenderGL
         const uint32 numAttribs = mAttributes.GetLength();
         for (uint32 i = 0; i < numAttribs; ++i)
         {
-            if (mAttributes[i].mName.CheckIfIsEqualNoCase(name))
+            if (AzFramework::StringFunc::Equal(mAttributes[i].mName.c_str(), name, false /* no case */))
             {
                 // if we don't have a valid parameter location, an attribute by this name doesn't exist
                 // we just cached the fact that it doesn't exist, instead of failing glGetAttribLocation every time
@@ -341,7 +338,7 @@ namespace RenderGL
         const uint32 numUniforms = mUniforms.GetLength();
         for (uint32 i = 0; i < numUniforms; ++i)
         {
-            if (mUniforms[i].mName.CheckIfIsEqualNoCase(name))
+            if (AzFramework::StringFunc::Equal(mUniforms[i].mName.c_str(), name, false /* no case */))
             {
                 if (mUniforms[i].mLocation >= 0)
                 {
@@ -462,18 +459,14 @@ namespace RenderGL
 
 
     // SetUniform
-    void GLSLShader::SetUniform(const char* name, const MCore::Matrix& matrix)
+    void GLSLShader::SetUniform(const char* name, const AZ::Matrix4x4& matrix)
     {
-#ifdef MCORE_MATRIX_ROWMAJOR
         SetUniform(name, matrix, true);
-#else
-        SetUniform(name, matrix, true);
-#endif
     }
 
 
     // SetUniform
-    void GLSLShader::SetUniform(const char* name, const MCore::Matrix& matrix, bool transpose)
+    void GLSLShader::SetUniform(const char* name, const AZ::Matrix4x4& matrix, bool transpose)
     {
         ShaderParameter* param = FindUniform(name);
         if (param == nullptr)
@@ -481,16 +474,12 @@ namespace RenderGL
             return;
         }
 
-#ifdef MCORE_MATRIX_ROWMAJOR
-        glUniformMatrix4fvARB(param->mLocation, 1, transpose, matrix.m16);
-#else
-        glUniformMatrix4fvARB(param->mLocation, 1, !transpose, matrix.m16);
-#endif
+        glUniformMatrix4fvARB(param->mLocation, 1, !transpose, (float*)&matrix);
     }
 
 
     // SetUniform
-    void GLSLShader::SetUniform(const char* name, const MCore::Matrix* matrices, uint32 count)
+    void GLSLShader::SetUniform(const char* name, const AZ::Matrix4x4* matrices, uint32 count)
     {
         ShaderParameter* param = FindUniform(name);
         if (param == nullptr)
@@ -498,11 +487,7 @@ namespace RenderGL
             return;
         }
 
-#ifdef MCORE_MATRIX_ROWMAJOR
-        glUniformMatrix4fvARB(param->mLocation, count, GL_TRUE, matrices[0].m16);
-#else
-        glUniformMatrix4fvARB(param->mLocation, count, GL_FALSE, matrices[0].m16);
-#endif
+        glUniformMatrix4fvARB(param->mLocation, count, GL_FALSE, (float*)matrices);
     }
 
 
@@ -516,19 +501,6 @@ namespace RenderGL
 
         // update the value
         glUniform1fvARB(param->mLocation, numFloats, values);
-    }
-
-
-    void GLSLShader::SetUniform(const char* name, const AZ::PackedVector3f* values, uint32 numVectors)
-    {
-        ShaderParameter* param = FindUniform(name);
-        if (param == nullptr)
-        {
-            return;
-        }
-
-        // update the value
-        glUniform3fvARB(param->mLocation, numVectors, (float*)values);
     }
 
 
@@ -602,7 +574,7 @@ namespace RenderGL
         for (uint32 i = 0; i < numDefines; ++i)
         {
             // compare the given attribute with the current define and return if they are equal
-            if (mDefines[i].CheckIfIsEqualNoCase(attributeName))
+            if (AzFramework::StringFunc::Equal(mDefines[i].c_str(), attributeName, false /* no case */))
             {
                 return true;
             }

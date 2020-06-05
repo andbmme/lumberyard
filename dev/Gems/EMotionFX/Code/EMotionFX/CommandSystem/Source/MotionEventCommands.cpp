@@ -16,28 +16,97 @@
 #include <EMotionFX/Source/MotionSystem.h>
 #include <EMotionFX/Source/MotionManager.h>
 #include <MCore/Source/Compare.h>
+#include <MCore/Source/LogManager.h>
+#include <MCore/Source/ReflectionSerializer.h>
 #include <EMotionFX/Source/MotionEventTrack.h>
 #include <EMotionFX/Source/EventManager.h>
 #include <EMotionFX/Source/MotionEventTable.h>
-
+#include <EMotionFX/Source/TwoStringEventData.h>
 
 namespace CommandSystem
 {
+    AZ_CLASS_ALLOCATOR_IMPL(CommandCreateMotionEventTrack, EMotionFX::CommandAllocator, 0)
+    AZ_CLASS_ALLOCATOR_IMPL(CommandClearMotionEvents, EMotionFX::CommandAllocator, 0)
+    AZ_CLASS_ALLOCATOR_IMPL(CommandCreateMotionEvent, EMotionFX::CommandAllocator, 0)
+    AZ_CLASS_ALLOCATOR_IMPL(CommandAdjustMotionEventTrack, EMotionFX::CommandAllocator, 0)
+    AZ_CLASS_ALLOCATOR_IMPL(CommandAdjustMotionEvent, EMotionFX::CommandAllocator, 0)
+
+    // add a new motion event
+    void CommandHelperAddMotionEvent(const EMotionFX::Motion* motion, const char* trackName, float startTime, float endTime, const EMotionFX::EventDataSet& eventDatas, MCore::CommandGroup* commandGroup)
+    {
+        // make sure the motion is valid
+        if (motion == nullptr)
+        {
+            return;
+        }
+
+        // create our command group
+        MCore::CommandGroup internalCommandGroup("Add motion event");
+
+        // execute the create motion event command
+        AZStd::string command;
+        command = AZStd::string::format(
+            "CreateMotionEvent "
+            "-motionID %i "
+            "-eventTrackName \"%s\" "
+            "-startTime %f "
+            "-endTime %f ",
+            motion->GetID(),
+            trackName,
+            startTime,
+            endTime
+        );
+
+        if (!eventDatas.empty())
+        {
+            const AZ::Outcome<AZStd::string> serializedEventData = MCore::ReflectionSerializer::Serialize(&eventDatas);
+            if (serializedEventData.IsSuccess())
+            {
+                command += "-eventDatas \"" + serializedEventData.GetValue() + '"';
+            }
+        }
+
+
+        // add the command to the command group
+        if (commandGroup == nullptr)
+        {
+            internalCommandGroup.AddCommandString(command.c_str());
+        }
+        else
+        {
+            commandGroup->AddCommandString(command.c_str());
+        }
+
+        // execute the group command
+        if (commandGroup == nullptr)
+        {
+            AZStd::string outResult;
+            if (GetCommandManager()->ExecuteCommandGroup(internalCommandGroup, outResult) == false)
+            {
+                MCore::LogError(outResult.c_str());
+            }
+        }
+    }
+
     //--------------------------------------------------------------------------------
     // CommandCreateMotionEventTrack
     //--------------------------------------------------------------------------------
 
-    // execute
-    bool CommandClearMotionEvents::Execute(const MCore::CommandLine& parameters, MCore::String& outResult)
+    CommandClearMotionEvents::CommandClearMotionEvents(MCore::Command* originalCommand)
+        : MCore::Command("ClearMotionEvents", originalCommand)
     {
-        // get the motion id and find the corresponding object
-        const int32 motionID = parameters.GetValueAsInt("motionID", this);
+    }
+
+    // execute
+    bool CommandClearMotionEvents::Execute(const MCore::CommandLine& parameters, AZStd::string& outResult)
+    {
+        MCORE_UNUSED(parameters);
 
         // check if the motion is valid and return failure in case it is not
-        EMotionFX::Motion* motion = EMotionFX::GetMotionManager().FindMotionByID(motionID);
+        EMotionFX::Motion* motion = EMotionFX::GetMotionManager().FindMotionByID(m_motionID);
         if (motion == nullptr)
         {
-            outResult.Format("Cannot create motion event track. Motion with id='%i' does not exist.", motionID);
+            outResult = AZStd::string::format("Cannot create motion event track. Motion with id='%i' does not exist.", m_motionID);
             return false;
         }
 
@@ -48,14 +117,14 @@ namespace CommandSystem
         eventTable->RemoveAllTracks();
 
         // set the dirty flag
-        MCore::String commandString;
-        commandString.Format("AdjustMotion -motionID %i -dirtyFlag true", motionID);
-        return GetCommandManager()->ExecuteCommandInsideCommand(commandString.AsChar(), outResult);
+        AZStd::string commandString;
+        commandString = AZStd::string::format("AdjustMotion -motionID %i -dirtyFlag true", m_motionID);
+        return GetCommandManager()->ExecuteCommandInsideCommand(commandString.c_str(), outResult);
     }
 
 
     // undo the command
-    bool CommandClearMotionEvents::Undo(const MCore::CommandLine& parameters, MCore::String& outResult)
+    bool CommandClearMotionEvents::Undo(const MCore::CommandLine& parameters, AZStd::string& outResult)
     {
         MCORE_UNUSED(parameters);
         MCORE_UNUSED(outResult);
@@ -71,12 +140,31 @@ namespace CommandSystem
     }
 
 
+    bool CommandClearMotionEvents::SetCommandParameters(const MCore::CommandLine& parameters)
+    {
+        m_motionID = parameters.GetValueAsInt("motionID", this);
+        return true;
+    }
+
     // get the description
     const char* CommandClearMotionEvents::GetDescription() const
     {
         return "Removes all the motion event tracks including all motion events for the given motion.";
     }
 
+
+    void CommandClearMotionEvents::Reflect(AZ::ReflectContext* context)
+    {
+        AZ::SerializeContext* serializeContext = azrtti_cast<AZ::SerializeContext*>(context);
+        if (!serializeContext)
+        {
+            return;
+        }
+
+        serializeContext->Class<CommandClearMotionEvents, MCore::Command, MotionIdCommandMixin>()
+            ->Version(1)
+            ;
+    }
 
     //--------------------------------------------------------------------------------
     // CommandCreateMotionEventTrack
@@ -88,77 +176,81 @@ namespace CommandSystem
     {
     }
 
-
-    // destructor
-    CommandCreateMotionEventTrack::~CommandCreateMotionEventTrack()
+    void CommandCreateMotionEventTrack::Reflect(AZ::ReflectContext* context)
     {
+        AZ::SerializeContext* serializeContext = azrtti_cast<AZ::SerializeContext*>(context);
+        if (!serializeContext)
+        {
+            return;
+        }
+
+        serializeContext->Class<CommandCreateMotionEventTrack, MCore::Command, MotionIdCommandMixin>()
+            ->Version(1)
+            ->Field("eventTrackName", &CommandCreateMotionEventTrack::m_eventTrackName)
+            ->Field("eventTrackIndex", &CommandCreateMotionEventTrack::m_eventTrackIndex)
+            ->Field("isEnabled", &CommandCreateMotionEventTrack::m_isEnabled)
+            ;
     }
 
-
     // execute
-    bool CommandCreateMotionEventTrack::Execute(const MCore::CommandLine& parameters, MCore::String& outResult)
+    bool CommandCreateMotionEventTrack::Execute(const MCore::CommandLine& parameters, AZStd::string& outResult)
     {
-        // get the motion id and find the corresponding object
-        const int32 motionID = parameters.GetValueAsInt("motionID", this);
+        AZ_UNUSED(parameters);
 
         // find the motion
-        EMotionFX::Motion*  motion = EMotionFX::GetMotionManager().FindMotionByID(motionID);
+        EMotionFX::Motion*  motion = EMotionFX::GetMotionManager().FindMotionByID(m_motionID);
         if (motion == nullptr)
         {
-            outResult.Format("Cannot create motion event track. Motion with id='%i' does not exist.", motionID);
+            outResult = AZStd::string::format("Cannot create motion event track. Motion with id='%i' does not exist.", m_motionID);
             return false;
         }
 
         // get the motion event table as well as the event track name
         EMotionFX::MotionEventTable* eventTable = motion->GetEventTable();
 
-        // get the event track name
-        MCore::String valueString;
-        parameters.GetValue("eventTrackName", this, &valueString);
-
-        // check if the sync track is already there, if not create it
-        EMotionFX::MotionEventTrack* eventTrack = eventTable->FindTrackByName(valueString.AsChar());
+        // check if the track is already there, if not create it
+        EMotionFX::MotionEventTrack* eventTrack = eventTable->FindTrackByName(m_eventTrackName.c_str());
         if (eventTrack == nullptr)
         {
-            eventTrack = EMotionFX::MotionEventTrack::Create(valueString.AsChar(), motion);
+            eventTrack = EMotionFX::MotionEventTrack::Create(m_eventTrackName.c_str(), motion);
         }
 
-        const uint32    eventTrackIndex = static_cast<uint32>(parameters.GetValueAsInt("index", this));
-        const bool      isEnabled       = parameters.GetValueAsBool("enabled", this);
-
         // add the motion event track
-        if (eventTrackIndex == MCORE_INVALIDINDEX32)
+        if (m_eventTrackIndex)
         {
-            eventTable->AddTrack(eventTrack);
+            eventTable->InsertTrack(m_eventTrackIndex.value(), eventTrack);
         }
         else
         {
-            eventTable->InsertTrack(eventTrackIndex, eventTrack);
+            eventTable->AddTrack(eventTrack);
         }
 
         // set the enable flag
-        eventTrack->SetIsEnabled(isEnabled);
+        if (m_isEnabled)
+        {
+            eventTrack->SetIsEnabled(m_isEnabled.value());
+        }
 
         // make sure there is a sync track
         motion->GetEventTable()->AutoCreateSyncTrack(motion);
 
         // set the dirty flag
-        valueString.Format("AdjustMotion -motionID %i -dirtyFlag true", motionID);
-        return GetCommandManager()->ExecuteCommandInsideCommand(valueString.AsChar(), outResult);
+        const AZStd::string valueString = AZStd::string::format("AdjustMotion -motionID %i -dirtyFlag true", m_motionID);
+        return GetCommandManager()->ExecuteCommandInsideCommand(valueString.c_str(), outResult);
     }
 
 
     // undo the command
-    bool CommandCreateMotionEventTrack::Undo(const MCore::CommandLine& parameters, MCore::String& outResult)
+    bool CommandCreateMotionEventTrack::Undo(const MCore::CommandLine& parameters, AZStd::string& outResult)
     {
-        MCore::String eventTrackName;
+        AZ_UNUSED(parameters);
+
+        AZStd::string eventTrackName;
         parameters.GetValue("eventTrackName", this, &eventTrackName);
 
-        const int32 motionID = parameters.GetValueAsInt("motionID", this);
-
-        MCore::String command;
-        command.Format("RemoveMotionEventTrack -motionID %i -eventTrackName \"%s\"", motionID, eventTrackName.AsChar());
-        return GetCommandManager()->ExecuteCommandInsideCommand(command.AsChar(), outResult);
+        AZStd::string command;
+        command = AZStd::string::format("RemoveMotionEventTrack -motionID %i -eventTrackName \"%s\"", m_motionID, eventTrackName.c_str());
+        return GetCommandManager()->ExecuteCommandInsideCommand(command.c_str(), outResult);
     }
 
 
@@ -172,6 +264,24 @@ namespace CommandSystem
         GetSyntax().AddParameter("enabled",          "Flag which indicates if the event track is enabled or not.",   MCore::CommandSyntax::PARAMTYPE_BOOLEAN,    "true");
     }
 
+    bool CommandCreateMotionEventTrack::SetCommandParameters(const MCore::CommandLine& parameters)
+    {
+        MotionIdCommandMixin::SetCommandParameters(parameters);
+
+        parameters.GetValue("eventTrackName", this, &m_eventTrackName);
+
+        if (parameters.CheckIfHasParameter("index"))
+        {
+            m_eventTrackIndex = parameters.GetValueAsInt("index", this);
+        }
+
+        if (parameters.CheckIfHasParameter("enabled"))
+        {
+            m_isEnabled = parameters.GetValueAsBool("enabled", this);
+        }
+
+        return true;
+    }
 
     // get the description
     const char* CommandCreateMotionEventTrack::GetDescription() const
@@ -198,7 +308,7 @@ namespace CommandSystem
 
 
     // execute
-    bool CommandRemoveMotionEventTrack::Execute(const MCore::CommandLine& parameters, MCore::String& outResult)
+    bool CommandRemoveMotionEventTrack::Execute(const MCore::CommandLine& parameters, AZStd::string& outResult)
     {
         // get the motion id and find the corresponding object
         const int32 motionID = parameters.GetValueAsInt("motionID", this);
@@ -207,48 +317,48 @@ namespace CommandSystem
         EMotionFX::Motion* motion = EMotionFX::GetMotionManager().FindMotionByID(motionID);
         if (motion == nullptr)
         {
-            outResult.Format("Cannot remove motion event track. Motion with id='%i' does not exist.", motionID);
+            outResult = AZStd::string::format("Cannot remove motion event track. Motion with id='%i' does not exist.", motionID);
             return false;
         }
 
         // get the motion event table as well as the event track name
         EMotionFX::MotionEventTable* eventTable = motion->GetEventTable();
 
-        MCore::String valueString;
+        AZStd::string valueString;
         parameters.GetValue("eventTrackName", this, &valueString);
 
         // check if the motion event track is valid and return failure in case it is not
-        const uint32 eventTrackIndex = eventTable->FindTrackIndexByName(valueString.AsChar());
-        if (eventTrackIndex == MCORE_INVALIDINDEX32)
+        const AZ::Outcome<size_t> eventTrackIndex = eventTable->FindTrackIndexByName(valueString.c_str());
+        if (!eventTrackIndex)
         {
-            outResult.Format("Cannot remove motion event track. Motion event track '%s' does not exist for motion with id='%i'.", valueString.AsChar(), motionID);
+            outResult = AZStd::string::format("Cannot remove motion event track. Motion event track '%s' does not exist for motion with id='%i'.", valueString.c_str(), motionID);
             return false;
         }
 
         // store information for undo
-        mOldTrackIndex  = eventTrackIndex;
-        mOldEnabled     = eventTable->GetTrack(eventTrackIndex)->GetIsEnabled();
+        mOldTrackIndex  = eventTrackIndex.GetValue();
+        mOldEnabled     = eventTable->GetTrack(eventTrackIndex.GetValue())->GetIsEnabled();
 
         // remove the motion event track
-        eventTable->RemoveTrack(eventTrackIndex);
+        eventTable->RemoveTrack(eventTrackIndex.GetValue());
 
         // set the dirty flag
-        valueString.Format("AdjustMotion -motionID %i -dirtyFlag true", motionID);
-        return GetCommandManager()->ExecuteCommandInsideCommand(valueString.AsChar(), outResult);
+        valueString = AZStd::string::format("AdjustMotion -motionID %i -dirtyFlag true", motionID);
+        return GetCommandManager()->ExecuteCommandInsideCommand(valueString.c_str(), outResult);
     }
 
 
     // undo the command
-    bool CommandRemoveMotionEventTrack::Undo(const MCore::CommandLine& parameters, MCore::String& outResult)
+    bool CommandRemoveMotionEventTrack::Undo(const MCore::CommandLine& parameters, AZStd::string& outResult)
     {
-        MCore::String eventTrackName;
+        AZStd::string eventTrackName;
         parameters.GetValue("eventTrackName", this, &eventTrackName);
 
         const int32 motionID = parameters.GetValueAsInt("motionID", this);
 
-        MCore::String command;
-        command.Format("CreateMotionEventTrack -motionID %i -eventTrackName \"%s\" -index %d -enabled %d", motionID, eventTrackName.AsChar(), mOldTrackIndex, mOldEnabled);
-        return GetCommandManager()->ExecuteCommandInsideCommand(command.AsChar(), outResult);
+        AZStd::string command;
+        command = AZStd::string::format("CreateMotionEventTrack -motionID %i -eventTrackName \"%s\" -index %d -enabled %s", motionID, eventTrackName.c_str(), mOldTrackIndex, mOldEnabled ? "true" : "false");
+        return GetCommandManager()->ExecuteCommandInsideCommand(command.c_str(), outResult);
     }
 
 
@@ -279,110 +389,104 @@ namespace CommandSystem
     }
 
 
-    // destructor
-    CommandAdjustMotionEventTrack::~CommandAdjustMotionEventTrack()
+    void CommandAdjustMotionEventTrack::Reflect(AZ::ReflectContext* context)
     {
+        AZ::SerializeContext* serializeContext = azrtti_cast<AZ::SerializeContext*>(context);
+        if(!serializeContext)
+        {
+            return;
+        }
+
+        serializeContext->Class<CommandAdjustMotionEventTrack, MCore::Command, MotionIdCommandMixin>()
+            ->Field("eventTrackName", &CommandAdjustMotionEventTrack::m_eventTrackName)
+            ->Field("newName", &CommandAdjustMotionEventTrack::m_newName)
+            ->Field("enabled", &CommandAdjustMotionEventTrack::m_isEnabled)
+            ;
     }
 
-
     // execute
-    bool CommandAdjustMotionEventTrack::Execute(const MCore::CommandLine& parameters, MCore::String& outResult)
+    bool CommandAdjustMotionEventTrack::Execute(const MCore::CommandLine& /*parameters*/, AZStd::string& outResult)
     {
-        // get the motion id and find the corresponding object
-        const int32 motionID = parameters.GetValueAsInt("motionID", this);
-
         // check if the motion is valid and return failure in case it is not
-        EMotionFX::Motion* motion = EMotionFX::GetMotionManager().FindMotionByID(motionID);
+        EMotionFX::Motion* motion = EMotionFX::GetMotionManager().FindMotionByID(m_motionID);
         if (motion == nullptr)
         {
-            outResult.Format("Cannot adjust motion event track. Motion with id='%i' does not exist.", motionID);
+            outResult = AZStd::string::format("Cannot adjust motion event track. Motion with id='%i' does not exist.", m_motionID);
             return false;
         }
 
         // get the motion event table
         EMotionFX::MotionEventTable* eventTable = motion->GetEventTable();
-        MCore::String valueString;
-        parameters.GetValue("eventTrackName", this, &valueString);
 
         // check if the motion event track is valid and return failure in case it is not
-        EMotionFX::MotionEventTrack* eventTrack = eventTable->FindTrackByName(valueString.AsChar());
+        EMotionFX::MotionEventTrack* eventTrack = eventTable->FindTrackByName(m_eventTrackName.c_str());
         if (eventTrack == nullptr)
         {
-            outResult.Format("Cannot adjust motion event track. Motion event track '%s' does not exist for motion with id='%i'.", valueString.AsChar(), motionID);
+            outResult = AZStd::string::format("Cannot adjust motion event track. Motion event track '%s' does not exist for motion with id='%i'.", m_eventTrackName.c_str(), m_motionID);
             return false;
         }
 
-        if (parameters.CheckIfHasParameter("newName"))
+        if (m_newName)
         {
-            mOldName = eventTrack->GetName();
-            parameters.GetValue("newName", this, &valueString);
-            eventTrack->SetName(valueString.AsChar());
+            m_oldName = eventTrack->GetName();
+            eventTrack->SetName(m_newName.value().c_str());
         }
 
-        if (parameters.CheckIfHasParameter("enabled"))
+        if (m_isEnabled)
         {
-            mOldEnabled = eventTrack->GetIsEnabled();
-            const bool enabled = parameters.GetValueAsBool("enabled", this);
-            eventTrack->SetIsEnabled(enabled);
+            m_oldEnabled = eventTrack->GetIsEnabled();
+            eventTrack->SetIsEnabled(m_isEnabled.value());
         }
 
         // set the dirty flag
-        valueString.Format("AdjustMotion -motionID %i -dirtyFlag true", motionID);
-        return GetCommandManager()->ExecuteCommandInsideCommand(valueString.AsChar(), outResult);
+        return GetCommandManager()->ExecuteCommandInsideCommand(AZStd::string::format("AdjustMotion -motionID %i -dirtyFlag true", m_motionID).c_str(), outResult);
     }
 
 
     // undo the command
-    bool CommandAdjustMotionEventTrack::Undo(const MCore::CommandLine& parameters, MCore::String& outResult)
+    bool CommandAdjustMotionEventTrack::Undo(const MCore::CommandLine& /*parameters*/, AZStd::string& outResult)
     {
-        // get the motion id and find the corresponding object
-        const int32 motionID = parameters.GetValueAsInt("motionID", this);
-
         // check if the motion is valid and return failure in case it is not
-        EMotionFX::Motion* motion = EMotionFX::GetMotionManager().FindMotionByID(motionID);
+        EMotionFX::Motion* motion = EMotionFX::GetMotionManager().FindMotionByID(m_motionID);
         if (motion == nullptr)
         {
-            outResult.Format("Cannot adjust motion event track. Motion with id='%i' does not exist.", motionID);
+            outResult = AZStd::string::format("Cannot adjust motion event track. Motion with id='%i' does not exist.", m_motionID);
             return false;
         }
 
         // get the motion event table
         EMotionFX::MotionEventTable* eventTable = motion->GetEventTable();
 
-        // get the event track on which we're working on
-        MCore::String valueString;
+        // get the event track which we're working on
         EMotionFX::MotionEventTrack* eventTrack = nullptr;
-        if (parameters.CheckIfHasParameter("newName"))
+        if (m_newName)
         {
-            parameters.GetValue("newName", this, &valueString);
-            eventTrack = eventTable->FindTrackByName(valueString.AsChar());
+            eventTrack = eventTable->FindTrackByName(m_newName.value().c_str());
         }
         else
         {
-            parameters.GetValue("eventTrackName", this, &valueString);
-            eventTrack = eventTable->FindTrackByName(valueString.AsChar());
+            eventTrack = eventTable->FindTrackByName(m_eventTrackName.c_str());
         }
 
         // check if the motion event track is valid and return failure in case it is not
-        if (eventTrack == nullptr)
+        if (!eventTrack)
         {
-            outResult.Format("Cannot undo adjust motion event track. Motion event track does not exist for motion with id='%i'.", motionID);
+            outResult = AZStd::string::format("Cannot undo adjust motion event track. Motion event track does not exist for motion with id='%i'.", m_motionID);
             return false;
         }
 
-        if (parameters.CheckIfHasParameter("newName"))
+        if (m_newName.has_value())
         {
-            eventTrack->SetName(mOldName.AsChar());
+            eventTrack->SetName(m_oldName.c_str());
         }
 
-        if (parameters.CheckIfHasParameter("enabled"))
+        if (m_isEnabled.has_value())
         {
-            eventTrack->SetIsEnabled(mOldEnabled);
+            eventTrack->SetIsEnabled(m_oldEnabled);
         }
 
         // undo remove of the motion
-        valueString.Format("AdjustMotion -motionID %i -dirtyFlag true", motionID);
-        return GetCommandManager()->ExecuteCommandInsideCommand(valueString.AsChar(), outResult);
+        return GetCommandManager()->ExecuteCommandInsideCommand(AZStd::string::format("AdjustMotion -motionID %i -dirtyFlag true", m_motionID).c_str(), outResult);
     }
 
 
@@ -393,9 +497,27 @@ namespace CommandSystem
         GetSyntax().AddRequiredParameter("motionID",         "The id of the motion.",                                            MCore::CommandSyntax::PARAMTYPE_INT);
         GetSyntax().AddRequiredParameter("eventTrackName",   "The name of the motion event track.",                              MCore::CommandSyntax::PARAMTYPE_STRING);
         GetSyntax().AddParameter("newName",          "The new name of the motion event track.",                          MCore::CommandSyntax::PARAMTYPE_STRING, "");
-        GetSyntax().AddParameter("enabled",          "True in case the motion event track is enabled, false if not.",    MCore::CommandSyntax::PARAMTYPE_BOOLEAN, "");
+        GetSyntax().AddParameter("enabled",          "True in case the motion event track is enabled, false if not.",    MCore::CommandSyntax::PARAMTYPE_BOOLEAN, "false");
     }
 
+
+    bool CommandAdjustMotionEventTrack::SetCommandParameters(const MCore::CommandLine& parameters)
+    {
+        MotionIdCommandMixin::SetCommandParameters(parameters);
+
+        parameters.GetValue("eventTrackName", this, &m_eventTrackName);
+
+        if (parameters.CheckIfHasParameter("newName"))
+        {
+            m_newName = parameters.GetParameterValue(parameters.FindParameterIndex("newName"));
+        }
+        if (parameters.CheckIfHasParameter("enabled"))
+        {
+            m_isEnabled = parameters.GetValueAsBool("enabled", this);
+        }
+
+        return true;
+    }
 
     // get the description
     const char* CommandAdjustMotionEventTrack::GetDescription() const
@@ -414,91 +536,80 @@ namespace CommandSystem
     }
 
 
-    // destructor
-    CommandCreateMotionEvent::~CommandCreateMotionEvent()
+    void CommandCreateMotionEvent::Reflect(AZ::ReflectContext* context)
     {
+        AZ::SerializeContext* serializeContext = azrtti_cast<AZ::SerializeContext*>(context);
+        if(!serializeContext)
+        {
+            return;
+        }
+
+        serializeContext->Class<CommandCreateMotionEvent, MCore::Command, MotionIdCommandMixin>()
+            ->Field("eventTrackName", &CommandCreateMotionEvent::m_eventTrackName)
+            ->Field("startTime", &CommandCreateMotionEvent::m_startTime)
+            ->Field("endTime", &CommandCreateMotionEvent::m_endTime)
+            ->Field("eventDatas", &CommandCreateMotionEvent::m_eventDatas)
+            ;
     }
 
-
     // execute
-    bool CommandCreateMotionEvent::Execute(const MCore::CommandLine& parameters, MCore::String& outResult)
+    bool CommandCreateMotionEvent::Execute(const MCore::CommandLine& parameters, AZStd::string& outResult)
     {
-        // get the motion id and find the corresponding object
-        const int32 motionID = parameters.GetValueAsInt("motionID", this);
+        AZ_UNUSED(parameters);
 
         // check if the motion is valid and return failure in case it is not
-        EMotionFX::Motion* motion = EMotionFX::GetMotionManager().FindMotionByID(motionID);
+        EMotionFX::Motion* motion = EMotionFX::GetMotionManager().FindMotionByID(m_motionID);
         if (motion == nullptr)
         {
-            outResult.Format("Cannot create motion event. Motion with id='%i' does not exist.", motionID);
+            outResult = AZStd::string::format("Cannot create motion event. Motion with id='%i' does not exist.", m_motionID);
             return false;
         }
 
         // get the motion event table and find the track on which we will work on
-        MCore::String valueString;
-        parameters.GetValue("eventTrackName", this, &valueString);
         EMotionFX::MotionEventTable* eventTable = motion->GetEventTable();
-        EMotionFX::MotionEventTrack* eventTrack = eventTable->FindTrackByName(valueString.AsChar());
+        EMotionFX::MotionEventTrack* eventTrack = eventTable->FindTrackByName(m_eventTrackName.c_str());
 
         // check if the motion event track is valid and return failure in case it is not
         if (eventTrack == nullptr)
         {
-            outResult.Format("Cannot create motion event. Motion event track '%s' does not exist for motion with id='%i'.", valueString.AsChar(), motionID);
+            outResult = AZStd::string::format("Cannot create motion event. Motion event track '%s' does not exist for motion with id='%i'.", m_eventTrackName.c_str(), m_motionID);
             return false;
         }
 
-        const float startTime       = parameters.GetValueAsFloat("startTime", this);
-        const float endTime         = parameters.GetValueAsFloat("endTime", this);
-
-        parameters.GetValue("eventType", this, &valueString);
-
-        MCore::String eventParameters;
-        parameters.GetValue("parameters", this, &eventParameters);
-
-        // if the event type hasn't been registered yet (automatic event type registration)
-        uint32 eventTypeID = EMotionFX::GetEventManager().FindEventID(valueString.AsChar());
-        if (eventTypeID == MCORE_INVALIDINDEX32)
+        // Deserialize the event data
+        if (m_serializedEventData)
         {
-            // register/link the event type with the free ID
-            eventTypeID = EMotionFX::GetEventManager().RegisterEventType(valueString.AsChar());
-        }
-
-        uint32 mirrorTypeID = MCORE_INVALIDINDEX32;
-        if (parameters.CheckIfHasParameter("mirrorType"))
-        {
-            parameters.GetValue("mirrorType", this, &valueString);
-            mirrorTypeID = EMotionFX::GetEventManager().FindEventID(valueString.AsChar());
-            if (mirrorTypeID == MCORE_INVALIDINDEX32)
+            EMotionFX::EventDataSet eventDataSet;
+            if (!MCore::ReflectionSerializer::Deserialize(&eventDataSet, m_serializedEventData.value()))
             {
-                mirrorTypeID = EMotionFX::GetEventManager().RegisterEventType(valueString.AsChar());
+                outResult = AZStd::string::format("Cannot deserialize -eventData parameter");
+                return false;
             }
+
+            m_eventDatas = AZStd::move(eventDataSet);
         }
 
         // add the motion event and check if everything worked fine
-        mMotionEventNr = eventTrack->AddEvent(startTime, endTime, eventTypeID, eventParameters.AsChar(), mirrorTypeID);
+        mMotionEventNr = eventTrack->AddEvent(m_startTime, m_endTime, AZStd::move(m_eventDatas.value_or(EMotionFX::EventDataSet())));
+
         if (mMotionEventNr == MCORE_INVALIDINDEX32)
         {
-            outResult.Format("Cannot create motion event. The returned motion event index is not valid.");
+            outResult = AZStd::string::format("Cannot create motion event. The returned motion event index is not valid.");
             return false;
         }
 
         // set the dirty flag
-        valueString.Format("AdjustMotion -motionID %i -dirtyFlag true", motionID);
-        return GetCommandManager()->ExecuteCommandInsideCommand(valueString.AsChar(), outResult);
+        return GetCommandManager()->ExecuteCommandInsideCommand(AZStd::string::format("AdjustMotion -motionID %i -dirtyFlag true", m_motionID).c_str(), outResult);
     }
 
 
     // undo the command
-    bool CommandCreateMotionEvent::Undo(const MCore::CommandLine& parameters, MCore::String& outResult)
+    bool CommandCreateMotionEvent::Undo(const MCore::CommandLine& parameters, AZStd::string& outResult)
     {
-        MCore::String eventTrackName;
-        parameters.GetValue("eventTrackName", this, &eventTrackName);
+        AZ_UNUSED(parameters);
 
-        const int32 motionID = parameters.GetValueAsInt("motionID", this);
-
-        MCore::String command;
-        command.Format("RemoveMotionEvent -motionID %i -eventTrackName \"%s\" -eventNr %i", motionID, eventTrackName.AsChar(), mMotionEventNr);
-        return GetCommandManager()->ExecuteCommandInsideCommand(command.AsChar(), outResult);
+        const AZStd::string command = AZStd::string::format("RemoveMotionEvent -motionID %i -eventTrackName \"%s\" -eventNr %i", m_motionID, m_eventTrackName.c_str(), mMotionEventNr);
+        return GetCommandManager()->ExecuteCommandInsideCommand(command.c_str(), outResult);
     }
 
 
@@ -506,13 +617,30 @@ namespace CommandSystem
     void CommandCreateMotionEvent::InitSyntax()
     {
         GetSyntax().ReserveParameters(6);
-        GetSyntax().AddRequiredParameter("motionID",         "The id of the motion.",                                                                                                                                                                        MCore::CommandSyntax::PARAMTYPE_INT);
-        GetSyntax().AddRequiredParameter("eventTrackName",   "The name of the motion event track.",                                                                                                                                                          MCore::CommandSyntax::PARAMTYPE_STRING);
-        GetSyntax().AddRequiredParameter("startTime",        "The start time value, in seconds, when the motion event should start.",                                                                                                                        MCore::CommandSyntax::PARAMTYPE_FLOAT);
-        GetSyntax().AddRequiredParameter("endTime",          "The end time value, in seconds, when the motion event should end. When this is equal to the start time value we won't trigger an end event, but only a start event at the specified time.",    MCore::CommandSyntax::PARAMTYPE_FLOAT);
-        GetSyntax().AddRequiredParameter("eventType",        "The string describing the type of the event, this could for example be 'SOUND' or whatever your game can process.",                                                                            MCore::CommandSyntax::PARAMTYPE_STRING);
-        GetSyntax().AddRequiredParameter("parameters",       "The parameters of the event, which could be the filename of a sound file or anything else.",                                                                                                   MCore::CommandSyntax::PARAMTYPE_STRING);
-        GetSyntax().AddParameter("mirrorType",       "The string describing the mirrored type of the event, this could for example be 'LeftFoot' for an event type of 'RightFoot'.",                                                                 MCore::CommandSyntax::PARAMTYPE_STRING, "");
+        GetSyntax().AddRequiredParameter("motionID", "The id of the motion.", MCore::CommandSyntax::PARAMTYPE_INT);
+        GetSyntax().AddRequiredParameter("eventTrackName", "The name of the motion event track.", MCore::CommandSyntax::PARAMTYPE_STRING);
+        GetSyntax().AddRequiredParameter("startTime", "The start time value, in seconds, when the motion event should start.", MCore::CommandSyntax::PARAMTYPE_FLOAT);
+        GetSyntax().AddRequiredParameter("endTime", "The end time value, in seconds, when the motion event should end. When this is equal to the start time value we won't trigger an end event, but only a start event at the specified time.", MCore::CommandSyntax::PARAMTYPE_FLOAT);
+        GetSyntax().AddParameter("eventDatas", "A serialized string of a vector of EventData subclasses, containing the parameters that should be sent with the event.", MCore::CommandSyntax::PARAMTYPE_STRING, "");
+    }
+
+
+    bool CommandCreateMotionEvent::SetCommandParameters(const MCore::CommandLine& commandLine)
+    {
+        MotionIdCommandMixin::SetCommandParameters(commandLine);
+
+        commandLine.GetValue("eventTrackName", this, m_eventTrackName);
+        m_startTime = commandLine.GetValueAsFloat("startTime", this);
+        m_endTime = commandLine.GetValueAsFloat("endTime", this);
+
+        if (commandLine.CheckIfHasParameter("eventDatas"))
+        {
+            AZStd::string eventData;
+            commandLine.GetValue("eventDatas", this, eventData);
+            m_serializedEventData = eventData;
+        }
+
+        return true;
     }
 
 
@@ -540,7 +668,7 @@ namespace CommandSystem
 
 
     // execute
-    bool CommandRemoveMotionEvent::Execute(const MCore::CommandLine& parameters, MCore::String& outResult)
+    bool CommandRemoveMotionEvent::Execute(const MCore::CommandLine& parameters, AZStd::string& outResult)
     {
         // get the motion id and find the corresponding object
         const int32 motionID = parameters.GetValueAsInt("motionID", this);
@@ -549,20 +677,20 @@ namespace CommandSystem
         EMotionFX::Motion* motion = EMotionFX::GetMotionManager().FindMotionByID(motionID);
         if (motion == nullptr)
         {
-            outResult.Format("Cannot remove motion event. Motion with id='%i' does not exist.", motionID);
+            outResult = AZStd::string::format("Cannot remove motion event. Motion with id='%i' does not exist.", motionID);
             return false;
         }
 
         // get the motion event table and find the track on which we will work on
-        MCore::String valueString;
+        AZStd::string valueString;
         parameters.GetValue("eventTrackName", this, &valueString);
         EMotionFX::MotionEventTable* eventTable = motion->GetEventTable();
-        EMotionFX::MotionEventTrack* eventTrack = eventTable->FindTrackByName(valueString.AsChar());
+        EMotionFX::MotionEventTrack* eventTrack = eventTable->FindTrackByName(valueString.c_str());
 
         // check if the motion event track is valid and return failure in case it is not
         if (eventTrack == nullptr)
         {
-            outResult.Format("Cannot remove motion event. Motion event track '%s' does not exist for motion with id='%i'.", valueString.AsChar(), motionID);
+            outResult = AZStd::string::format("Cannot remove motion event. Motion event track '%s' does not exist for motion with id='%i'.", valueString.c_str(), motionID);
             return false;
         }
 
@@ -570,38 +698,42 @@ namespace CommandSystem
         const int32 eventNr = parameters.GetValueAsInt("eventNr", this);
         if (eventNr < 0 || eventNr >= (int32)eventTrack->GetNumEvents())
         {
-            outResult.Format("Cannot remove motion event. Motion event number '%i' is out of range.", eventNr);
+            outResult = AZStd::string::format("Cannot remove motion event. Motion event number '%i' is out of range.", eventNr);
             return false;
         }
 
         // get the motion event and store the old values of the motion event for undo
-        const EMotionFX::MotionEvent& motionEvent   = eventTrack->GetEvent(eventNr);
-        mOldStartTime                               = motionEvent.GetStartTime();
-        mOldEndTime                                 = motionEvent.GetEndTime();
-        mOldEventType                               = motionEvent.GetEventTypeString();
-        mOldParameters                              = motionEvent.GetParameterString(eventTrack);
+        const EMotionFX::MotionEvent& motionEvent = eventTrack->GetEvent(eventNr);
+        mOldStartTime = motionEvent.GetStartTime();
+        mOldEndTime = motionEvent.GetEndTime();
+        m_oldEventDatas = motionEvent.GetEventDatas();
 
         // remove the motion event
         eventTrack->RemoveEvent(eventNr);
-        eventTrack->RemoveUnusedParameters();
 
         // set the dirty flag
-        valueString.Format("AdjustMotion -motionID %i -dirtyFlag true", motionID);
-        return GetCommandManager()->ExecuteCommandInsideCommand(valueString.AsChar(), outResult);
+        valueString = AZStd::string::format("AdjustMotion -motionID %i -dirtyFlag true", motionID);
+        return GetCommandManager()->ExecuteCommandInsideCommand(valueString.c_str(), outResult);
     }
 
 
     // undo the command
-    bool CommandRemoveMotionEvent::Undo(const MCore::CommandLine& parameters, MCore::String& outResult)
+    bool CommandRemoveMotionEvent::Undo(const MCore::CommandLine& parameters, AZStd::string& outResult)
     {
-        MCore::String eventTrackName;
+        AZStd::string eventTrackName;
         parameters.GetValue("eventTrackName", this, &eventTrackName);
 
         const int32 motionID = parameters.GetValueAsInt("motionID", this);
+        const EMotionFX::Motion* motion = EMotionFX::GetMotionManager().FindMotionByID(motionID);
+        if (!motion)
+        {
+            outResult = AZStd::string::format("Unable to find motion with id %d", motionID);
+            return false;
+        }
 
-        MCore::String command;
-        command.Format("CreateMotionEvent -motionID %i -eventTrackName \"%s\" -startTime %f -endTime %f -eventType \"%s\" -parameters \"%s\"", motionID, eventTrackName.AsChar(), mOldStartTime, mOldEndTime, mOldEventType.AsChar(), mOldParameters.AsChar());
-        return GetCommandManager()->ExecuteCommandInsideCommand(command.AsChar(), outResult);
+        MCore::CommandGroup commandGroup;
+        CommandHelperAddMotionEvent(motion, eventTrackName.c_str(), mOldStartTime, mOldEndTime, m_oldEventDatas, &commandGroup);
+        return GetCommandManager()->ExecuteCommandGroupInsideCommand(commandGroup, outResult);
     }
 
 
@@ -634,212 +766,166 @@ namespace CommandSystem
     }
 
 
-    // destructor
-    CommandAdjustMotionEvent::~CommandAdjustMotionEvent()
+    void CommandAdjustMotionEvent::Reflect(AZ::ReflectContext* context)
     {
+        AZ::SerializeContext* serializeContext = azrtti_cast<AZ::SerializeContext*>(context);
+        if(!serializeContext)
+        {
+            return;
+        }
+
+        serializeContext->Class<CommandAdjustMotionEvent, MCore::Command, MotionIdCommandMixin>()
+            ->Field("eventTrackName", &CommandAdjustMotionEvent::m_eventTrackName)
+            ->Field("startTime", &CommandAdjustMotionEvent::m_startTime)
+            ->Field("endTime", &CommandAdjustMotionEvent::m_endTime)
+            ->Field("eventDataAction", &CommandAdjustMotionEvent::m_eventDataAction)
+            ->Field("eventData", &CommandAdjustMotionEvent::m_eventData)
+            ;
     }
 
 
     // execute
-    bool CommandAdjustMotionEvent::Execute(const MCore::CommandLine& parameters, MCore::String& outResult)
+    bool CommandAdjustMotionEvent::Execute(const MCore::CommandLine& parameters, AZStd::string& outResult)
     {
-        // get the motion id and find the corresponding object
-        const int32 motionID = parameters.GetValueAsInt("motionID", this);
+        AZ_UNUSED(parameters);
 
-        // check if the motion is valid and return failure in case it is not
-        EMotionFX::Motion* motion = EMotionFX::GetMotionManager().FindMotionByID(motionID);
-        if (motion == nullptr)
+        AZ::Outcome<EMotionFX::MotionEvent*> motionEventOutcome = GetMotionEvent();
+        if (!motionEventOutcome.IsSuccess())
         {
-            outResult.Format("Cannot adjust motion event. Motion with id='%i' does not exist.", motionID);
+            outResult = "Cannot find motion event with the parameters provided.";
             return false;
         }
 
-        // get the motion event table and find the track on which we will work on
-        MCore::String valueString;
-        parameters.GetValue("eventTrackName", this, &valueString);
-        EMotionFX::MotionEventTable* eventTable = motion->GetEventTable();
-        EMotionFX::MotionEventTrack* eventTrack = eventTable->FindTrackByName(valueString.AsChar());
+        EMotionFX::MotionEvent* motionEvent = motionEventOutcome.GetValue();
 
-        // check if the motion event track is valid and return failure in case it is not
-        if (eventTrack == nullptr)
-        {
-            outResult.Format("Cannot adjust motion event. Motion event track '%s' does not exist for motion with id='%i'.", valueString.AsChar(), motionID);
-            return false;
-        }
-
-        // get the event index and check if it is in range
-        const int32 eventNr = parameters.GetValueAsInt("eventNr", this);
-        if (eventNr < 0 || eventNr >= (int32)eventTrack->GetNumEvents())
-        {
-            outResult.Format("Cannot adjust motion event. Motion event number '%i' is out of range.", eventNr);
-            return false;
-        }
-
-        // get the motion event
-        EMotionFX::MotionEvent& motionEvent = eventTrack->GetEvent(eventNr);
-
-        mOldStartTime   = motionEvent.GetStartTime();
-        mOldEndTime     = motionEvent.GetEndTime();
+        m_oldStartTime   = motionEvent->GetStartTime();
+        m_oldEndTime     = motionEvent->GetEndTime();
 
         // adjust the event start time
-        if (parameters.CheckIfHasParameter("startTime"))
+        if (m_startTime.has_value())
         {
-            const float startTime = parameters.GetValueAsFloat("startTime", this);
-            if (startTime > motionEvent.GetEndTime())
+            if (m_startTime > motionEvent->GetEndTime())
             {
-                motionEvent.SetEndTime(startTime);
+                motionEvent->SetEndTime(m_startTime.value());
             }
 
-            motionEvent.SetStartTime(startTime);
+            motionEvent->SetStartTime(m_startTime.value());
         }
 
         // adjust the event end time
-        if (parameters.CheckIfHasParameter("endTime"))
+        if (m_endTime.has_value())
         {
-            const float endTime = parameters.GetValueAsFloat("endTime", this);
-            if (endTime < motionEvent.GetStartTime())
+            if (m_endTime < motionEvent->GetStartTime())
             {
-                motionEvent.SetStartTime(endTime);
+                motionEvent->SetStartTime(m_endTime.value());
             }
 
-            motionEvent.SetEndTime(endTime);
+            motionEvent->SetEndTime(m_endTime.value());
         }
 
-        // adjust the event type
-        if (parameters.CheckIfHasParameter("eventType"))
+        switch (m_eventDataAction)
         {
-            mOldEventTypeID = motionEvent.GetEventTypeID();
-            mOldEventType   = motionEvent.GetEventTypeString();
-            parameters.GetValue("eventType", this, &valueString);
-
-            // if the event type hasn't been registered yet (automatic event type registration)
-            uint32 eventTypeID = EMotionFX::GetEventManager().FindEventID(valueString.AsChar());
-            if (eventTypeID == MCORE_INVALIDINDEX32)
-            {
-                // register/link the event type with the free ID
-                eventTypeID = EMotionFX::GetEventManager().RegisterEventType(valueString.AsChar());
-            }
-
-            motionEvent.SetEventTypeID(eventTypeID);
-        }
-
-        // adjust the event parameters
-        if (parameters.CheckIfHasParameter("parameters"))
-        {
-            mOldParamIndex = motionEvent.GetParameterIndex();
-            parameters.GetValue("parameters", this, &valueString);
-            const uint32 paramIndex = eventTrack->AddParameter(valueString.AsChar());
-            motionEvent.SetParameterIndex(static_cast<uint16>(paramIndex));
-        }
-
-        if (parameters.CheckIfHasParameter("mirrorType"))
-        {
-            mOldMirrorTypeID = motionEvent.GetMirrorEventID();
-            mOldMirrorType = motionEvent.GetMirrorEventTypeString();
-            MCore::String mirrorType;
-            parameters.GetValue("mirrorType", this, &mirrorType);
-            uint32 mirrorEventID = EMotionFX::GetEventManager().FindEventID(mirrorType.AsChar());
-            if (mirrorEventID == MCORE_INVALIDINDEX32)
-            {
-                mirrorEventID = EMotionFX::GetEventManager().RegisterEventType(mirrorType.AsChar());
-            }
-            motionEvent.SetMirrorEventID(mirrorEventID);
+            case EventDataAction::Replace:
+                m_oldEventData = motionEvent->GetEventDatas()[m_eventDataNr];
+                motionEvent->SetEventData(m_eventDataNr, EMotionFX::GetEventManager().FindEventData(m_eventData.value()));
+                break;
+            case EventDataAction::Add:
+                motionEvent->AppendEventData(EMotionFX::GetEventManager().FindEventData(m_eventData.value()));
+                break;
+            case EventDataAction::Remove:
+                m_oldEventData = motionEvent->GetEventDatas()[m_eventDataNr];
+                motionEvent->RemoveEventData(m_eventDataNr);
+                break;
+            case EventDataAction::None:
+            default:
+                break;
         }
 
         // set the dirty flag
-        valueString.Format("AdjustMotion -motionID %i -dirtyFlag true", motionID);
-        return GetCommandManager()->ExecuteCommandInsideCommand(valueString.AsChar(), outResult);
+        const AZStd::string valueString = AZStd::string::format("AdjustMotion -motionID %i -dirtyFlag true", m_motionID);
+        return GetCommandManager()->ExecuteCommandInsideCommand(valueString.c_str(), outResult);
     }
 
 
     // undo the command
-    bool CommandAdjustMotionEvent::Undo(const MCore::CommandLine& parameters, MCore::String& outResult)
+    bool CommandAdjustMotionEvent::Undo(const MCore::CommandLine& parameters, AZStd::string& outResult)
     {
-        // get the motion id and find the corresponding object
-        const int32 motionID = parameters.GetValueAsInt("motionID", this);
+        AZ_UNUSED(parameters);
 
-        // check if the motion is valid and return failure in case it is not
-        EMotionFX::Motion* motion = EMotionFX::GetMotionManager().FindMotionByID(motionID);
-        if (motion == nullptr)
+        AZ::Outcome<EMotionFX::MotionEvent*> motionEventOutcome = GetMotionEvent();
+        if (!motionEventOutcome.IsSuccess())
         {
-            outResult.Format("Cannot adjust motion event. Motion with id='%i' does not exist.", motionID);
+            outResult = "Cannot find motion event with the parameters provided.";
             return false;
         }
 
-        // get the motion event table and find the track on which we will work on
-        MCore::String valueString;
-        parameters.GetValue("eventTrackName", this, &valueString);
-        EMotionFX::MotionEventTable* eventTable = motion->GetEventTable();
-        EMotionFX::MotionEventTrack* eventTrack = eventTable->FindTrackByName(valueString.AsChar());
-
-        // check if the motion event track is valid and return failure in case it is not
-        if (eventTrack == nullptr)
-        {
-            outResult.Format("Cannot adjust motion event. Motion event track '%s' does not exist for motion with id='%i'.", valueString.AsChar(), motionID);
-            return false;
-        }
-
-        // get the event index and check if it is in range
-        const int32 eventNr = parameters.GetValueAsInt("eventNr", this);
-        if (eventNr < 0 || eventNr >= (int32)eventTrack->GetNumEvents())
-        {
-            outResult.Format("Cannot adjust motion event. Motion event number '%i' is out of range.", eventNr);
-            return false;
-        }
-
-        // get the motion event
-        EMotionFX::MotionEvent& motionEvent = eventTrack->GetEvent(eventNr);
+        EMotionFX::MotionEvent* motionEvent = motionEventOutcome.GetValue();
 
         // undo start time change
-        if (parameters.CheckIfHasParameter("startTime"))
+        if (m_startTime.has_value())
         {
-            motionEvent.SetStartTime(mOldStartTime);
-            motionEvent.SetEndTime(mOldEndTime);
+            motionEvent->SetStartTime(m_oldStartTime);
+            motionEvent->SetEndTime(m_oldEndTime);
         }
 
         // undo end time change
-        if (parameters.CheckIfHasParameter("endTime"))
+        if (m_endTime.has_value())
         {
-            motionEvent.SetStartTime(mOldStartTime);
-            motionEvent.SetEndTime(mOldEndTime);
+            motionEvent->SetStartTime(m_oldStartTime);
+            motionEvent->SetEndTime(m_oldEndTime);
         }
 
-        // undo event type string change
-        if (parameters.CheckIfHasParameter("eventType"))
+        switch (m_eventDataAction)
         {
-            motionEvent.SetEventTypeID(mOldEventTypeID);
-        }
-
-        // undo event type string change
-        if (parameters.CheckIfHasParameter("mirrorType"))
-        {
-            motionEvent.SetMirrorEventID(mOldMirrorTypeID);
-        }
-
-        // adjust the event parameters
-        if (parameters.CheckIfHasParameter("parameters"))
-        {
-            motionEvent.SetParameterIndex(static_cast<uint16>(mOldParamIndex));
+            case EventDataAction::Replace:
+                motionEvent->SetEventData(m_eventDataNr, AZStd::move(m_oldEventData));
+                break;
+            case EventDataAction::Add:
+                motionEvent->RemoveEventData(motionEvent->GetEventDatas().size() - 1);
+                break;
+            case EventDataAction::Remove:
+                motionEvent->InsertEventData(m_eventDataNr, AZStd::move(m_oldEventData));
+                break;
+            case EventDataAction::None:
+            default:
+                break;
         }
 
         // undo remove of the motion
-        valueString.Format("AdjustMotion -motionID %i -dirtyFlag true", motionID);
-        return GetCommandManager()->ExecuteCommandInsideCommand(valueString.AsChar(), outResult);
+        const AZStd::string valueString { AZStd::string::format("AdjustMotion -motionID %i -dirtyFlag true", m_motionID) };
+        return GetCommandManager()->ExecuteCommandInsideCommand(valueString.c_str(), outResult);
     }
 
 
     // init the syntax of the command
     void CommandAdjustMotionEvent::InitSyntax()
     {
-        GetSyntax().ReserveParameters(7);
+        GetSyntax().ReserveParameters(5);
         GetSyntax().AddRequiredParameter("motionID",         "The id of the motion.",                                                                                                                                                                        MCore::CommandSyntax::PARAMTYPE_INT);
         GetSyntax().AddRequiredParameter("eventTrackName",   "The name of the motion event track.",                                                                                                                                                          MCore::CommandSyntax::PARAMTYPE_STRING);
-        GetSyntax().AddRequiredParameter("eventNr",          "The index of the motion event to remove.",                                                                                                                                                     MCore::CommandSyntax::PARAMTYPE_INT);
+        GetSyntax().AddRequiredParameter("eventNr",          "The index of the motion event to modify.",                                                                                                                                                     MCore::CommandSyntax::PARAMTYPE_INT);
         GetSyntax().AddParameter("startTime",        "The start time value, in seconds, when the motion event should start.",                                                                                                                        MCore::CommandSyntax::PARAMTYPE_FLOAT,  "0.0");
         GetSyntax().AddParameter("endTime",          "The end time value, in seconds, when the motion event should end. When this is equal to the start time value we won't trigger an end event, but only a start event at the specified time.",    MCore::CommandSyntax::PARAMTYPE_FLOAT,  "0.0");
-        GetSyntax().AddParameter("eventType",        "The string describing the type of the event, this could for example be 'SOUND' or whatever your game can process.",                                                                            MCore::CommandSyntax::PARAMTYPE_STRING, "");
-        GetSyntax().AddParameter("parameters",       "The parameters of the event, which could be the filename of a sound file or anything else.",                                                                                                   MCore::CommandSyntax::PARAMTYPE_STRING, "");
-        GetSyntax().AddParameter("mirrorType",       "The string describing the type mirrored event type. For an event type of LeftFoot this could be RightFoot. You can leave it empty if mirroring isn't having any effect on this event.",        MCore::CommandSyntax::PARAMTYPE_STRING, "");
+    }
+
+
+    bool CommandAdjustMotionEvent::SetCommandParameters(const MCore::CommandLine& commandLine)
+    {
+        MotionIdCommandMixin::SetCommandParameters(commandLine);
+
+        commandLine.GetValue("eventTrackName", this, &m_eventTrackName);
+        m_eventNr = commandLine.GetValueAsInt("eventNr", this);
+
+        if (commandLine.CheckIfHasParameter("startTime"))
+        {
+            m_startTime = commandLine.GetValueAsFloat("startTime", this);
+        }
+        if (commandLine.CheckIfHasParameter("endTime"))
+        {
+            m_endTime = commandLine.GetValueAsFloat("endTime", this);
+        }
+
+        return true;
     }
 
 
@@ -849,6 +935,40 @@ namespace CommandSystem
         return "Adjust the attributes of a given motion event.";
     }
 
+    AZ::Outcome<EMotionFX::MotionEvent*> CommandAdjustMotionEvent::GetMotionEvent() const
+    {
+        if (m_motionEvent)
+        {
+            return AZ::Success(m_motionEvent);
+        }
+        else {
+            // check if the motion is valid and return failure in case it is not
+            const EMotionFX::Motion* motion = EMotionFX::GetMotionManager().FindMotionByID(m_motionID);
+            if (!motion)
+            {
+                return AZ::Failure();
+            }
+
+            // get the motion event table and find the track on which we will work on
+            const EMotionFX::MotionEventTable* eventTable = motion->GetEventTable();
+            EMotionFX::MotionEventTrack* eventTrack = eventTable->FindTrackByName(m_eventTrackName.c_str());
+
+            // check if the motion event track is valid and return failure in case it is not
+            if (!eventTrack)
+            {
+                return AZ::Failure();
+            }
+
+            // get the event index and check if it is in range
+            if (m_eventNr < 0 || m_eventNr >= eventTrack->GetNumEvents())
+            {
+                return AZ::Failure();
+            }
+
+            // get the motion event
+            return AZ::Success(&eventTrack->GetEvent(m_eventNr));
+        }
+    }
 
     ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -862,21 +982,21 @@ namespace CommandSystem
         }
 
         EMotionFX::MotionEventTable* motionEventTable = motion->GetEventTable();
-        uint32 trackNr = motionEventTable->GetNumTracks() + 1;
+        size_t trackNr = motionEventTable->GetNumTracks() + 1;
 
-        MCore::String eventTrackName;
-        eventTrackName.Format("Event Track %i", trackNr);
-        while (motionEventTable->FindTrackByName(eventTrackName.AsChar()))
+        AZStd::string eventTrackName;
+        eventTrackName = AZStd::string::format("Event Track %i", trackNr);
+        while (motionEventTable->FindTrackByName(eventTrackName.c_str()))
         {
-            trackNr++;
-            eventTrackName.Format("Event Track %i", trackNr);
+            ++trackNr;
+            eventTrackName = AZStd::string::format("Event Track %i", trackNr);
         }
 
-        MCore::String outResult;
-        MCore::String command = MCore::String().Format("CreateMotionEventTrack -motionID %i -eventTrackName \"%s\"", motion->GetID(), eventTrackName.AsChar());
-        if (GetCommandManager()->ExecuteCommand(command.AsChar(), outResult) == false)
+        AZStd::string outResult;
+        AZStd::string command = AZStd::string::format("CreateMotionEventTrack -motionID %i -eventTrackName \"%s\"", motion->GetID(), eventTrackName.c_str());
+        if (GetCommandManager()->ExecuteCommand(command.c_str(), outResult) == false)
         {
-            MCore::LogError(outResult.AsChar());
+            MCore::LogError(outResult.c_str());
         }
     }
 
@@ -892,33 +1012,28 @@ namespace CommandSystem
     // remove event track
     void CommandRemoveEventTrack(EMotionFX::Motion* motion, uint32 trackIndex)
     {
-        // make sure the motion is valid
-        if (motion == nullptr)
+        if (!motion)
         {
             return;
         }
 
-        // get the motion event table and the given event track
-        EMotionFX::MotionEventTable*    eventTable  = motion->GetEventTable();
-        EMotionFX::MotionEventTrack*    eventTrack  = eventTable->GetTrack(trackIndex);
+        EMotionFX::MotionEventTable* eventTable = motion->GetEventTable();
+        EMotionFX::MotionEventTrack* eventTrack = eventTable->GetTrack(trackIndex);
 
-        MCore::String outResult;
-        MCore::CommandGroup commandGroup;
+        AZStd::string outResult;
+        MCore::CommandGroup commandGroup("Remove event track");
 
-        // get the number of motion events and iterate through them
-        const uint32 numMotionEvents = eventTrack->GetNumEvents();
-        for (uint32 j = 0; j < numMotionEvents; ++j)
+        const size_t numMotionEvents = eventTrack->GetNumEvents();
+        for (size_t j = 0; j < numMotionEvents; ++j)
         {
-            commandGroup.AddCommandString(MCore::String().Format("RemoveMotionEvent -motionID %i -eventTrackName \"%s\" -eventNr %i", motion->GetID(), eventTrack->GetName(), 0).AsChar());
+            commandGroup.AddCommandString(AZStd::string::format("RemoveMotionEvent -motionID %i -eventTrackName \"%s\" -eventNr %i", motion->GetID(), eventTrack->GetName(), 0).c_str());
         }
 
-        // finally remove the event track
-        commandGroup.AddCommandString(MCore::String().Format("RemoveMotionEventTrack -motionID %i -eventTrackName \"%s\"", motion->GetID(), eventTrack->GetName()).AsChar());
+        commandGroup.AddCommandString(AZStd::string::format("RemoveMotionEventTrack -motionID %i -eventTrackName \"%s\"", motion->GetID(), eventTrack->GetName()).c_str());
 
-        // execute the command group
-        if (GetCommandManager()->ExecuteCommandGroup(commandGroup, outResult) == false)
+        if (!GetCommandManager()->ExecuteCommandGroup(commandGroup, outResult))
         {
-            MCore::LogError(outResult.AsChar());
+            AZ_Error("EMotionFX", !outResult.empty(), outResult.c_str());
         }
     }
 
@@ -944,11 +1059,11 @@ namespace CommandSystem
         EMotionFX::MotionEventTable*    eventTable  = motion->GetEventTable();
         EMotionFX::MotionEventTrack*    eventTrack  = eventTable->GetTrack(trackIndex);
 
-        MCore::String outResult;
-        MCore::String command = MCore::String().Format("AdjustMotionEventTrack -motionID %i -eventTrackName \"%s\" -newName \"%s\"", motion->GetID(), eventTrack->GetName(), newName);
-        if (GetCommandManager()->ExecuteCommand(command.AsChar(), outResult) == false)
+        AZStd::string outResult;
+        AZStd::string command = AZStd::string::format("AdjustMotionEventTrack -motionID %i -eventTrackName \"%s\" -newName \"%s\"", motion->GetID(), eventTrack->GetName(), newName);
+        if (GetCommandManager()->ExecuteCommand(command.c_str(), outResult) == false)
         {
-            MCore::LogError(outResult.AsChar());
+            MCore::LogError(outResult.c_str());
         }
     }
 
@@ -974,11 +1089,14 @@ namespace CommandSystem
         EMotionFX::MotionEventTable*    eventTable  = motion->GetEventTable();
         EMotionFX::MotionEventTrack*    eventTrack  = eventTable->GetTrack(trackIndex);
 
-        MCore::String outResult;
-        MCore::String command = MCore::String().Format("AdjustMotionEventTrack -motionID %i -eventTrackName \"%s\" -enabled %s", motion->GetID(), eventTrack->GetName(), (isEnabled) ? "true" : "false");
-        if (GetCommandManager()->ExecuteCommand(command.AsChar(), outResult) == false)
+        AZStd::string outResult;
+        AZStd::string command = AZStd::string::format("AdjustMotionEventTrack -motionID %i -eventTrackName \"%s\" -enabled %s", 
+            motion->GetID(), 
+            eventTrack->GetName(), 
+            AZStd::to_string(isEnabled).c_str());
+        if (GetCommandManager()->ExecuteCommand(command.c_str(), outResult) == false)
         {
-            MCore::LogError(outResult.AsChar());
+            MCore::LogError(outResult.c_str());
         }
     }
 
@@ -992,48 +1110,10 @@ namespace CommandSystem
 
 
     // add a new motion event
-    void CommandHelperAddMotionEvent(EMotionFX::Motion* motion, const char* trackName, float startTime, float endTime, const char* eventType, const char* eventParameters, MCore::CommandGroup* commandGroup)
+    void CommandHelperAddMotionEvent(const char* trackName, float startTime, float endTime, const EMotionFX::EventDataSet& eventData, MCore::CommandGroup* commandGroup)
     {
-        // make sure the motion is valid
-        if (motion == nullptr)
-        {
-            return;
-        }
-
-        // create our command group
-        MCore::CommandGroup internalCommandGroup("Add motion event");
-
-        // execute the create motion event command
-        MCore::String command;
-        command.Format("CreateMotionEvent -motionID %i -eventTrackName \"%s\" -startTime %f -endTime %f -eventType \"%s\" -parameters \"%s\"", motion->GetID(), trackName, startTime, endTime, eventType, eventParameters);
-
-        // add the command to the command group
-        if (commandGroup == nullptr)
-        {
-            internalCommandGroup.AddCommandString(command.AsChar());
-        }
-        else
-        {
-            commandGroup->AddCommandString(command.AsChar());
-        }
-
-        // execute the group command
-        if (commandGroup == nullptr)
-        {
-            MCore::String outResult;
-            if (GetCommandManager()->ExecuteCommandGroup(internalCommandGroup, outResult) == false)
-            {
-                MCore::LogError(outResult.AsChar());
-            }
-        }
-    }
-
-
-    // add a new motion event
-    void CommandHelperAddMotionEvent(const char* trackName, float startTime, float endTime, const char* eventType, const char* eventParameters, MCore::CommandGroup* commandGroup)
-    {
-        EMotionFX::Motion* motion = GetCommandManager()->GetCurrentSelection().GetSingleMotion();
-        CommandHelperAddMotionEvent(motion, trackName, startTime, endTime, eventType, eventParameters, commandGroup);
+        const EMotionFX::Motion* motion = GetCommandManager()->GetCurrentSelection().GetSingleMotion();
+        CommandHelperAddMotionEvent(motion, trackName, startTime, endTime, eventData, commandGroup);
     }
 
 
@@ -1050,26 +1130,26 @@ namespace CommandSystem
         MCore::CommandGroup internalCommandGroup("Remove motion event");
 
         // execute the create motion event command
-        MCore::String command;
-        command.Format("RemoveMotionEvent -motionID %i -eventTrackName \"%s\" -eventNr %i", motion->GetID(), trackName, eventNr);
+        AZStd::string command;
+        command = AZStd::string::format("RemoveMotionEvent -motionID %i -eventTrackName \"%s\" -eventNr %i", motion->GetID(), trackName, eventNr);
 
         // add the command to the command group
         if (commandGroup == nullptr)
         {
-            internalCommandGroup.AddCommandString(command.AsChar());
+            internalCommandGroup.AddCommandString(command.c_str());
         }
         else
         {
-            commandGroup->AddCommandString(command.AsChar());
+            commandGroup->AddCommandString(command.c_str());
         }
 
         // execute the group command
         if (commandGroup == nullptr)
         {
-            MCore::String outResult;
+            AZStd::string outResult;
             if (GetCommandManager()->ExecuteCommandGroup(internalCommandGroup, outResult) == false)
             {
-                MCore::LogError(outResult.AsChar());
+                MCore::LogError(outResult.c_str());
             }
         }
     }
@@ -1135,10 +1215,10 @@ namespace CommandSystem
         // execute the group command
         if (commandGroup == nullptr)
         {
-            MCore::String outResult;
+            AZStd::string outResult;
             if (GetCommandManager()->ExecuteCommandGroup(internalCommandGroup, outResult) == false)
             {
-                MCore::LogError(outResult.AsChar());
+                MCore::LogError(outResult.c_str());
             }
         }
     }
@@ -1174,21 +1254,19 @@ namespace CommandSystem
         }
 
         // create the command group
-        MCore::String result;
+        AZStd::string result;
         MCore::CommandGroup commandGroup("Change motion event track");
 
         // get the motion event
         EMotionFX::MotionEvent& motionEvent = eventTrack->GetEvent(eventNr);
-        const MCore::String type            = motionEvent.GetEventTypeString();
-        const MCore::String parameters      = motionEvent.GetParameterString(eventTrack);
 
-        commandGroup.AddCommandString(MCore::String().Format("RemoveMotionEvent -motionID %i -eventTrackName \"%s\" -eventNr %i", motion->GetID(), oldTrackName, eventNr));
-        commandGroup.AddCommandString(MCore::String().Format("CreateMotionEvent -motionID %i -eventTrackName \"%s\" -startTime %f -endTime %f -eventType \"%s\" -parameters \"%s\"", motion->GetID(), newTrackName, startTime, endTime, type.AsChar(), parameters.AsChar()));
+        commandGroup.AddCommandString(AZStd::string::format("RemoveMotionEvent -motionID %i -eventTrackName \"%s\" -eventNr %i", motion->GetID(), oldTrackName, eventNr));
+        CommandHelperAddMotionEvent(motion, newTrackName, startTime, endTime, motionEvent.GetEventDatas(), &commandGroup);
 
         // execute the command group
         if (GetCommandManager()->ExecuteCommandGroup(commandGroup, result) == false)
         {
-            MCore::LogError(result.AsChar());
+            MCore::LogError(result.c_str());
         }
     }
 

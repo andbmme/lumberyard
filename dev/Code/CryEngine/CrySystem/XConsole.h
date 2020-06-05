@@ -20,8 +20,8 @@
 #include <CryCrc32.h>
 #include "Timer.h"
 #include <AzFramework/Components/ConsoleBus.h>
+#include <AzFramework/CommandLine/CommandRegistrationBus.h>
 
-#include <AzFramework/Input/Buses/Requests/InputSystemCursorRequestBus.h>
 #include <AzFramework/Input/Events/InputChannelEventListener.h>
 #include <AzFramework/Input/Events/InputTextEventListener.h>
 
@@ -100,7 +100,7 @@ struct string_nocase_lt
 {
     bool operator()(const char* s1, const char* s2) const
     {
-        return _stricmp(s1, s2) < 0;
+        return azstricmp(s1, s2) < 0;
     }
 };
 
@@ -132,6 +132,7 @@ class CXConsole
     , public AzFramework::InputTextEventListener
     , public IRemoteConsoleListener
     , public AzFramework::ConsoleRequestBus::Handler
+    , public AzFramework::CommandRegistrationBus::Handler
 {
 public:
     typedef std::deque<string> ConsoleBuffer;
@@ -149,6 +150,7 @@ public:
     void FreeRenderResources();
     //
     void Copy();
+    void Paste();
 
     // interface IConsole ---------------------------------------------------------
     virtual void Release();
@@ -237,6 +239,11 @@ public:
     virtual bool OnBeforeVarChange(ICVar* pVar, const char* sNewValue);
     virtual void OnAfterVarChange(ICVar* pVar);
 
+    // interface CommandRegistration --------------------------------------------------------------------
+    bool RegisterCommand(AZStd::string_view identifier, AZStd::string_view helpText, AZ::u32 commandFlags, AzFramework::CommandFunction callback) override;
+    bool UnregisterCommand(AZStd::string_view identifier) override;
+    void ExecuteRegisteredCommand(IConsoleCmdArgs* pArg);
+
     //////////////////////////////////////////////////////////////////////////
 
     // Returns
@@ -263,6 +270,15 @@ protected: // ------------------------------------------------------------------
     void ExecuteCommand(CConsoleCommand& cmd, string& params, bool bIgnoreDevMode = false);
 
     void ScrollConsole();
+
+    // CommandRegistration usage
+    struct CommandRegistrationEntry
+    {
+        AzFramework::CommandFunction m_callback;
+        AZStd::string m_id;
+        AZStd::string m_helpText;
+    };
+    AZStd::unordered_map<AZStd::string, CommandRegistrationEntry> m_commandRegistrationMap;
 
 #if ALLOW_AUDIT_CVARS
     void AuditCVars(IConsoleCmdArgs* pArg);
@@ -345,7 +361,6 @@ private: // ----------------------------------------------------------
 
     bool                                                        m_bStaticBackground;
     int                                                         m_nLoadingBackTexID;
-    int                                                         m_nWhiteTexID;
     int                                                         m_nProgress;
     int                                                         m_nProgressRange;
 
@@ -390,7 +405,6 @@ private: // ----------------------------------------------------------
 
     ScrollDir                                               m_sdScrollDir;
 
-    AzFramework::SystemCursorState                              m_previousSystemCursorState;
     bool                                                        m_bConsoleActive;
     bool                                                        m_bActivationKeyEnable;
     bool                                                        m_bIsProcessingGroup;

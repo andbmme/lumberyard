@@ -10,13 +10,12 @@
 *
 */
 
-#ifndef MacSpecific_h
-#define MacSpecific_h
+#pragma once
 
 #include <AzCore/base.h>
 #include <AzCore/PlatformDef.h>
 
-#if defined(AZ_PLATFORM_APPLE_OSX) || defined(AZ_PLATFORM_LINUX)
+#if defined(AZ_PLATFORM_MAC) || defined(AZ_PLATFORM_LINUX)
 #include <pthread.h>
 
 #ifndef MAX_PATH
@@ -47,7 +46,10 @@ bool QueryPerformanceFrequency(LARGE_INTEGER* frequency);
 
 int WSAGetLastError();
 
+DWORD Sleep(DWORD dwMilliseconds);
+
 #if defined(AZ_PLATFORM_LINUX)
+
 namespace PthreadImplementation
 {
     static pthread_mutex_t g_interlockMutex;
@@ -70,20 +72,6 @@ const volatile T InterlockedDecrement(volatile T* pT)
     pthread_mutex_unlock(&PthreadImplementation::g_interlockMutex);
     return *pT;
 }
-
-#elif defined(AZ_PLATFORM_APPLE_OSX)
-
-int32_t InterlockedIncrement(volatile int32_t* valueToIncrement);
-
-int64_t InterlockedIncrement(volatile int64_t* valueToIncrement);
-
-int32_t InterlockedDecrement(volatile int32_t* valueToDecrement);
-
-int64_t InterlockedDecrement(volatile int64_t* valueToDecrement);
-
-int64_t InterlockedAdd64(volatile int64_t* valueToUpdate, int64_t amountToAdd);
-
-#endif
 
 #endif
 

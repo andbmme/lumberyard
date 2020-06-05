@@ -40,15 +40,9 @@ namespace ScriptCanvas
                             editContext->Class<Transform>("Transform", "A 3D transform value")
                                 ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
                                 ->Attribute(AZ::Edit::Attributes::Icon, "Editor/Icons/ScriptCanvas/Transform.png")
-                                ->Attribute(AZ::Edit::Attributes::Visibility, AZ::Edit::PropertyVisibility::ShowChildrenOnly)
                                 ;
                         }
                     }
-                }
-
-                void Visit(NodeVisitor& visitor) const override
-                {
-                    visitor.Visit(*this);
                 }
             };
         }

@@ -14,8 +14,6 @@
 // Description : various integer bit fiddling hacks
 
 
-#ifndef CRYINCLUDE_CRYCOMMON_BITFIDDLING_H
-#define CRYINCLUDE_CRYCOMMON_BITFIDDLING_H
 #pragma once
 
 #include "CompileTimeAssert.h"
@@ -30,7 +28,13 @@
 // Traits
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION BITFIDDLING_H_SECTION_TRAITS
-#include AZ_RESTRICTED_FILE(BitFiddling_h)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/BitFiddling_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/BitFiddling_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/BitFiddling_h_salem.inl"
+    #endif
 #elif defined(LINUX) || defined(APPLE)
 #define BITFIDDLING_H_TRAIT_HAS_COUNT_LEADING_ZEROS 1
 #endif
@@ -150,7 +154,13 @@ inline unsigned long int IntegerLog2(unsigned long int x)
 
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION BITFIDDLING_H_SECTION_INTEGERLOG2
-#include AZ_RESTRICTED_FILE(BitFiddling_h)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/BitFiddling_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/BitFiddling_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/BitFiddling_h_salem.inl"
+    #endif
 #endif
 
 template <typename TInteger>
@@ -598,5 +608,3 @@ inline void Linear2Swizzle(uint8*   dst,
         }
     }
 }
-
-#endif // CRYINCLUDE_CRYCOMMON_BITFIDDLING_H

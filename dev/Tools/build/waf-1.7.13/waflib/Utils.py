@@ -20,7 +20,7 @@ except ImportError:
 		def popleft(self):
 			return self.pop(0)
 try:
-	import _winreg as winreg
+	import winreg as winreg
 except ImportError:
 	try:
 		import winreg
@@ -109,6 +109,18 @@ is_win32 = sys.platform in ('win32', 'cli')
 indicator = '\x1b[K%s%s%s\r'
 if is_win32 and 'NOCOLOR' in os.environ:
 	indicator = '%s%s%s\r'
+
+def extended_path(path):
+	"""
+	Maximum Path Length Limitation on Windows is 260 characters, use extended-length path to bypass this limitation
+	"""
+	if is_win32 and len(path) >= 260:
+		if path.startswith('\\'):
+			return r'\\?\UNC\{}'.format(path.lstrip('\\'))
+		else:
+			return r'\\?\{}'.format(path)
+	else:
+		return path
 
 def readf(fname, m='r', encoding='ISO8859-1'):
 	"""
@@ -240,7 +252,7 @@ if hasattr(os, 'O_NOINHERIT'):
 
 	def writef_win32(f, data, m='w', encoding='ISO8859-1'):
 		if sys.hexversion > 0x3000000 and not 'b' in m:
-			data = data.encode(encoding)
+			data = data.encode(encoding=encoding, errors='ignore')
 			m += 'b'
 		flags = os.O_CREAT | os.O_TRUNC | os.O_WRONLY | os.O_NOINHERIT
 		if 'b' in m:
@@ -462,7 +474,7 @@ def def_attrs(cls, **kw):
 	:type kw: dict
 	:param kw: dictionary of attributes names and values.
 	"""
-	for k, v in kw.items():
+	for k, v in list(kw.items()):
 		if not hasattr(cls, k):
 			setattr(cls, k, v)
 
@@ -481,15 +493,16 @@ def quote_define_name(s):
 
 def h_list(lst):
 	"""
-	Hash lists. For tuples, using hash(tup) is much more efficient
+	Hashes lists of ordered data.
+
+	Using hash(tup) for tuples would be much more efficient,
+	but Python now enforces hash randomization
 
 	:param lst: list to hash
 	:type lst: list of strings
 	:return: hash of the list
 	"""
-	m = md5()
-	m.update(str(lst).encode())
-	return m.digest()
+	return md5(repr(lst).encode()).digest()
 
 def h_fun(fun):
 	"""

@@ -15,6 +15,7 @@
 #include <AzCore/std/typetraits/config.h>
 #include <AzCore/std/typetraits/is_pod.h>
 #include <AzCore/std/typetraits/bool_trait_def.h>
+#include <AzCore/std/typetraits/alignment_of.h>
 
 namespace AZStd
 {
@@ -104,14 +105,6 @@ namespace AZStd
         AZSTD_ALIGN_TEMPLATE_TYPE(T, 8192);
     };
 
-#if !defined(AZSTD_HAS_TYPE_TRAITS_INTRINSICS)
-    // Make sure that is_pod recognizes align_to
-    template<class T, AZStd::size_t Alignment>
-    struct is_pod< align_to<T, Alignment> >
-        : public true_type {};
-    //////////////////////////////////////////////////////////////////////////
-#endif
-
     namespace Internal
     {
         template<AZStd::size_t Size, AZStd::size_t Alignment>
@@ -134,25 +127,14 @@ namespace AZStd
     {
         typedef typename Internal::aligned_storage<Size, Alignment> type;
 
-        AZ_STATIC_ASSERT(Size > 0, "You can not have 0 size");
-
-        //#if defined(AZ_COMPILER_GCC) && (AZ_COMPILER_GCC >  3) || (AZ_COMPILER_GCC == 3 && (__GNUC_MINOR__ >  2 || (__GNUC_MINOR__ == 2 && __GNUC_PATCHLEVEL__ >=3)))
-        //  private: // noncopyable
-        //      aligned_storage(const aligned_storage&);
-        //      aligned_storage& operator=(const aligned_storage&);
-        //#else // gcc less than 3.2.3
-        //  public: // _should_ be noncopyable, but GCC compiler emits error
-        //      aligned_storage(const aligned_storage&);
-        //      aligned_storage& operator=(const aligned_storage&);
-        //#endif // gcc < 3.2.3 workaround
+        static_assert(Size > 0, "You can not have 0 size");
     };
 
-#if !defined(AZSTD_HAS_TYPE_TRAITS_INTRINSICS)
-    // Make sure that is_pod recognizes align_to
-    template<AZStd::size_t Size, AZStd::size_t Alignment>
-    struct is_pod< Internal::aligned_storage<Size, Alignment> >
-        : public true_type {};
-#endif
+    template <size_t Size, size_t Alignment>
+    using aligned_storage_t = typename aligned_storage<Size, Alignment>::type;
+
+    template <typename T, size_t Alignment = AZStd::alignment_of<T>::value>
+    using aligned_storage_for_t = aligned_storage_t<sizeof(T), Alignment>;
 }
 
 #endif // AZSTD_ALIGNED_STORAGE_INCLUDED

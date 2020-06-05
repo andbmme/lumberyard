@@ -42,16 +42,11 @@ namespace ScriptCanvas
                             editContext->Class<CRC>("CRC", "A CRC value")
                                 ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
                                 ->Attribute(AZ::Edit::Attributes::Icon, "Editor/Icons/ScriptCanvas/CRC.png")
-                                ->Attribute(AZ::Edit::Attributes::Visibility, AZ::Edit::PropertyVisibility::ShowChildrenOnly)
                                 ;
                         }
                     }
                 }
 
-                void Visit(NodeVisitor& visitor) const override
-                {
-                    visitor.Visit(*this);
-                }
             };
         }
     }

@@ -10,11 +10,11 @@
 *
 */
 
-#include "precompiled.h"
-
 #include <Libraries/Libraries.h>
 
 #include "Comparison.h"
+
+#include <ScriptCanvas/Core/Attributes.h>
 
 namespace ScriptCanvas
 {
@@ -36,7 +36,8 @@ namespace ScriptCanvas
                         ClassElement(AZ::Edit::ClassElements::EditorData, "")->
                         Attribute(AZ::Edit::Attributes::Category, "Math/Comparisons")->
                         Attribute(AZ::Edit::Attributes::Icon, "Editor/Icons/ScriptCanvas/Libraries/Logic.png")->
-                        Attribute(AZ::Edit::Attributes::CategoryStyle, ".comparison")
+                        Attribute(AZ::Edit::Attributes::CategoryStyle, ".comparison")->
+                        Attribute(ScriptCanvas::Attributes::Node::TitlePaletteOverride, "ComparisonNodeTitlePalette")
                         ;
                 }
 

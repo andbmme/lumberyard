@@ -9,55 +9,64 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
+
 #pragma once
 
-#include <Cry_Geo.h>
 #include <AzCore/Component/Component.h>
+
+#include "Rendering/EntityDebugDisplayComponent.h"
 #include "BoxShape.h"
 
 namespace LmbrCentral
 {
+    /// Provide a Component interface for BoxShape functionality.
     class BoxShapeComponent
         : public AZ::Component
-        , public BoxShape
     {
     public:
-        AZ_COMPONENT(BoxShapeComponent, BoxShapeComponentTypeId);
+        AZ_COMPONENT(BoxShapeComponent, BoxShapeComponentTypeId)
+        static void Reflect(AZ::ReflectContext* context);
 
-        //////////////////////////////////////////////////////////////////////////
-        // AZ::Component interface implementation
+        // AZ::Component
         void Activate() override;
         void Deactivate() override;
         bool ReadInConfig(const AZ::ComponentConfig* baseConfig) override;
         bool WriteOutConfig(AZ::ComponentConfig* outBaseConfig) const override;
 
-        // BoxShape
-        BoxShapeConfig& GetConfiguration() override { return m_configuration; }
+    private:
+        static void GetProvidedServices(AZ::ComponentDescriptor::DependencyArrayType& provided);
+        static void GetIncompatibleServices(AZ::ComponentDescriptor::DependencyArrayType& incompatible);
+        static void GetRequiredServices(AZ::ComponentDescriptor::DependencyArrayType& required);
 
-    protected:
+        BoxShape m_boxShape; ///< Stores underlying box type for this component.
+    };
 
-        static void GetProvidedServices(AZ::ComponentDescriptor::DependencyArrayType& provided)
-        {
-            provided.push_back(AZ_CRC("ShapeService", 0xe86aa5fe));
-            provided.push_back(AZ_CRC("BoxShapeService", 0x946a0032));
-        }
-
-        static void GetIncompatibleServices(AZ::ComponentDescriptor::DependencyArrayType& incompatible)
-        {
-            incompatible.push_back(AZ_CRC("ShapeService", 0xe86aa5fe));
-            incompatible.push_back(AZ_CRC("BoxShapeService", 0x946a0032));
-        }
-
-        static void GetRequiredServices(AZ::ComponentDescriptor::DependencyArrayType& required)
-        {
-            required.push_back(AZ_CRC("TransformService", 0x8ee22c50));
-        }
-
+    /// Concrete EntityDebugDisplay implementation for BoxShape.
+    class BoxShapeDebugDisplayComponent
+        : public EntityDebugDisplayComponent
+        , public ShapeComponentNotificationsBus::Handler
+    {
+    public:
+        AZ_COMPONENT(BoxShapeDebugDisplayComponent, "{2B0F198B-6753-4191-A024-2AFE0E228D93}", EntityDebugDisplayComponent)
         static void Reflect(AZ::ReflectContext* context);
 
-    private:
+        BoxShapeDebugDisplayComponent() = default;
 
-        //! Stores configuration of a box for this component
-        BoxShapeConfig m_configuration;
+        // AZ::Component
+        void Activate() override;
+        void Deactivate() override;
+        bool ReadInConfig(const AZ::ComponentConfig* baseConfig) override;
+        bool WriteOutConfig(AZ::ComponentConfig* outBaseConfig) const override;
+
+        // EntityDebugDisplayComponent
+        void Draw(AzFramework::DebugDisplayRequests& debugDisplay) override;
+
+    private:
+        AZ_DISABLE_COPY_MOVE(BoxShapeDebugDisplayComponent)
+
+        // ShapeComponentNotificationsBus
+        void OnShapeChanged(ShapeChangeReasons changeReason) override;
+
+        BoxShapeConfig m_boxShapeConfig; ///< Stores configuration data for box shape.
     };
 } // namespace LmbrCentral

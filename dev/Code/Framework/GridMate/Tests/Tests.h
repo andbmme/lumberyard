@@ -9,12 +9,14 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
+
 #ifndef GM_UNITTEST_FIXTURE_H
 #define GM_UNITTEST_FIXTURE_H
 
 #include <GridMate/GridMate.h>
 #include <GridMate/Session/Session.h>
 
+#include <GridMateTests/Tests_Platform.h>
 #include <AzCore/UnitTest/UnitTest.h>
 
 #include <AzCore/Memory/OSAllocator.h>
@@ -26,19 +28,15 @@
 #include <GridMate/Carrier/Carrier.h>
 
 #define GM_TEST_MEMORY_DRILLING 0
-
-
-
-#if defined(AZ_PLATFORM_WINDOWS)
-#include <WinSock2.h>
-#endif
-
 //////////////////////////////////////////////////////////////////////////
 // Drillers
 #include <AzCore/Driller/Driller.h>
 #include <AzCore/IO/Streamer.h>
 
 #define AZ_ROOT_TEST_FOLDER ""
+
+#include <AzCore/AzCore_Traits_Platform.h>
+
 //////////////////////////////////////////////////////////////////////////
 
 namespace UnitTest
@@ -52,17 +50,21 @@ namespace UnitTest
         }
     };
 
-    class GridMateTestFixture
+    class GridMateTestFixture 
+        : public GridMateTestFixture_Platform
     {
-    protected:
-        GridMate::IGridMate* m_gridMate;
-        AZ::Debug::DrillerSession* m_drillerSession;
-        AZ::Debug::DrillerOutputFileStream* m_drillerStream;
-        AZ::Debug::DrillerManager* m_drillerManager;
-        void* m_allocatorBuffer;
+        protected:
+            GridMate::IGridMate* m_gridMate;
+            AZ::Debug::DrillerSession* m_drillerSession;
+            AZ::Debug::DrillerOutputFileStream* m_drillerStream;
+            AZ::Debug::DrillerManager* m_drillerManager;
+            void* m_allocatorBuffer;
+    
+        private:
+            using Platform = GridMateTestFixture_Platform;
 
     public:
-        GridMateTestFixture(unsigned int memorySize = 100* 1024* 1024)
+        GridMateTestFixture(unsigned int memorySize = 100 * 1024 * 1024)
             : m_gridMate(nullptr)
             , m_drillerSession(nullptr)
             , m_drillerStream(nullptr)
@@ -77,21 +79,17 @@ namespace UnitTest
             desc.m_allocatorDesc.m_allocationRecords = true;
 #endif
             AZ::SystemAllocator::Descriptor sysAllocDesc;
-            sysAllocDesc.m_heap.m_numMemoryBlocks = 1;
-            sysAllocDesc.m_heap.m_memoryBlocksByteSize[0] = memorySize;
+            sysAllocDesc.m_heap.m_numFixedMemoryBlocks = 1;
+            sysAllocDesc.m_heap.m_fixedMemoryBlocksByteSize[0] = memorySize;
             m_allocatorBuffer = azmalloc(memorySize, sysAllocDesc.m_heap.m_memoryBlockAlignment, AZ::OSAllocator);
-            sysAllocDesc.m_heap.m_memoryBlocks[0] = m_allocatorBuffer;
+            sysAllocDesc.m_heap.m_fixedMemoryBlocks[0] = m_allocatorBuffer;
             AZ::AllocatorInstance<AZ::SystemAllocator>::Create(sysAllocDesc);
             desc.m_allocatorDesc.m_custom = &AZ::AllocatorInstance<AZ::SystemAllocator>::Get();
 
             // register/enable streamer for data IO operations
-            AZ::IO::Streamer::Descriptor streamerDesc;
-            if (strlen(AZ_ROOT_TEST_FOLDER) > 0)
-            {
-                streamerDesc.m_fileMountPoint = AZ_ROOT_TEST_FOLDER;
-            }
-            AZ::IO::Streamer::Create(streamerDesc);
-
+            //AZ::AllocatorInstance<AZ::ThreadPoolAllocator>::Create(AZ::ThreadPoolAllocator::Descriptor());
+            //AZ::IO::Streamer::Descriptor streamerDesc;
+            //AZ::IO::Streamer::Create(streamerDesc);
             // enable compression on the device (we can find device by name and/or by drive name, etc.)
             //AZ::IO::Device* device = AZ::IO::Streamer::Instance().FindDevice(AZ_ROOT_TEST_FOLDER);
             //AZ_TEST_ASSERT(device); // we must have a valid device
@@ -104,27 +102,28 @@ namespace UnitTest
 
             m_drillerSession = NULL;
 
-            AZ::Debug::AllocationRecords* records = AZ::AllocatorInstance<GridMate::GridMateAllocator>::Get().GetRecords();
+            AZ::Debug::AllocationRecords* records = AZ::AllocatorInstance<GridMate::GridMateAllocator>::GetAllocator().GetRecords();
             if (records)
             {
                 records->SetMode(AZ::Debug::AllocationRecords::RECORD_FULL);
             }
 
+            Platform::Construct();
         }
 
         virtual ~GridMateTestFixture()
         {
+            Platform::Destruct();
+
             if (m_gridMate)
             {
-
-                StopDrilling();
-
                 GridMateDestroy(m_gridMate);
                 m_gridMate = NULL;
             }
 
             // stop streamer
-            AZ::IO::Streamer::Destroy();
+            //AZ::IO::Streamer::Destroy();
+            //AZ::AllocatorInstance<AZ::ThreadPoolAllocator>::Destroy();
 
             AZ::AllocatorInstance<AZ::SystemAllocator>::Destroy();
             azfree(m_allocatorBuffer, AZ::OSAllocator);
@@ -136,59 +135,9 @@ namespace UnitTest
             }
         }
 
-        void StartDrilling(const char* name)
-        {
-            (void) name;
-            // TODO FIX
-            /*
-            if( m_drillerSession != NULL ) return;
-
-            //////////////////////////////////////////////////////////////////////////
-            // Setup drillers
-            AZ::Debug::DrillerManager& dm = AZ::Debug::DrillerManager::Instance();
-
-            // create a list of driller we what to drill
-            AZ::Debug::DrillerManager::DrillerListType dillersToDrill;
-            AZ::Debug::DrillerManager::DrillerInfo di;
-            for(int i = 0; i < dm.GetNumDrillerDesc(); ++i )
-            {
-            AZ::Debug::DrillerDescriptor* dd = dm.GetDrillerDesc(i);
-            di.id = dd->GetId();            // set driller id
-            dillersToDrill.push_back(di);
-            }
-
-            char fullFileName[256];
-            azsnprintf(fullFileName,AZ_ARRAY_SIZE(fullFileName),"%s.gm",name);
-
-            // open a driller output file stream
-            AZ::IO::Stream* stream = AZ::IO::Streamer::Instance().RegisterFileStream(fullFileName, AZ::IO::Streamer::FS_WRITE_CREATE);
-            //stream->WriteCompressed(IO::CompressorZLib::TypeId(),0,2);
-            m_drillerStream.BeginWrite(stream);
-
-            // start a driller session with the file stream and the list of drillers
-            m_drillerSession = dm.Start(m_drillerStream,dillersToDrill);*/
-        }
-
-        void StopDrilling()
-        {
-            /*          if(m_drillerSession)
-            {
-            AZ::Debug::DrillerManager::Instance().Stop(m_drillerSession);
-            m_drillerSession = NULL;
-            }
-            if( m_drillerStream.GetIOStream() != NULL )
-            {
-            AZ_Assert(m_drillerStream.GetIOStream()->IsWrite(),"The stream should be open for writing");
-            m_drillerStream.EndWrite();
-            }               */
-        }
-
         void Update()
         {
-            //          if(m_gridMate && m_drillerSession)
-            //              AZ::Debug::DrillerManager::Instance().FrameUpdate();
         }
-
     };
 
     /**
@@ -225,7 +174,7 @@ namespace UnitTest
                 desc.m_custom = &AZ::AllocatorInstance<GridMate::GridMateAllocator>::Get();
                 AZ::AllocatorInstance<GridMate::GridMateAllocatorMP>::Create(desc);
 
-                AZ::Debug::AllocationRecords* records = AZ::AllocatorInstance<GridMate::GridMateAllocatorMP>::Get().GetRecords();
+                AZ::Debug::AllocationRecords* records = AZ::AllocatorInstance<GridMate::GridMateAllocatorMP>::GetAllocator().GetRecords();
                 if (records)
                 {
                     records->SetMode(AZ::Debug::AllocationRecords::RECORD_FULL);

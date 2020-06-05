@@ -21,7 +21,7 @@ namespace GraphCanvas
     public:
         AZ_COMPONENT(ExecutionSlotComponent, "{36A31585-F202-4D83-9491-6178C8B94F03}", SlotComponent);
         static void Reflect(AZ::ReflectContext* reflectContext);
-		
+
         static AZ::Entity* CreateExecutionSlot(const AZ::EntityId& nodeId, const SlotConfiguration& slotConfiguration);
         
         ExecutionSlotComponent();
@@ -29,7 +29,13 @@ namespace GraphCanvas
 
         ~ExecutionSlotComponent();
 
+        // SlotRequestBus
+        SlotConfiguration* CloneSlotConfiguration() const override;
+        ////
+
     protected:
-        AZ::Entity* ConstructConnectionEntity(const Endpoint& sourceEndpoint, const Endpoint& targetEndpoint) const override;
+        ExecutionSlotComponent(const ExecutionSlotComponent&) = delete;
+        ExecutionSlotComponent& operator=(const ExecutionSlotComponent&) = delete;
+        AZ::Entity* ConstructConnectionEntity(const Endpoint& sourceEndpoint, const Endpoint& targetEndpoint, bool createModelConnection) override;
     };
 }

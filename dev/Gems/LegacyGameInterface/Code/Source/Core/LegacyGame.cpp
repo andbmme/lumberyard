@@ -79,8 +79,6 @@ namespace LegacyGameInterface
         IGameRulesSystem* pGameRulesSystem = g_Game->GetIGameFramework()->GetIGameRulesSystem();
         pGameRulesSystem->RegisterGameRules("DummyRules", "LegacyGameRules");
 
-        GetISystem()->GetPlatformOS()->UserDoSignIn(0);
-
         return true;
     }
 
@@ -151,10 +149,18 @@ namespace LegacyGameInterface
             case AZ::PLATFORM_APPLE_OSX:
                 platformName = "PC";
                 break;
-            case AZ::PLATFORM_XBOX_360: // ACCEPTED_USE
-            case AZ::PLATFORM_XBONE: // ACCEPTED_USE
-                platformName = "Xbox"; // ACCEPTED_USE
+#if defined(AZ_EXPAND_FOR_RESTRICTED_PLATFORM) || defined(AZ_TOOLS_EXPAND_FOR_RESTRICTED_PLATFORMS)
+#define AZ_RESTRICTED_PLATFORM_EXPANSION(CodeName, CODENAME, codename, PrivateName, PRIVATENAME, privatename, PublicName, PUBLICNAME, publicname, PublicAuxName1, PublicAuxName2, PublicAuxName3)\
+            case AZ::PLATFORM_##PUBLICNAME:\
+                platformName = #CodeName;\
                 break;
+#if defined(AZ_EXPAND_FOR_RESTRICTED_PLATFORM)
+                AZ_EXPAND_FOR_RESTRICTED_PLATFORM
+#else
+                AZ_TOOLS_EXPAND_FOR_RESTRICTED_PLATFORMS
+#endif
+#undef AZ_RESTRICTED_PLATFORM_EXPANSION
+#endif
             default:
                 platformName = AZ::GetPlatformName(AZ::g_currentPlatform);
                 break;
@@ -169,14 +175,14 @@ namespace LegacyGameInterface
                         actionMapManager->AddInputDeviceMapping(eAID_KeyboardMouse, "keyboard");
                     }
 
-                    if (strcmp(platform->getAttr("xboxpad"), "0")) // ACCEPTED_USE
+                    if (strcmp(platform->getAttr("xeniapad"), "0"))
                     {
-                        actionMapManager->AddInputDeviceMapping(eAID_XboxPad, "xboxpad"); // ACCEPTED_USE
+                        actionMapManager->AddInputDeviceMapping(eAID_XeniaPad, "xeniapad");
                     }
 
-                    if (strcmp(platform->getAttr("ps4pad"), "0")) // ACCEPTED_USE
+                    if (strcmp(platform->getAttr("provopad"), "0"))
                     {
-                        actionMapManager->AddInputDeviceMapping(eAID_PS4Pad, "ps4pad"); // ACCEPTED_USE
+                        actionMapManager->AddInputDeviceMapping(eAID_ProvoPad, "provopad");
                     }
 
                     if (strcmp(platform->getAttr("androidkey"), "0"))

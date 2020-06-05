@@ -24,6 +24,12 @@
 #include <AzCore/Component/EntityId.h>
 #include <AzFramework/Input/Devices/Mouse/InputDeviceMouse.h>
 
+
+#if defined(AZ_RESTRICTED_PLATFORM)
+#undef AZ_RESTRICTED_SECTION
+#define BASEINPUT_CPP_SECTION_5 5
+#endif
+
 #ifdef AZ_PLATFORM_WINDOWS
 #   undef min
 #   undef max
@@ -69,14 +75,11 @@ CBaseInput::~CBaseInput()
 
     SAFE_DELETE(m_pCVars);
     g_pInputCVars = NULL;
-
 }
 
 bool CBaseInput::Init()
 {
     m_modifiers = 0;
-
-
     return true;
 }
 
@@ -116,7 +119,6 @@ void CBaseInput::Update(bool bFocus)
     event.keyName = "commit";
     event.keyId = eKI_SYS_Commit;
     PostInputEvent(event);
-
 }
 
 void CBaseInput::ShutDown()
@@ -663,6 +665,19 @@ void CBaseInput::RemoveDeviceHoldSymbols(EInputDeviceType deviceType, uint8 devi
 
 bool CBaseInput::ShouldBlockInputEventPosting(const EKeyId keyId, const EInputDeviceType deviceType, const uint8 deviceIndex) const
 {
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION BASEINPUT_CPP_SECTION_5
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/BaseInput_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/BaseInput_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/BaseInput_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#else
     bool bBlocked = false;
     TInputBlockData::const_iterator iter = m_inputBlockData.begin();
     TInputBlockData::const_iterator iterEnd = m_inputBlockData.end();
@@ -686,6 +701,7 @@ bool CBaseInput::ShouldBlockInputEventPosting(const EKeyId keyId, const EInputDe
     }
 
     return bBlocked;
+#endif
 }
 
 void CBaseInput::UpdateBlockingInputs()

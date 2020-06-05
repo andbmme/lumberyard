@@ -38,7 +38,7 @@ namespace AZ
                 Q_OBJECT
 
             public:
-                JobWatcher(const AZStd::string& sourceAssetFullPath, Uuid traceTag);
+                explicit JobWatcher(const AZStd::string& sourceAssetFullPath, Uuid traceTag);
                 void StartMonitoring();
 
             signals:
@@ -52,10 +52,12 @@ namespace AZ
             private:
                 static const int s_jobQueryInterval;
 
+                AZ_PUSH_DISABLE_DLL_EXPORT_MEMBER_WARNING
                 AZStd::vector<u64> m_reportedJobs;
                 AZStd::string m_sourceAssetFullPath;
                 QTimer* m_jobQueryTimer;
                 Uuid m_traceTag;
+                AZ_POP_DISABLE_DLL_EXPORT_MEMBER_WARNING
             };
         } // namespace SceneUI
     } //  namespace SceneAPI

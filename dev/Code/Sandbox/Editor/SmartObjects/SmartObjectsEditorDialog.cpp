@@ -12,7 +12,6 @@
 // Original file Copyright Crytek GMBH or its affiliates, used under license.
 
 #include "StdAfx.h"
-#include <IAIAction.h>
 #include <IAISystem.h>
 #include <IAgent.h>
 
@@ -30,8 +29,6 @@
 #include "SmartObjectTemplateDialog.h"
 #include <AzQtComponents/Components/StyledDockWidget.h>
 
-#include "HyperGraph/FlowGraphManager.h"
-#include "HyperGraph/FlowGraph.h"
 #include "SmartObjectHelperObject.h"
 #include "SmartObjectsEditorDialog.h"
 
@@ -50,6 +47,7 @@
 #include <QMenu>
 #include <QMimeData>
 #include <QPalette>
+#include <QPainter>
 #include <QSettings>
 #include <QSignalBlocker>
 #include <QSortFilterProxyModel>
@@ -90,7 +88,6 @@ CSOLibrary* CSOLibrary::m_pInstance = NULL;
 // functor used for comparing and ordering data structures by name
 template< class T >
 struct less_name
-    : public std::binary_function < const T&, const T&, bool >
 {
     bool operator() (const T& _Left, const T& _Right) const
     {
@@ -101,7 +98,6 @@ struct less_name
 // functor used for comparing and ordering data structures by name (case insensitive)
 template< class T >
 struct less_name_no_case
-    : public std::binary_function < const T&, const T&, bool >
 {
     bool operator() (const T& _Left, const T& _Right) const
     {
@@ -227,7 +223,7 @@ bool CSOLibrary::Load()
         if (!LoadFromFile(smartObjectsXmlPath.toUtf8().data()))
         {
             m_bLoadNeeded = true;
-            Warning("CSOLibrary::Load() failed to load from %s", smartObjectsXmlPath);
+            Warning("CSOLibrary::Load() failed to load from %s", smartObjectsXmlPath.toUtf8().constData());
             return false;
         }
         m_bSaveNeeded = false;
@@ -1372,7 +1368,7 @@ public:
 
         const QByteArray d = data->data(QStringLiteral("x-application/x-smartobjects-rows"));
         QVector<int> rows(d.count() / sizeof(int));
-        std::copy(d.begin(), d.end(), reinterpret_cast<char*>(rows.data()));
+        AZStd::copy(d.begin(), d.end(), reinterpret_cast<char*>(rows.data()));
         const QString path = parent.data(Qt::UserRole).toString();
         for (auto i : rows)
         {
@@ -1581,7 +1577,7 @@ CSmartObjectsEditorDialog::CSmartObjectsEditorDialog()
     centralWidget->layout()->addWidget(m_View);
     setCentralWidget(centralWidget);
 
-    connect(m_topLabel, &SmartObjectsEditorDialogLabel::closeRequested, [this]() {
+    connect(m_topLabel, &SmartObjectsEditorDialogLabel::closeRequested, this, [this]() {
         m_bFilterCanceled = true;
         m_bSinkNeeded = true;
     });
@@ -1598,7 +1594,7 @@ CSmartObjectsEditorDialog::CSmartObjectsEditorDialog()
     connect(m_View, &QWidget::customContextMenuRequested, this, &CSmartObjectsEditorDialog::OnContextMenu);
     connect(m_View->header(), &QWidget::customContextMenuRequested, this, &CSmartObjectsEditorDialog::OnReportColumnRClick);
     connect(m_View->selectionModel(), &QItemSelectionModel::selectionChanged, this, &CSmartObjectsEditorDialog::OnReportSelChanged);
-    connect(m_View, &QAbstractItemView::clicked, [&](const QModelIndex& index) { OnReportHyperlink(index); });
+
     connect(m_Tree->selectionModel(), &QItemSelectionModel::currentChanged, this, &CSmartObjectsEditorDialog::OnTreeSelChanged);
 
     connect(m_Description, &QTextEdit::textChanged, this, &CSmartObjectsEditorDialog::OnDescriptionEdit);
@@ -2665,127 +2661,6 @@ void CSmartObjectsEditorDialog::ModifyRuleOrder(int from, int to)
 //////////////////////////////////////////////////////////////////////////
 void CSmartObjectsEditorDialog::OnAddEntry()
 {
-    if (!GetISystem()->GetIFlowSystem())
-    {
-        return;
-    }
-
-    if (!CheckOutLibrary())
-    {
-        return;
-    }
-
-    m_View->setFocus();
-    m_View->selectionModel()->clear();
-
-    CSmartObjectTemplateDialog sotd(this);
-    if (!sotd.exec())
-    {
-        return;
-    }
-    int templateId = sotd.GetSOTemplateId();
-
-    CItemDescriptionDlg dlg(this, true, true);
-    dlg.setWindowTitle(tr("New Smart Object Rule"));
-    dlg.setItemCaption(tr("Rule name:"));
-    if (!dlg.exec())
-    {
-        return;
-    }
-
-    SmartObjectCondition condition =
-    {
-        "Actor",            //  string  sUserClass;
-        "",                 //  string  sUserState;
-        "",                 //  string  sUserHelper;
-
-        m_sFirstFilterClass.toUtf8().data(),//    string  sObjectClass;
-        "",                 //  string  sObjectState;
-        "",                 //  string  sObjectHelper;
-
-        0.0f,               //  float   fDistanceFrom;
-        10.0f,              //  float   fDistanceTo;
-        360.0f,             //  float   fOrientationLimit;
-        false,              //  bool    bHorizLimitOnly
-        360.0f,             //  float   fOrientationToTargetLimit;
-
-        0.5f,               //  float   fMinDelay;
-        5.0f,               //  float   fMaxDelay;
-        2.0f,               //  float   fMemory;
-
-        1.0f,               //  float   fProximityFactor;
-        0.0f,               //  float   fOrientationFactor;
-        0.0f,               //  float   fVisibilityFactor;
-        0.0f,               //  float   fRandomnessFactor;
-
-        0,                  //  float   fLookAtOnPerc;
-        "",                 //  string  sUserPreActionState;
-        "",                 //  string  sObjectPreActionState;
-        eAT_Action,         //  EActionType eActionType;
-        "",                 //  string  sAction;
-        "",                 //  string  sUserPostActionState;
-        "",                 //  string  sObjectPostActionState;
-
-        2,                  //  int     iMaxAlertness;
-        true,               //  bool    bEnabled;
-        "",                 //  string  sName;
-        "",                 //  string  sFolder;
-        "",                 //  string  sDescription;
-        0,                  //  int     iOrder;
-
-        0,                  //  int     iRuleType;
-        "",                 //  string  sEvent;
-        "",                 //  string  sChainedUserEvent;
-        "",                 //  string  sChainedObjectEvent;
-        "",                 //  string  sEntranceHelper;
-        "",                 //  string  sExitHelper;
-
-        templateId,         //  int     iTemplateId;
-
-        0.0f,               //  float   fApproachSpeed;
-        3,                  //  int     iApproachStance;
-        "",                 //  string  sAnimationHelper;
-        "",                 //  string  sApproachHelper;
-        0.0f,               //  float   fStartWidth;
-        0.0f,               //  float   fDirectionTolerance;
-        0.0f,               //  float   fStartArcAngle;
-    };
-    condition.sName = dlg.item().toLocal8Bit().data();
-    condition.sDescription = dlg.description().toLocal8Bit().data();
-    condition.sFolder = GetCurrentFolderPath().toUtf8().data();
-    condition.iOrder = INT_MAX;
-
-    const MapTemplates& mapTemplates = GetIEditor()->GetAI()->GetMapTemplates();
-    MapTemplates::const_iterator itTemplate = mapTemplates.find(templateId);
-    assert(itTemplate != mapTemplates.end());
-    const CSOTemplate* pTemplate = itTemplate->second;
-
-    SetTemplateDefaults(condition, pTemplate->params);
-
-    m_model->addCondition(condition);
-    ModifyRuleOrder(INT_MAX, 0);
-    condition.iOrder = 0; // to select the right row
-    m_bSinkNeeded = true;
-
-    // make sure the folder exists in the tree view
-    SetCurrentFolder(condition.sFolder.c_str());
-
-    // now select newly created row
-    /*int i = m_View.GetRows()->GetCount();
-    while ( i-- )
-    {
-        CXTPReportRow* pRow = m_View.GetRows()->GetAt( i );
-        CSmartObjectEntry* pRecord = (CSmartObjectEntry*) pRow->GetRecord();
-        if ( pRecord && *pRecord->m_pCondition == condition )
-        {
-            m_pEditedEntry = pRecord;
-            m_View.EnsureVisible( pRow );
-            m_View.SetFocusedRow( pRow );
-            break;
-        }
-    }*/
-
-    CSOLibrary::m_bSaveNeeded = true;
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -2798,29 +2673,6 @@ void CSmartObjectsEditorDialog::OnEditEntry()
 //////////////////////////////////////////////////////////////////////////
 void CSmartObjectsEditorDialog::OnRemoveEntry()
 {
-    if (!GetISystem()->GetIFlowSystem())
-    {
-        return;
-    }
-
-    if (!CheckOutLibrary())
-    {
-        return;
-    }
-
-    QSignalBlocker sb(m_View->selectionModel());
-
-    while (!m_View->selectionModel()->selectedRows().isEmpty())
-    {
-        const QModelIndex index = m_View->selectionModel()->selectedRows().first();
-        auto cond = index.data(Qt::UserRole).value<SmartObjectCondition*>();
-        ModifyRuleOrder(cond->iOrder, INT_MAX);
-        m_View->model()->removeRow(index.row());
-    }
-
-    OnReportSelChanged();
-
-    CSOLibrary::m_bSaveNeeded = true;
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -3161,7 +3013,7 @@ void CSmartObjectsEditorDialog::OnReportColumnRClick(const QPoint& point)
 {
     QMenu menu;
 
-    connect(menu.addAction(tr("Name/Description")), &QAction::triggered, [=]()
+    connect(menu.addAction(tr("Name/Description")), &QAction::triggered, m_View, [=]()
         {
             m_View->header()->setSectionHidden(SmartObjectsEditorModel::ColumnName, false);
             m_View->header()->setSectionHidden(SmartObjectsEditorModel::ColumnDescription, false);
@@ -3171,7 +3023,7 @@ void CSmartObjectsEditorDialog::OnReportColumnRClick(const QPoint& point)
             m_View->header()->setSectionHidden(SmartObjectsEditorModel::ColumnObjectState, true);
             m_View->header()->setSectionHidden(SmartObjectsEditorModel::ColumnAction, true);
         });
-    connect(menu.addAction(tr("Name/User/Object")), &QAction::triggered, [=]()
+    connect(menu.addAction(tr("Name/User/Object")), &QAction::triggered, m_View, [=]()
         {
             m_View->header()->setSectionHidden(SmartObjectsEditorModel::ColumnName, false);
             m_View->header()->setSectionHidden(SmartObjectsEditorModel::ColumnDescription, true);
@@ -3194,7 +3046,7 @@ void CSmartObjectsEditorDialog::OnReportColumnRClick(const QPoint& point)
             QAction* action = menu.addAction(sCaption);
             action->setCheckable(true);
             action->setChecked(!m_View->header()->isSectionHidden(i));
-            connect(action, &QAction::triggered, [=]() {m_View->header()->setSectionHidden(i, !action->isChecked()); });
+            connect(action, &QAction::triggered, this, [=]() {m_View->header()->setSectionHidden(i, !action->isChecked()); });
         }
     }
 
@@ -3257,25 +3109,6 @@ void CSmartObjectsEditorDialog::UpdatePropertyTables()
     //m_Properties.Expand( m_Properties.FindItemByVar( &gSmartObjectsUI.multipliersTable ), !nav );
 
     m_Description->setPlainText(gSmartObjectsUI.sDescription);
-}
-
-void CSmartObjectsEditorDialog::OnReportHyperlink(const QModelIndex& index)
-{
-    auto condition = index.data(Qt::UserRole).value<SmartObjectCondition*>();
-    if (condition)
-    {
-        IAIAction* pAction = gEnv->pAISystem ? gEnv->pAISystem->GetAIActionManager()->GetAIAction(condition->sAction) : NULL;
-        if (pAction)
-        {
-            CFlowGraphManager* pManager = GetIEditor()->GetFlowGraphManager();
-            CFlowGraph* pFlowGraph = pManager->FindGraphForAction(pAction);
-            assert(pFlowGraph);
-            if (pFlowGraph)
-            {
-                pManager->OpenView(pFlowGraph);
-            }
-        }
-    }
 }
 
 void CSmartObjectsEditorDialog::OnTreeSelChanged()
@@ -3383,7 +3216,6 @@ bool CSOLibrary::Save()
 }
 
 struct less_ptr
-    : public std::binary_function < const SmartObjectCondition*, const SmartObjectCondition*, bool >
 {
     bool operator() (const SmartObjectCondition* _Left, const SmartObjectCondition* _Right) const
     {

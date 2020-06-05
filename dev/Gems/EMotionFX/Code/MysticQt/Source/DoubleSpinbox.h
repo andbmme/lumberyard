@@ -14,7 +14,6 @@
 #define __MYSTICQT_DOUBLESPINBOX_H
 
 #include <MCore/Source/StandardHeaders.h>
-#include <MCore/Source/UnicodeString.h>
 #include "MysticQtConfig.h"
 #include <QtWidgets/QDoubleSpinBox>
 #include <QtWidgets/QSpinBox>
@@ -86,7 +85,7 @@ namespace MysticQt
 
     private:
         DoubleSpinBox*  mSpinbox;
-        MCore::String   mTemp;
+        AZStd::string   mTemp;
     };
 
 
@@ -130,6 +129,9 @@ namespace MysticQt
 
         void resizeEvent(QResizeEvent* event) override;
 
+        void SetStyleToError();
+        void SetStyleToOk();
+
     signals:
         void ValueChangedByTextFinished(double value);
         void ValueChangedMouseReleased(double value);
@@ -139,6 +141,9 @@ namespace MysticQt
     private slots:
         void OnEditingFinished();
         void OnTextEdited(const QString& newText);
+        void UpdateStyleForRangeCheck(float newValue);
+
+
 
     protected:
         //void wheelEvent(QWheelEvent* event);
@@ -151,7 +156,7 @@ namespace MysticQt
         double                  mMaximum;
         double                  mSingleStep;
         int                     mNumDecimals;
-        MCore::String           mTemp;
+        AZStd::string           mTemp;
 
         QLineEdit*              mLineEdit;
         QWidget*                mSpinButtonWidget;

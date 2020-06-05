@@ -82,8 +82,10 @@ namespace AzFramework
         // EntityContext
         AZ::Entity* CreateEntity(const char* name) override;
         void OnRootSliceCreated() override;
+        void OnRootSlicePreDestruction() override;
         void OnContextEntitiesAdded(const EntityList& entities);
         void OnContextReset() override;
+        bool ValidateEntitiesAreValidForContext(const EntityList& entities) override;
         using EntityContext::LoadFromStream;
         //////////////////////////////////////////////////////////////////////////
 
@@ -109,7 +111,10 @@ namespace AzFramework
             AZ::Transform m_transform;
         };
 
+        void FlushDynamicSliceDeletionList();
+
         AZStd::unordered_map<SliceInstantiationTicket, InstantiatingDynamicSliceInfo> m_instantiatingDynamicSlices;
+        AZStd::unordered_set<AZ::SliceComponent::SliceInstanceAddress> m_dynamicSlicesToDestroy;
     };
 } // namespace AzFramework
 

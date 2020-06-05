@@ -10,8 +10,8 @@
 *
 */
 #include "connection.h"
-#include "native/connection/ConnectionWorker.h"
-#include "native/utilities/assetUtilEBusHelper.h"
+#include "native/connection/connectionworker.h"
+#include "native/utilities/AssetUtilEBusHelper.h"
 #include "native/assetprocessor.h"
 #include <AzFramework/Asset/AssetProcessorMessages.h>
 #include "native/utilities/ByteArrayStream.h"
@@ -19,11 +19,15 @@
 #include <QSettings>
 #include <QTime>
 
-Connection::Connection(AssetProcessor::PlatformConfiguration* config, qintptr socketDescriptor, QObject* parent)
-    : QObject(parent)
-    , m_platformConfig(config)
+Connection::Connection(qintptr socketDescriptor, QObject* parent)
+    : Connection(false, socketDescriptor, parent)
 {
-    Q_ASSERT(m_platformConfig);
+}
+
+Connection::Connection(bool isUserCreatedConnection, qintptr socketDescriptor, QObject* parent)
+    : QObject(parent)
+    , m_userCreatedConnection(isUserCreatedConnection)
+{
     m_runElapsed = true;
 
     //metrics
@@ -67,8 +71,19 @@ Connection::Connection(AssetProcessor::PlatformConfiguration* config, qintptr so
 
     connect(this, &Connection::TerminateConnection, m_connectionWorker, &AssetProcessor::ConnectionWorker::RequestTerminate, Qt::DirectConnection);
     connect(this, &Connection::NormalConnectionRequested, m_connectionWorker, &AssetProcessor::ConnectionWorker::ConnectToEngine);
-    connect(m_connectionWorker, &AssetProcessor::ConnectionWorker::Identifier, this, &Connection::SetIdentifier);
-    connect(m_connectionWorker, &AssetProcessor::ConnectionWorker::AssetPlatform, this, &Connection::SetAssetPlatform);
+
+    connect(m_connectionWorker, &AssetProcessor::ConnectionWorker::Identifier, this, [this](QString identifier) {
+        // For user created connections, the id is user generated (either because they've manually entered some text
+        // this session, or because the id was loaded from a session previously saved where the user entered it).
+        // As such, when the connection worker reports a new id from after the connection occurs,
+        // we only pay attention to it when it is not a user created connection.
+        if (!m_userCreatedConnection)
+        {
+            SetIdentifier(identifier);
+        }
+    });
+
+    connect(m_connectionWorker, &AssetProcessor::ConnectionWorker::AssetPlatformsString, this, &Connection::SetAssetPlatformsString);
     connect(m_connectionWorker, &AssetProcessor::ConnectionWorker::ConnectionDisconnected, this, &Connection::OnConnectionDisconnect, Qt::QueuedConnection);
     // the blocking queued connection is here because the worker calls OnConnectionEstablished and then immediately starts emitting messages about
     // data coming in.  We want to immediately establish connectivity this way and we don't want it to proceed with message delivery until then.
@@ -120,18 +135,23 @@ QString Connection::IpAddress() const
     return m_ipAddress;
 }
 
-QString Connection::AssetPlatform() const
+QStringList Connection::AssetPlatforms() const
 {
-    return m_assetPlatform;
+    return m_assetPlatforms;
 }
 
-void Connection::SetAssetPlatform(QString assetPlatform)
+QString Connection::AssetPlatformsString() const
 {
-    if (m_assetPlatform == assetPlatform)
+    return m_assetPlatforms.join(',');
+}
+
+void Connection::SetAssetPlatforms(QStringList assetPlatforms)
+{
+    if (m_assetPlatforms == assetPlatforms)
     {
         return;
     }
-    m_assetPlatform = assetPlatform;
+    m_assetPlatforms = assetPlatforms;
     Q_EMIT AssetPlatformChanged();
 }
 
@@ -190,7 +210,7 @@ void Connection::SetPort(int port)
         return;
     }
 
-    m_port = port;
+    m_port = aznumeric_cast<quint16>(port);
     Q_EMIT PortChanged();
 }
 
@@ -204,8 +224,9 @@ void Connection::SaveConnection(QSettings& qSettings)
     qSettings.setValue("identifier", Identifier());
     qSettings.setValue("ipAddress", IpAddress());
     qSettings.setValue("port", Port());
-    qSettings.setValue("assetplatform", AssetPlatform());
+    qSettings.setValue("assetplatform", AssetPlatforms());
     qSettings.setValue("autoConnect", AutoConnect());
+    qSettings.setValue("userConnection", m_userCreatedConnection);
 }
 
 void Connection::LoadConnection(QSettings& qSettings)
@@ -213,9 +234,11 @@ void Connection::LoadConnection(QSettings& qSettings)
     SetIdentifier(qSettings.value("identifier").toString());
     SetIpAddress(qSettings.value("ipAddress").toString());
     SetPort(qSettings.value("port").toInt());
-    SetAssetPlatform(qSettings.value("assetplatform").toString());
+    SetAssetPlatformsString(qSettings.value("assetplatform").toString());
     SetAutoConnect(qSettings.value("autoConnect").toBool());
     SetStatus(Disconnected);
+
+    m_userCreatedConnection = qSettings.value("userConnection", false).toBool();
 }
 
 void Connection::SetStatus(Connection::ConnectionStatus status)
@@ -301,8 +324,17 @@ void Connection::OnConnectionDisconnect()
         disconnect(m_connectionWorker, &AssetProcessor::ConnectionWorker::ReceiveMessage, this, &Connection::ReceiveMessage);
     }
 
-    SetIdentifier(QString());
-    SetAssetPlatform(QString());
+    // For user created connections, the id is user generated (either because they've manually entered some text
+    // this session, or because the id was loaded from a session previously saved where the user entered it).
+    // As such, when a connection disconnects, we only want to clear the id when the connection was triggered
+    // from something other than the user (i.e. like when an automatic connection from Editor or a job worker 
+    // disconnects).
+    if (!m_userCreatedConnection)
+    {
+        SetIdentifier(QString());
+    }
+
+    SetAssetPlatforms(QStringList());
     if (m_autoConnect)
     {
         if (!m_queuedReconnect)
@@ -316,7 +348,7 @@ void Connection::OnConnectionDisconnect()
     {
         Disconnect();
         SetStatus(Disconnected);
-        SetAssetPlatform(QString());
+        SetAssetPlatforms(QStringList());
 
         // if we did not initiate the connection, we should erase it when it disappears.
         if (!InitiatedConnection())
@@ -356,7 +388,7 @@ void Connection::UpdateElapsed()
     if (m_runElapsed)
     {
         m_elapsed += m_elapsedTimer.restart();
-        int seconds = m_elapsed / 1000;
+        int seconds = aznumeric_cast<int>(m_elapsed / 1000);
         int hours = seconds / (60 * 60);
         seconds -= hours * (60 * 60);
         int minutes = seconds / 60;
@@ -802,7 +834,7 @@ size_t Connection::SendRaw(unsigned int type, unsigned int serial, const QByteAr
 
 size_t Connection::SendPerPlatform(unsigned int serial, const AzFramework::AssetSystem::BaseAssetProcessorMessage& message, const QString& platform)
 {
-    if (QString::compare(m_assetPlatform, platform, Qt::CaseInsensitive) == 0)
+    if (m_assetPlatforms.contains(platform, Qt::CaseInsensitive))
     {
         return Send(serial, message);
     }
@@ -812,7 +844,7 @@ size_t Connection::SendPerPlatform(unsigned int serial, const AzFramework::Asset
 
 size_t Connection::SendRawPerPlatform(unsigned int type, unsigned int serial, const QByteArray& data, const QString& platform)
 {
-    if (QString::compare(m_assetPlatform, platform, Qt::CaseInsensitive) == 0)
+    if (m_assetPlatforms.contains(platform, Qt::CaseInsensitive))
     {
         return SendRaw(type, serial, data);
     }
@@ -879,6 +911,16 @@ bool Connection::InitiatedConnection() const
         return m_connectionWorker->InitiatedConnection();
     }
     return false;
+}
+
+bool Connection::UserCreatedConnection() const
+{
+    return m_userCreatedConnection;
+}
+
+void Connection::SetAssetPlatformsString(QString assetPlatforms)
+{
+    SetAssetPlatforms(assetPlatforms.split(',', QString::SkipEmptyParts));
 }
 
 #include <native/connection/connection.moc>

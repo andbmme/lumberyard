@@ -13,8 +13,6 @@
 
 // Description : Misc mathematical functions
 
-#ifndef CRYINCLUDE_CRYCOMMON_MEMORYACCESS_H
-#define CRYINCLUDE_CRYCOMMON_MEMORYACCESS_H
 #pragma once
 
 
@@ -22,6 +20,7 @@
 
 // Section dictionary
 #if defined(AZ_RESTRICTED_PLATFORM)
+#undef AZ_RESTRICTED_SECTION
 #define MEMORYACCESS_H_SECTION_TRAITS 1
 #define MEMORYACCESS_H_SECTION_CRYPREFETCH 2
 #endif
@@ -29,7 +28,13 @@
 // Traits
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION MEMORYACCESS_H_SECTION_TRAITS
-#include AZ_RESTRICTED_FILE(MemoryAccess_h)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/MemoryAccess_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/MemoryAccess_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/MemoryAccess_h_salem.inl"
+    #endif
 #else
 #define MEMORYACCESS_H_TRAIT_USE_LEGACY_PREFETCHLINE 1
 #endif
@@ -59,6 +64,8 @@ extern int g_CpuFlags;
 #define CPUF_3DNOW 0x04
 #define CPUF_MMX   0x08
 #define CPUF_SSE3  0x10
+#define CPUF_F16C  0x20
+#define CPUF_SSE41 0x40
 
 #ifdef _CPU_SSE
 
@@ -561,7 +568,13 @@ ILINE void cryMemcpy(void* Dst, const void* Src, int n, int nFlags)
 
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION MEMORYACCESS_H_SECTION_CRYPREFETCH
-#include AZ_RESTRICTED_FILE(MemoryAccess_h)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/MemoryAccess_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/MemoryAccess_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/MemoryAccess_h_salem.inl"
+    #endif
 #endif
 #if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #undef AZ_RESTRICTED_SECTION_IMPLEMENTED
@@ -574,7 +587,3 @@ ILINE void CryPrefetch(const void* const cpSrc)
 #endif
 
 #define CryPrefetchInl CryPrefetch
-
-
-#endif // CRYINCLUDE_CRYCOMMON_MEMORYACCESS_H
-

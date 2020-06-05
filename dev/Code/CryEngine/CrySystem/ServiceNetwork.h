@@ -14,8 +14,6 @@
 // Description : Service network implementation
 
 
-#ifndef CRYINCLUDE_CRYSYSTEM_SERVICENETWORK_H
-#define CRYINCLUDE_CRYSYSTEM_SERVICENETWORK_H
 #pragma once
 
 
@@ -368,6 +366,15 @@ class CServiceNetwork
     : public IServiceNetwork
     , public CryRunnable
 {
+#if defined(AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/ServiceNetwork_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/ServiceNetwork_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/ServiceNetwork_h_salem.inl"
+    #endif
+#endif
 
 protected:
     struct ConnectionToClose
@@ -472,5 +479,3 @@ public:
 };
 
 //-----------------------------------------------------------------------------
-
-#endif // CRYINCLUDE_CRYSYSTEM_SERVICENETWORK_H

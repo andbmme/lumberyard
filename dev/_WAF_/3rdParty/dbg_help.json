@@ -1,0 +1,16 @@
+{
+    "name": "DBG_HELP",
+    "source": "@ROOT@/Tools/Redistributables/DbgHelp",
+    "description": "Microsoft's Debug Help library redistributable",
+    "lib_required": "False",
+    "platform": {
+        "win_x64_vs2017": {
+            "sharedlibpath": [
+                "win32"
+            ],
+            "shared": [
+                "dbghelp.dll"
+            ]
+        }
+    }
+}

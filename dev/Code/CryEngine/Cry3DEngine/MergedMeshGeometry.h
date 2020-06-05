@@ -11,21 +11,29 @@
 */
 // Original file Copyright Crytek GMBH or its affiliates, used under license.
 
-#ifndef CRYINCLUDE_CRY3DENGINE_MERGEDMESHGEOMETRY_H
-#define CRYINCLUDE_CRY3DENGINE_MERGEDMESHGEOMETRY_H
 #pragma once
 
 #include "MergedMeshRenderNode.h"
+#include "MergedMeshJobExecutor.h"
 #include "IIndexedMesh.h"
-
-#include <AzCore/Jobs/LegacyJobExecutor.h>
 
 #define c_MergedMeshesExtent (16.0f)
 #define c_MergedMeshChunkVersion (0xcafebab7)
 
 #if MMRM_USE_VECTORIZED_SSE_INSTRUCTIONS
 # pragma warning(disable:4700)
-# if   defined(MAC)
+#if defined(AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/MergedMeshGeometry_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/MergedMeshGeometry_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/MergedMeshGeometry_h_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+# elif defined(MAC)
 # elif defined(LINUX)
 # else
 # include <intrin.h>
@@ -49,15 +57,17 @@ enum MMRM_CULL_FLAGS
     , MMRM_CULL_LOD = 0x4
     , MMRM_LOD_SHIFT = 3
     , MMRM_SAMPLE_REDUCTION_SHIFT = 5
+    , MMRM_LOD_MASK = 7
 };
 
 struct SMergedMeshInstanceCompressed
 {
-    uint16 pos_x;
-    uint16 pos_y;
-    uint16 pos_z;
-    uint8 scale;
-    int8 rot[4];
+    uint16 pos_x = 0;
+    uint16 pos_y = 0;
+    uint16 pos_z = 0;
+    uint8 scale = 0;
+    uint8 pad8 = 0;
+    int8 rot[4] = { 0,0,0,0 };
     AUTO_STRUCT_INFO_LOCAL
 };
 
@@ -396,17 +406,12 @@ struct SMMRMGeometry
     SMMRMSpineInfo* pSpineInfo;
     SMMRMDeform*  deform;
     State state;
-    union
-    {
-        uint32  srcGroupId;
-        IStatObj* srcObj;
-    };
+    _smart_ptr<IStatObj> srcObj;
+    _smart_ptr<IMaterial> srcMaterial;
     size_t refCount;
-    AZ::LegacyJobExecutor geomPrepareJobExecutor;
-    const bool is_obj : 1;
+    MergedMeshJobExecutor geomPrepareJobExecutor;
 
-
-    SMMRMGeometry(IStatObj* obj, uint16 slot)
+    SMMRMGeometry(IStatObj* obj, IMaterial* material)
         : aabb(AABB::RESET)
         , numIdx()
         , numVtx()
@@ -419,33 +424,13 @@ struct SMMRMGeometry
         , deform()
         , state(CREATED)
         , srcObj(obj)
+        , srcMaterial(material)
         , geomPrepareJobExecutor()
-        , is_obj(true)
     {
-        memset (pChunks, 0, sizeof(pChunks));
-        memset (numChunks, 0, sizeof(numChunks));
+        memset(pChunks, 0, sizeof(pChunks));
+        memset(numChunks, 0, sizeof(numChunks));
         aabb.max = aabb.min = Vec3(0, 0, 0);
     };
-
-    SMMRMGeometry(uint32 groupId, uint16 slot)
-        : srcGroupId(groupId)
-        , aabb(AABB::RESET)
-        , numIdx()
-        , numVtx()
-        , numSpineVtx()
-        , numSpines()
-        , maxSpinesPerVtx()
-        , refCount()
-        , pSpineVtx()
-        , pSpineInfo()
-        , deform()
-        , state(CREATED)
-        , geomPrepareJobExecutor()
-        , is_obj(false)
-    {
-        memset (pChunks, 0, sizeof(pChunks));
-        memset (numChunks, 0, sizeof(numChunks));
-    }
 
     ~SMMRMGeometry()
     {
@@ -659,7 +644,7 @@ struct SMMRMGroupHeader
     uint32 numVisbleChunks;
     float  maxViewDistance;
     float  lodRationNorm;
-    bool specMismatch : 1;
+    bool specMismatch : 1; // True if this group's spec (low / med / high / etc) is too high for the min spec.
     bool splitGroup : 1;
     bool is_dynamic : 1;
 # if MMRM_USE_BOUNDS_CHECK
@@ -708,7 +693,7 @@ struct SMergedRMChunk
         , vcnt()
         , matId()
     {}
-    ~SMergedRMChunk() { new (this)SMergedRMChunk; };
+    ~SMergedRMChunk() {};
 } _ALIGN(16);
 
 struct SMMRMUpdateContext
@@ -804,6 +789,7 @@ inline void CompressQuat(const Quat& q, SMMRMInstance& i)
     i.qy = static_cast<int>(qy);
     i.qz = static_cast<int>(qz);
     i.qw = static_cast<int>(qw);
+    AZ_Assert((i.qx != 0) || (i.qy != 0) || (i.qz != 0) || (i.qw != 0), "Invalid merged mesh quaternion will result in NaNs");
 }
 
 inline void DecompressQuat(Quat& q, const SMMRMInstance& i)
@@ -814,6 +800,7 @@ inline void DecompressQuat(Quat& q, const SMMRMInstance& i)
     q.v.z = qz / (float)(1 << 7);
     q.w   = qw / (float)(1 << 7);
     q.NormalizeFast();
+    AZ_Assert((i.qx != 0) || (i.qy != 0) || (i.qz != 0) || (i.qw != 0), "Invalid merged mesh quaternion will result in NaNs");
 }
 
 inline void ConvertInstanceAbsolute(Vec3& abs, const uint16 (&pos)[3], const Vec3& origin, const Vec3& rotationOrigin, float zRotation, const float fExtents)
@@ -909,6 +896,4 @@ inline Matrix34 CreateRotationQ(const Quat& q, const Vec3& t)
     return r;
 }
 
-extern Vec3 SampleWind(const Vec3& pos, const Vec3 (&samples)[MMRM_WIND_DIM][MMRM_WIND_DIM][MMRM_WIND_DIM]);
 extern inline Vec3 SampleWind(const Vec3& pos, const Vec3* samples);
-#endif // CRYINCLUDE_CRY3DENGINE_MERGEDMESHGEOMETRY_H

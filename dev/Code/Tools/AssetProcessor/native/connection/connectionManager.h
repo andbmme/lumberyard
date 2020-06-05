@@ -19,9 +19,8 @@
 #include <QString>
 #include <QHostAddress>
 #include <QStringListModel>
-#include "native/utilities/assetUtilEBusHelper.h"
+#include "native/utilities/AssetUtilEBusHelper.h"
 #include <QAbstractItemModel>
-#include "native/utilities/assetUtilEBusHelper.h"
 
 class Connection;
 typedef AZStd::function<void(unsigned int, unsigned int, unsigned int, QByteArray, QString)> regFunc;
@@ -53,7 +52,12 @@ public:
         Max
     };
 
-    explicit ConnectionManager(AssetProcessor::PlatformConfiguration* platformConfig, QObject* parent = 0);
+    enum Roles
+    {
+        UserConnectionRole = Qt::UserRole + 1,
+    };
+
+    explicit ConnectionManager(QObject* parent = 0);
     virtual ~ConnectionManager();
     // Singleton pattern:
     static ConnectionManager* Get();
@@ -61,10 +65,11 @@ public:
     Q_INVOKABLE Connection* getConnection(unsigned int connectionId);//lowerCamelCase for qml
     Q_INVOKABLE ConnectionMap& getConnectionMap();//lowerCamelCase for qml
     Q_INVOKABLE unsigned int addConnection(qintptr socketDescriptor = -1);//lowerCamelCase for qml
+    Q_INVOKABLE unsigned int addUserConnection();
     Q_INVOKABLE void removeConnection(unsigned int connectionId);//lowerCamelCase for qml
     unsigned int GetConnectionId(QString ipaddress, int port);
-    void SaveConnections();
-    void LoadConnections();
+    void SaveConnections(QString settingPrefix = ""); // settingPrefix allowed for testing purposes.
+    void LoadConnections(QString settingPrefix = ""); // settingPrefix allowed for testing purposes.
     void RegisterService(unsigned int type, regFunc func);
 
     //QAbstractItemListModel
@@ -170,15 +175,16 @@ public Q_SLOTS:
 
 private:
 
+    unsigned int internalAddConnection(bool isUserConnection, qintptr socketDescriptor = -1);
     bool IsResponse(unsigned int serial);
     void RouteIncomingMessage(unsigned int connId, unsigned int type, unsigned int serial, QByteArray payload);
+    Connection* FindConnection(const QModelIndex& index) const;
 
     unsigned int m_nextConnectionId;
     ConnectionMap m_connectionMap;
     RouteMultiMap m_messageRoute;
     QHostAddress m_lastHostAddress = QHostAddress::Null;
     AZ::u64 m_lastConnectionTimeInUTCMilliSecs = 0;
-    AssetProcessor::PlatformConfiguration* m_platformConfig = nullptr;
 
 
     // keeps track of how many platforms are connected of a given type

@@ -22,19 +22,10 @@
 
 namespace GraphCanvas
 {
-    //////////////////////////////
-    // GeometryComponentMetaData
-    //////////////////////////////
-
-    GeometryComponent::GeometryComponentSaveData::GeometryComponentSaveData()
-        : m_position(0,0)
-    {
-    }
-
     //////////////////////
     // GeometryComponent
     //////////////////////
-    const float GeometryComponent::IS_CLOSE_TOLERANCE = 0.001;
+    const float GeometryComponent::IS_CLOSE_TOLERANCE = 0.001f;
 
     bool GeometryComponentVersionConverter(AZ::SerializeContext& context, AZ::SerializeContext::DataElementNode& classElement)
     {
@@ -42,7 +33,7 @@ namespace GraphCanvas
         {
             AZ::Crc32 positionId = AZ_CRC("Position", 0x462ce4f5);
 
-            GeometryComponent::GeometryComponentSaveData saveData;
+            GeometrySaveData saveData;
 
             AZ::SerializeContext::DataElementNode* dataNode = classElement.FindSubElement(positionId);
 
@@ -66,18 +57,19 @@ namespace GraphCanvas
             return;
         }
 
-        serializeContext->Class<GeometryComponentSaveData>()
+        serializeContext->Class<GeometrySaveData>()
             ->Version(1)
-            ->Field("Position", &GeometryComponentSaveData::m_position)
+            ->Field("Position", &GeometrySaveData::m_position)
         ;
 
-        serializeContext->Class<GeometryComponent>()
+        serializeContext->Class<GeometryComponent, AZ::Component>()
             ->Version(4, &GeometryComponentVersionConverter)
             ->Field("SaveData", &GeometryComponent::m_saveData)
         ;
     }
 
     GeometryComponent::GeometryComponent()
+        : m_animating(false)
     {
     }
 
@@ -89,12 +81,12 @@ namespace GraphCanvas
     void GeometryComponent::Init()
     {
         GeometryRequestBus::Handler::BusConnect(GetEntityId());
+        EntitySaveDataRequestBus::Handler::BusConnect(GetEntityId());
     }
 
     void GeometryComponent::Activate()
     {
-        SceneMemberNotificationBus::Handler::BusConnect(GetEntityId());
-        EntitySaveDataRequestBus::Handler::BusConnect(GetEntityId());
+        SceneMemberNotificationBus::Handler::BusConnect(GetEntityId());        
     }
 
     void GeometryComponent::Deactivate()
@@ -106,6 +98,8 @@ namespace GraphCanvas
     void GeometryComponent::OnSceneSet(const AZ::EntityId& scene)
     {
         VisualNotificationBus::Handler::BusConnect(GetEntityId());
+
+        m_saveData.RegisterIds(GetEntityId(), scene);
     }
 
     AZ::Vector2 GeometryComponent::GetPosition() const
@@ -115,11 +109,30 @@ namespace GraphCanvas
 
     void GeometryComponent::SetPosition(const AZ::Vector2& position)
     {
-        if (!position.IsClose(m_saveData.m_position))
+        if (!position.IsClose(m_saveData.m_position)
+            && (!m_animating || !m_animatingPosition.IsClose(position)))
         {
-            m_saveData.m_position = position;
+            if (!m_animating)
+            {
+                m_saveData.m_position = position;
+            }
+            else
+            {
+                m_animatingPosition = position;
+            }
+
             GeometryNotificationBus::Event(GetEntityId(), &GeometryNotifications::OnPositionChanged, GetEntityId(), position);
+
+            if (!m_animating)
+            {
+                m_saveData.SignalDirty();
+            }
         }
+    }
+
+    void GeometryComponent::SignalBoundsChanged()
+    {
+        GeometryNotificationBus::Event(GetEntityId(), &GeometryNotifications::OnBoundsChanged);
     }
 
     void GeometryComponent::OnItemChange(const AZ::EntityId& entityId, QGraphicsItem::GraphicsItemChange change, const QVariant& value)
@@ -131,7 +144,7 @@ namespace GraphCanvas
         case QGraphicsItem::ItemPositionChange:
         {
             QPointF qt = value.toPointF();
-            SetPosition(::AZ::Vector2(qt.x(), qt.y()));
+            SetPosition(::AZ::Vector2(aznumeric_cast<float>(qt.x()), aznumeric_cast<float>(qt.y())));
             break;
         }
         default:
@@ -139,9 +152,42 @@ namespace GraphCanvas
         }
     }
 
+    void GeometryComponent::OnPositionAnimateBegin(const AZ::Vector2& targetPoint)
+    {
+        // Store the animating position separate from the savedata position
+        // so any attempts to save will cause appropriate data to be saved
+        // while visually I can lerp cleanly between the values.
+        m_animatingPosition = m_saveData.m_position;
+
+        // Set a flag so we know not to signal out tha the save data needs to be dirtied while the element
+        // is moving
+        m_animating = true;
+        m_saveData.m_position = targetPoint;        
+        m_saveData.SignalDirty();
+    }
+
+    void GeometryComponent::OnPositionAnimateEnd()
+    {
+        m_animating = false;
+
+        // Force the alignment to wherever we were aiming at.
+        AZ::Vector2 position = m_saveData.m_position;
+
+        if (m_saveData.m_position.IsZero())
+        {
+            m_saveData.m_position = AZ::Vector2(1,1);
+        }
+        else
+        {
+            m_saveData.m_position = AZ::Vector2::CreateZero();
+        }
+
+        SetPosition(position);
+    }
+
     void GeometryComponent::WriteSaveData(EntitySaveDataContainer& saveDataContainer) const
     {
-        GeometryComponentSaveData* saveData = saveDataContainer.FindCreateSaveData<GeometryComponent, GeometryComponentSaveData>();
+        GeometrySaveData* saveData = saveDataContainer.FindCreateSaveData<GeometrySaveData>();
 
         if (saveData)
         {
@@ -151,7 +197,7 @@ namespace GraphCanvas
 
     void GeometryComponent::ReadSaveData(const EntitySaveDataContainer& saveDataContainer)
     {
-        GeometryComponentSaveData* saveData = saveDataContainer.FindSaveDataAs<GeometryComponent, GeometryComponentSaveData>();
+        GeometrySaveData* saveData = saveDataContainer.FindSaveDataAs<GeometrySaveData>();
 
         if (saveData)
         {

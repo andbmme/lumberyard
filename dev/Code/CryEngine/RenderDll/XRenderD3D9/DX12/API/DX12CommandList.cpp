@@ -3,9 +3,9 @@
 * its licensors.
 *
 * For complete copyright and license terms please see the LICENSE at the root of this
-* distribution(the "License").All use of this software is governed by the License,
-* or, if provided, by the license below or the license accompanying this file.Do not
-* remove or modify any license notices.This file is distributed on an "AS IS" BASIS,
+* distribution (the "License"). All use of this software is governed by the License,
+* or, if provided, by the license below or the license accompanying this file. Do not
+* remove or modify any license notices. This file is distributed on an "AS IS" BASIS,
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
@@ -37,71 +37,71 @@ namespace DX12
 
         if (!state)
         {
-            strcat(ret, " Common/Present");
+            azstrcat(ret, AZ_ARRAY_SIZE(ret), " Common/Present");
             return ret;
         }
 
         if ((state & D3D12_RESOURCE_STATE_GENERIC_READ) == D3D12_RESOURCE_STATE_GENERIC_READ)
         {
-            strcat(ret, " Generic Read");
+            azstrcat(ret, AZ_ARRAY_SIZE(ret), " Generic Read");
             return ret;
         }
 
         if (state & D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER)
         {
-            strcat(ret, " V/C Buffer");
+            azstrcat(ret, AZ_ARRAY_SIZE(ret), " V/C Buffer");
         }
         if (state & D3D12_RESOURCE_STATE_INDEX_BUFFER)
         {
-            strcat(ret, " I Buffer");
+            azstrcat(ret, AZ_ARRAY_SIZE(ret), " I Buffer");
         }
         if (state & D3D12_RESOURCE_STATE_RENDER_TARGET)
         {
-            strcat(ret, " RT");
+            azstrcat(ret, AZ_ARRAY_SIZE(ret), " RT");
         }
         if (state & D3D12_RESOURCE_STATE_UNORDERED_ACCESS)
         {
-            strcat(ret, " UA");
+            azstrcat(ret, AZ_ARRAY_SIZE(ret), " UA");
         }
         if (state & D3D12_RESOURCE_STATE_DEPTH_WRITE)
         {
-            strcat(ret, " DepthW");
+            azstrcat(ret, AZ_ARRAY_SIZE(ret), " DepthW");
         }
         if (state & D3D12_RESOURCE_STATE_DEPTH_READ)
         {
-            strcat(ret, " DepthR");
+            azstrcat(ret, AZ_ARRAY_SIZE(ret), " DepthR");
         }
         if (state & D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE)
         {
-            strcat(ret, " NoPixelR");
+            azstrcat(ret, AZ_ARRAY_SIZE(ret), " NoPixelR");
         }
         if (state & D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE)
         {
-            strcat(ret, " PixelR");
+            azstrcat(ret, AZ_ARRAY_SIZE(ret), " PixelR");
         }
         if (state & D3D12_RESOURCE_STATE_STREAM_OUT)
         {
-            strcat(ret, " Stream Out");
+            azstrcat(ret, AZ_ARRAY_SIZE(ret), " Stream Out");
         }
         if (state & D3D12_RESOURCE_STATE_INDIRECT_ARGUMENT)
         {
-            strcat(ret, " Indirect Arg");
+            azstrcat(ret, AZ_ARRAY_SIZE(ret), " Indirect Arg");
         }
         if (state & D3D12_RESOURCE_STATE_COPY_DEST)
         {
-            strcat(ret, " CopyD");
+            azstrcat(ret, AZ_ARRAY_SIZE(ret), " CopyD");
         }
         if (state & D3D12_RESOURCE_STATE_COPY_SOURCE)
         {
-            strcat(ret, " CopyS");
+            azstrcat(ret, AZ_ARRAY_SIZE(ret), " CopyS");
         }
         if (state & D3D12_RESOURCE_STATE_RESOLVE_DEST)
         {
-            strcat(ret, " ResolveD");
+            azstrcat(ret, AZ_ARRAY_SIZE(ret), " ResolveD");
         }
         if (state & D3D12_RESOURCE_STATE_RESOLVE_SOURCE)
         {
-            strcat(ret, " ResolveS");
+            azstrcat(ret, AZ_ARRAY_SIZE(ret), " ResolveS");
         }
 
         return ret;
@@ -846,10 +846,16 @@ namespace DX12
         }
         else if (dstResource.GetDesc().Dimension != D3D12_RESOURCE_DIMENSION_BUFFER)
         {
-            D3D12_PLACED_SUBRESOURCE_FOOTPRINT Layouts[1];
-            GetDevice()->GetD3D12Device()->GetCopyableFootprints(&dstResource.GetDesc(), dstSubResource, 1, 0, Layouts, nullptr, nullptr, nullptr);
+            // If this assert trips, you may need to increase MAX_SUBRESOURCES.  Just be wary of growing the stack too much.
+            AZ_Assert(dstSubResource < CCryDX12DeviceContext::MAX_SUBRESOURCES, "Too many sub resources: (sub ID %d requested, %d allowed)", dstSubResource, CCryDX12DeviceContext::MAX_SUBRESOURCES);
+            D3D12_PLACED_SUBRESOURCE_FOOTPRINT layouts[CCryDX12DeviceContext::MAX_SUBRESOURCES];
 
-            CD3DX12_TEXTURE_COPY_LOCATION src(srcResource.GetD3D12Resource(), Layouts[0]);
+            // From our "regular" resource, get the offset and description information for the subresource so we can copy the correct
+            // part of the buffer resource.  We need to get Layouts for subresource 0 through dstSubResource so that the offset is set
+            // correctly.  If we just get the Layout for dstSubResource, it will have an offset of 0.
+            GetDevice()->GetD3D12Device()->GetCopyableFootprints(&dstResource.GetDesc(), 0, dstSubResource + 1, 0, layouts, nullptr, nullptr, nullptr);
+            
+            CD3DX12_TEXTURE_COPY_LOCATION src(srcResource.GetD3D12Resource(), layouts[dstSubResource]);
             CD3DX12_TEXTURE_COPY_LOCATION dst(dstResource.GetD3D12Resource(), dstSubResource);
 
             m_CommandList->CopyTextureRegion(&dst, x, y, z, &src, srcBox);
@@ -857,11 +863,17 @@ namespace DX12
         }
         else if (srcResource.GetDesc().Dimension != D3D12_RESOURCE_DIMENSION_BUFFER)
         {
-            D3D12_PLACED_SUBRESOURCE_FOOTPRINT Layouts[1];
-            GetDevice()->GetD3D12Device()->GetCopyableFootprints(&srcResource.GetDesc(), srcSubResource, 1, 0, Layouts, nullptr, nullptr, nullptr);
+            // If this assert trips, you may need to increase MAX_SUBRESOURCES.  Just be wary of growing the stack too much.
+            AZ_Assert(dstSubResource < CCryDX12DeviceContext::MAX_SUBRESOURCES, "Too many sub resources: (sub ID %d requested, %d allowed)", dstSubResource, CCryDX12DeviceContext::MAX_SUBRESOURCES);
+            D3D12_PLACED_SUBRESOURCE_FOOTPRINT layouts[CCryDX12DeviceContext::MAX_SUBRESOURCES];
+
+            // From our "regular" resource, get the offset and description information for the subresource so we can copy the correct
+            // part of the buffer resource.  We need to get Layouts for subresource 0 through dstSubResource so that the offset is set
+            // correctly.  If we just get the Layout for dstSubResource, it will have an offset of 0.
+            GetDevice()->GetD3D12Device()->GetCopyableFootprints(&srcResource.GetDesc(), 0, srcSubResource + 1, 0, layouts, nullptr, nullptr, nullptr);
 
             CD3DX12_TEXTURE_COPY_LOCATION src(srcResource.GetD3D12Resource(), srcSubResource);
-            CD3DX12_TEXTURE_COPY_LOCATION dst(dstResource.GetD3D12Resource(), Layouts[0]);
+            CD3DX12_TEXTURE_COPY_LOCATION dst(dstResource.GetD3D12Resource(), layouts[srcSubResource]);
 
             m_CommandList->CopyTextureRegion(&dst, x, y, z, &src, srcBox);
             m_Commands += CLCOUNT_COPY;

@@ -46,7 +46,7 @@ namespace AzFramework
         ////////////////////////////////////////////////////////////////////////////////////////////
         //! Override to be notified when input devices disconnect from the system
         //! \param[in] inputChannel The input device that disconnected
-        virtual void OnInputDeviceDisonnectedEvent(const InputDevice& /*inputDevice*/) {}
+        virtual void OnInputDeviceDisconnectedEvent(const InputDevice& /*inputDevice*/) {}
 
         ////////////////////////////////////////////////////////////////////////////////////////////
         //! Access to the priority of the input notification handler (sorted from highest to lowest)
@@ -63,7 +63,4 @@ namespace AzFramework
         }
     };
     using InputDeviceNotificationBus = AZ::EBus<InputDeviceNotifications>;
-
-    AZ_DEPRECATED(typedef InputDeviceNotificationBus InputDeviceEventNotificationBus, "Renamed to InputDeviceNotificationBus");
-    AZ_DEPRECATED(typedef InputDeviceNotifications InputDeviceEventNotifications, "Renamed to InputDeviceNotifications");
 } // namespace AzFramework

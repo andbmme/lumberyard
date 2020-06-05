@@ -13,6 +13,8 @@
 #include "BuilderManager.h"
 #include <AzCore/std/parallel/binary_semaphore.h>
 #include <AzCore/std/smart_ptr/make_shared.h>
+#include <AzCore/Utils/Utils.h>
+
 #include <AzFramework/API/ApplicationAPI.h>
 #include <AzFramework/StringFunc/StringFunc.h>
 #include <AzToolsFramework/Process/ProcessCommunicator.h>
@@ -24,6 +26,10 @@
 #include <QElapsedTimer>
 #include <QCoreApplication>
 
+#if AZ_TRAIT_OS_PLATFORM_APPLE || defined(AZ_PLATFORM_LINUX)
+    #include <native/utilities/Utils_UnixLike.h>
+#endif
+
 namespace AssetProcessor
 {
     //! Amount of time in milliseconds to wait between checking the status of the AssetBuilder process and pumping the stdout/err pipes
@@ -33,7 +39,9 @@ namespace AssetProcessor
     static const int s_IdleBuilderPumpingDelayMS = 100;
 
     //! Amount of time in seconds to wait for a builder to start up and connect
-    static const int s_StartupConnectionWaitTimeS = 30;
+    // sometimes, builders take a long time to start because of things like virus scanners scanning each
+    // builder DLL, so we give them a large margin.
+    static const int s_StartupConnectionWaitTimeS = 120;
 
     static const int s_MillisecondsInASecond = 1000;
 
@@ -149,16 +157,15 @@ namespace AssetProcessor
         AZStd::string appRootString;
         AzFramework::ApplicationRequests::Bus::BroadcastResult(appRootString, &AzFramework::ApplicationRequests::GetAppRoot);
 
-        // Construct the projects's binary folder (BinXXX) path
-        AZStd::string projectBinFolder;
-        AzFramework::StringFunc::Path::Join(appRootString.c_str(), BINFOLDER_NAME, projectBinFolder);
+        // Get the current BinXXX folder based on the current running AP
+        QString projectBinFolder = QCoreApplication::instance()->applicationDirPath();
 
         // Construct the Builders subfolder path
         AZStd::string buildersFolder;
-        AzFramework::StringFunc::Path::Join(projectBinFolder.c_str(), s_buildersFolderName, buildersFolder);
+        AzFramework::StringFunc::Path::Join(projectBinFolder.toUtf8().constData(), s_buildersFolderName, buildersFolder);
 
         // Construct the full exe for the builder.exe
-        const AZStd::string fullExePathString = QDir(QCoreApplication::applicationDirPath()).absoluteFilePath(AssetProcessor::s_assetBuilderRelativePath).toUtf8().constData();
+        const AZStd::string fullExePathString = QDir(projectBinFolder).absoluteFilePath(AssetProcessor::s_assetBuilderRelativePath).toUtf8().constData();
 
         if (m_quitListener.WasQuitRequested())
         {
@@ -204,12 +211,48 @@ namespace AssetProcessor
         int portNumber = 0;
         ApplicationServerBus::BroadcastResult(portNumber, &ApplicationServerBus::Events::GetServerListeningPort);
 
-        auto params = AZStd::string::format(R"(-task=%s -id="%s" -module="%s" -gamename="%s" -gamecache="%s" -gameroot="%s" -port %d)",
-                task, builderGuid.c_str(), moduleFilePath, gameName.toStdString().c_str(), projectCacheRoot.absolutePath().toStdString().c_str(), gameRoot.toStdString().c_str(), portNumber);
+        bool isProjectExternal = false;
+        AzFramework::ApplicationRequests::Bus::BroadcastResult(isProjectExternal, &AzFramework::ApplicationRequests::IsEngineExternal);
+
+        AZStd::string params;
+        if (isProjectExternal)
+        {
+            QString appRootStringNormalized = appRoot.absolutePath();
+        #if !AZ_TRAIT_OS_PLATFORM_APPLE && !AZ_TRAIT_OS_USE_WINDOWS_FILE_PATHS
+            params = AZStd::string::format(R"(-task=%s -id="%s" -gamename="%s" -gamecache="%s" -approot="%s" -gameroot="%s" -port %d)",
+                task, builderGuid.c_str(), gameName.toUtf8().constData(), projectCacheRoot.absolutePath().toUtf8().constData(), appRootStringNormalized.toUtf8().constData(), gameRoot.toUtf8().constData(), portNumber);
+        #else
+            params = AZStd::string::format(R"(-task=%s -id="%s" -gamename="\"%s\"" -gamecache="\"%s\"" -approot="\"%s\"" -gameroot="\"%s\"" -port %d)",
+                task, builderGuid.c_str(), gameName.toUtf8().constData(), projectCacheRoot.absolutePath().toUtf8().constData(), appRootStringNormalized.toUtf8().constData(), gameRoot.toUtf8().constData(), portNumber);
+        #endif // !AZ_TRAIT_OS_PLATFORM_APPLE && !AZ_TRAIT_OS_USE_WINDOWS_FILE_PATHS
+        }
+        else
+        {
+        #if !AZ_TRAIT_OS_PLATFORM_APPLE && !AZ_TRAIT_OS_USE_WINDOWS_FILE_PATHS
+            params = AZStd::string::format(R"(-task=%s -id="%s" -gamename="%s" -gamecache="%s" -gameroot="%s" -port %d)",
+                task, builderGuid.c_str(), gameName.toUtf8().constData(), projectCacheRoot.absolutePath().toUtf8().constData(), gameRoot.toUtf8().constData(), portNumber);
+        #else
+            params = AZStd::string::format(R"(-task=%s -id="%s" -gamename="\"%s\"" -gamecache="\"%s\"" -gameroot="\"%s\"" -port %d)",
+                task, builderGuid.c_str(), gameName.toUtf8().constData(), projectCacheRoot.absolutePath().toUtf8().constData(), gameRoot.toUtf8().constData(), portNumber);
+        #endif // !AZ_TRAIT_OS_PLATFORM_APPLE && !AZ_TRAIT_OS_USE_WINDOWS_FILE_PATHS
+        }
+
+        if (moduleFilePath && moduleFilePath[0])
+        {
+        #if !AZ_TRAIT_OS_PLATFORM_APPLE && !AZ_TRAIT_OS_USE_WINDOWS_FILE_PATHS
+            params.append(AZStd::string::format(R"( -module="%s")", moduleFilePath).c_str());
+        #else
+            params.append(AZStd::string::format(R"( -module="\"%s\"")", moduleFilePath).c_str());
+        #endif // !AZ_TRAIT_OS_PLATFORM_APPLE && !AZ_TRAIT_OS_USE_WINDOWS_FILE_PATHS
+        }
 
         if (!jobDescriptionFile.empty() && !jobResponseFile.empty())
         {
+        #if !AZ_TRAIT_OS_PLATFORM_APPLE && !AZ_TRAIT_OS_USE_WINDOWS_FILE_PATHS
             params = AZStd::string::format(R"(%s -input="%s" -output="%s")", params.c_str(), jobDescriptionFile.c_str(), jobResponseFile.c_str());
+        #else
+            params = AZStd::string::format(R"(%s -input="\"%s\"" -output="\"%s\"")", params.c_str(), jobDescriptionFile.c_str(), jobResponseFile.c_str());
+        #endif // !AZ_TRAIT_OS_PLATFORM_APPLE && !AZ_TRAIT_OS_USE_WINDOWS_FILE_PATHS
         }
 
         return params;
@@ -221,7 +264,17 @@ namespace AssetProcessor
         processLaunchInfo.m_processExecutableString = fullExePath;
         processLaunchInfo.m_commandlineParameters = AZStd::string::format("\"%s\" %s", fullExePath, params.c_str());
         processLaunchInfo.m_showWindow = false;
-        processLaunchInfo.m_processPriority = AzToolsFramework::ProcessPriority::PROCESSPRIORITY_BELOWNORMAL;
+        processLaunchInfo.m_processPriority = AzToolsFramework::ProcessPriority::PROCESSPRIORITY_IDLE;
+
+        // for external projects on unix platforms, we need to propagate the project's loader 
+        // path to the builder subprocesses
+    #if AZ_TRAIT_OS_PLATFORM_APPLE || defined(AZ_PLATFORM_LINUX)
+        AZStd::vector<AZStd::string> evnVars;
+        if (GetExternalProjectEnv(evnVars))
+        {
+            processLaunchInfo.m_environmentVariables = &evnVars;
+        }
+    #endif // AZ_TRAIT_OS_PLATFORM_APPLE || defined(AZ_PLATFORM_LINUX)
 
         AZ_TracePrintf(AssetProcessor::DebugChannel, "Executing AssetBuilder with parameters: %s\n", processLaunchInfo.m_commandlineParameters.c_str());
 
@@ -232,7 +285,7 @@ namespace AssetProcessor
         return processWatcher;
     }
 
-    bool Builder::WaitForBuilderResponse(AssetBuilderSDK::JobCancelListener* jobCancelListener, AZ::u32 processTimeoutLimitInSeconds, AZStd::binary_semaphore* waitEvent) const
+    BuilderRunJobOutcome Builder::WaitForBuilderResponse(AssetBuilderSDK::JobCancelListener* jobCancelListener, AZ::u32 processTimeoutLimitInSeconds, AZStd::binary_semaphore* waitEvent) const
     {
         AZ::u32 exitCode = 0;
         bool finishedOK = false;
@@ -258,31 +311,31 @@ namespace AssetProcessor
 
         if (finishedOK)
         {
-            return true;
+            return BuilderRunJobOutcome::Ok;
         }
         else if (!IsConnected())
         {
             AZ_Error(AssetProcessor::DebugChannel, false, "Lost connection to asset builder");
-            return false;
+            return BuilderRunJobOutcome::LostConnection;
         }
         else if (!IsRunning(&exitCode))
         {
             // these are written to the debug channel because other messages are given for when asset builders die
             // that are more appropriate
             AZ_Error(AssetProcessor::DebugChannel, false, "AssetBuilder terminated with exit code %d", exitCode);
-            return false;
+            return BuilderRunJobOutcome::ProcessTerminated;
         }
         else if (jobCancelListener && jobCancelListener->IsCancelled())
         {
             AZ_Error(AssetProcessor::DebugChannel, false, "Job request was cancelled\n");
-            TerminateProcess(-1); // Terminate the builder. Even if it isn't deadlocked, we can't put it back in the pool while it's busy.
-            return false;
+            TerminateProcess(AZ::u32(-1)); // Terminate the builder. Even if it isn't deadlocked, we can't put it back in the pool while it's busy.
+            return BuilderRunJobOutcome::JobCancelled;
         }
         else
         {
             AZ_Error(AssetProcessor::DebugChannel, false, "AssetBuilder failed to respond within %d seconds", processTimeoutLimitInSeconds);
-            TerminateProcess(-1); // Terminate the builder. Even if it isn't deadlocked, we can't put it back in the pool while it's busy.
-            return false;
+            TerminateProcess(AZ::u32(-1)); // Terminate the builder. Even if it isn't deadlocked, we can't put it back in the pool while it's busy.
+            return BuilderRunJobOutcome::ResponseFailure;
         }
     }
 
@@ -293,8 +346,6 @@ namespace AssetProcessor
     {
         if (m_builder)
         {
-            AZ_TracePrintf(AssetProcessor::DebugChannel, "Builder pulled from pool: %s\n", m_builder->UuidString().c_str());
-
             m_builder->m_busy = true;
         }
     }
@@ -314,7 +365,6 @@ namespace AssetProcessor
     {
         if (m_builder)
         {
-            AZ_TracePrintf(AssetProcessor::DebugChannel, "Builder returned to pool: %s\n", m_builder->UuidString().c_str());
             AZ_Warning("BuilderRef", m_builder->m_busy, "Builder reference is valid but is already set to not busy");
 
             m_builder->m_busy = false;
@@ -384,7 +434,7 @@ namespace AssetProcessor
         }
     }
 
-    void BuilderManager::IncomingBuilderPing(AZ::u32 connId, AZ::u32 type, AZ::u32 serial, QByteArray payload, QString platform)
+    void BuilderManager::IncomingBuilderPing(AZ::u32 connId, AZ::u32 /*type*/, AZ::u32 serial, QByteArray payload, QString platform)
     {
         AssetBuilderSDK::BuilderHelloRequest requestPing;
         AssetBuilderSDK::BuilderHelloResponse responsePing;
@@ -457,7 +507,6 @@ namespace AssetProcessor
 
                     if (builder->IsValid())
                     {
-                        AZ_TracePrintf(AssetProcessor::DebugChannel, "Using already-started builder\n");
                         return BuilderRef(builder);
                     }
                     else

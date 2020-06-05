@@ -76,6 +76,7 @@
 			"../Common/RendElements/CREBeam.cpp",
 			"../Common/RendElements/CREClientPoly.cpp",
 			"../Common/RendElements/CRECloud.cpp",
+			"../Common/RendElements/CRETerrain.cpp",
 			"../Common/RendElements/CREDeferredShading.cpp",
 			"../Common/RendElements/CREFogVolume.cpp",
 			"../Common/RendElements/CREGameEffect.cpp",
@@ -105,12 +106,37 @@
 			"../../CryCommon/CREPrismObject.h",
 			"../Common/RendElements/Stars.h"
 		],
-		"Common/RendElements/Utils":
-		[
-			"../Common/RendElements/Utils/PolygonMath2D.cpp",
-			"../Common/RendElements/Utils/PolygonMath2D.h",
-			"../Common/RendElements/Utils/SpatialHashGrid.h"
-		],
+        "Common/RendElements/Utils":
+        [
+            "../Common/RendElements/Utils/PolygonMath2D.cpp",
+            "../Common/RendElements/Utils/PolygonMath2D.h",
+            "../Common/RendElements/Utils/SpatialHashGrid.h"
+        ],
+        "Common/RendElements/TerrainUtils":
+        [
+            "../Common/RendElements/TerrainUtils/TerrainTextureCache.cpp",
+            "../Common/RendElements/TerrainUtils/TerrainTextureCache.h",
+            "../Common/RendElements/TerrainUtils/TerrainCompositer.cpp",
+            "../Common/RendElements/TerrainUtils/TerrainCompositer.h",
+            "../Common/RendElements/TerrainUtils/VTWrapper.cpp",
+            "../Common/RendElements/TerrainUtils/VTWrapper.h",
+            "../Common/RendElements/TerrainUtils/VirtualTexture.cpp",
+            "../Common/RendElements/TerrainUtils/VirtualTexture.h",
+            "../Common/RendElements/TerrainUtils/TerrainRenderingParameters.cpp",
+            "../Common/RendElements/TerrainUtils/TerrainRenderingParameters.h",
+            "../Common/RendElements/TerrainUtils/IndirectionMap.cpp",
+            "../Common/RendElements/TerrainUtils/IndirectionMap.h",
+            "../Common/RendElements/TerrainUtils/LRUCacheQueue.h"
+        ],
+        "Common/RendElements/TerrainUtils/CDLOD":
+        [
+            "../Common/RendElements/TerrainUtils/CDLOD/CDLODQuadTree.cpp",
+            "../Common/RendElements/TerrainUtils/CDLOD/CDLODQuadTree.h"
+        ],
+        "Common/RendElements/TerrainUtils/Debug": [
+            "../Common/RendElements/TerrainUtils/Debug/TerrainProfiler.cpp",
+            "../Common/RendElements/TerrainUtils/Debug/TerrainProfiler.h"
+        ],
 		"Common/PostProcess":
 		[
 			"../Common/PostProcess/PostEffects.cpp",
@@ -152,8 +178,8 @@
 			"../Common/Textures/TextureStreamPool.h",
 			"../Common/Textures/PowerOf2BlockPacker.h",
 			"../Common/Textures/Texture.h",
-            "../Common/Textures/StereoTexture.cpp",
-            "../Common/Textures/StereoTexture.h",
+			"../Common/Textures/StereoTexture.cpp",
+			"../Common/Textures/StereoTexture.h",
 			"../Common/Textures/TextureManager.h"
 		],
 		"Common/Textures/Image":
@@ -172,6 +198,7 @@
 		[
 			"../Common/Shaders/Parser.cpp",
 			"../Common/Shaders/ParserBin.cpp",
+			"../Common/Shaders/PoundPoundParser.cpp",
 			"../Common/Shaders/ShaderCache.cpp",
 			"../Common/Shaders/ShaderComponents.cpp",
 			"../Common/Shaders/ShaderCore.cpp",
@@ -184,6 +211,7 @@
 			"../Common/Shaders/CShaderBin.h",
 			"../Common/Shaders/Parser.h",
 			"../Common/Shaders/ParserBin.h",
+			"../Common/Shaders/PoundPoundParser.h",
 			"../Common/Shaders/Shader.h",
 			"../Common/Shaders/ShaderCache.h",
 			"../Common/Shaders/ShaderComponents.h",

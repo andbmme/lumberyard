@@ -24,20 +24,24 @@
 #include <EMotionFX/Source/TransformData.h>
 #include "../EMStudioManager.h"
 #include "../MainWindow.h"
+#include <MCore/Source/AzCoreConversions.h>
 #include <MysticQt/Source/KeyboardShortcutManager.h>
 
 
 namespace EMStudio
 {
+    AZ_CLASS_ALLOCATOR_IMPL(RenderWidget::EventHandler, EMotionFX::EventHandlerAllocator, 0)
+
+
     // constructor
     RenderWidget::RenderWidget(RenderPlugin* renderPlugin, RenderViewWidget* viewWidget)
+        : mEventHandler(this)
     {
         // create our event handler
-        mEventHandler = new EventHandler(this);
-        EMotionFX::GetEventManager().AddEventHandler(mEventHandler);
+        EMotionFX::GetEventManager().AddEventHandler(&mEventHandler);
 
-        mLines.SetMemoryCategory(MEMCATEGORY_EMSTUDIOSDK_RENDERPLUGINBASE);
-        mLines.Reserve(2048);
+        //mLines.SetMemoryCategory(MEMCATEGORY_EMSTUDIOSDK_RENDERPLUGINBASE);
+        //mLines.Reserve(2048);
 
         mSelectedActorInstances.SetMemoryCategory(MEMCATEGORY_EMSTUDIOSDK_RENDERPLUGINBASE);
 
@@ -65,7 +69,7 @@ namespace EMStudio
     RenderWidget::~RenderWidget()
     {
         // get rid of the event handler
-        EMotionFX::GetEventManager().RemoveEventHandler(mEventHandler, true);
+        EMotionFX::GetEventManager().RemoveEventHandler(&mEventHandler);
 
         // get rid of the camera objects
         delete mCamera;
@@ -79,6 +83,14 @@ namespace EMStudio
         //LogError("ViewCloseup: AABB: Pos=(%.3f, %.3f, %.3f), Width=%.3f, Height=%.3f, Depth=%.3f", aabb.CalcMiddle().x, aabb.CalcMiddle().y, aabb.CalcMiddle().z, aabb.CalcWidth(), aabb.CalcHeight(), aabb.CalcDepth());
         mViewCloseupWaiting     = viewCloseupWaiting;
         mViewCloseupAABB        = aabb;
+        mViewCloseupFlightTime  = flightTime;
+    }
+
+    void RenderWidget::ViewCloseup(bool selectedInstancesOnly, float flightTime, uint32 viewCloseupWaiting)
+    {
+        //LogError("ViewCloseup: AABB: Pos=(%.3f, %.3f, %.3f), Width=%.3f, Height=%.3f, Depth=%.3f", aabb.CalcMiddle().x, aabb.CalcMiddle().y, aabb.CalcMiddle().z, aabb.CalcWidth(), aabb.CalcHeight(), aabb.CalcDepth());
+        mViewCloseupWaiting     = viewCloseupWaiting;
+        mViewCloseupAABB        = mPlugin->GetSceneAABB(selectedInstancesOnly);
         mViewCloseupFlightTime  = flightTime;
     }
 
@@ -160,28 +172,31 @@ namespace EMStudio
         // calculate cam distance for the orthographic cam mode
         if (mCamera->GetProjectionMode() == MCommon::Camera::PROJMODE_ORTHOGRAPHIC)
         {
-            // reduced size for the rotation gizmo in ortho mode
-            float gizmoScale = 0.75f;
-            if (activeManipulator->GetType() == MCommon::TransformationManipulator::GIZMOTYPE_ROTATION)
+            camDist = 0.75f;
+            switch (GetCameraMode())
             {
-                gizmoScale = 0.6f;
-            }
-
-            uint32 camMode = GetCameraMode();
-            if (camMode == CAMMODE_FRONT || camMode == CAMMODE_BACK)
-            {
-                camDist = MCore::Math::Abs(mCamera->GetPosition().GetY()) * gizmoScale;
-            }
-            else if (camMode == CAMMODE_LEFT || camMode == CAMMODE_RIGHT)
-            {
-                camDist = MCore::Math::Abs(mCamera->GetPosition().GetX()) * gizmoScale;
-            }
-            else
-            {
-                camDist = MCore::Math::Abs(mCamera->GetPosition().GetZ()) * gizmoScale;
+            case CAMMODE_FRONT:
+            case CAMMODE_BOTTOM:
+                // -(scale.x)
+                camDist *= -2.0f / static_cast<float>(mCamera->GetViewProjMatrix().GetElement(0, 0));
+                break;
+            case CAMMODE_BACK:
+            case CAMMODE_TOP:
+                // scale.x
+                camDist *= 2.0f / static_cast<float>(mCamera->GetViewProjMatrix().GetElement(0, 0));
+                break;
+            case CAMMODE_LEFT:
+                // -(scale.y)
+                camDist *= -2.0f / static_cast<float>(mCamera->GetViewProjMatrix().GetElement(0, 1));
+                break;
+            case CAMMODE_RIGHT:
+                // scale.y
+                camDist *= 2.0f / static_cast<float>(mCamera->GetViewProjMatrix().GetElement(0, 1));
+                break;
+            default:
+                break;
             }
         }
-
         // calculate cam distance for perspective cam
         else
         {
@@ -200,22 +215,22 @@ namespace EMStudio
         // adjust the scale of the manipulator
         if (activeManipulator->GetType() == MCommon::TransformationManipulator::GIZMOTYPE_TRANSLATION)
         {
-            activeManipulator->SetScale(camDist * 0.12);
+            activeManipulator->SetScale(aznumeric_cast<float>(camDist * 0.12));
         }
         else if (activeManipulator->GetType() == MCommon::TransformationManipulator::GIZMOTYPE_ROTATION)
         {
-            activeManipulator->SetScale(camDist * 0.8);
+            activeManipulator->SetScale(aznumeric_cast<float>(camDist * 0.8));
         }
         else if (activeManipulator->GetType() == MCommon::TransformationManipulator::GIZMOTYPE_SCALE)
         {
-            activeManipulator->SetScale(camDist * 0.15, mCamera);
+            activeManipulator->SetScale(aznumeric_cast<float>(camDist * 0.15), mCamera);
         }
 
         // update position of the actor instance (needed for camera follow mode)
         EMotionFX::ActorInstance* actorInstance = callback->GetActorInstance();
         if (actorInstance)
         {
-            activeManipulator->Init(actorInstance->GetLocalPosition());
+            activeManipulator->Init(actorInstance->GetLocalSpaceTransform().mPosition);
         }
     }
 
@@ -244,7 +259,7 @@ namespace EMStudio
         // accumulate the number of pixels moved since the last right click
         if (leftButtonPressed == false && middleButtonPressed == false && rightButtonPressed && altPressed == false)
         {
-            mPixelsMovedSinceRightClick += (int32)MCore::Math::Abs(deltaX) + (int32)MCore::Math::Abs(deltaY);
+            mPixelsMovedSinceRightClick += (int32)MCore::Math::Abs(aznumeric_cast<float>(deltaX)) + (int32)MCore::Math::Abs(aznumeric_cast<float>(deltaY));
         }
 
         // update size/bounding volumes volumes of all existing gizmos
@@ -522,8 +537,20 @@ namespace EMStudio
         // handle visual mouse selection
         if (EMStudio::GetCommandManager()->GetLockSelection() == false && gizmoHit == false) // avoid selection operations when there is only one actor instance
         {
+            AZ::u32 editorActorInstanceCount = 0;
+            const EMotionFX::ActorManager& actorManager = EMotionFX::GetActorManager();
+            const AZ::u32 totalActorInstanceCount = actorManager.GetNumActorInstances();
+            for (AZ::u32 i = 0; i < totalActorInstanceCount; ++i)
+            {
+                const EMotionFX::ActorInstance* actorInstance = actorManager.GetActorInstance(i);
+                if (!actorInstance->GetIsOwnedByRuntime())
+                {
+                    editorActorInstanceCount++;
+                }
+            }
+
             // only allow selection changes when there are multiple actors or when there is only one actor but that one is not selected
-            if (EMotionFX::GetActorManager().GetNumActorInstances() != 1 || (EMotionFX::GetActorManager().GetNumActorInstances() == 1 && selection.GetSingleActorInstance() == nullptr))
+            if (editorActorInstanceCount != 1 || !selection.GetSingleActorInstance())
             {
                 if (event->buttons() & Qt::LeftButton &&
                     (event->modifiers() & Qt::AltModifier) == false &&
@@ -651,7 +678,7 @@ namespace EMStudio
                 mouseOveredManip->ProcessMouseInput(mCamera, 0, 0, 0, 0, false, false, false);
 
                 // reset the camera follow mode state
-                if (callback->GetResetFollowMode() && mIsCharacterFollowModeActive)
+                if (callback && callback->GetResetFollowMode() && mIsCharacterFollowModeActive)
                 {
                     mViewWidget->SetCharacterFollowModeActive(mIsCharacterFollowModeActive);
                     mSkipFollowCalcs = true;
@@ -725,21 +752,7 @@ namespace EMStudio
 
         if (shortcutManger->Check(event, "Toggle Selection Box Rendering", "Render Window"))
         {
-            mPlugin->GetRenderOptions()->mRenderSelectionBox ^= true;
-            event->accept();
-            return;
-        }
-
-        if (shortcutManger->Check(event, "Select All Actor Instances", "Render Window"))
-        {
-            GetMainWindow()->OnSelectAllActorInstances();
-            event->accept();
-            return;
-        }
-
-        if (shortcutManger->Check(event, "Unselect All Actor Instances", "Render Window"))
-        {
-            GetMainWindow()->OnUnselectAllActorInstances();
+            mPlugin->GetRenderOptions()->SetRenderSelectionBox(mPlugin->GetRenderOptions()->GetRenderSelectionBox() ^ true);
             event->accept();
             return;
         }
@@ -768,18 +781,6 @@ namespace EMStudio
         }
 
         if (shortcutManger->Check(event, "Show Entire Scene", "Render Window"))
-        {
-            event->accept();
-            return;
-        }
-
-        if (shortcutManger->Check(event, "Select All Actor Instances", "Render Window"))
-        {
-            event->accept();
-            return;
-        }
-
-        if (shortcutManger->Check(event, "Unselect All Actor Instances", "Render Window"))
         {
             event->accept();
             return;
@@ -848,7 +849,7 @@ namespace EMStudio
         }
 
         // update the camera
-        camera->SetOrthoClipDimensions(AZ::Vector2(mWidth, mHeight));
+        camera->SetOrthoClipDimensions(AZ::Vector2(aznumeric_cast<float>(mWidth), aznumeric_cast<float>(mHeight)));
         camera->Update();
 
         MCommon::RenderUtil::AxisRenderingSettings axisRenderingSettings;
@@ -932,26 +933,25 @@ namespace EMStudio
             MCORE_ASSERT(false);
         }
 
-        const AZ::Vector3 axisPosition = UnprojectOrtho(originScreenX, originScreenY, mWidth, mHeight, 0.0f, camera->GetProjectionMatrix(), camera->GetViewMatrix());
-        //const MCore::Vector3 axisPosition = Unproject( originScreenX, originScreenY, mWidth, mHeight, camera->GetNearClipDistance(), camera->GetProjectionMatrix().Inversed(), camera->GetViewMatrix().Inversed());
+        const AZ::Vector3 axisPosition = MCore::UnprojectOrtho(aznumeric_cast<float>(originScreenX), aznumeric_cast<float>(originScreenY), aznumeric_cast<float>(mWidth), aznumeric_cast<float>(mHeight), 0.0f, camera->GetProjectionMatrix(), camera->GetViewMatrix());
 
-        MCore::Matrix inverseCameraMatrix = camera->GetViewMatrix();
-        inverseCameraMatrix.Inverse();
+        AZ::Matrix4x4 inverseCameraMatrix = camera->GetViewMatrix();
+        inverseCameraMatrix.InvertFull();
 
-        MCore::Matrix globalTM;
-        globalTM.SetTranslationMatrix(axisPosition);
+        AZ::Transform worldTM = AZ::Transform::CreateIdentity();
+        worldTM.SetTranslation(axisPosition);
 
         axisRenderingSettings.mSize             = size;
-        axisRenderingSettings.mGlobalTM         = globalTM;
-        axisRenderingSettings.mCameraRight      = inverseCameraMatrix.GetRight().GetNormalized();
-        axisRenderingSettings.mCameraUp         = inverseCameraMatrix.GetUp().GetNormalized();
+        axisRenderingSettings.mWorldTM          = worldTM;
+        axisRenderingSettings.mCameraRight      = MCore::GetRight(inverseCameraMatrix).GetNormalized();
+        axisRenderingSettings.mCameraUp         = MCore::GetUp(inverseCameraMatrix).GetNormalized();
         axisRenderingSettings.mRenderXAxisName  = true;
         axisRenderingSettings.mRenderYAxisName  = true;
         axisRenderingSettings.mRenderZAxisName  = true;
 
         // render directly as we have to disable the depth test, hope the additional render call won't slow down so much
         renderUtil->RenderLineAxis(axisRenderingSettings);
-        ((MCommon::RenderUtil*)renderUtil)->RenderLines();
+        renderUtil->RenderLines();
 
         // set the adjusted attributes back to the original values and reset the used camera
         camera->SetProjectionMode(oldProjectionMode);
@@ -972,10 +972,10 @@ namespace EMStudio
         const char*         text                = mCamera->GetTypeString();
         const uint32        textSize            = 10;
         const uint32        cameraNameColor     = MCore::RGBAColor(1.0f, 1.0f, 1.0f, 1.0f).ToInt();
-        const uint32        cameraNameX         = mWidth * 0.5f;
+        const uint32        cameraNameX         = aznumeric_cast<uint32>(mWidth * 0.5f);
         const uint32        cameraNameY         = mHeight - 20;
 
-        renderUtil->RenderText(cameraNameX, cameraNameY, text, cameraNameColor, textSize, true);
+        renderUtil->RenderText(aznumeric_cast<float>(cameraNameX), aznumeric_cast<float>(cameraNameY), text, cameraNameColor, textSize, true);
         //glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
         //renderText(screenX, screenY, text);
 
@@ -993,9 +993,10 @@ namespace EMStudio
 
             if (followInstance && mCamera)
             {
-                mPlugin->GetTranslateManipulator()->Init(followInstance->GetLocalPosition());
-                mPlugin->GetRotateManipulator()->Init(followInstance->GetLocalPosition());
-                mPlugin->GetScaleManipulator()->Init(followInstance->GetLocalPosition());
+                const AZ::Vector3& localPos = followInstance->GetLocalSpaceTransform().mPosition;
+                mPlugin->GetTranslateManipulator()->Init(localPos);
+                mPlugin->GetRotateManipulator()->Init(localPos);
+                mPlugin->GetScaleManipulator()->Init(localPos);
 
                 AZ::Vector3 actorInstancePos;
 
@@ -1003,17 +1004,21 @@ namespace EMStudio
                 const uint32 motionExtractionNodeIndex = followActor->GetMotionExtractionNodeIndex();
                 if (motionExtractionNodeIndex != MCORE_INVALIDINDEX32)
                 {
-                    actorInstancePos = followInstance->GetGlobalPosition();
+                    actorInstancePos = followInstance->GetWorldSpaceTransform().mPosition;
                     RenderPlugin::EMStudioRenderActor* emstudioActor = mPlugin->FindEMStudioActor(followActor);
                     if (emstudioActor)
                     {
-                        const float scaledOffsetFromTrajectoryNode = followInstance->GetGlobalScale().GetZ() * emstudioActor->mOffsetFromTrajectoryNode;
+                        #ifndef EMFX_SCALE_DISABLED
+                            const float scaledOffsetFromTrajectoryNode = followInstance->GetWorldSpaceTransform().mScale.GetZ() * emstudioActor->mOffsetFromTrajectoryNode;
+                        #else
+                            const float scaledOffsetFromTrajectoryNode = 1.0f;
+                        #endif
                         actorInstancePos.SetZ(actorInstancePos.GetZ() + scaledOffsetFromTrajectoryNode);
                     }
                 }
                 else
                 {
-                    actorInstancePos = followInstance->GetGlobalPosition();
+                    actorInstancePos = followInstance->GetWorldSpaceTransform().mPosition;
                 }
 
                 // Calculate movement since last frame.
@@ -1029,38 +1034,38 @@ namespace EMStudio
 
                 switch (mCamera->GetType())
                 {
-                    case MCommon::OrbitCamera::TYPE_ID:
+                case MCommon::OrbitCamera::TYPE_ID:
+                {
+                    MCommon::OrbitCamera* orbitCamera = static_cast<MCommon::OrbitCamera*>(mCamera);
+
+                    if (orbitCamera->GetIsFlightActive())
                     {
-                        MCommon::OrbitCamera* orbitCamera = static_cast<MCommon::OrbitCamera*>(mCamera);
-
-                        if (orbitCamera->GetIsFlightActive())
-                        {
-                            orbitCamera->SetFlightTargetPosition(actorInstancePos);
-                        }
-                        else
-                        {
-                            orbitCamera->SetPosition(orbitCamera->GetPosition() + deltaPos);
-                            orbitCamera->SetTarget(orbitCamera->GetTarget() + deltaPos);
-                        }
-
-                        break;
+                        orbitCamera->SetFlightTargetPosition(actorInstancePos);
+                    }
+                    else
+                    {
+                        orbitCamera->SetPosition(orbitCamera->GetPosition() + deltaPos);
+                        orbitCamera->SetTarget(orbitCamera->GetTarget() + deltaPos);
                     }
 
-                    case MCommon::OrthographicCamera::TYPE_ID:
+                    break;
+                }
+
+                case MCommon::OrthographicCamera::TYPE_ID:
+                {
+                    MCommon::OrthographicCamera* orthoCamera = static_cast<MCommon::OrthographicCamera*>(mCamera);
+
+                    if (orthoCamera->GetIsFlightActive())
                     {
-                        MCommon::OrthographicCamera* orthoCamera = static_cast<MCommon::OrthographicCamera*>(mCamera);
-
-                        if (orthoCamera->GetIsFlightActive())
-                        {
-                            orthoCamera->SetFlightTargetPosition(actorInstancePos);
-                        }
-                        else
-                        {
-                            orthoCamera->SetPosition(orthoCamera->GetPosition() + deltaPos);
-                        }
-
-                        break;
+                        orthoCamera->SetFlightTargetPosition(actorInstancePos);
                     }
+                    else
+                    {
+                        orthoCamera->SetPosition(orthoCamera->GetPosition() + deltaPos);
+                    }
+
+                    break;
+                }
                 }
             }
         }
@@ -1151,20 +1156,38 @@ namespace EMStudio
             plugin->Render(mPlugin, &renderInfo);
         }
 
-        // render custom lines
-        const uint32 numLines = mLines.GetLength();
-        for (uint32 i = 0; i < numLines; ++i)
-        {
-            const Line& curLine = mLines[i];
-            renderUtil->RenderLine(curLine.mPosA, curLine.mPosB, MCore::RGBAColor(curLine.mColor)); // TODO: make renderutil use uint32 colors instead
-        }
-        ClearLines();
+        RenderDebugDraw();
 
         // render all triangles
         RenderTriangles();
+    }
 
-        // render any remaining lines
+
+    void RenderWidget::RenderDebugDraw()
+    {
+        MCommon::RenderUtil* renderUtil = mPlugin->GetRenderUtil();
+        if (!renderUtil)
+        {
+            return;
+        }
+
+        EMotionFX::DebugDraw& debugDraw = EMotionFX::GetDebugDraw();
+        debugDraw.Lock();
+        for (const auto& item : debugDraw.GetActorInstanceData())
+        {
+            EMotionFX::DebugDraw::ActorInstanceData* actorInstanceData = item.second;
+            actorInstanceData->Lock();
+            int numLines = 0;
+            for (const EMotionFX::DebugDraw::Line& line : actorInstanceData->GetLines())
+            {
+                const MCore::RGBAColor color(line.m_startColor.GetR(), line.m_startColor.GetG(), line.m_startColor.GetB(), line.m_startColor.GetA());
+                renderUtil->RenderLine(line.m_start, line.m_end, color);
+                numLines++;
+            }
+            actorInstanceData->Unlock();
+        }
         renderUtil->RenderLines();
+        debugDraw.Unlock();
     }
 
 
@@ -1184,7 +1207,7 @@ namespace EMStudio
         EMotionFX::GetAnimGraphManager().SetAnimGraphVisualizationEnabled(true);
 
         // Only keep the following line when we do not link to the update system component OnTick anymore.
-/////        EMotionFX::GetEMotionFX().Update(0.0f);
+        /////        EMotionFX::GetEMotionFX().Update(0.0f);
 
         // render
         const uint32 numActorInstances = EMotionFX::GetActorManager().GetNumActorInstances();
@@ -1210,9 +1233,9 @@ namespace EMStudio
         RenderOptions* renderOptions = mPlugin->GetRenderOptions();
 
         // update the camera
-        mCamera->SetNearClipDistance(renderOptions->mNearClipPlaneDistance);
-        mCamera->SetFarClipDistance(renderOptions->mFarClipPlaneDistance);
-        mCamera->SetFOV(renderOptions->mFOV);
+        mCamera->SetNearClipDistance(renderOptions->GetNearClipPlaneDistance());
+        mCamera->SetFarClipDistance(renderOptions->GetFarClipPlaneDistance());
+        mCamera->SetFOV(renderOptions->GetFOV());
         mCamera->SetAspectRatio(mWidth / (float)mHeight);
         mCamera->SetScreenDimensions(mWidth, mHeight);
         mCamera->AutoUpdateLimits();
@@ -1251,7 +1274,7 @@ namespace EMStudio
             return;
         }
 
-        const float unitSize = renderOptions->mGridUnitSize;
+        const float unitSize = renderOptions->GetGridUnitSize();
         AZ::Vector3  gridNormal   = AZ::Vector3(0.0f, 0.0f, 1.0f);
 
         if (mCamera->GetType() == MCommon::OrthographicCamera::TYPE_ID)
@@ -1263,11 +1286,11 @@ namespace EMStudio
             {
             case CAMMODE_LEFT:
             case CAMMODE_RIGHT:
-                gridNormal = mCamera->GetViewMatrix().GetForward();
+                gridNormal = MCore::GetForward(mCamera->GetViewMatrix());
                 break;
 
             default:
-                gridNormal = mCamera->GetViewMatrix().GetUp();
+                gridNormal = MCore::GetUp(mCamera->GetViewMatrix());
             }
             gridNormal.Normalize();
         }
@@ -1278,7 +1301,7 @@ namespace EMStudio
         renderUtil->CalcVisibleGridArea(mCamera, mWidth, mHeight, unitSize, &gridStart, &gridEnd);
         if (mViewWidget->GetRenderFlag(RenderViewWidget::RENDER_GRID))
         {
-            renderUtil->RenderGrid(gridStart, gridEnd, gridNormal, unitSize, renderOptions->mMainAxisColor, renderOptions->mGridColor, renderOptions->mSubStepColor, true);
+            renderUtil->RenderGrid(gridStart, gridEnd, gridNormal, unitSize, renderOptions->GetMainAxisColor(), renderOptions->GetGridColor(), renderOptions->GetSubStepColor(), true);
         }
 
         renderUtil->SetDepthMaskWrite(true);

@@ -11,34 +11,42 @@
 *
 */
 
-QMenuBar::item:selected
-{
-    background: #222222;
-}
-
-
-QMenu
-{
-    background-color: #222222;
-    color: #FFFFFF;
-    padding: 4px 0px 4px 0px;
-
-    /* Note: with QMenu, only 'margin' works, not 'margin-bottom' or 'margin-top'. */
-}
-
 QMenu::item
 {
     color: #FFFFFF;
     font-size: 12px;
-    padding-top: 6px;
-    padding-bottom: 6px;
-    padding-right: 24px;
-    padding-left: 24px;
+    font-family: "Amazon Ember";
+
+    /* default height is 18px */
+    /* target height is 24px */
+    /* 24 - 18 = 6 */
+    /* 6 / 2 = 3 */
+    /* top, right, bottom, left */
+    padding: 3px auto 3px 20px;
 }
 
+/* Hover */
 QMenu::item:selected
 {
     background-color: #444444;
+}
+
+QMenu::icon,
+QMenu::right-arrow
+{
+    width: 16px;
+    height: 16px;
+
+    subcontrol-position: right center;
+    right: 4px;
+}
+
+QMenu::indicator:non-exclusive:checked
+{
+    width: 16px;
+    height: 16px;
+    margin-left: 4px;
+    image: url(:/stylesheet/img/UI20/checkmark-menu.svg);
 }
 
 QMenu::item:disabled
@@ -48,6 +56,8 @@ QMenu::item:disabled
 
 QMenu::separator
 {
-    height: 1px;
-    background: #444444;
+    height: 0px;
+    border-bottom: 1px solid #454545;
+    margin-top: 6px;
+    margin-bottom: 6px;
 }

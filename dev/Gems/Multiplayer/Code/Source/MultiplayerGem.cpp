@@ -14,7 +14,6 @@
 #include "MultiplayerGem.h"
 #include "GameLiftListener.h"
 #include <GridMate/NetworkGridMate.h>
-#include <FlowSystem/Nodes/FlowBaseNode.h>
 #include <GridMate/Carrier/Driver.h>
 #include <CertificateManager/ICertificateManagerGem.h>
 
@@ -30,6 +29,8 @@
 #include <AzFramework/Metrics/MetricsPlainTextNameRegistration.h>
 
 #include <AzCore/Script/ScriptSystemComponent.h>
+
+#include "Source/GameLift/GameLiftMatchmakingComponent.h"
 
 #ifdef NET_SUPPORT_SECURE_SOCKET_DRIVER
 #   include <GridMate/Carrier/SecureSocketDriver.h>
@@ -65,6 +66,7 @@ namespace Multiplayer
         , m_secureDriver(nullptr)
         , m_simulator(nullptr)
         , m_gameLiftListener(nullptr)
+        , m_matchmakingComponent(nullptr)
     {    
         m_descriptors.push_back(MultiplayerLobbyComponent::CreateDescriptor());
         m_descriptors.push_back(MultiplayerEventsComponent::CreateDescriptor());        
@@ -89,32 +91,23 @@ namespace Multiplayer
     {
         CryHooksModule::OnCrySystemInitialized(system, systemInitParams);
         m_cvars.RegisterCVars();
-
-        AZ::BehaviorContext* behaviorContext = nullptr;
-        EBUS_EVENT_RESULT(behaviorContext, AZ::ComponentApplicationBus, GetBehaviorContext);
-        if (behaviorContext)
-        {
-            GridMateSystemContext::Reflect(behaviorContext);
-        }
     }
 
     void MultiplayerModule::OnSystemEvent(ESystemEvent event, UINT_PTR wparam, UINT_PTR lparam)
     {
         switch (event)
         {
-            case ESYSTEM_EVENT_FLOW_SYSTEM_REGISTER_EXTERNAL_NODES:
-                RegisterExternalFlowNodes();            
-                break;
 
             case ESYSTEM_EVENT_GAME_POST_INIT:
             {
-#if BUILD_GAMELIFT_SERVER
-                m_gameLiftListener = aznew GameLiftListener();
+#if defined(BUILD_GAMELIFT_SERVER)
+        m_gameLiftListener = aznew GameLiftListener();
 #endif                
-                AZ_Assert(gEnv->pNetwork->GetGridMate(), "No GridMate");
-                GridMate::SessionEventBus::Handler::BusConnect(gEnv->pNetwork->GetGridMate());
-                MultiplayerRequestBus::Handler::BusConnect();
-            }
+        AZ_Assert(gEnv->pNetwork->GetGridMate(), "No GridMate");
+        GridMate::SessionEventBus::Handler::BusConnect(gEnv->pNetwork->GetGridMate());
+        MultiplayerRequestBus::Handler::BusConnect();
+        m_cvars.PostInitRegistration();
+    }
             break;
 
             case ESYSTEM_EVENT_FULL_SHUTDOWN:
@@ -123,7 +116,7 @@ namespace Multiplayer
                 GridMate::SessionEventBus::Handler::BusDisconnect();
                 m_cvars.UnregisterCVars();
 
-#if BUILD_GAMELIFT_SERVER
+#if defined(BUILD_GAMELIFT_SERVER)
                 delete m_gameLiftListener;
                 m_gameLiftListener = nullptr;
 #endif
@@ -171,6 +164,10 @@ namespace Multiplayer
         }    
 
         m_session = session;
+
+    #if defined(BUILD_GAMELIFT_SERVER)
+        m_matchmakingComponent = aznew GameLiftMatchmakingComponent(m_session);
+    #endif
     }
 
     void MultiplayerModule::OnSessionCreated(GridMate::GridSession* session)
@@ -231,6 +228,11 @@ namespace Multiplayer
         {
             EBUS_EVENT(AzFramework::NetBindingSystemEventsBus, OnNetworkSessionDeactivated, session);
             m_session = nullptr;
+
+#if defined(BUILD_GAMELIFT_SERVER)
+            delete m_matchmakingComponent;
+            m_matchmakingComponent = nullptr;
+#endif
 
 #ifdef NET_SUPPORT_SECURE_SOCKET_DRIVER
             delete m_secureDriver;

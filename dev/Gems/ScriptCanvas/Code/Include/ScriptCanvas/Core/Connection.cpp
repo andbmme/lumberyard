@@ -10,7 +10,6 @@
 *
 */
 
-#include "precompiled.h"
 
 #include "Connection.h"
 #include "Slot.h"
@@ -21,7 +20,7 @@
 
 namespace ScriptCanvas
 {
-    AZ::Outcome<void, AZStd::string> MatchContracts(Slot& firstSlot, Slot& secondSlot)
+    AZ::Outcome<void, AZStd::string> MatchContracts(const Slot& firstSlot, const Slot& secondSlot)
     {
         AZ::Outcome<void, AZStd::string> outcome = AZ::Success();
 
@@ -60,10 +59,12 @@ namespace ScriptCanvas
     void Connection::Reflect(AZ::ReflectContext* reflection)
     {
         Endpoint::Reflect(reflection);
+        NamedEndpoint::Reflect(reflection);
+
         AZ::SerializeContext* serializeContext = azrtti_cast<AZ::SerializeContext*>(reflection);
         if (serializeContext)
         {
-            serializeContext->Class<Connection>()
+            serializeContext->Class<Connection, AZ::Component>()
                 ->Version(0)
                 ->Field("sourceEndpoint", &Connection::m_sourceEndpoint)
                 ->Field("targetEndpoint", &Connection::m_targetEndpoint)
@@ -89,6 +90,7 @@ namespace ScriptCanvas
     {
         Slot* sourceSlot{};
         NodeRequestBus::EventResult(sourceSlot, sourceEndpoint.GetNodeId(), &NodeRequests::GetSlot, sourceEndpoint.GetSlotId());
+
         Slot* targetSlot{};
         NodeRequestBus::EventResult(targetSlot, targetEndpoint.GetNodeId(), &NodeRequests::GetSlot, targetEndpoint.GetSlotId());
 
@@ -102,20 +104,39 @@ namespace ScriptCanvas
             return AZ::Failure(AZStd::string("Target slot does not exist."));
         }
 
-        auto connectionSourceToTarget = MatchContracts(*sourceSlot, *targetSlot);
+        return ValidateConnection((*sourceSlot), (*targetSlot));
+    }
+
+    AZ::Outcome<void, AZStd::string> Connection::ValidateConnection(const Slot& sourceSlot, const Slot& targetSlot)
+    {
+        if (sourceSlot.IsData())
+        {
+            auto typeMatchCheck = sourceSlot.IsTypeMatchFor(targetSlot);
+            if (!typeMatchCheck)
+            {
+                return typeMatchCheck;
+            }
+        }
+
+        auto connectionSourceToTarget = MatchContracts(sourceSlot, targetSlot);
         if (!connectionSourceToTarget.IsSuccess())
         {
             return connectionSourceToTarget;
         }
 
-        auto connectionTargetToSource = MatchContracts(*targetSlot, *sourceSlot);
+        auto connectionTargetToSource = MatchContracts(targetSlot, sourceSlot);
         if (!connectionTargetToSource.IsSuccess())
         {
             return connectionTargetToSource;
         }
 
         return AZ::Success();
+    }
 
+    bool Connection::ContainsEndpoint(const Endpoint& endpoint)
+    {
+        return m_sourceEndpoint == endpoint
+            || m_targetEndpoint == endpoint;
     }
 
     const SlotId& Connection::GetSourceSlot() const
@@ -130,22 +151,22 @@ namespace ScriptCanvas
 
     const ID& Connection::GetTargetNode() const
     {
-        return m_sourceEndpoint.GetNodeId();
+        return m_targetEndpoint.GetNodeId();
     }
 
     const ID& Connection::GetSourceNode() const
     {
-        return m_targetEndpoint.GetNodeId();
+        return m_sourceEndpoint.GetNodeId();
     }
 
     const Endpoint& Connection::GetTargetEndpoint() const
     {
-        return m_sourceEndpoint;
+        return m_targetEndpoint;
     }
 
     const Endpoint& Connection::GetSourceEndpoint() const
     {
-        return m_targetEndpoint;
+        return m_sourceEndpoint;
     }
 
     void Connection::OnNodeRemoved(const ID& nodeId)
@@ -155,5 +176,4 @@ namespace ScriptCanvas
             GraphRequestBus::Event(*GraphNotificationBus::GetCurrentBusId(), &GraphRequests::DisconnectById, GetEntityId());
         }
     }
-
 }

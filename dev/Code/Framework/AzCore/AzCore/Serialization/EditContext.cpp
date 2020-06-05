@@ -9,7 +9,6 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
-#ifndef AZ_UNITY_BUILD
 
 #include <AzCore/Serialization/EditContext.h>
 
@@ -68,8 +67,41 @@ namespace AZ
         }
     }
 
+    //=========================================================================
+    // GetEnumElementData
+    //=========================================================================
+    const Edit::ElementData* EditContext::GetEnumElementData(const AZ::Uuid& enumId) const
+    {
+        auto enumIt = m_enumData.find(enumId);
+        const Edit::ElementData* data = nullptr;
+        if (enumIt != m_enumData.end())
+        {
+            data = &enumIt->second;
+        }
+        return data;
+    }
+
     namespace Edit
     {
+        void GetComponentUuidsWithSystemComponentTag(
+            const SerializeContext* serializeContext,
+            const AZStd::vector<AZ::Crc32>& requiredTags,
+            AZStd::unordered_set<AZ::Uuid>& componentUuids)
+        {
+            componentUuids.clear();
+
+            serializeContext->EnumerateAll(
+                [&requiredTags, &componentUuids](const AZ::SerializeContext::ClassData* data, const AZ::Uuid& typeId) -> bool
+            {
+                if (SystemComponentTagsMatchesAtLeastOneTag(data, requiredTags))
+                {
+                    componentUuids.emplace(typeId);
+                }
+
+                return true;
+            });
+        }
+
         //=========================================================================
         // ClearAttributes
         //=========================================================================
@@ -130,5 +162,3 @@ namespace AZ
         }
     } // namespace Edit
 } // namespace AZ
-
-#endif // #ifndef AZ_UNITY_BUILD

@@ -29,6 +29,16 @@
 namespace Projects
 {
     /**
+    * Describes the source type of the project
+    */
+    enum SourceType
+    {
+        FilePath,   //< The project source is contained in the engine root
+        ExternalFilePath,    //< The project source is outside of the engine root
+        RawText,    //< The project source is entirely in memory (useful for mock/test environments)
+    };
+
+    /**
      * Processes requests relating to game projects.
      */
     class ProjectRequests
@@ -56,12 +66,15 @@ namespace Projects
         virtual const AZStd::string& GetRootPath() const = 0;
         /// Get the full absolute path to the project
         virtual const AZStd::string& GetFullPath() const = 0;
+        /// Returns the SourceType of the project
+        virtual SourceType GetProjectSourceType() const = 0;
 
         /// Get the settings object at key in the Project Settings as a Document (contains an allocator). If the key doesn't exist, returns a valid document containing the "null" value.
         virtual AZ::Outcome<rapidjson::Document, AZStd::string> GetProjectSettingsValue(const char* key) = 0;
         /// Save a document to the project settings. Pass in nullptr to erase the object.
         virtual Lyzard::StringOutcome SaveProjectSettingsValue(const char* key, const rapidjson::Document* value) = 0;
     };
+
     using ProjectRequestBus = AZ::EBus<ProjectRequests>;
 
     class ProjectNotifications
@@ -85,6 +98,7 @@ namespace Projects
         ///                         removed then currentValue will be nullptr.
         void OnProjectSettingsValueChanged(const char* key, const rapidjson::Value* previousValue, const rapidjson::Value* currentValue) {}
     };
+
     using ProjectNotificationBus = AZ::EBus<ProjectNotifications>;
 
     /**
@@ -98,6 +112,7 @@ namespace Projects
         Engines::EngineId m_engine;
 
         AZStd::string m_templateName;
+        AZStd::string m_logFileNameOverride;
     };
 
     /**
@@ -115,11 +130,14 @@ namespace Projects
 
         virtual ~ProjectManagerRequests() = default;
 
-        /// Find the first project known with name (returns it's Id).
-        virtual ProjectId GetProjectByName(const AZStd::string& name) = 0;
+        /// Find the first project known with name in the application root (returns it's Id).
+        virtual ProjectId GetProjectByName(const AZStd::string& name) const = 0;
+
+        /// Find the first project known with name and source project type (returns it's Id).
+        virtual ProjectId GetProjectByNameAndSourceType(const AZStd::string& name, SourceType projectSourceType) const = 0;
 
         /// Get the list of all known projects (by Id).
-        virtual AZStd::vector<ProjectId> GetAllProjectIds() = 0;
+        virtual AZStd::vector<ProjectId> GetAllProjectIds() const = 0;
 
         /**
          * Creates a new Project.
@@ -164,14 +182,6 @@ namespace Projects
         virtual AZ::Outcome<AZStd::string, AZStd::string> GetProjectCreationLogFile(const NewProjectDescriptor& desc, bool createOnDemand) const = 0;
 
         /**
-        * Register an external app root project
-        *
-        * \param[in] externalAppRootPath    The path to the external app root folder
-        * \returns                          The project id of the external project on success, error message on failure
-        */
-        virtual AZ::Outcome<ProjectId, AZStd::string> RegisterExternalAppRootFolder(const AZStd::string& externalAppRootPath) = 0;
-
-        /**
         *  Configure an external project folder to an engine path
         *
         * \param[in] pathToProjectFolder    The path to the external project folder to set the engine path for
@@ -181,6 +191,7 @@ namespace Projects
         */
         virtual AZ::Outcome<AZStd::string, AZStd::string> SetExternalProjectToEngine(const AZStd::string& pathToProjectFolder, const AZStd::string& pathToEngineFolder, const AZStd::string& gameName) const = 0;
     };
+
     using ProjectManagerRequestBus = AZ::EBus<ProjectManagerRequests>;
 
     /**
@@ -194,6 +205,9 @@ namespace Projects
         // EBusTraits overrides
         static const AZ::EBusHandlerPolicy HandlerPolicy = AZ::EBusHandlerPolicy::Single;
         static const AZ::EBusAddressPolicy AddressPolicy = AZ::EBusAddressPolicy::Single;
+        // lockless dispatch is necssary to allow manual cancellation of waf requests since
+        // they are all blocking calls
+        static const bool LocklessDispatch = true;
         //////////////////////////////////////////////////////////////////////////
 
         virtual ~ProjectManagerWAFRequests() = default;
@@ -250,7 +264,15 @@ namespace Projects
         */
         virtual Lyzard::StringOutcome DeleteProjectArtifacts(const AZStd::string& projectName, const Engines::EngineId& engineId) const = 0;
 
+        /**
+         * Cancels the last running WAF request
+         * 
+         * \returns     true if there is a request to cancel, false otherwise
+         */
+        virtual Lyzard::StringOutcome CancelWAFRequest() = 0;
+
     };
+
     using ProjectManagerWAFRequestsBus = AZ::EBus<ProjectManagerWAFRequests>;
 
 
@@ -271,6 +293,10 @@ namespace Projects
 
         /// Called when a new project instance is created or loaded.
         virtual void OnProjectLoaded(ProjectId project) = 0;
+
+        /// Called when a new project creation process fails
+        virtual void OnProjectUnloaded(ProjectId project) = 0;
     };
+
     using ProjectManagerNotificationBus = AZ::EBus<ProjectManagerNotifications>;
 }

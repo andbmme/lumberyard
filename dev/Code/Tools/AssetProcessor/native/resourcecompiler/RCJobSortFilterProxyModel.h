@@ -12,9 +12,43 @@
 #pragma once
 
 #include <QSortFilterProxyModel>
+#include <AzCore/base.h>
+
+namespace AzQtComponents
+{
+    struct SearchTypeFilter;
+    using SearchTypeFilterList = QVector<SearchTypeFilter>;
+}
+
+namespace AzToolsFramework
+{
+    namespace AssetSystem
+    {
+        enum class JobStatus;
+    }
+}
 
 namespace AssetProcessor
 {
+    struct CustomJobStatusFilter
+    {
+        CustomJobStatusFilter() = default;
+        CustomJobStatusFilter(bool completeWithWarnings)
+            : m_completedWithWarnings(completeWithWarnings)
+        {
+
+        }
+
+        bool m_completedWithWarnings = false;
+    };
+
+    struct JobStatusInfo
+    {
+        AzToolsFramework::AssetSystem::JobStatus m_status;
+        AZ::u32 m_warningCount;
+        AZ::u32 m_errorCount;
+    };
+
     class JobSortFilterProxyModel
         : public QSortFilterProxyModel
     {
@@ -22,14 +56,17 @@ namespace AssetProcessor
 
     public:
         explicit JobSortFilterProxyModel(QObject* parent = nullptr);
-        void OnFilterRegexExpChanged(QRegExp regExp, bool isFilterRegexExpEmpty);
-
+        void OnJobStatusFilterChanged(const AzQtComponents::SearchTypeFilterList& activeTypeFilters);
 
     protected:
         bool filterAcceptsRow(int sourceRow, const QModelIndex& sourceParent) const override;
+        bool lessThan(const QModelIndex& left, const QModelIndex& right) const override;
+
     private:
-        bool m_filterRegexExpEmpty = true;
+        QList<AzToolsFramework::AssetSystem::JobStatus> m_activeTypeFilters = {};
+        bool m_completedWithWarningsFilter = false;
     };
 } // namespace AssetProcessor
 
-
+Q_DECLARE_METATYPE(AssetProcessor::CustomJobStatusFilter);
+Q_DECLARE_METATYPE(AssetProcessor::JobStatusInfo);

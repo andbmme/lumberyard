@@ -11,20 +11,13 @@
 */
 
 #pragma once
-#ifndef AZCORE_SOCKET_AZSOCKET_FWD_H
-#define AZCORE_SOCKET_AZSOCKET_FWD_H
 
 #include <AzCore/base.h>
-
-#if !AZ_TRAIT_OS_USE_SOCKETS
-#   error Platform not supported!
-#endif
 
 #define SOCKET_ERROR (-1)
 #define AZ_SOCKET_INVALID (-1)
 
-struct sockaddr;
-struct sockaddr_in;
+#include <AzCore/Socket/AzSocket_fwd_Platform.h>
 
 // Type wrappers for sockets
 typedef sockaddr    AZSOCKADDR;
@@ -38,6 +31,5 @@ namespace AZ
         enum class AzSockError : AZ::s32;
         enum class AZSocketOption : AZ::s32;
         class AzSocketAddress;
-    }; // namespace AzSock
-}; // namespace AZ
-#endif // AZCORE_SOCKET_AZSOCKET_FWD_H
+    }
+}

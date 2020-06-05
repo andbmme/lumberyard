@@ -16,7 +16,6 @@
 #include <IAISystem.h>
 #include <IGame.h>
 #include <I3DEngine.h>
-#include <ITerrain.h>
 
 #include "GameEngine.h"
 #include "CryEditDoc.h"
@@ -25,18 +24,21 @@
 
 #include "ParticleExporter.h"
 
-#include "AnimationSerializer.h"
 #include "Material/MaterialManager.h"
 #include "Material/MaterialLibrary.h"
 #include "Particles/ParticleManager.h"
-#include "GameTokens/GameTokenManager.h"
 #include "AI/NavDataGeneration/Navigation.h"
 
 #include "VegetationMap.h"
+
+#ifdef LY_TERRAIN_EDITOR
 #include "Terrain/TerrainManager.h"
 #include "Terrain/Heightmap.h"
 #include "Terrain/TerrainGrid.h"
 #include "Terrain/MacroTextureExporter.h"
+#endif //#ifdef LY_TERRAIN_EDITOR
+#include <Terrain/Bus/LegacyTerrainBus.h>
+#include <AzFramework/Terrain/TerrainDataRequestBus.h>
 
 #include "Objects/ObjectLayerManager.h"
 #include "Objects/ObjectPhysicsManager.h"
@@ -52,18 +54,19 @@
 
 #include <ILevelSystem.h>
 #include <IGameFramework.h>
+#include <StatObjBus.h>
 
 #include <qfile.h>
 #include <qdir.h>
 #include <ScopeGuard.h>
 
+#include <AzCore/IO/Streamer.h>
 #include <AzToolsFramework/Entity/EditorEntityContextBus.h>
 
 #include "QtUtil.h"
 
 //////////////////////////////////////////////////////////////////////////
 #define MUSIC_LEVEL_LIBRARY_FILE "Music.xml"
-#define GAMETOKENS_LEVEL_LIBRARY_FILE "LevelGameTokens.xml"
 #define MATERIAL_LEVEL_LIBRARY_FILE "Materials.xml"
 #define RESOURCE_LIST_FILE "ResourceList.txt"
 #define PERLAYER_RESOURCE_LIST_FILE "PerLayerResourceList.txt"
@@ -126,6 +129,9 @@ bool CGameExporter::Export(unsigned int flags, EEndian eExportEndian, const char
         return false;
     }
 
+    bool exportSuccessful = true;
+
+    CrySystemEventBus::Broadcast(&CrySystemEventBus::Events::OnCryEditorBeginLevelExport);
     pEditor->Notify(eNotify_OnBeginExportToGame);
 
     CObjectManager* pObjectManager = static_cast<CObjectManager*>(pEditor->GetObjectManager());
@@ -156,6 +162,10 @@ bool CGameExporter::Export(unsigned int flags, EEndian eExportEndian, const char
     // Exclude objects from layers without export flag
     pObjectManager->UnregisterNoExported();
 
+    // Make sure we unload any unused CGFs before exporting so that they don't end up in
+    // the level data.
+    pEditor->Get3DEngine()->FreeUnusedCGFResources();
+
     CCryEditDoc* pDocument = pEditor->GetDocument();
 
     if (flags & eExp_Fast)
@@ -173,165 +183,189 @@ bool CGameExporter::Export(unsigned int flags, EEndian eExportEndian, const char
     if (!CloseLevelPack(m_levelPak, true))
     {
         Error("Cannot close Pak file " + m_levelPak.m_sPath);
-        return false;
+        exportSuccessful = false;
     }
 
-    if (m_bAutoExportMode)
+    if (exportSuccessful)
     {
-        // Remove read-only flags.
-        CrySetFileAttributes(m_levelPak.m_sPath.toUtf8().data(), FILE_ATTRIBUTE_NORMAL);
+        if (m_bAutoExportMode)
+        {
+            // Remove read-only flags.
+            CrySetFileAttributes(m_levelPak.m_sPath.toUtf8().data(), FILE_ATTRIBUTE_NORMAL);
+        }
     }
 
     //////////////////////////////////////////////////////////////////////////
-    if (!CFileUtil::OverwriteFile(m_levelPak.m_sPath))
+    if (exportSuccessful)
     {
-        Error("Cannot overwrite Pak file " + m_levelPak.m_sPath);
-        return false;
+        if (!CFileUtil::OverwriteFile(m_levelPak.m_sPath))
+        {
+            Error("Cannot overwrite Pak file " + m_levelPak.m_sPath);
+            exportSuccessful = false;
+        }
     }
 
-    if (!OpenLevelPack(m_levelPak, false))
+    if (exportSuccessful)
     {
-        Error("Cannot open Pak file " + m_levelPak.m_sPath + " for writing.");
-        return false;
+        if (!OpenLevelPack(m_levelPak, false))
+        {
+            Error("Cannot open Pak file " + m_levelPak.m_sPath + " for writing.");
+            exportSuccessful = false;
+        }
+
     }
 
     ////////////////////////////////////////////////////////////////////////
     // Inform all objects that an export is about to begin
     ////////////////////////////////////////////////////////////////////////
-    GetIEditor()->GetObjectManager()->GetPhysicsManager()->PrepareForExport();
-    GetIEditor()->GetObjectManager()->SendEvent(EVENT_PRE_EXPORT);
+    if (exportSuccessful)
+    {
+        GetIEditor()->GetObjectManager()->GetPhysicsManager()->PrepareForExport();
+        GetIEditor()->GetObjectManager()->SendEvent(EVENT_PRE_EXPORT);
+    }
 
     ////////////////////////////////////////////////////////////////////////
     // Export all data to the game
     ////////////////////////////////////////////////////////////////////////
-    if (!ExportMap(sLevelPath.toUtf8().data(), flags & eExp_SurfaceTexture, eExportEndian))
+    if (exportSuccessful)
     {
-        return false;
-    }
-
-    ////////////////////////////////////////////////////////////////////////
-    // Export the heightmap, store shadow informations in it
-    ////////////////////////////////////////////////////////////////////////
-    ExportHeightMap(sLevelPath.toUtf8().data(), eExportEndian);
-
-    ////////////////////////////////////////////////////////////////////////
-    // Exporting map setttings
-    ////////////////////////////////////////////////////////////////////////
-    ExportOcclusionMesh(sLevelPath.toUtf8().data());
-
-    //////////////////////////////////////////////////////////////////////////
-    // Export Particles.
-    {
-        CParticlesExporter partExporter;
-        partExporter.ExportParticles(sLevelPath.toUtf8().data(), m_levelPath.toUtf8().data(), m_levelPak.m_pakFile);
-    }
-
-    // Export prototypes/archetypes
-    {
-        GetIEditor()->GetEntityProtManager()->ExportPrototypes(sLevelPath, m_levelPath, m_levelPak.m_pakFile);
-    }
-
-    //! Export Level data.
-    CLogFile::WriteLine("Exporting LevelData.xml");
-    ExportLevelData(sLevelPath);
-    CLogFile::WriteLine("Exporting LevelData.xml done.");
-
-    ExportLevelInfo(sLevelPath);
-
-    // (MATT) Function copies bai files into PAK (and attempts to do other things) {2008/08/11}
-    //if(bAI) bAI was always true
-    {
-        if (!(flags & eExp_Fast))
+        if (!ExportMap(sLevelPath.toUtf8().data(), flags & eExp_SurfaceTexture, eExportEndian))
         {
-            CLogFile::WriteLine("Regenerating AI data!");
-            pGameEngine->GenerateAiAll();
+            exportSuccessful = false;
         }
-        ExportAI(sLevelPath, flags & eExp_CoverSurfaces);
     }
 
-    CLogFile::WriteLine("Exporting Game Data...");
-    ExportGameData(sLevelPath);
-    CLogFile::WriteLine("Exporting Game Data done");
-
-    //////////////////////////////////////////////////////////////////////////
-    // Start Movie System animations.
-    //////////////////////////////////////////////////////////////////////////
-    ExportLegacyAnimations(sLevelPath);
-
-    //////////////////////////////////////////////////////////////////////////
-    // Export Brushes.
-    //////////////////////////////////////////////////////////////////////////
-    ExportBrushes(sLevelPath);
-
-    ExportLevelLensFlares(sLevelPath);
-    ExportLevelResourceList(sLevelPath);
-    ExportLevelPerLayerResourceList(sLevelPath);
-    ExportLevelShaderCache(sLevelPath);
-    //////////////////////////////////////////////////////////////////////////
-    // Export list of entities to save/load during gameplay
-    //////////////////////////////////////////////////////////////////////////
-    CLogFile::WriteLine("Exporting serialization list");
-    XmlNodeRef entityList = XmlHelpers::CreateXmlNode("EntitySerialization");
-    pGameEngine->BuildEntitySerializationList(entityList);
-    QString levelDataFile = sLevelPath + "Serialize.xml";
-    XmlString xmlData = entityList->getXML();
-    CCryMemFile file;
-    file.Write(xmlData.c_str(), xmlData.length());
-    m_levelPak.m_pakFile.UpdateFile(levelDataFile.toUtf8().data(), file);
-
-    //////////////////////////////////////////////////////////////////////////
-    // End Exporting Game data.
-    //////////////////////////////////////////////////////////////////////////
-
-    // Close all packs.
-    CloseLevelPack(m_levelPak, false);
-    //  m_texturePakFile.Close();
-
-    pObjectManager->RegisterNoExported();
-
-    pObjectLayerManager->InitLayerSwitches(true);
-
-    ////////////////////////////////////////////////////////////////////////
-    // Reload the level in the engine
-    ////////////////////////////////////////////////////////////////////////
-    if (flags & eExp_ReloadTerrain)
+    if (exportSuccessful)
     {
-        pEditor->SetStatusText(QObject::tr("Reloading Level..."));
-        pGameEngine->ReloadLevel();
+        ////////////////////////////////////////////////////////////////////////
+        // Export the heightmap, store shadow informations in it
+        ////////////////////////////////////////////////////////////////////////
+        ExportHeightMap(sLevelPath.toUtf8().data(), eExportEndian);
+
+        ////////////////////////////////////////////////////////////////////////
+        // Exporting map setttings
+        ////////////////////////////////////////////////////////////////////////
+        ExportOcclusionMesh(sLevelPath.toUtf8().data());
+
+        //////////////////////////////////////////////////////////////////////////
+        // Export Particles.
+        {
+            CParticlesExporter partExporter;
+            partExporter.ExportParticles(sLevelPath.toUtf8().data(), m_levelPath.toUtf8().data(), m_levelPak.m_pakFile);
+        }
+
+        // Export prototypes/archetypes
+        {
+            GetIEditor()->GetEntityProtManager()->ExportPrototypes(sLevelPath, m_levelPath, m_levelPak.m_pakFile);
+        }
+
+        //! Export Level data.
+        CLogFile::WriteLine("Exporting LevelData.xml");
+        ExportLevelData(sLevelPath);
+        CLogFile::WriteLine("Exporting LevelData.xml done.");
+
+        ExportLevelInfo(sLevelPath);
+
+        // (MATT) Function copies bai files into PAK (and attempts to do other things) {2008/08/11}
+        //if(bAI) bAI was always true
+        {
+            if (!(flags & eExp_Fast))
+            {
+                CLogFile::WriteLine("Regenerating AI data!");
+                pGameEngine->GenerateAiAll();
+            }
+            ExportAI(sLevelPath, flags & eExp_CoverSurfaces);
+        }
+
+        CLogFile::WriteLine("Exporting Game Data...");
+        ExportGameData(sLevelPath);
+        CLogFile::WriteLine("Exporting Game Data done");
+
+        //////////////////////////////////////////////////////////////////////////
+        // Export Brushes.
+        //////////////////////////////////////////////////////////////////////////
+        ExportBrushes(sLevelPath);
+
+        ExportLevelLensFlares(sLevelPath);
+        ExportLevelResourceList(sLevelPath);
+        ExportLevelPerLayerResourceList(sLevelPath);
+        ExportLevelShaderCache(sLevelPath);
+        //////////////////////////////////////////////////////////////////////////
+        // Export list of entities to save/load during gameplay
+        //////////////////////////////////////////////////////////////////////////
+        CLogFile::WriteLine("Exporting serialization list");
+        XmlNodeRef entityList = XmlHelpers::CreateXmlNode("EntitySerialization");
+        pGameEngine->BuildEntitySerializationList(entityList);
+        QString levelDataFile = sLevelPath + "Serialize.xml";
+        XmlString xmlData = entityList->getXML();
+        CCryMemFile file;
+        file.Write(xmlData.c_str(), xmlData.length());
+        m_levelPak.m_pakFile.UpdateFile(levelDataFile.toUtf8().data(), file);
+
+        //////////////////////////////////////////////////////////////////////////
+        // End Exporting Game data.
+        //////////////////////////////////////////////////////////////////////////
+
+        // Close all packs.
+        CloseLevelPack(m_levelPak, false);
+        //  m_texturePakFile.Close();
+
+        pObjectManager->RegisterNoExported();
+
+        pObjectLayerManager->InitLayerSwitches(true);
+
+        ////////////////////////////////////////////////////////////////////////
+        // Reload the level in the engine
+        ////////////////////////////////////////////////////////////////////////
+        if (flags & eExp_ReloadTerrain)
+        {
+            pEditor->SetStatusText(QObject::tr("Reloading Level..."));
+            pGameEngine->ReloadLevel();
+        }
+
+        pEditor->SetStatusText(QObject::tr("Ready"));
+
+        // Disabled, for now. (inside EncryptPakFile)
+        EncryptPakFile(m_levelPak.m_sPath);
+
+        // Reopen this pak file.
+        if (!OpenLevelPack(m_levelPak, true))
+        {
+            Error("Cannot open Pak file " + m_levelPak.m_sPath);
+            exportSuccessful = false;
+        }
     }
 
-    pEditor->SetStatusText(QObject::tr("Ready"));
-
-    // Disabled, for now. (inside EncryptPakFile)
-    EncryptPakFile(m_levelPak.m_sPath);
-
-    // Reopen this pak file.
-    if (!OpenLevelPack(m_levelPak, true))
+    if (exportSuccessful)
     {
-        Error("Cannot open Pak file " + m_levelPak.m_sPath);
-        return false;
+        // Commit changes to the disk.
+        _flushall();
+
+        // finally create filelist.xml
+        QString levelName = Path::GetFileName(pGameEngine->GetLevelPath());
+        ExportFileList(sLevelPath, levelName);
+
+        pDocument->SetLevelExported(true);
     }
 
-    // Commit changes to the disk.
-    _flushall();
-
-    // finally create filelist.xml
-    QString levelName = Path::GetFileName(pGameEngine->GetLevelPath());
-    ExportFileList(sLevelPath, levelName);
-
-    pDocument->SetLevelExported(true);
+    // Always notify that we've finished exporting, whether it was successful or not.
     pEditor->Notify(eNotify_OnExportToGame);
+    CrySystemEventBus::Broadcast(&CrySystemEventBus::Events::OnCryEditorEndLevelExport, exportSuccessful);
 
-    // Notify the level system that there's a new level, so that the level info is populated.
-    pEditor->GetGame()->GetIGameFramework()->GetILevelSystem()->Rescan("levels", ILevelSystem::TAG_MAIN);
+    if (exportSuccessful)
+    {
+        // Notify the level system that there's a new level, so that the level info is populated.
+        gEnv->pSystem->GetILevelSystem()->Rescan("levels", ILevelSystem::TAG_MAIN);
 
-    CLogFile::WriteLine("Exporting was successful.");
+        CLogFile::WriteLine("Exporting was successful.");
+    }
 
-    return true;
+    return exportSuccessful;
 }
 
 bool CGameExporter::ExportMap(const char* pszGamePath, bool bSurfaceTexture, EEndian eExportEndian)
 {
+#ifdef LY_TERRAIN_EDITOR
     GetIEditor()->ShowConsole(true);
 
     QString ctcFilename;
@@ -370,7 +404,7 @@ bool CGameExporter::ExportMap(const char* pszGamePath, bool bSurfaceTexture, EEn
 
     DWORD startTime = GetTickCount();
 
-    gEnv->p3DEngine->CloseTerrainTextureFile();
+    LegacyTerrain::LegacyTerrainDataRequestBus::Broadcast(&LegacyTerrain::LegacyTerrainDataRequests::CloseTerrainTextureFile);
     pHeightMap->GetTerrainGrid()->InitSectorGrid(pHeightMap->GetTerrainGrid()->GetNumSectors());
 
     if (!ExportTerrainTexture(ctcFilename.toUtf8().data()))
@@ -385,7 +419,72 @@ bool CGameExporter::ExportMap(const char* pszGamePath, bool bSurfaceTexture, EEn
     pHeightMap->ClearModSectors();
 
     CLogFile::FormatLine("Terrain Texture Exported in %u seconds.", (GetTickCount() - startTime) / 1000);
+    
+    // Flush all streamer caches after export to ensure the exported data is read back in.
+    AZ::IO::Streamer::Instance().FlushCaches();
     return true;
+#else
+    //Return true so the other steps related to export to engine get executed.
+    return true;
+#endif //#ifdef LY_TERRAIN_EDITOR
+}
+
+bool CGameExporter::ExportTerrainMacroTexture()
+{
+#ifdef LY_TERRAIN_EDITOR
+    IEditor* pEditor = GetIEditor();
+    CGameEngine* pGameEngine = pEditor->GetGameEngine();
+    pEditor->ShowConsole(true);
+
+    QString sLevelPath = Path::AddSlash(pGameEngine->GetLevelPath());
+    QString ctcFilename;
+    ctcFilename = QStringLiteral("%1%2").arg(sLevelPath, QStringLiteral(COMPILED_TERRAIN_TEXTURE_FILE_NAME));
+
+    //Older versions of the code stored the cover.ctc file in the level.pak. This is no longer the case. Just in case we are re-saving an old
+    //level remove any old cover.ctc files, that will be overwritten by the resource compiler anyway.
+    //m_levelPak.m_pakFile.RemoveFile(ctcFilename.toUtf8().data());
+
+    ////////////////////////////////////////////////////////////////////////
+    // Export the terrain texture
+    ////////////////////////////////////////////////////////////////////////
+
+    CLogFile::WriteLine("Exporting terrain texture.");
+    GetIEditor()->SetStatusText("Exporting terrain texture (Generating)...");
+
+    // Check dimensions
+    CHeightmap* pHeightMap = GetIEditor()->GetHeightmap();
+    if (pHeightMap->GetWidth() != pHeightMap->GetHeight() || pHeightMap->GetWidth() % 128)
+    {
+        assert(pHeightMap->GetWidth() % 128 == 0);
+        CLogFile::WriteLine("Can't export a heightmap");
+        Error("Can't export a heightmap with dimensions that can't be evenly divided by 128 or that are not square!");
+        return false;
+    }
+
+    DWORD startTime = GetTickCount();
+
+    gEnv->p3DEngine->CloseTerrainTextureFile();
+
+    if (!ExportTerrainTexture(ctcFilename.toUtf8().data()))
+    {
+        return false;
+    }
+    GetIEditor()->GetTerrainManager()->GetRGBLayer()->SetNeedExportTexture(false);
+
+    CLogFile::WriteLine("Update terrain texture file...");
+    GetIEditor()->GetTerrainManager()->GetRGBLayer()->CleanupCache();
+    pHeightMap->SetSurfaceTextureSize(m_settings.iExportTexWidth, m_settings.iExportTexWidth);
+    pHeightMap->ClearModSectors();
+
+    CLogFile::FormatLine("Terrain Texture Exported in %u seconds.", (GetTickCount() - startTime) / 1000);
+
+    // Flush all streamer caches after export to ensure the exported data is read back in.
+    AZ::IO::Streamer::Instance().FlushCaches();
+    return true;
+#else
+    //Return true so the other steps related to export to engine get executed.
+    return true;
+#endif //#ifdef LY_TERRAIN_EDITOR
 }
 
 
@@ -401,7 +500,7 @@ void CGameExporter::ExportHeightMap(const char* pszGamePath, EEndian eExportEndi
     pEditor->SetStatusText("Exporting terrain...");
 
     // remove old files
-    sprintf_s(szFileOutputPath, "%s%s", pszGamePath, COMPILED_HEIGHT_MAP_FILE_NAME);
+    sprintf_s(szFileOutputPath, "%s%s", pszGamePath, COMPILED_OCTREE_FILE_NAME);
     m_levelPak.m_pakFile.RemoveFile(szFileOutputPath);
     sprintf_s(szFileOutputPath, "%s%s", pszGamePath, COMPILED_VISAREA_MAP_FILE_NAME);
     m_levelPak.m_pakFile.RemoveFile(szFileOutputPath);
@@ -417,18 +516,15 @@ void CGameExporter::ExportHeightMap(const char* pszGamePath, EEndian eExportEndi
         std::vector<_smart_ptr<IMaterial>>* pTempMatsTable = NULL;
         std::vector<struct IStatInstGroup*>* pTempVegGroupTable = NULL;
 
-        if (ITerrain* pTerrain = p3DEngine->GetITerrain())
-        {
-            if (int nSize = pTerrain->GetCompiledDataSize(pExportInfo))
-            { // get terrain data from 3dengine and save it into file
-                uint8* pData = new uint8[nSize];
-                pTerrain->GetCompiledData(pData, nSize, &pTempBrushTable, &pTempMatsTable, &pTempVegGroupTable, eExportEndian, pExportInfo);
-                sprintf_s(szFileOutputPath, "%s%s", pszGamePath, COMPILED_HEIGHT_MAP_FILE_NAME);
-                CCryMemFile hmapCompiledFile;
-                hmapCompiledFile.Write(pData, nSize);
-                m_levelPak.m_pakFile.UpdateFile(szFileOutputPath, hmapCompiledFile);
-                delete[] pData;
-            }
+        if (int nSize = p3DEngine->GetOctreeCompiledDataSize(pExportInfo))
+        { // get terrain data from 3dengine and save it into file
+            uint8* pData = new uint8[nSize];
+            p3DEngine->GetOctreeCompiledData(pData, nSize, &pTempBrushTable, &pTempMatsTable, &pTempVegGroupTable, eExportEndian, pExportInfo);
+            sprintf_s(szFileOutputPath, "%s%s", pszGamePath, COMPILED_OCTREE_FILE_NAME);
+            CCryMemFile hmapCompiledFile;
+            hmapCompiledFile.Write(pData, nSize);
+            m_levelPak.m_pakFile.UpdateFile(szFileOutputPath, hmapCompiledFile);
+            delete[] pData;
         }
 
         ////////////////////////////////////////////////////////////////////////
@@ -528,17 +624,6 @@ void CGameExporter::ExportOcclusionMesh(const char* pszGamePath)
 }
 
 //////////////////////////////////////////////////////////////////////////
-void CGameExporter::ExportLegacyAnimations(const QString& path)
-{
-    IEditor* pEditor = GetIEditor();
-    pEditor->SetStatusText(QObject::tr("Exporting Animation Sequences..."));
-    CLogFile::WriteLine("Export Legacy animation sequences...");
-    CAnimationSerializer animSaver;
-    animSaver.SaveAllLegacySequences(path.toUtf8().data(), m_levelPak.m_pakFile);
-    CLogFile::WriteString("Done.");
-}
-
-//////////////////////////////////////////////////////////////////////////
 void CGameExporter::ExportLevelData(const QString& path, bool bExportMission)
 {
     IEditor* pEditor = GetIEditor();
@@ -571,11 +656,6 @@ void CGameExporter::ExportLevelData(const QString& path, bool bExportMission)
     //////////////////////////////////////////////////////////////////////////
     // Export particle manager.
     pEditor->GetParticleManager()->Export(root);
-    //////////////////////////////////////////////////////////////////////////
-
-    //////////////////////////////////////////////////////////////////////////
-    // Export Level GameTokens.
-    ExportGameTokens(root, path);
     //////////////////////////////////////////////////////////////////////////
 
     CCryEditDoc* pDocument = pEditor->GetDocument();
@@ -648,7 +728,7 @@ void CGameExporter::ExportLevelData(const QString& path, bool bExportMission)
         AZStd::vector<char> entitySaveBuffer;
         AZ::IO::ByteContainerStream<AZStd::vector<char> > entitySaveStream(&entitySaveBuffer);
         bool savedEntities = false;
-        EBUS_EVENT_RESULT(savedEntities, AzToolsFramework::EditorEntityContextRequestBus, SaveToStreamForGame, entitySaveStream, AZ::DataStream::ST_XML);
+        EBUS_EVENT_RESULT(savedEntities, AzToolsFramework::EditorEntityContextRequestBus, SaveToStreamForGame, entitySaveStream, AZ::DataStream::ST_BINARY);
         if (savedEntities)
         {
             QString entitiesFile;
@@ -678,25 +758,41 @@ void CGameExporter::ExportLevelInfo(const QString& path)
 
     QString levelName = pEditor->GetGameEngine()->GetLevelPath();
     root->setAttr("Name", levelName.toUtf8().data());
+#ifdef LY_TERRAIN_EDITOR
     root->setAttr("HeightmapSize", pEditor->GetHeightmap()->GetWidth());
+#else
+    auto terrain = AzFramework::Terrain::TerrainDataRequestBus::FindFirstHandler();
+    const AZ::Aabb terrainAabb = terrain ? terrain->GetTerrainAabb() : AZ::Aabb::CreateFromPoint(AZ::Vector3::CreateZero());
+    const AZ::Vector2 terrainGridResolution = terrain ? terrain->GetTerrainGridResolution() : AZ::Vector2::CreateOne();
+    const int compiledHeightmapSize = static_cast<int>(terrainAabb.GetWidth() / terrainGridResolution.GetX());
+    root->setAttr("HeightmapSize", compiledHeightmapSize);
+#endif //#ifdef LY_TERRAIN_EDITOR
 
-    if (gEnv->p3DEngine->GetITerrain())
-    {
-        int compiledDataSize = gEnv->p3DEngine->GetITerrain()->GetCompiledDataSize();
-        byte* pInfo = new byte[compiledDataSize];
-        gEnv->p3DEngine->GetITerrain()->GetCompiledData(pInfo, compiledDataSize, 0, 0, 0, false);
-        STerrainChunkHeader* pHeader = (STerrainChunkHeader*)pInfo;
-        XmlNodeRef terrainInfo = root->newChild("TerrainInfo");
-        int heightmapSize = GetIEditor()->GetHeightmap()->GetWidth();
-        terrainInfo->setAttr("HeightmapSize", heightmapSize);
-        terrainInfo->setAttr("UnitSize", pHeader->TerrainInfo.nUnitSize_InMeters);
-        terrainInfo->setAttr("SectorSize", pHeader->TerrainInfo.nSectorSize_InMeters);
-        terrainInfo->setAttr("SectorsTableSize", pHeader->TerrainInfo.nSectorsTableSize_InSectors);
-        terrainInfo->setAttr("HeightmapZRatio", pHeader->TerrainInfo.fHeightmapZRatio);
-        terrainInfo->setAttr("OceanWaterLevel", pHeader->TerrainInfo.fOceanWaterLevel);
+    SetupTerrainInfo(
+        gEnv->p3DEngine->GetOctreeCompiledDataSize(),
+        [&root](const size_t compiledDataSize)
+        {
+            byte* pInfo = new byte[compiledDataSize];
 
-        delete[] pInfo;
-    }
+            gEnv->p3DEngine->GetOctreeCompiledData(pInfo, compiledDataSize, 0, 0, 0, false);
+            STerrainChunkHeader* pHeader = (STerrainChunkHeader*)pInfo;
+            XmlNodeRef terrainInfo = root->newChild("TerrainInfo");
+
+#ifdef LY_TERRAIN_EDITOR
+            int heightmapSize = GetIEditor()->GetHeightmap()->GetWidth();
+#else
+            int heightmapSize = compiledHeightmapSize;
+#endif //#ifdef LY_TERRAIN_EDITOR
+
+            terrainInfo->setAttr("HeightmapSize", heightmapSize);
+            terrainInfo->setAttr("UnitSize", pHeader->TerrainInfo.nUnitSize_InMeters);
+            terrainInfo->setAttr("SectorSize", pHeader->TerrainInfo.nSectorSize_InMeters);
+            terrainInfo->setAttr("SectorsTableSize", pHeader->TerrainInfo.nSectorsTableSize_InSectors);
+            terrainInfo->setAttr("HeightmapZRatio", pHeader->TerrainInfo.fHeightmapZRatio);
+            terrainInfo->setAttr("OceanWaterLevel", pHeader->TerrainInfo.fOceanWaterLevel);
+
+            delete[] pInfo;
+        });
 
     // Save all missions in this level.
     XmlNodeRef missionsNode = root->newChild("Missions");
@@ -726,14 +822,10 @@ void CGameExporter::ExportMapInfo(XmlNodeRef& node)
 {
     XmlNodeRef info = node->newChild("LevelInfo");
 
-    // Write the creation time of the file
-    char szBuffer[1024];
-    _strdate(szBuffer);
-    info->setAttr("CreationDate", szBuffer);
-
     IEditor* pEditor = GetIEditor();
     info->setAttr("Name", QFileInfo(pEditor->GetDocument()->GetTitle()).completeBaseName());
 
+#ifdef LY_TERRAIN_EDITOR
     CHeightmap* heightmap = pEditor->GetHeightmap();
     if (heightmap)
     {
@@ -747,12 +839,35 @@ void CGameExporter::ExportMapInfo(XmlNodeRef& node)
         int nTerrainSectorSizeInMeters = sectorInfo.sectorSize;
         info->setAttr("TerrainSectorSizeInMeters", nTerrainSectorSizeInMeters);
     }
+#else
+    auto terrain = AzFramework::Terrain::TerrainDataRequestBus::FindFirstHandler();
+    const AZ::Aabb terrainAabb = terrain ? terrain->GetTerrainAabb() : AZ::Aabb::CreateFromPoint(AZ::Vector3::CreateZero());
+    const AZ::Vector2 terrainGridResolution = terrain ? terrain->GetTerrainGridResolution() : AZ::Vector2::CreateOne();
+
+    const int terrainSizeInMeters = static_cast<int>(terrainAabb.GetWidth());
+    const int terrainUnitSizeInMeters = static_cast<int>(terrainGridResolution.GetX());
+    info->setAttr("HeightmapSize", terrainSizeInMeters / terrainUnitSizeInMeters);
+    info->setAttr("HeightmapUnitSize", terrainUnitSizeInMeters);
+    //! Default Max Height value.
+    constexpr int HEIGHTMAP_MAX_HEIGHT = 150; //This is the default max height in CHeightmap
+    info->setAttr("HeightmapMaxHeight", HEIGHTMAP_MAX_HEIGHT);
+    info->setAttr("WaterLevel", pEditor->Get3DEngine()->GetWaterLevel());
+
+    int terrainSectorSize = 0;
+
+    LegacyTerrain::LegacyTerrainDataRequestBus::BroadcastResult(terrainSectorSize, &LegacyTerrain::LegacyTerrainDataRequests::GetTerrainSectorSize);
+
+    info->setAttr("TerrainSectorSizeInMeters", terrainSectorSize);
+#endif //#ifdef LY_TERRAIN_EDITOR
 
     // Serialize surface types.
     CXmlArchive xmlAr;
     xmlAr.bLoading = false;
     xmlAr.root = node;
+
+#ifdef LY_TERRAIN_EDITOR
     GetIEditor()->GetTerrainManager()->SerializeSurfaceTypes(xmlAr);
+#endif
 
     GetIEditor()->GetObjectManager()->GetPhysicsManager()->SerializeCollisionClasses(xmlAr);
 
@@ -761,6 +876,7 @@ void CGameExporter::ExportMapInfo(XmlNodeRef& node)
 
 bool CGameExporter::ExportTerrainTexture(const char* ctcFilename)
 {
+#ifdef LY_TERRAIN_EDITOR
     MacroTextureExporter exporter(GetIEditor()->GetTerrainManager()->GetRGBLayer());
     exporter.SetMaximumTotalSize(m_settings.iExportTexWidth);
 
@@ -771,6 +887,9 @@ bool CGameExporter::ExportTerrainTexture(const char* ctcFilename)
         });
 
     return exporter.Export(ctcFilename);
+#else
+    return false;
+#endif //#ifdef LY_TERRAIN_EDITOR
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -1304,66 +1423,6 @@ void CGameExporter::ExportLevelShaderCache(const QString& path)
 
     QString filename = Path::Make(path, SHADER_LIST_FILE);
     m_levelPak.m_pakFile.UpdateFile(filename.toUtf8().data(), memFile, true);
-}
-
-//////////////////////////////////////////////////////////////////////////
-void CGameExporter::ExportGameTokens(XmlNodeRef& levelDataNode, const QString& path)
-{
-    // Export game tokens
-    CGameTokenManager* pGTM = GetIEditor()->GetGameTokenManager();
-    // write only needed libs for this levels
-    pGTM->Export(levelDataNode);
-
-    QString gtPath = Path::AddPathSlash(path) + "GameTokens";
-    QString filename = Path::Make(gtPath, GAMETOKENS_LEVEL_LIBRARY_FILE);
-
-    bool bEmptyLevelLib = true;
-    XmlNodeRef nodeLib = XmlHelpers::CreateXmlNode("GameTokensLibrary");
-    // Export GameTokens local level library.
-    for (int i = 0; i < pGTM->GetLibraryCount(); i++)
-    {
-        IDataBaseLibrary* pLib = pGTM->GetLibrary(i);
-        if (pLib->IsLevelLibrary())
-        {
-            if (pLib->GetItemCount() > 0)
-            {
-                bEmptyLevelLib = false;
-                // Export this library.
-                pLib->Serialize(nodeLib, false);
-                nodeLib->setAttr("LevelName", GetIEditor()->GetGameEngine()->GetLevelPath().toUtf8().data()); // we set the Name from "Level" to the realname
-            }
-        }
-        else
-        {
-            // AlexL: Not sure if
-            // (1) we should store all libs into the PAK file or
-            // (2) just use references to the game global Game/Libs directory.
-            // Currently we use (1)
-            if (pLib->GetItemCount() > 0)
-            {
-                // Export this library to pak file.
-                XmlNodeRef gtNodeLib = XmlHelpers::CreateXmlNode("GameTokensLibrary");
-                pLib->Serialize(gtNodeLib, false);
-                CCryMemFile file;
-                XmlString xmlData = gtNodeLib->getXML();
-                file.Write(xmlData.c_str(), xmlData.length());
-                QString gtfilename = Path::Make(gtPath, Path::GetFile(pLib->GetFilename()));
-                m_levelPak.m_pakFile.UpdateFile(gtfilename.toUtf8().data(), file);
-            }
-        }
-    }
-    if (!bEmptyLevelLib)
-    {
-        XmlString xmlData = nodeLib->getXML();
-
-        CCryMemFile file;
-        file.Write(xmlData.c_str(), xmlData.length());
-        m_levelPak.m_pakFile.UpdateFile(filename.toUtf8().data(), file);
-    }
-    else
-    {
-        m_levelPak.m_pakFile.RemoveFile(filename.toUtf8().data());
-    }
 }
 
 //////////////////////////////////////////////////////////////////////////

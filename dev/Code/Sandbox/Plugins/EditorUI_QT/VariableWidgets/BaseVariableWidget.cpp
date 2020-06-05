@@ -9,7 +9,7 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
-#include "StdAfx.h"
+#include "EditorUI_QT_Precompiled.h"
 #include "BaseVariableWidget.h"
 #include "AttributeItem.h"
 

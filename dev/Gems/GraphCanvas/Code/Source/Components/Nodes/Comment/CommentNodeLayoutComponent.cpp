@@ -20,15 +20,16 @@
 
 #include <Components/Nodes/Comment/CommentNodeLayoutComponent.h>
 
+#include <Components/Nodes/Comment/CommentLayerControllerComponent.h>
 #include <Components/Nodes/Comment/CommentNodeFrameComponent.h>
 #include <Components/Nodes/Comment/CommentNodeTextComponent.h>
-#include <Components/Nodes/Comment/CommentBus.h>
 #include <Components/Nodes/General/GeneralNodeFrameComponent.h>
 #include <Components/Nodes/NodeComponent.h>
-#include <Components/Slots/SlotBus.h>
 #include <Components/StylingComponent.h>
+#include <GraphCanvas/Components/Nodes/Comment/CommentBus.h>
+#include <GraphCanvas/Components/Slots/SlotBus.h>
 #include <GraphCanvas/tools.h>
-#include <Styling/StyleHelper.h>
+#include <GraphCanvas/Styling/StyleHelper.h>
 
 namespace GraphCanvas
 {
@@ -41,7 +42,7 @@ namespace GraphCanvas
         AZ::SerializeContext* serializeContext = azrtti_cast<AZ::SerializeContext*>(context);
         if (serializeContext)
         {
-            serializeContext->Class<CommentNodeLayoutComponent>()
+            serializeContext->Class<CommentNodeLayoutComponent, NodeLayoutComponent>()
                 ->Version(1)
                 ;
         }
@@ -51,15 +52,16 @@ namespace GraphCanvas
     {
         // Create this Node's entity.
         NodeConfiguration config;
-        config.SetName("Comment");
         config.SetShowInOutliner(false);
 
         AZ::Entity* entity = NodeComponent::CreateCoreNodeEntity(config);
+        entity->SetName("Comment");
 
         entity->CreateComponent<StylingComponent>(Styling::Elements::Comment, AZ::EntityId());
         entity->CreateComponent<CommentNodeFrameComponent>();
         entity->CreateComponent<CommentNodeLayoutComponent>();
         entity->CreateComponent<CommentNodeTextComponent>();
+        entity->CreateComponent<CommentLayerControllerComponent>();
 
         return entity;
     }
@@ -95,7 +97,7 @@ namespace GraphCanvas
         NodeLayoutComponent::Deactivate();
 
         StyleNotificationBus::Handler::BusDisconnect();
-        NodeNotificationBus::Handler::BusDisconnect();        
+        NodeNotificationBus::Handler::BusDisconnect();
     }
 
     void CommentNodeLayoutComponent::OnEntityExists(const AZ::EntityId& entityId)
@@ -108,6 +110,8 @@ namespace GraphCanvas
         {
             GeneralNodeFrameComponent* generalNodeFrameComponent = entity->FindComponent<GeneralNodeFrameComponent>();
             entity->RemoveComponent(generalNodeFrameComponent);
+
+            delete generalNodeFrameComponent;
 
             entity->CreateComponent<CommentNodeFrameComponent>();
         }

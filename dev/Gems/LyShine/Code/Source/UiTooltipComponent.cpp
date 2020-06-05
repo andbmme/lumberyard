@@ -11,15 +11,12 @@
 */
 #include "LyShine_precompiled.h"
 #include "UiTooltipComponent.h"
-
 #include <AzCore/Serialization/SerializeContext.h>
 #include <AzCore/Serialization/EditContext.h>
 #include <AzCore/RTTI/BehaviorContext.h>
 
 #include <LyShine/Bus/UiElementBus.h>
 #include <LyShine/Bus/UiTextBus.h>
-#include <LyShine/Bus/UiCanvasBus.h>
-#include <LyShine/Bus/UiTooltipDisplayBus.h>
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 // PUBLIC MEMBER FUNCTIONS
@@ -27,6 +24,7 @@
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 UiTooltipComponent::UiTooltipComponent()
+    : m_curTriggerMode(UiTooltipDisplayInterface::TriggerMode::OnHover)
 {
 }
 
@@ -38,44 +36,74 @@ UiTooltipComponent::~UiTooltipComponent()
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 void UiTooltipComponent::Update(float deltaTime)
 {
-    if (m_displayElementId.IsValid())
+    if (m_curDisplayElementId.IsValid())
     {
-        EBUS_EVENT_ID(m_displayElementId, UiTooltipDisplayBus, Update);
+        EBUS_EVENT_ID(m_curDisplayElementId, UiTooltipDisplayBus, Update);
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 void UiTooltipComponent::OnHoverStart()
 {
-    // Get display element
-    AZ::EntityId canvasId;
-    EBUS_EVENT_ID_RESULT(canvasId, GetEntityId(), UiElementBus, GetCanvasEntityId);
-
-    EBUS_EVENT_ID_RESULT(m_displayElementId, canvasId, UiCanvasBus, GetTooltipDisplayElement);
-
-    // Show display element
-    if (m_displayElementId.IsValid())
+    if (GetDisplayElementTriggerMode() == UiTooltipDisplayInterface::TriggerMode::OnHover)
     {
-        EBUS_EVENT_ID(m_displayElementId, UiTooltipDisplayBus, PrepareToShow, GetEntityId());
-        UiUpdateBus::Handler::BusConnect(GetEntityId());
+        TriggerTooltip(UiTooltipDisplayInterface::TriggerMode::OnHover);
     }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 void UiTooltipComponent::OnHoverEnd()
 {
-    HideDisplayElement();
+    if (IsTriggeredWithMode(UiTooltipDisplayInterface::TriggerMode::OnHover))
+    {
+        HideDisplayElement();
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 void UiTooltipComponent::OnPressed()
 {
-    HideDisplayElement();
+    if (IsTriggeredWithMode(UiTooltipDisplayInterface::TriggerMode::OnHover))
+    {
+        HideDisplayElement();
+    }
+    else
+    {
+        if (GetDisplayElementTriggerMode() == UiTooltipDisplayInterface::TriggerMode::OnPress)
+        {
+            TriggerTooltip(UiTooltipDisplayInterface::TriggerMode::OnPress);
+        }
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 void UiTooltipComponent::OnReleased()
 {
+    if (IsTriggeredWithMode(UiTooltipDisplayInterface::TriggerMode::OnPress))
+    {
+        HideDisplayElement();
+    }
+    else
+    {
+        if (GetDisplayElementTriggerMode() == UiTooltipDisplayInterface::TriggerMode::OnClick)
+        {
+            TriggerTooltip(UiTooltipDisplayInterface::TriggerMode::OnClick);
+        }
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+void UiTooltipComponent::OnCanvasPrimaryReleased(AZ::EntityId entityId)
+{
+    // This callback is needed because OnReleased is only called when the mouse is over the element
+    if (IsTriggeredWithMode(UiTooltipDisplayInterface::TriggerMode::OnPress))
+    {
+        HideDisplayElement();
+    }
+    if (IsTriggeredWithMode(UiTooltipDisplayInterface::TriggerMode::OnClick))
+    {
+        HideDisplayElement();
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -103,6 +131,18 @@ void UiTooltipComponent::SetText(const AZStd::string& text)
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+void UiTooltipComponent::OnHiding()
+{
+    HandleDisplayElementHidden();
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+void UiTooltipComponent::OnHidden()
+{
+    HandleDisplayElementHidden();
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
 // PUBLIC STATIC MEMBER FUNCTIONS
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -123,6 +163,7 @@ void UiTooltipComponent::Reflect(AZ::ReflectContext* context)
             auto editInfo = ec->Class<UiTooltipComponent>("Tooltip", "A component that provides the data needed to display a tooltip.");
 
             editInfo->ClassElement(AZ::Edit::ClassElements::EditorData, "")
+                ->Attribute(AZ::Edit::Attributes::Category, "UI")
                 ->Attribute(AZ::Edit::Attributes::Icon, "Editor/Icons/Components/UiTooltip.png")
                 ->Attribute(AZ::Edit::Attributes::ViewportIcon, "Editor/Icons/Components/Viewport/UiTooltip.png")
                 ->Attribute(AZ::Edit::Attributes::AppearsInAddComponentMenu, AZ_CRC("UI", 0x27ff46b0))
@@ -136,7 +177,6 @@ void UiTooltipComponent::Reflect(AZ::ReflectContext* context)
     if (behaviorContext)
     {
         behaviorContext->EBus<UiTooltipBus>("UiTooltipBus")
-            ->Attribute(AZ::Script::Attributes::ExcludeFrom, AZ::Script::Attributes::ExcludeFlags::Preview)
             ->Event("GetText", &UiTooltipBus::Events::GetText)
             ->Event("SetText", &UiTooltipBus::Events::SetText);
     }
@@ -157,8 +197,10 @@ void UiTooltipComponent::Activate()
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 void UiTooltipComponent::Deactivate()
 {
-    UiUpdateBus::Handler::BusDisconnect();
+    UiCanvasUpdateNotificationBus::Handler::BusDisconnect();
     UiInteractableNotificationBus::Handler::BusDisconnect();
+    UiCanvasInputNotificationBus::Handler::BusDisconnect();
+    UiTooltipDisplayNotificationBus::Handler::BusDisconnect();
     UiTooltipDataPopulatorBus::Handler::BusDisconnect();
     UiTooltipBus::Handler::BusDisconnect();
 }
@@ -166,10 +208,81 @@ void UiTooltipComponent::Deactivate()
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 void UiTooltipComponent::HideDisplayElement()
 {
-    if (m_displayElementId.IsValid())
+    if (m_curDisplayElementId.IsValid())
     {
-        EBUS_EVENT_ID(m_displayElementId, UiTooltipDisplayBus, Hide);
-        m_displayElementId.SetInvalid();
-        UiUpdateBus::Handler::BusDisconnect();
+        UiTooltipDisplayBus::Event(m_curDisplayElementId, &UiTooltipDisplayBus::Events::Hide);
+        HandleDisplayElementHidden();
     }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+void UiTooltipComponent::HandleDisplayElementHidden()
+{
+    if (m_curDisplayElementId.IsValid())
+    {
+        m_curDisplayElementId.SetInvalid();
+        UiCanvasUpdateNotificationBus::Handler::BusDisconnect();
+        UiCanvasInputNotificationBus::Handler::BusDisconnect();
+        UiTooltipDisplayNotificationBus::Handler::BusDisconnect();
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+void UiTooltipComponent::TriggerTooltip(UiTooltipDisplayInterface::TriggerMode triggerMode)
+{
+    if (IsTriggered())
+    {
+        return;
+    }
+
+    // Get display element
+    AZ::EntityId canvasEntityId;
+    UiElementBus::EventResult(canvasEntityId, GetEntityId(), &UiElementBus::Events::GetCanvasEntityId);
+    AZ::EntityId displayElementId;
+    UiCanvasBus::EventResult(displayElementId, canvasEntityId, &UiCanvasBus::Events::GetTooltipDisplayElement);
+
+    if (displayElementId.IsValid())
+    {
+        bool enableShortDelay = m_curTriggerMode == UiTooltipDisplayInterface::TriggerMode::OnHover;
+        UiTooltipDisplayBus::Event(displayElementId, &UiTooltipDisplayBus::Events::PrepareToShow, GetEntityId());
+
+        m_curDisplayElementId = displayElementId;
+        m_curTriggerMode = triggerMode;
+
+        UiCanvasUpdateNotificationBus::Handler::BusConnect(canvasEntityId);
+        UiTooltipDisplayNotificationBus::Handler::BusConnect(GetEntityId());
+
+        if (m_curTriggerMode != UiTooltipDisplayInterface::TriggerMode::OnHover)
+        {
+            UiCanvasInputNotificationBus::Handler::BusConnect(canvasEntityId);
+        }
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+bool UiTooltipComponent::IsTriggered()
+{
+    return m_curDisplayElementId.IsValid();
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+bool UiTooltipComponent::IsTriggeredWithMode(UiTooltipDisplayInterface::TriggerMode triggerMode)
+{
+    return IsTriggered() && m_curTriggerMode == triggerMode;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+UiTooltipDisplayInterface::TriggerMode UiTooltipComponent::GetDisplayElementTriggerMode()
+{
+    UiTooltipDisplayInterface::TriggerMode triggerMode = UiTooltipDisplayInterface::TriggerMode::OnHover;
+
+    // Get display element
+    AZ::EntityId canvasEntityId;
+    UiElementBus::EventResult(canvasEntityId, GetEntityId(), &UiElementBus::Events::GetCanvasEntityId);
+    AZ::EntityId displayElementId;
+    UiCanvasBus::EventResult(displayElementId, canvasEntityId, &UiCanvasBus::Events::GetTooltipDisplayElement);
+    // Get display element's trigger mode
+    UiTooltipDisplayBus::EventResult(triggerMode, displayElementId, &UiTooltipDisplayBus::Events::GetTriggerMode);
+
+    return triggerMode;
 }

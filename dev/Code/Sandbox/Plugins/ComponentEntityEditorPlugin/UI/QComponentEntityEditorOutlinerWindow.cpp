@@ -10,7 +10,8 @@
 *
 */
 
-#include "StdAfx.h"
+#include "ComponentEntityEditorPlugin_precompiled.h"
+
 #include "CryEdit.h"
 #include "UI/QComponentEntityEditorOutlinerWindow.h"
 #include "UI/Outliner/OutlinerWidget.hxx"

@@ -20,6 +20,7 @@
 #define AZCORE_COMPONENT_TICK_BUS_H
 
 #include <AzCore/Component/ComponentBus.h>
+#include <AzCore/Debug/AssetTracking.h>
 #include <AzCore/std/chrono/chrono.h>
 #include <AzCore/std/parallel/mutex.h> // For TickBus thread events.
 #include <AzCore/Script/ScriptTimePoint.h>
@@ -37,9 +38,15 @@ namespace AZ
 
         TICK_INPUT          = 75,      ///< Suggested tick handler position for input components.
 
+        TICK_GAME           = 80,      ///< Suggested tick handler for game-related components.
+
         TICK_ANIMATION      = 100,     ///< Suggested tick handler position for animation components.
 
         TICK_PHYSICS        = 200,     ///< Suggested tick handler position for physics components.
+
+        TICK_ATTACHMENT     = 500,     ///< Suggested tick handler position for attachment components.
+
+        TICK_PRE_RENDER     = 750,     ///< Suggested tick handler position to update render-related data.
 
         TICK_DEFAULT        = 1000,    ///< Default tick handler position when the handler is constructed.
 
@@ -60,6 +67,7 @@ namespace AZ
         : public AZ::EBusTraits
     {
     public:
+        AZ_RTTI(TickEvents, "{DF79B555-D9E9-489A-8A00-AD39C564E258}");
 
         /**
          * Creates an instance of the class and sets the tick order of the 
@@ -94,7 +102,7 @@ namespace AZ
          * Specifies the mutex that is used when adding and removing events from the event queue.
          * This mutex is for the event queue, not TickEvents. Do not add a mutex to TickEvents.
          */
-        typedef AZStd::mutex EventQueueMutexType; 
+        typedef AZStd::recursive_mutex EventQueueMutexType; 
         
         /**
          * Determines the order in which handlers receive tick events. 
@@ -102,10 +110,14 @@ namespace AZ
          * unless a handler explicitly sets its position.
          */
         struct BusHandlerOrderCompare
-            : public AZStd::binary_function<TickEvents*, TickEvents*, bool>                           
         {
             AZ_FORCE_INLINE bool operator()(TickEvents* left, TickEvents* right) const { return left->GetTickOrder() < right->GetTickOrder(); }
         };
+
+        /**
+        * Enable tick bus to work with the AssetTracking
+        */
+        using EventProcessingPolicy = Debug::AssetTrackingEventProcessingPolicy<>;
         //////////////////////////////////////////////////////////////////////////
 
         /**
@@ -175,8 +187,12 @@ namespace AZ
 
     /**
      * Interface for AZ::SystemTickBus, which is the EBus that dispatches system tick events.
-     * System tick events are only dispatched for some tools, never during games. System
-     * ticks are dispatched even when the tool is not in focus.
+     * System tick events are dispatched at some interval of a small number of milliseconds,
+     * even when the host application does not have focus. It can be be used for anything that needs to be serviced
+     * regularly, such as network or asset processor polling.
+     * Note that it does not necessarily occur at a consistent interval. In some tools, such as the Editor, 
+     * OnSystemTick() can be called more often than the regular interval.
+     * If timing matters, use TickEvents::OnTick() instead.
      * @note Do not add a mutex to SystemTickEvents. It is unnecessary and typically degrades performance.
      */
     class SystemTickEvents : public AZ::EBusTraits
@@ -202,6 +218,11 @@ namespace AZ
          * This mutex is for the event queue, not SystemTickEvents. Do not add a mutex to SystemTickEvents.
          */
         typedef AZStd::mutex EventQueueMutexType; 
+
+        /**
+        * Enable tick bus to work with the AssetTracking
+        */
+        using EventProcessingPolicy = Debug::AssetTrackingEventProcessingPolicy<>;
         //////////////////////////////////////////////////////////////////////////
 
         /**

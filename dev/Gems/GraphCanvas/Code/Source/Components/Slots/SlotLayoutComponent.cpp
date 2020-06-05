@@ -52,6 +52,7 @@ namespace GraphCanvas
         m_layoutWidget = new QGraphicsWidget();
         m_layoutWidget->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
         m_layoutWidget->setFlag(QGraphicsItem::ItemIsFocusable, true);
+        m_layoutWidget->setVisible(m_isVisible);
     }
     
     void SlotLayoutComponent::Activate()
@@ -80,24 +81,22 @@ namespace GraphCanvas
         return m_layoutWidget->contains(localRectPos);
     }
     
-    void SlotLayoutComponent::SetVisibility(bool visible)
+    void SlotLayoutComponent::SetVisible(bool visible)
     {
-        if (m_layoutWidget)
+        if (m_isVisible != visible)
         {
-            m_layoutWidget->setVisible(visible);
+            m_isVisible = visible;
+
+            if (m_layoutWidget)
+            {
+                m_layoutWidget->setVisible(visible);
+            }
         }
     }
     
-    bool SlotLayoutComponent::GetVisibility() const
+    bool SlotLayoutComponent::IsVisible() const
     {
-        bool retVal = false;
-        
-        if (m_layoutWidget)
-        {
-            retVal = m_layoutWidget->isVisible();
-        }
-        
-        return retVal;
+        return m_isVisible;
     }
     
     void SlotLayoutComponent::SetLayout(QGraphicsLayout* layout)

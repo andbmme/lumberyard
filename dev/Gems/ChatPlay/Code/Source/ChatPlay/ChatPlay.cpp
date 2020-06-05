@@ -12,6 +12,7 @@
 // Implementation of Twitch ChatPlay feature
 #include "ChatPlay_precompiled.h"
 
+#include <AzCore/std/containers/set.h>
 #include <AzCore/std/sort.h>
 #include <AzCore/std/smart_ptr/enable_shared_from_this.h>
 #include <AzCore/std/smart_ptr/make_shared.h>
@@ -122,10 +123,10 @@ namespace ChatPlay
         void OnStreamEvent(dyad::CDyadEvent&);
 
         // Processes the data returned by the Http request and stores the list of server hosts and ports in m_hostAndPortList
-        void ProcessHostList(const Aws::Utils::Json::JsonValue& jsonValue, Aws::Http::HttpResponseCode responseCode);
+        void ProcessHostList(const Aws::Utils::Json::JsonView& jsonValue, Aws::Http::HttpResponseCode responseCode);
 
         // Helper function for processing returned host list
-        bool PopulateHostInfoList(HostInfoList& hostInfoList, const Aws::Utils::Json::JsonValue& jsonValue, bool isWebsocket);
+        bool PopulateHostInfoList(HostInfoList& hostInfoList, const Aws::Utils::Json::JsonView& jsonValue, bool isWebsocket);
 
         // Construct the API URL for the server list request
         AZStd::string MakeServerListURL();
@@ -297,8 +298,8 @@ namespace ChatPlay
 
         void QueueCallback(WhisperResult result);
 
-        void ProcessHostList(const Aws::Utils::Json::JsonValue& jsonValue, Aws::Http::HttpResponseCode responseCode);
-        bool PopulateHostInfoList(HostInfoList& hostInfoList, const Aws::Utils::Json::JsonValue& jsonValue, bool isWebsocket);
+        void ProcessHostList(const Aws::Utils::Json::JsonView& jsonValue, Aws::Http::HttpResponseCode responseCode);
+        bool PopulateHostInfoList(HostInfoList& hostInfoList, const Aws::Utils::Json::JsonView& jsonValue, bool isWebsocket);
 
         // Reference back to ChatPlay instance
         AZStd::weak_ptr<ChatPlayImpl> m_chatPlay;
@@ -371,7 +372,7 @@ namespace ChatPlay
             // Prepare the API request for the list of IRC servers
             AZStd::string requestUrl = MakeServerListURL().c_str();
 
-            HttpRequestor::Callback cb = [=](const Aws::Utils::Json::JsonValue& jsonValue, Aws::Http::HttpResponseCode responseCode)
+            HttpRequestor::Callback cb = [=](const Aws::Utils::Json::JsonView& jsonValue, Aws::Http::HttpResponseCode responseCode)
             {
                 /* HTTP REQUEST MANAGER THREAD */
                 ProcessHostList(jsonValue, responseCode);
@@ -712,7 +713,7 @@ namespace ChatPlay
         }
     }
 
-    void ChatChannelImpl::ProcessHostList(const Aws::Utils::Json::JsonValue& jsonValue, Aws::Http::HttpResponseCode responseCode)
+    void ChatChannelImpl::ProcessHostList(const Aws::Utils::Json::JsonView& jsonValue, Aws::Http::HttpResponseCode responseCode)
     {
         /* HTTP REQUEST MANAGER THREAD */
 
@@ -750,7 +751,7 @@ namespace ChatPlay
         }
     }
 
-    bool ChatChannelImpl::PopulateHostInfoList(HostInfoList& hostInfoList, const Aws::Utils::Json::JsonValue& jsonValue, bool isWebsocket)
+    bool ChatChannelImpl::PopulateHostInfoList(HostInfoList& hostInfoList, const Aws::Utils::Json::JsonView& jsonValue, bool isWebsocket)
     {
         const char* jsonNodeName = isWebsocket ? "websockets_servers" : "servers";
         auto serverList = jsonValue.GetArray(jsonNodeName);
@@ -1238,7 +1239,7 @@ namespace ChatPlay
                 RegisterOptions();
             }
         }
-        return static_cast<bool>(channel);
+        return !m_channel.expired();    ///< Fix for bad logic when determining the return value of SetChannel.
     }
 
     void ChatPlayVoteImpl::Visit(const AZStd::function<void(VoteOption& option)>& visitor)
@@ -1438,7 +1439,7 @@ namespace ChatPlay
         // Note: shared_from_this() can't be used in the class constructor
         AZStd::shared_ptr<Whisperer> whisperer = shared_from_this();
 
-        HttpRequestor::Callback cb = [=](const Aws::Utils::Json::JsonValue& jsonValue, Aws::Http::HttpResponseCode responseCode) {
+        HttpRequestor::Callback cb = [=](const Aws::Utils::Json::JsonView& jsonValue, Aws::Http::HttpResponseCode responseCode) {
 
             /* HTTP REQUEST MANAGER THREAD */
             AZStd::shared_ptr<ChatPlayImpl> chatPlay = m_chatPlay.lock();
@@ -1713,7 +1714,7 @@ namespace ChatPlay
         m_queuedCallback = true;
     }
 
-    void Whisperer::ProcessHostList(const Aws::Utils::Json::JsonValue& jsonValue, Aws::Http::HttpResponseCode responseCode)
+    void Whisperer::ProcessHostList(const Aws::Utils::Json::JsonView& jsonValue, Aws::Http::HttpResponseCode responseCode)
     {
         /* HTTP REQUEST MANAGER THREAD */
 
@@ -1751,7 +1752,7 @@ namespace ChatPlay
         }
     }
 
-    bool Whisperer::PopulateHostInfoList(HostInfoList& hostInfoList, const Aws::Utils::Json::JsonValue& jsonValue, bool isWebsocket)
+    bool Whisperer::PopulateHostInfoList(HostInfoList& hostInfoList, const Aws::Utils::Json::JsonView& jsonValue, bool isWebsocket)
     {
         AZStd::shared_ptr<ChatPlayImpl> chatPlay = m_chatPlay.lock();
         if (!chatPlay)

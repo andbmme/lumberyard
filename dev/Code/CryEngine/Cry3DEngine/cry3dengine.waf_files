@@ -13,7 +13,7 @@
           "3dEngineLoad.cpp"
         ]
     },
-    "Cry3DEngine_volume_water_uber.cpp":
+    "Cry3DEngine_volume_water_uber.cpp": 
     {
         "Effects/VolumeObject":
         [
@@ -24,9 +24,9 @@
         ],
         "Water":
         [
-            "terrain_water_quad.cpp",
+            "Ocean.cpp",
             "WaterVolumeRenderNode.cpp",
-            "terrain_water.h",
+            "Ocean.h",
             "WaterVolumeRenderNode.h",
             "Environment/OceanEnvironmentBus.h"
         ]
@@ -81,9 +81,7 @@
             "ObjManDrawEntity.cpp",
             "ObjManShadows.cpp",
             "ObjManStreaming.cpp",
-            "ObjManCullQueue.cpp",
-            "ObjMan.h",
-            "ObjManCullQueue.h"
+            "ObjMan.h"
         ],
         "Objects Tree":
         [
@@ -115,38 +113,6 @@
             "VMath_SSE.hpp"
         ]
     },
-    "Cry3DEngine_terrain_uber.cpp":
-    {
-        "Terrain":
-        [
-            "terrain.cpp",
-            "terrain_compile.cpp",
-            "terrain_det_tex.cpp",
-            "terrain_hmap.cpp",
-            "terrain_edit.cpp",
-            "terrain.h",
-            "terrain_compile_info.h"
-        ],
-        "Terrain/Texture":
-        [
-            "Terrain/Texture/MacroTexture.h",
-            "Terrain/Texture/MacroTexture.cpp",
-            "Terrain/Texture/MacroTextureImporter.h",
-            "Terrain/Texture/MacroTextureImporter.cpp",
-            "Terrain/Texture/TexturePool.h",
-            "Terrain/Texture/TexturePool.cpp"
-        ],
-        "Terrain/Sector":
-        [
-            "terrain_node.cpp",
-            "terrain_node_compile.cpp",
-            "terrain_sector.cpp",
-            "terrain_sector_render.cpp",
-            "terrain_sector_tex.cpp",
-            "terrain_sector.h",
-            "terrain_sector_info.h"
-        ]
-    },
     "auto":
     {
         "Light Entity":
@@ -176,6 +142,7 @@
             "RenderMeshMerger.cpp",
             "RenderMeshUtils.cpp",
             "MergedMeshGeometry.h",
+            "MergedMeshJobExecutor.h",
             "RenderMeshMerger.h",
             "RenderMeshUtils.h"
         ],
@@ -188,13 +155,21 @@
             "SkyLightNishita.h",
             "SkyLightNishita_info.h",
             "TimeOfDay.h",
-	    "EnvironmentPreset.h",
-	    "EnvironmentPreset.cpp"
+            "EnvironmentPreset.h",
+            "EnvironmentPreset.cpp"
         ],
         "Vegetation":
         [
             "Vegetation.cpp",
-            "Vegetation.h"
+            "Vegetation.h",
+            "VegetationPoolManager.cpp",
+            "VegetationPoolManager.h",
+            "vegetation_compile_info.h"
+        ],
+        "TouchBending":
+        [
+            "TouchBendingCVegetationAgent.cpp",
+            "TouchBendingCVegetationAgent.h"
         ],
         "Shadows":
         [
@@ -239,9 +214,11 @@
             "BreezeGenerator.cpp",
             "3dEngine.cpp",
             "3dEngine.h",
+            "3dEngineOctreeCompile.cpp",
             "3DEngine_Jobs.cpp",
             "3DEngineLight.cpp",
             "3DEngineRender.cpp",
+            "TerrainRenderNode.h",
             "BreezeGenerator.h",
             "PhysCallbacks.h"
         ],
@@ -264,8 +241,8 @@
             "MeshCompiler/PVRTTriStrip/PVRTTriStrip.cpp",
             "MeshCompiler/VertexCacheOptimizer.cpp",
             "MeshCompiler/VertexCacheOptimizer.h",
-            "../../SDKs/TangentBasisComputation/mikkelsen/mikktspace.cpp",
-            "../../SDKs/TangentBasisComputation/mikkelsen/mikktspace.h"
+            "@3P:mikkt@/mikkelsen/mikktspace_stdafx.cpp",
+            "@3P:mikkt@/mikkelsen/mikktspace.h"
         ],
         "CVars":
         [
@@ -287,10 +264,6 @@
             "CGF/ChunkFileReaders.h",
             "CGF/ChunkFileWriters.cpp",
             "CGF/ChunkFileWriters.h"
-        ],
-        "Containers":
-        [
-            "Array2d.h"
         ],
         "Brush":
         [
@@ -343,18 +316,6 @@
         [
             "RopeRenderNode.cpp",
             "RopeRenderNode.h"
-        ],
-        "SVO":
-        [
-            "SVO/BlockPacker.cpp",
-            "SVO/SceneTree.cpp",
-            "SVO/SceneTreeManager.cpp",
-            "SVO/VoxelSegment.cpp",
-            "SVO/BlockPacker.h",
-            "SVO/SceneTree.h",
-            "SVO/SceneTreeManager.h",
-            "SVO/VoxelSegment.h",
-            "SVO/SceneTreeCVars.inl"
         ],
         "GeomCache":
         [

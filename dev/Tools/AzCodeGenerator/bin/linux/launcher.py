@@ -8,29 +8,10 @@
 # remove or modify any license notices. This file is distributed on an "AS IS" BASIS,
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #
-# Certain MSVC9.0 runtime environments may be incompatible with the one we intend to use
-# to invoke python, here we search for any paths that contain msvcr90.dll and remove them
-# to ensure they cannot be brought into our environment - failure to do this may result
-# in runtime library mismatches and/or CRT violations.
-# This has to be done before anything else
-# (see http://stackoverflow.com/questions/14552348/runtime-error-r6034-in-embedded-python-application)
+
 import os
 import sys
 import traceback, errno
-
-try:
-    # Prevent non-sxs version of msvcr90.dll from being loaded by path environment variable.
-    if 'path' in os.environ:
-        os.environ['path'] = os.pathsep.join(
-            path for path in os.environ['path'].split(os.pathsep)
-            if "msvcr90.dll" not in map(str.lower,
-                                        os.listdir(path) if os.path.isdir(path) else [])
-        )
-except Exception, e:
-    print 'error - {}'.format(e)
-    raise
-
-# ----------------------------------------------
 
 from az_code_gen.base import *
 from azcg_extension import *
@@ -38,14 +19,13 @@ import jinja_extensions
 import jinja2.exceptions
 import jinja2.utils
 
-
 # ---------------------------------------------------
 # Prepare the Jinja2 template engine.
 def load_jinja2_environment(script_paths):
     try:
         from jinja2 import Environment, FileSystemLoader, StrictUndefined, DebugUndefined
-    except Exception, e:
-        print 'base.py error loading jinja2 environment: {}'.format(e)
+    except Exception as e:
+        print('base.py error loading jinja2 environment: {}'.format(e))
         raise
 
     # wrap the FileSystemLoader so we can seed it with script paths and record what it requests
@@ -109,8 +89,12 @@ def exception_name(exc):
 
 def generate_output_writer(output_path, output_files):
     def output_writer(output_file_name, output_data, should_add_to_build):
-        output_file_path = os.path.join(output_path, output_file_name)
+        output_file_path = os.path.abspath(os.path.join(output_path, output_file_name))
         output_file_desc = None
+
+        if os.name is 'nt' and len(output_file_path) >= 260:
+            OutputError('Unable to write generated file output, path exceeds MAX_PATH limit of 260 characters. Please use a shorter root path.  Length: {} - Path: {}'.format(len(output_file_path), output_file_path))
+            return
         if output_file_path not in output_files:
             output_file_dir = os.path.dirname(output_file_path)
             if not os.path.isdir(output_file_dir):
@@ -126,13 +110,14 @@ def generate_output_writer(output_path, output_files):
         else:
             output_file_desc = output_files[output_file_path]
 
-        os.write(output_file_desc, output_data)
+        os.write(output_file_desc, str.encode(output_data))
 
         RegisterOutputFile(output_file_path, should_add_to_build)
     return output_writer
 
 
 # This is the function called by the codegen utility
+# @return boolean - True if the script execution was successful, False if execution failed
 # @param rootPath - The path to the source script, necessary to find the modules at runtime
 # @param script - The script to run, this will load the script as a python module
 # @param dataObject - The data for the script to operate on, this can be JSON/XML or some custom binary format.
@@ -153,18 +138,23 @@ def run_scripts(scripts, data_object, input_path, output_path, input_file):
         env.output_writer = generate_output_writer(output_path, output_files)
 
         script_array = scripts.split(',')
+        was_successful = True
         for script in script_array:
             drivers = env.get_drivers_for_script(script)
             for driver in drivers:
-                driver.execute(data_object, input_file)
+                result = driver.execute(data_object, input_file)
+                if not result:
+                    was_successful = False
+                    break
 
         # Close open file handles
-        for output_file_path, output_file_desc in output_files.iteritems():
+        for output_file_path, output_file_desc in output_files.items():
             os.close(output_file_desc)
 
-        OutputPrint("Done")
+        OutputPrint("Done - {}".format("Successful" if was_successful else "Failed"))
+        return was_successful
     except BaseException as ex:
-        tb_list = traceback.extract_tb(sys.exc_traceback)
+        tb_list = traceback.extract_tb(sys.exc_info()[2])
         for filename, lineno, name, line in tb_list:
             OutputError('{}({}): error {}: in {}: {}'.format(filename, lineno, exception_name(ex),
                                                              name, line))

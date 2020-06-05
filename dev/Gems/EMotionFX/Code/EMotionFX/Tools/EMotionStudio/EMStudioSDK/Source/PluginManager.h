@@ -13,11 +13,9 @@
 #ifndef __EMSTUDIO_PLUGINMANAGER_H
 #define __EMSTUDIO_PLUGINMANAGER_H
 
-// include MCore
-#include <MCore/Source/Array.h>
-#include <MCore/Source/UnicodeString.h>
 #include "EMStudioConfig.h"
 #include "EMStudioPlugin.h"
+#include <AzCore/PlatformIncl.h>
 
 namespace EMStudio
 {
@@ -30,13 +28,12 @@ namespace EMStudio
         MCORE_MEMORYOBJECTCATEGORY(PluginManager, MCore::MCORE_DEFAULT_ALIGNMENT, MEMCATEGORY_EMSTUDIOSDK)
 
     public:
+        typedef AZStd::vector<EMStudioPlugin*> PluginVector;
+
         PluginManager();
         ~PluginManager();
 
-        // overloaded
-        bool LoadPlugins(const char* filename);
         void RegisterPlugin(EMStudioPlugin* plugin);
-        void LoadPluginsFromDirectory(const char* directory);
         EMStudioPlugin* CreateWindowOfType(const char* pluginType, const char* objectName = nullptr);
         uint32 FindPluginByTypeString(const char* pluginType) const;
         EMStudioPlugin* GetActivePluginByTypeString(const char* pluginType) const;
@@ -48,7 +45,7 @@ namespace EMStudio
 
         MCORE_INLINE uint32 GetNumActivePlugins() const                     { return static_cast<uint32>(mActivePlugins.size()); }
         MCORE_INLINE EMStudioPlugin* GetActivePlugin(const uint32 index)    { return mActivePlugins[index]; }
-        MCORE_INLINE const AZStd::vector<EMStudioPlugin*> GetActivePlugins() { return mActivePlugins; }
+        MCORE_INLINE const PluginVector& GetActivePlugins() { return mActivePlugins; }
 
         uint32 GetNumActivePluginsOfType(const char* pluginType) const;
         uint32 GetNumActivePluginsOfType(uint32 classID) const;
@@ -56,22 +53,12 @@ namespace EMStudio
 
         QString GenerateObjectName() const;
 
-        void SortActivePlugins();
-
     private:
-        typedef AZStd::vector<EMStudioPlugin*> PluginVector;
-
         PluginVector mPlugins;
-
-        #if defined(MCORE_PLATFORM_WINDOWS)
-        AZStd::vector<HMODULE>       mPluginLibs;
-        #else
-        AZStd::vector<void*>         mPluginLibs;
-        #endif
 
         PluginVector mActivePlugins;
 
-        void UnloadPluginLibs();
+        void UnloadPlugins();
     };
 }   // namespace EMStudio
 

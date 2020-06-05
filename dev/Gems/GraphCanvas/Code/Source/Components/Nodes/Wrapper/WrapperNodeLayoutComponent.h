@@ -16,14 +16,16 @@
 
 #include <AzCore/Component/Component.h>
 #include <AzCore/Component/EntityBus.h>
+#include <AzCore/std/containers/set.h>
 
 #include <Components/Nodes/NodeLayoutComponent.h>
 #include <GraphCanvas/Components/Nodes/NodeLayoutBus.h>
-#include <GraphCanvas/Components/Nodes/Wrapper/WrapperNodeLayoutBus.h>
+#include <GraphCanvas/Components/Nodes/Wrapper/WrapperNodeBus.h>
 #include <GraphCanvas/Components/StyleBus.h>
-#include <Styling/StyleHelper.h>
+#include <GraphCanvas/Styling/StyleHelper.h>
 
 class QGraphicsGridLayout;
+class QMimeData;
 
 namespace GraphCanvas
 {
@@ -35,6 +37,7 @@ namespace GraphCanvas
         , public NodeNotificationBus::MultiHandler
         , public WrapperNodeRequestBus::Handler
         , public StyleNotificationBus::Handler
+        , public SceneMemberNotificationBus::MultiHandler
     {
     private:
         
@@ -168,15 +171,21 @@ namespace GraphCanvas
 
         void WrapNode(const AZ::EntityId& nodeId, const WrappedNodeConfiguration& nodeConfiguration) override;
         void UnwrapNode(const AZ::EntityId& nodeId) override;
+
+        void SetWrapperType(const AZ::Crc32& wrapperType) override;
+        AZ::Crc32 GetWrapperType() const override;
         ////
 
         // NodeNotificationBus
         void OnNodeActivated() override;
 
-        void OnNodeAboutToSerialize(SceneSerialization& sceneSerialization) override;
-        void OnNodeDeserialized(const SceneSerialization& sceneSerialization) override;
-
         void OnAddedToScene(const AZ::EntityId& sceneId) override;
+        ////
+
+        // SceneMemberNotification
+        void OnSceneMemberAboutToSerialize(GraphSerialization& sceneSerialization) override;
+        void OnSceneMemberDeserialized(const AZ::EntityId& graphId, const GraphSerialization& sceneSerialization) override;
+
         void OnRemovedFromScene(const AZ::EntityId& sceneId) override;
         ////
 
@@ -199,6 +208,8 @@ namespace GraphCanvas
         void RefreshDisplay();
 
         Styling::StyleHelper m_styleHelper;
+
+        AZ::Crc32                   m_wrapperType;
 
         AZ::u32                     m_elementCounter;
         WrappedNodeConfigurationMap m_wrappedNodeConfigurations;

@@ -14,13 +14,14 @@ from botocore.exceptions import ClientError
 import datetime
 import json
 from resource_manager.test import lmbr_aws_test_support
+from resource_manager.test import base_stack_test
 from requests_aws4auth import AWS4Auth
 import requests
 import time
 
 REGION='us-east-1'
 
-class IntegrationTest_CloudGemInGameSurvey_EndToEnd(lmbr_aws_test_support.lmbr_aws_TestCase):
+class IntegrationTest_CloudGemInGameSurvey_EndToEnd(base_stack_test.BaseStackTestCase):
 
     # Fails in cleanup to keep the deployment stack intact for the next test rerun.
     FAST_TEST_RERUN = False
@@ -72,25 +73,18 @@ class IntegrationTest_CloudGemInGameSurvey_EndToEnd(lmbr_aws_test_support.lmbr_a
         super(IntegrationTest_CloudGemInGameSurvey_EndToEnd, self).__init__(*args, **kwargs)
 
     def setUp(self):
-        self.prepare_test_envionment("cloud_gem_in_game_survey_test")
+        self.prepare_test_environment("cloud_gem_in_game_survey_test")
+        self.register_for_shared_resources()
+        self.enable_shared_gem(self.GEM_NAME)
 
     def test_end_to_end(self):
         self.run_all_tests()
 
     def __000_create_stacks(self):
-        self.enable_real_gem(self.GEM_NAME)
-
-        if not self.__has_project_stack():
-            self.lmbr_aws('project', 'create', '--stack-name', self.TEST_PROJECT_STACK_NAME, '--confirm-aws-usage', '--confirm-security-change', '--region', lmbr_aws_test_support.REGION)
-        else:
-            print 'Reusing existing project stack {}'.format(self.get_project_stack_arn())
-
-        if not self.__has_deployment_stack():
-            self.lmbr_aws('deployment', 'create', '--deployment', self.TEST_DEPLOYMENT_NAME, '--confirm-aws-usage', '--confirm-security-change')
-        else:
-            print 'Reusing existing deployment stack.'
-            if self.UPLOAD_LAMBDA_CODE_FOR_EXISTING_STACK:
-                self.lmbr_aws('function', 'upload-code', '--resource-group', 'CloudGemInGameSurvey')
+        new_proj_created, new_deploy_created = self.setup_base_stack()
+            
+        if not new_deploy_created and self.UPLOAD_LAMBDA_CODE_FOR_EXISTING_STACK:
+            self.lmbr_aws('function', 'upload-code', '--resource-group', self.GEM_NAME, '-d', self.TEST_DEPLOYMENT_NAME)                
 
     def __create_survey(self, survey_data):
         survey_info = {}
@@ -118,57 +112,57 @@ class IntegrationTest_CloudGemInGameSurvey_EndToEnd(lmbr_aws_test_support.lmbr_a
     def __010_test_get_survey_metadata_sort_desc(self):
         response = self.__service_get('/survey_metadata', admin_auth=True)
         survey_metadata_list = response['metadata_list']
-        self.assertEquals(len(survey_metadata_list), 2)
-        self.assertEquals(survey_metadata_list[0]['survey_name'], self.SURVEY2['survey_name'])
-        self.assertEquals(survey_metadata_list[0]['num_active_questions'], len(self.SURVEY2['questions']))
-        self.assertEquals(survey_metadata_list[0]['published'], False)
-        self.assertEquals(survey_metadata_list[0]['num_responses'], 0)
+        self.assertEqual(len(survey_metadata_list), 2)
+        self.assertEqual(survey_metadata_list[0]['survey_name'], self.SURVEY2['survey_name'])
+        self.assertEqual(survey_metadata_list[0]['num_active_questions'], len(self.SURVEY2['questions']))
+        self.assertEqual(survey_metadata_list[0]['published'], False)
+        self.assertEqual(survey_metadata_list[0]['num_responses'], 0)
 
-        self.assertEquals(survey_metadata_list[1]['survey_name'], self.SURVEY1['survey_name'])
-        self.assertEquals(survey_metadata_list[0]['num_active_questions'], len(self.SURVEY1['questions']))
-        self.assertEquals(survey_metadata_list[1]['published'], False)
-        self.assertEquals(survey_metadata_list[1]['num_responses'], 0)
+        self.assertEqual(survey_metadata_list[1]['survey_name'], self.SURVEY1['survey_name'])
+        self.assertEqual(survey_metadata_list[0]['num_active_questions'], len(self.SURVEY1['questions']))
+        self.assertEqual(survey_metadata_list[1]['published'], False)
+        self.assertEqual(survey_metadata_list[1]['num_responses'], 0)
 
     def __015_test_get_survey_metadata_sort_asc(self):
         response = self.__service_get('/survey_metadata?sort=ASC', admin_auth=True)
         survey_metadata_list = response['metadata_list']
-        self.assertEquals(len(survey_metadata_list), 2)
-        self.assertEquals(survey_metadata_list[0]['survey_name'], self.SURVEY1['survey_name'])
-        self.assertEquals(survey_metadata_list[0]['num_active_questions'], len(self.SURVEY1['questions']))
-        self.assertEquals(survey_metadata_list[0]['published'], False)
-        self.assertEquals(survey_metadata_list[0]['num_responses'], 0)
+        self.assertEqual(len(survey_metadata_list), 2)
+        self.assertEqual(survey_metadata_list[0]['survey_name'], self.SURVEY1['survey_name'])
+        self.assertEqual(survey_metadata_list[0]['num_active_questions'], len(self.SURVEY1['questions']))
+        self.assertEqual(survey_metadata_list[0]['published'], False)
+        self.assertEqual(survey_metadata_list[0]['num_responses'], 0)
 
-        self.assertEquals(survey_metadata_list[1]['survey_name'], self.SURVEY2['survey_name'])
-        self.assertEquals(survey_metadata_list[0]['num_active_questions'], len(self.SURVEY2['questions']))
-        self.assertEquals(survey_metadata_list[1]['published'], False)
-        self.assertEquals(survey_metadata_list[1]['num_responses'], 0)
+        self.assertEqual(survey_metadata_list[1]['survey_name'], self.SURVEY2['survey_name'])
+        self.assertEqual(survey_metadata_list[0]['num_active_questions'], len(self.SURVEY2['questions']))
+        self.assertEqual(survey_metadata_list[1]['published'], False)
+        self.assertEqual(survey_metadata_list[1]['num_responses'], 0)
 
     def __020_test_admin_get_survey1(self):
         response = self.__service_get('/surveys/{}'.format(self.context['survey1']['survey_id']), admin_auth=True)
-        self.assertEquals(response['survey_name'], self.SURVEY1['survey_name'])
-        self.assertEquals(len(response['questions']), len(self.SURVEY1['questions']))
+        self.assertEqual(response['survey_name'], self.SURVEY1['survey_name'])
+        self.assertEqual(len(response['questions']), len(self.SURVEY1['questions']))
         for i, question in enumerate(response['questions']):
-            self.assertEquals(question['enabled'], True)
+            self.assertEqual(question['enabled'], True)
             del question['enabled']
-            self.assertEquals(question['question_id'], self.context['survey1']['question_ids'][i])
+            self.assertEqual(question['question_id'], self.context['survey1']['question_ids'][i])
             del question['question_id']
-        self.assertEquals(response['questions'], self.SURVEY1['questions'])
+        self.assertEqual(response['questions'], self.SURVEY1['questions'])
 
     def __025_test_admin_get_survey2(self):
         response = self.__service_get('/surveys/{}'.format(self.context['survey2']['survey_id']), admin_auth=True)
-        self.assertEquals(response['survey_name'], self.SURVEY2['survey_name'])
-        self.assertEquals(len(response['questions']), len(self.SURVEY2['questions']))
+        self.assertEqual(response['survey_name'], self.SURVEY2['survey_name'])
+        self.assertEqual(len(response['questions']), len(self.SURVEY2['questions']))
         for i, question in enumerate(response['questions']):
-            self.assertEquals(question['enabled'], True)
+            self.assertEqual(question['enabled'], True)
             del question['enabled']
-            self.assertEquals(question['question_id'], self.context['survey2']['question_ids'][i])
+            self.assertEqual(question['question_id'], self.context['survey2']['question_ids'][i])
             del question['question_id']
-        self.assertEquals(response['questions'], self.SURVEY2['questions'])
+        self.assertEqual(response['questions'], self.SURVEY2['questions'])
 
     def __030_test_get_active_survey_metadata_return_nothing(self):
         response = self.__service_get('/active/survey_metadata', admin_auth=True)
         survey_metadata_list = response['metadata_list']
-        self.assertEquals(len(survey_metadata_list), 0)
+        self.assertEqual(len(survey_metadata_list), 0)
 
     def __035_test_get_active_survey1_forbidden(self):
         self.__service_get('/active/surveys/{}'.format(self.context['survey1']['survey_id']), admin_auth=True, expected_status_code=403)
@@ -183,44 +177,44 @@ class IntegrationTest_CloudGemInGameSurvey_EndToEnd(lmbr_aws_test_support.lmbr_a
     def __050_test_get_active_survey_metadata_sort_desc(self):
         response = self.__service_get('/active/survey_metadata', admin_auth=True)
         survey_metadata_list = response['metadata_list']
-        self.assertEquals(len(survey_metadata_list), 2)
-        self.assertEquals(survey_metadata_list[0]['survey_name'], self.SURVEY2['survey_name'])
-        self.assertEquals(survey_metadata_list[0]['num_active_questions'], len(self.SURVEY2['questions']))
-        self.assertEquals(survey_metadata_list[0]['num_responses'], 0)
+        self.assertEqual(len(survey_metadata_list), 2)
+        self.assertEqual(survey_metadata_list[0]['survey_name'], self.SURVEY2['survey_name'])
+        self.assertEqual(survey_metadata_list[0]['num_active_questions'], len(self.SURVEY2['questions']))
+        self.assertEqual(survey_metadata_list[0]['num_responses'], 0)
 
-        self.assertEquals(survey_metadata_list[1]['survey_name'], self.SURVEY1['survey_name'])
-        self.assertEquals(survey_metadata_list[0]['num_active_questions'], len(self.SURVEY1['questions']))
-        self.assertEquals(survey_metadata_list[1]['num_responses'], 0)
+        self.assertEqual(survey_metadata_list[1]['survey_name'], self.SURVEY1['survey_name'])
+        self.assertEqual(survey_metadata_list[0]['num_active_questions'], len(self.SURVEY1['questions']))
+        self.assertEqual(survey_metadata_list[1]['num_responses'], 0)
 
     def __055_test_get_active_survey_metadata_sort_asc(self):
         response = self.__service_get('/active/survey_metadata?sort=ASC', admin_auth=True)
         survey_metadata_list = response['metadata_list']
-        self.assertEquals(len(survey_metadata_list), 2)
-        self.assertEquals(survey_metadata_list[0]['survey_name'], self.SURVEY1['survey_name'])
-        self.assertEquals(survey_metadata_list[0]['num_active_questions'], len(self.SURVEY1['questions']))
-        self.assertEquals(survey_metadata_list[0]['num_responses'], 0)
+        self.assertEqual(len(survey_metadata_list), 2)
+        self.assertEqual(survey_metadata_list[0]['survey_name'], self.SURVEY1['survey_name'])
+        self.assertEqual(survey_metadata_list[0]['num_active_questions'], len(self.SURVEY1['questions']))
+        self.assertEqual(survey_metadata_list[0]['num_responses'], 0)
 
-        self.assertEquals(survey_metadata_list[1]['survey_name'], self.SURVEY2['survey_name'])
-        self.assertEquals(survey_metadata_list[0]['num_active_questions'], len(self.SURVEY2['questions']))
-        self.assertEquals(survey_metadata_list[1]['num_responses'], 0)
+        self.assertEqual(survey_metadata_list[1]['survey_name'], self.SURVEY2['survey_name'])
+        self.assertEqual(survey_metadata_list[0]['num_active_questions'], len(self.SURVEY2['questions']))
+        self.assertEqual(survey_metadata_list[1]['num_responses'], 0)
 
     def __060_test_get_active_survey1(self):
         response = self.__service_get('/active/surveys/{}'.format(self.context['survey1']['survey_id']), admin_auth=True)
-        self.assertEquals(response['survey_name'], self.SURVEY1['survey_name'])
-        self.assertEquals(len(response['questions']), len(self.SURVEY1['questions']))
+        self.assertEqual(response['survey_name'], self.SURVEY1['survey_name'])
+        self.assertEqual(len(response['questions']), len(self.SURVEY1['questions']))
         for i, question in enumerate(response['questions']):
-            self.assertEquals(question['question_id'], self.context['survey1']['question_ids'][i])
+            self.assertEqual(question['question_id'], self.context['survey1']['question_ids'][i])
             del question['question_id']
-        self.assertEquals(response['questions'], self.SURVEY1['questions'])
+        self.assertEqual(response['questions'], self.SURVEY1['questions'])
 
     def __065_test_get_active_survey2(self):
         response = self.__service_get('/active/surveys/{}'.format(self.context['survey2']['survey_id']), admin_auth=True)
-        self.assertEquals(response['survey_name'], self.SURVEY2['survey_name'])
-        self.assertEquals(len(response['questions']), len(self.SURVEY2['questions']))
+        self.assertEqual(response['survey_name'], self.SURVEY2['survey_name'])
+        self.assertEqual(len(response['questions']), len(self.SURVEY2['questions']))
         for i, question in enumerate(response['questions']):
-            self.assertEquals(question['question_id'], self.context['survey2']['question_ids'][i])
+            self.assertEqual(question['question_id'], self.context['survey2']['question_ids'][i])
             del question['question_id']
-        self.assertEquals(response['questions'], self.SURVEY2['questions'])
+        self.assertEqual(response['questions'], self.SURVEY2['questions'])
 
     def __070_disable_survey1_question1(self):
         self.__service_put('/surveys/{}/questions/{}/status'.format(self.context['survey1']['survey_id'], self.context['survey1']['question_ids'][0]), {"enabled": False}, admin_auth=True)
@@ -228,23 +222,22 @@ class IntegrationTest_CloudGemInGameSurvey_EndToEnd(lmbr_aws_test_support.lmbr_a
     def __075_test_get_active_survey1_metadata_1_question_left(self):
         response = self.__service_get('/active/survey_metadata?sort=ASC', admin_auth=True)
         survey_metadata_list = response['metadata_list']
-        self.assertEquals(len(survey_metadata_list), 2)
-        self.assertEquals(survey_metadata_list[0]['survey_name'], self.SURVEY1['survey_name'])
-        self.assertEquals(survey_metadata_list[0]['num_active_questions'], 1)
+        self.assertEqual(len(survey_metadata_list), 2)
+        self.assertEqual(survey_metadata_list[0]['survey_name'], self.SURVEY1['survey_name'])
+        self.assertEqual(survey_metadata_list[0]['num_active_questions'], 1)
 
     def __080_test_get_active_survey1_1_question_left(self):
         response = self.__service_get('/active/surveys/{}'.format(self.context['survey1']['survey_id']), admin_auth=True)
-        self.assertEquals(response['survey_name'], self.SURVEY1['survey_name'])
-        self.assertEquals(len(response['questions']), 1)
+        self.assertEqual(response['survey_name'], self.SURVEY1['survey_name'])
+        self.assertEqual(len(response['questions']), 1)
         del response['questions'][0]['question_id']
-        self.assertEquals(response['questions'][0], self.SURVEY1['questions'][1])
+        self.assertEqual(response['questions'][0], self.SURVEY1['questions'][1])
 
     def __999_cleanup(self):
         if self.FAST_TEST_RERUN:
-            print 'Tests passed enough to reach cleanup, failing in cleanup to prevent stack deletion since FAST_TEST_RERUN is true.'
+            print('Tests passed enough to reach cleanup, failing in cleanup to prevent stack deletion since FAST_TEST_RERUN is true.')
             self.assertFalse(self.FAST_TEST_RERUN)
-        self.lmbr_aws('deployment', 'delete', '--deployment', self.TEST_DEPLOYMENT_NAME, '--confirm-resource-deletion')
-        self.lmbr_aws('project', 'delete', '--confirm-resource-deletion')
+        self.teardown_base_stack()
 
     def __get_service_url(self, path):
         base_url = self.get_stack_output(self.get_resource_group_stack_arn(self.TEST_DEPLOYMENT_NAME, self.GEM_NAME), 'ServiceUrl')
@@ -296,7 +289,7 @@ class IntegrationTest_CloudGemInGameSurvey_EndToEnd(lmbr_aws_test_support.lmbr_a
 
         response = requests.request(method, url, auth=auth, json=body, params=params)
 
-        self.assertEquals(response.status_code, expected_status_code,
+        self.assertEqual(response.status_code, expected_status_code,
             'Expected status code {} but got {}, response: {}'.format(expected_status_code, response.status_code, response.text))
 
         if response.status_code == 200:
@@ -305,12 +298,6 @@ class IntegrationTest_CloudGemInGameSurvey_EndToEnd(lmbr_aws_test_support.lmbr_a
             return result
         else:
             return response.text
-
-    def __has_project_stack(self):
-        return bool(self.get_project_stack_arn())
-
-    def __has_deployment_stack(self):
-        return bool(self.get_deployment_stack_arn(self.TEST_DEPLOYMENT_NAME))
 
     def __get_aws_credentials(self, identity_id, auth_tokens):
         logins = {self.context['user_pool_provider_id']: auth_tokens['IdToken']}

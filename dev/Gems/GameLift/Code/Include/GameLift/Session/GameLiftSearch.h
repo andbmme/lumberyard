@@ -11,16 +11,11 @@
 */
 #pragma once
 
-#if !defined(BUILD_GAMELIFT_SERVER) && defined(BUILD_GAMELIFT_CLIENT)
+#if defined(BUILD_GAMELIFT_CLIENT)
 
 #include <GridMate/Session/Session.h>
 #include <GameLift/Session/GameLiftSessionDefs.h>
-
-#ifdef GetMessage
-#undef GetMessage
-#endif
-
-#include <aws/gamelift/GameLiftClient.h>
+#include <GameLift/Session/GameLiftRequestInterface.h>
 
 namespace GridMate
 {
@@ -28,10 +23,11 @@ namespace GridMate
 
     /*!
     * GameLift search object, created by session service when search is performed.
-    * So far returns list of available instances for a given fleet.
+    * So far returns list of available instances for a given fleet or fleet associated with given queue name.
     */
     class GameLiftSearch
         : public GridSearch
+        , public GameLiftRequestInterface
     {
         friend class GameLiftClientService;
 
@@ -40,23 +36,31 @@ namespace GridMate
         GM_CLASS_ALLOCATOR(GameLiftSearch);
 
         // GridSearch interface
-        unsigned int        GetNumResults() const override;
-        const SearchInfo*   GetResult(unsigned int index) const override;
-        void                AbortSearch();
+        unsigned int GetNumResults() const override;
+        const SearchInfo* GetResult(unsigned int index) const override;
+        void AbortSearch() override;
 
     protected:
-        GameLiftSearch(GameLiftClientService* service, const GameLiftSearchParams& searchParams);
-        bool Initialize();
+        // GridSearch interface
+        bool Initialize() override;
+        void Update() override;
+        GameLiftSearch(GameLiftClientService* service, const AZStd::shared_ptr<GameLiftRequestInterfaceContext> context);
+
         void ProcessGameSessionResult(const Aws::GameLift::Model::GameSession& gameSession);
 
-        void Update() override;
-        void SearchDone();
+        // Call when request is finished.
+        virtual void SearchDone();
+
+        void StartDescribeGameSessionQueue();
+        void WaitDescribeGameSessionQueue();
+        void StartSearchGameSession();
+        void WaitForSearchGameSession();
 
         Aws::GameLift::Model::SearchGameSessionsOutcomeCallable m_searchGameSessionsOutcomeCallable;
+        Aws::GameLift::Model::DescribeGameSessionQueuesOutcomeCallable m_describeGameSessionQueueOutcomeCallable;
 
         vector<GameLiftSearchInfo> m_results;
-        GameLiftSearchParams m_searchParams;
-        GameLiftClientService* m_clientService;
+
     };
 } // namespace GridMate
 

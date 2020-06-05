@@ -11,9 +11,6 @@
 */
 // Original file Copyright Crytek GMBH or its affiliates, used under license.
 
-// Description : implementation of the Rendering RenderElements pipeline.
-
-
 #include "StdAfx.h"
 #include "DriverD3D.h"
 #include "../Common/RendElements/Stars.h"
@@ -26,6 +23,7 @@
 #include "D3DGPUParticleEngine.h"
 #include "../Common/Renderer.h"
 #include "../Common/Textures/TextureManager.h"
+
 
 #pragma warning(disable: 4244)
 
@@ -515,8 +513,8 @@ bool CREHDRSky::mfDraw(CShader* ef, SShaderPass* sfm)
         pSkyDomeMesh->CheckUpdate(0);
         size_t vbOffset(0);
         size_t ibOffset(0);
-        D3DBuffer* pVB = rd->m_DevBufMan.GetD3D(pSkyDomeMesh->_GetVBStream(VSF_GENERAL), &vbOffset);
-        D3DBuffer* pIB = rd->m_DevBufMan.GetD3D(pSkyDomeMesh->_GetIBStream(), &ibOffset);
+        D3DBuffer* pVB = rd->m_DevBufMan.GetD3D(pSkyDomeMesh->GetVBStream(VSF_GENERAL), &vbOffset);
+        D3DBuffer* pIB = rd->m_DevBufMan.GetD3D(pSkyDomeMesh->GetIBStream(), &ibOffset);
         assert(pVB);
         assert(pIB);
         if (!pVB || !pIB)
@@ -530,7 +528,7 @@ bool CREHDRSky::mfDraw(CShader* ef, SShaderPass* sfm)
         rd->GetPerInstanceConstantBufferPool().SetConstantBuffer(rd->m_RP.m_RIs[0][0]);
 
         // draw sky dome
-        rd->FX_DrawIndexedPrimitive(eptTriangleList, 0, 0, pSkyDomeMesh->_GetNumVerts(), 0, pSkyDomeMesh->_GetNumInds());
+        rd->FX_DrawIndexedPrimitive(eptTriangleList, 0, 0, pSkyDomeMesh->GetNumVerts(), 0, pSkyDomeMesh->GetNumInds());
     }
 
     ef->FXEndPass();
@@ -602,7 +600,7 @@ void CStars::Render(bool bUseMoon)
             //rd->FX_SetVStream(0, pVB, offset, m_VertexSize[m_pStarVB->m_vertexformat]);
             CRenderMesh* pStarMesh = static_cast<CRenderMesh*>(m_pStarMesh.get());
             pStarMesh->CheckUpdate(0);
-            D3DBuffer* pVB = rd->m_DevBufMan.GetD3D(pStarMesh->_GetVBStream(VSF_GENERAL), &offset);
+            D3DBuffer* pVB = rd->m_DevBufMan.GetD3D(pStarMesh->GetVBStream(VSF_GENERAL), &offset);
             rd->FX_SetVStream(0, pVB, offset, pStarMesh->GetStreamStride(VSF_GENERAL));
             rd->FX_SetIStream(0, 0, Index16);
 
@@ -1048,8 +1046,8 @@ bool CREVolumeObject::mfDraw(CShader* ef, SShaderPass* sfm)
         pHullMesh->CheckUpdate(0);
         size_t vbOffset(0);
         size_t ibOffset(0);
-        D3DBuffer* pVB = rd->m_DevBufMan.GetD3D(pHullMesh->_GetVBStream(VSF_GENERAL), &vbOffset);
-        D3DBuffer* pIB = rd->m_DevBufMan.GetD3D(pHullMesh->_GetIBStream(), &ibOffset);
+        D3DBuffer* pVB = rd->m_DevBufMan.GetD3D(pHullMesh->GetVBStream(VSF_GENERAL), &vbOffset);
+        D3DBuffer* pIB = rd->m_DevBufMan.GetD3D(pHullMesh->GetIBStream(), &ibOffset);
         assert(pVB);
         assert(pIB);
         if (!pVB || !pIB)
@@ -1063,7 +1061,7 @@ bool CREVolumeObject::mfDraw(CShader* ef, SShaderPass* sfm)
 
         rd->GetPerInstanceConstantBufferPool().SetConstantBuffer(rd->m_RP.m_RIs[0][0]);
 
-        rd->FX_DrawIndexedPrimitive(pHullMesh->_GetPrimitiveType(), 0, 0, pHullMesh->_GetNumVerts(), 0, pHullMesh->_GetNumInds());
+        rd->FX_DrawIndexedPrimitive(pHullMesh->GetPrimitiveType(), 0, 0, pHullMesh->GetNumVerts(), 0, pHullMesh->GetNumInds());
     }
 
     ef->FXEndPass();
@@ -1944,8 +1942,8 @@ void CRenderMesh::DrawImmediately()
 
     size_t vbOffset(0);
     size_t ibOffset(0);
-    D3DBuffer* pVB = rd->m_DevBufMan.GetD3D(_GetVBStream(VSF_GENERAL), &vbOffset);
-    D3DBuffer* pIB = rd->m_DevBufMan.GetD3D(_GetIBStream(), &ibOffset);
+    D3DBuffer* pVB = rd->m_DevBufMan.GetD3D(GetVBStream(VSF_GENERAL), &vbOffset);
+    D3DBuffer* pIB = rd->m_DevBufMan.GetD3D(GetIBStream(), &ibOffset);
     assert(pVB);
     assert(pIB);
 
@@ -1959,7 +1957,7 @@ void CRenderMesh::DrawImmediately()
     hr = rd->FX_SetIStream(pIB, ibOffset, (sizeof(vtx_idx) == 2 ? Index16 : Index32));
 
     // draw indexed mesh
-    rd->FX_DrawIndexedPrimitive(_GetPrimitiveType(), 0, 0, _GetNumVerts(), 0, _GetNumInds());
+    rd->FX_DrawIndexedPrimitive(GetPrimitiveType(), 0, 0, GetNumVerts(), 0, GetNumInds());
 }
 
 //=========================================================================================
@@ -2098,7 +2096,9 @@ bool CREParticleGPU::mfPreDraw(SShaderPass* sl)
 
 bool CREParticleGPU::mfDraw(CShader* ef, SShaderPass* sl)
 {
-    if (gRenDev->GetGPUParticleEngine() == 0)
+    PROFILE_LABEL_SCOPE("PARTICLES");
+
+    if (!m_instance || !gRenDev->GetGPUParticleEngine())
     {
         return false;
     }
@@ -2125,6 +2125,18 @@ bool CREHDRProcess::mfDraw(CShader* ef, SShaderPass* sfm)
 
 bool CREBeam::mfDraw(CShader* ef, SShaderPass* sl)
 {
+#if defined(AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DRenderRE_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DRenderRE_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DRenderRE_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#else
     CD3D9Renderer* rd = gcpRendD3D;
     int nThreadID = rd->m_RP.m_nProcessThreadID;
 
@@ -2404,6 +2416,7 @@ bool CREBeam::mfDraw(CShader* ef, SShaderPass* sl)
         }
     }
     return true;
+#endif
 }
 
 bool CREGameEffect::mfDraw(CShader* ef, SShaderPass* sfm)
@@ -2465,7 +2478,20 @@ bool CREGeomCache::mfDraw(CShader* ef, SShaderPass* sfm)
     const CCamera& camera = bIsShadowPass ? rRP.m_ShadowInfo.m_pCurShadowFrustum->FrustumPlanes[rRP.m_ShadowInfo.m_nOmniLightSide] : gRenDev->GetCamera();
 
     Matrix44A prevMatrix;
+
+#if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
+    // render to texture does not currently support motion blur in the render target
+    if (threadInfo.m_PersFlags & RBPF_RENDER_SCENE_TO_TEXTURE)
+    {
+        prevMatrix = rRP.m_pCurObject->m_II.m_Matrix;
+    }
+    else
+    {
+        CMotionBlur::GetPrevObjToWorldMat(rRP.m_pCurObject, prevMatrix);
+    }
+#else
     CMotionBlur::GetPrevObjToWorldMat(rRP.m_pCurObject, prevMatrix);
+#endif // if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
 
     const uint64 oldFlagsShader_RT = rRP.m_FlagsShader_RT;
     uint64 flagsShader_RT = rRP.m_FlagsShader_RT;
@@ -2496,7 +2522,7 @@ bool CREGeomCache::mfDraw(CShader* ef, SShaderPass* sfm)
 
             pRenderMesh->BindStreamsToRenderPipeline();
 
-            rRP.m_RendNumVerts = pRenderMesh->_GetNumVerts();
+            rRP.m_RendNumVerts = pRenderMesh->GetNumVerts();
 
             if (ef->m_HWTechniques.Num() && pRenderMesh->CanRender())
             {
@@ -2601,7 +2627,7 @@ bool CREGeomCache::mfDraw(CShader* ef, SShaderPass* sfm)
                                 bResetVertexDecl = false;
                             }
 
-                            pRenderer->FX_DrawIndexedMesh(pRenderMesh->_GetPrimitiveType());
+                            pRenderer->FX_DrawIndexedMesh(pRenderMesh->GetPrimitiveType());
                         }
                         else
                         {
@@ -2642,3 +2668,5 @@ bool CREGeomCache::mfDraw(CShader* ef, SShaderPass* sfm)
 }
 
 #endif
+
+

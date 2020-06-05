@@ -35,6 +35,7 @@ namespace AzFramework
 
             AZ::Vector2 m_values = AZ::Vector2::CreateZero();
             AZ::Vector2 m_deltas = AZ::Vector2::CreateZero();
+            AZ::Vector2 m_preDeadZoneValues = AZ::Vector2::CreateZero();
         };
 
         ////////////////////////////////////////////////////////////////////////////////////////////
@@ -80,13 +81,20 @@ namespace AzFramework
         void ResetState() override;
 
         ////////////////////////////////////////////////////////////////////////////////////////////
+        //! \ref AzFramework::InputChannelRequests::SimulateRawInput2D
+        void SimulateRawInput2D(float rawValueX, float rawValueY) override;
+
+        ////////////////////////////////////////////////////////////////////////////////////////////
         //! Process a raw input event, that will in turn update the channel's state based on whether
         //! it's active/engaged or inactive/idle, broadcasting an input event if the channel is left
         //! in a non-idle state. This function (or InputChannel::UpdateState) should only be called
         //! a max of once per channel per frame from InputDeviceRequests::TickInputDevice to ensure
         //! that input channels broadcast no more than one event each frame (and at the same time).
-        //! \param[in] rawValues The raw axis values to process
-        void ProcessRawInputEvent(const AZ::Vector2& rawValues);
+        //! If rawValuesPreDeadZone is null, we'll assume it is the same as rawValuesPostDeadZone.
+        //! \param[in] rawValuesPostDeadZone Raw values after applying a platform-specific deadzone
+        //! \param[in] rawValuesPreDeadZone Raw values before applying a platform-specific deadzone
+        void ProcessRawInputEvent(const AZ::Vector2& rawValuesPostDeadZone,
+                                  const AZ::Vector2* rawValuesPreDeadZone = nullptr);
 
     private:
         ////////////////////////////////////////////////////////////////////////////////////////////

@@ -14,7 +14,7 @@
 // Description : Implementation of simple raw wave file
 
 
-#include "stdafx.h"
+#include "StdAfx.h"
 
 #include "WaveFile.h"
 //#include "AtgUtil.h"
@@ -22,7 +22,6 @@
 
 namespace ATG
 {
-
 #ifndef MAKEFOURCC
 #define MAKEFOURCC(ch0, ch1, ch2, ch3)                              \
 	((DWORD)(BYTE)(ch0) | ((DWORD)(BYTE)(ch1) << 8) |       \
@@ -390,7 +389,6 @@ namespace ATG
 	{
 		assert( pwfxFormat );
 		DWORD dwValidSize = m_FormatChunk.GetDataSize();
-
 		assert( dwValidSize <= sizeof(WAVEFORMATEXTENSIBLE) );
 
 		char *buffer = new char[dwValidSize];

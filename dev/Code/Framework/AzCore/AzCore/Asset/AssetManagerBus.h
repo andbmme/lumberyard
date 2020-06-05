@@ -17,6 +17,12 @@
 #include <AzCore/std/string/string.h>
 #include <AzCore/std/containers/bitset.h>
 #include <AzCore/Outcome/Outcome.h>
+#include <AzCore/std/smart_ptr/shared_ptr.h>
+
+namespace AzFramework
+{
+    class AssetRegistry;
+}
 
 namespace AZ
 {
@@ -40,7 +46,7 @@ namespace AZ
 
         struct ProductDependency
         {
-            AZ_TYPE_INFO(ProductDependency, "{5b9a8f1c-407a-4d2b-88f4-a79584684cc4}");
+            AZ_TYPE_INFO(ProductDependency, "{5B9A8F1C-407A-4D2B-88F4-A79584684CC4}");
 
             ProductDependency() = default;
             ProductDependency(const AZ::Data::AssetId& assetId, AZStd::bitset<64> flags) : m_assetId(assetId), m_flags(flags) {}
@@ -81,7 +87,25 @@ namespace AZ
             /// Populates catalog data from specified file.
             /// \param catalogRegistryFile cache-relative file path from which catalog should be pre-loaded.
             /// \return true if catalog was successfuly loaded.
-            virtual bool LoadCatalog(const char* /*catalogRegistryFile*/) { return false; };
+
+            virtual bool LoadCatalog(const char* /*catalogRegistryFile*/) { return false; }
+            virtual void ClearCatalog() {}
+
+            /// Write out our existing catalog to the given file.
+            virtual bool SaveCatalog(const char* /*outputFile*/) { return false; }
+            
+            /// Load a catalog file on top of our existing catalog data
+            virtual bool AddDeltaCatalog(AZStd::shared_ptr<AzFramework::AssetRegistry> /*deltaCatalog*/) { return true; }
+            /// Insert a new delta catalog at a particular index  
+            virtual bool InsertDeltaCatalog(AZStd::shared_ptr<AzFramework::AssetRegistry> /*deltaCatalog*/, size_t /* slotNum */) { return true; }
+            /// Insert a new delta catalog before the given next unique catalog name
+            virtual bool InsertDeltaCatalogBefore(AZStd::shared_ptr<AzFramework::AssetRegistry> /*deltaCatalog*/, AZStd::shared_ptr<AzFramework::AssetRegistry> /*nextDeltaCatalog*/) { return true; }
+            /// Remove a catalog from our delta list and rebuild the catalog from remaining items
+            virtual bool RemoveDeltaCatalog(AZStd::shared_ptr<AzFramework::AssetRegistry> /*deltaCatalog*/) { return true; }
+            /// Creates a manifest with the given DeltaCatalog name
+            virtual bool CreateBundleManifest(const AZStd::string& /*deltaCatalogPath*/, const AZStd::vector<AZStd::string>& /*dependentBundleNames*/, const AZStd::string& /*fileDirectory*/, int /*bundleVersion*/, const AZStd::vector<AZStd::string>& /*levelDirs*/) { return false; }
+            /// Creates an instance of a registry containing info for just the specified files, and writes it out to a file at the specified path
+            virtual bool CreateDeltaCatalog(const AZStd::vector<AZStd::string>& /*files*/, const AZStd::string& /*filePath*/) { return false; }
 
             /// Adds an extension to the catalog's handled list.
             /// \param file extension to add to catalog's list of those handled. With and without prefix '.' are both accepted.
@@ -114,6 +138,9 @@ namespace AZ
             /// \return valid AssetId if it's in the registry, otherwise an empty AssetId.
             virtual AZ::Data::AssetId GetAssetIdByPath(const char* /*path*/, const AZ::Data::AssetType& /*typeToRegister*/, bool /*autoRegisterIfNotFound*/) { return AZ::Data::AssetId(); }
 
+            /// Retrieves file paths of all the registered assets
+            virtual AZStd::vector<AZStd::string> GetRegisteredAssetPaths() { return AZStd::vector<AZStd::string>(); }
+
             /// Given an asset ID, retrieve general information about that asset.
             virtual AZ::Data::AssetInfo GetAssetInfoById(const AZ::Data::AssetId& /*id*/) { return AssetInfo(); }
 
@@ -133,6 +160,13 @@ namespace AZ
             /// \param id - the id of the asset to look up the dependencies for
             /// \return AZ::Success containing a list of dependencies
             virtual AZ::Outcome<AZStd::vector<ProductDependency>, AZStd::string> GetAllProductDependencies(const AssetId& /*id*/) { return AZ::Failure<AZStd::string>("Not implemented"); }
+
+
+            /// Retrieves a list of all products the given (product) asset depends on (recursively).
+            /// \param id - the id of the asset to look up the dependencies for
+            /// \param exclusionList - list of AssetIds to ignore (recursively).  If a match is found, it and all its dependencies are skipped.
+            /// \return AZ::Success containing a list of dependencies
+            virtual AZ::Outcome<AZStd::vector<ProductDependency>, AZStd::string> GetAllProductDependenciesFilter([[maybe_unused]] const AssetId& id, [[maybe_unused]] const AZStd::unordered_set<AssetId>& exclusionList) { return AZ::Failure<AZStd::string>("Not implemented"); }
 
             using BeginAssetEnumerationCB = AZStd::function< void() >;
             using AssetEnumerationCB = AZStd::function< void(const AZ::Data::AssetId /*id*/, const AZ::Data::AssetInfo& /*info*/) >;

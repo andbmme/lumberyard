@@ -72,7 +72,7 @@ def cache_outputs(cls):
 		class foo(Task.Task):
 			nocache = True
 
-	If bld.cache_global is defined and if the task instances produces output nodes,
+	If bld.artifacts_cache is defined and if the task instances produces output nodes,
 	the files will be copied into a folder in the cache directory
 
 	The files may also be retrieved from that folder, if it exists
@@ -80,7 +80,7 @@ def cache_outputs(cls):
 	m1 = cls.run
 	def run(self):
 		bld = self.generator.bld
-		if bld.cache_global and not bld.nocache:
+		if bld.artifacts_cache and bld.is_option_true('artifacts_cache_restore') and not bld.nocache:
 			if self.can_retrieve_cache():
 				return 0
 		return m1(self)
@@ -90,7 +90,7 @@ def cache_outputs(cls):
 	def post_run(self):
 		bld = self.generator.bld
 		ret = m2(self)
-		if bld.cache_global and not bld.nocache:
+		if bld.artifacts_cache and bld.is_option_true('artifacts_cache_upload') and not bld.nocache:
 			self.put_files_cache()
 		return ret
 	cls.post_run = post_run
@@ -361,7 +361,10 @@ class TaskBase(evil):
 		# Format msg to be better read-able
 		output = ''
 		for i in msg:
-			output += i + ' '
+			if not isinstance(i, str):
+				output += str(i) + ' '
+			else:
+				output += i + ' '
 		msg = output[:len(output)-1]
 		name = self.__class__.__name__.replace('_task', '') + ' (' + self.env['PLATFORM'] + '|' + self.env['CONFIGURATION'] + ')'
 		if getattr(self, "err_msg", None):
@@ -487,8 +490,8 @@ class Task(TaskBase):
 			m = Utils.md5()
 			up = m.update
 			up(self.__class__.__name__.encode())
-			deplist = [k.abspath().encode() for k in self.inputs + self.outputs]
-			dep_bld_sigs_str = "".join(deplist)
+			deplist = [k.abspath().encode('utf-8') for k in self.inputs + self.outputs]
+			dep_bld_sigs_str = b"".join(deplist)
 			up(dep_bld_sigs_str)
 			self.uid_ = m.digest()
 			return self.uid_
@@ -600,6 +603,9 @@ class Task(TaskBase):
 
 		# compare the signatures of the outputs
 		for node in self.outputs:
+			# Check if output exists
+			if not os.path.exists(node.abspath()):
+				return RUN_ME
 			try:
 				if node.sig != new_sig:
 					return RUN_ME
@@ -630,7 +636,7 @@ class Task(TaskBase):
 				raise Errors.WafError(self.err_msg)
 
 			# important, store the signature for the next run
-			node.sig = node.cache_sig = sig
+			node.sig = sig
 
 		bld.task_sigs[self.uid()] = self.cache_sig
 
@@ -652,7 +658,7 @@ class Task(TaskBase):
 				if Logs.sig_delta:
 					exp_output += '{} {} {}\n'.format(x.name, x.abspath(), hexlify(bld_sig))
 				bld_sigs.append(bld_sig)
-			except (AttributeError, TypeError):
+			except (AttributeError, TypeError, IOError):
 				Logs.warn('Missing signature for node %r (required by %r)' % (x, self))
 				continue	# skip adding the signature to the calculation, but continue adding other dependencies
 
@@ -678,7 +684,7 @@ class Task(TaskBase):
 						exp_output += '{} {}\n'.format(v_name, hexlify(v))
 					bld_sigs.append(v)
 
-		dep_bld_sigs_str = "".join(bld_sigs)
+		dep_bld_sigs_str = b"".join(bld_sigs)
 
 		m = Utils.md5()
 		m.update(dep_bld_sigs_str)
@@ -807,7 +813,7 @@ class Task(TaskBase):
 		# recompute the signature and return it
 		old_sig_debug_log = self.sig_implicit_debug_log
 
-		bld.task_sigs[(key, 'imp')] = sig = self.compute_sig_implicit_deps()
+		bld.task_sigs[(key, 'imp')] = sig = self.compute_sig_implicit_deps(False)
 
 		# Make the equality check since it's possible we didn't have a prior imp key but had prior nodes
 		# and said nodes didn't change
@@ -850,7 +856,7 @@ class Task(TaskBase):
 					Logs.warn('Missing signature for node %r (dependency will not be tracked)' % k)
 				continue	# skip adding the signature to the calculation, but continue adding other dependencies
 			bld_sigs.append(bld_sig)
-		dep_bld_sigs_str = "".join(bld_sigs)
+		dep_bld_sigs_str = b"".join(bld_sigs)
 
 		m = Utils.md5()
 		m.update(dep_bld_sigs_str)
@@ -922,7 +928,7 @@ class Task(TaskBase):
 		ssig = Utils.to_hex(self.uid()) + Utils.to_hex(sig)
 
 		# first try to access the cache folder for the task
-		dname = os.path.join(self.generator.bld.cache_global, ssig)
+		dname = os.path.join(self.generator.bld.artifacts_cache, ssig)
 		try:
 			t1 = os.stat(dname).st_mtime
 		except OSError:
@@ -969,8 +975,8 @@ class Task(TaskBase):
 
 		sig = self.signature()
 		ssig = Utils.to_hex(self.uid()) + Utils.to_hex(sig)
-		dname = os.path.join(self.generator.bld.cache_global, ssig)
-		tmpdir = tempfile.mkdtemp(prefix=self.generator.bld.cache_global + os.sep + 'waf')
+		dname = os.path.join(self.generator.bld.artifacts_cache, ssig)
+		tmpdir = tempfile.mkdtemp(prefix=self.generator.bld.artifacts_cache + os.sep + 'waf')
 
 		try:
 			shutil.rmtree(dname)
@@ -1043,7 +1049,7 @@ def set_file_constraints(tasks):
 		for a in getattr(x, 'outputs', []):
 			outs[id(a)].add(x)
 
-	links = set(ins.keys()).intersection(outs.keys())
+	links = set(ins.keys()).intersection(list(outs.keys()))
 	for k in links:
 		for a in ins[k]:
 			a.run_after.update(outs[k])
@@ -1305,7 +1311,7 @@ def update_outputs(cls):
 	def post_run(self):
 		old_post_run(self)
 		for node in self.outputs:
-			node.sig = node.cache_sig = Utils.h_file(node.abspath())
+			node.sig = Utils.h_file(node.abspath())
 			self.generator.bld.task_sigs[node.abspath()] = self.uid() # issue #1017
 	cls.post_run = post_run
 

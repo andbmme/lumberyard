@@ -15,10 +15,11 @@
 
 #include <AzCore/Component/Component.h>
 
-#include <Components/Nodes/NodeLayoutBus.h>
 #include <Components/Nodes/NodeLayoutComponent.h>
-#include <Components/StyleBus.h>
-#include <Styling/StyleHelper.h>
+#include <GraphCanvas/Components/Nodes/NodeConfiguration.h>
+#include <GraphCanvas/Components/Nodes/NodeLayoutBus.h>
+#include <GraphCanvas/Components/StyleBus.h>
+#include <GraphCanvas/Styling/StyleHelper.h>
 
 class QGraphicsGridLayout;
 
@@ -34,7 +35,7 @@ namespace GraphCanvas
         AZ_COMPONENT(GeneralNodeLayoutComponent, "{2AD34925-FF0E-4D0D-A371-6338FBAE0F43}", NodeLayoutComponent);
         static void Reflect(AZ::ReflectContext*);
         
-        static AZ::Entity* CreateGeneralNodeEntity(const char* nodeType);
+        static AZ::Entity* CreateGeneralNodeEntity(const char* nodeType, const NodeConfiguration& nodeConfiguration = NodeConfiguration());
 
         GeneralNodeLayoutComponent();
         ~GeneralNodeLayoutComponent();

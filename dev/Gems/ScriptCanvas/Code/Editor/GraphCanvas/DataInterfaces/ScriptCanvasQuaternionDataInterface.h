@@ -11,7 +11,8 @@
 */
 #pragma once
 
-#include <AzFramework/Math/MathUtils.h>
+#include <AzCore/Math/Transform.h>
+#include <AzCore/Math/Quaternion.h>
 
 #include <GraphCanvas/Components/NodePropertyDisplay/VectorDataInterface.h>
 
@@ -61,18 +62,16 @@ namespace ScriptCanvasEditor
         {
             if (index < GetElementCount())
             {
-                ScriptCanvas::Datum* object = GetSlotObject();
+                ScriptCanvas::ModifiableDatumView datumView;
+                ModifySlotObject(datumView);
 
-                if (object)
+                if (datumView.IsValid())
                 {
-                    AZ::Quaternion* currentQuat = const_cast<AZ::Quaternion*>(object->GetAs<AZ::Quaternion>());
-                    
-                    m_eulerAngles.SetElement(index,value);
+                    m_eulerAngles.SetElement(index, aznumeric_cast<float>(value));
 
-                    AZ::Transform eulerRepresentation = AzFramework::ConvertEulerDegreesToTransform(m_eulerAngles);
-                    AZ::Quaternion newValue = AZ::Quaternion::CreateFromTransform(eulerRepresentation);
+                    AZ::Quaternion newValue = AZ::ConvertEulerDegreesToQuaternion(m_eulerAngles);
 
-                    (*currentQuat) = static_cast<AZ::Quaternion>(newValue);      
+                    datumView.SetAs(newValue);
                     
                     PostUndoPoint();
                     PropertyGridRequestBus::Broadcast(&PropertyGridRequests::RefreshPropertyGrid);
@@ -87,9 +86,9 @@ namespace ScriptCanvasEditor
             case 0:
                 return "P";
             case 1:
-                return "Y";
-            case 2:
                 return "R";
+            case 2:
+                return "Y";
             default:
                 return "???";
             }
@@ -131,7 +130,7 @@ namespace ScriptCanvasEditor
             
                 if (quat)
                 {
-                    m_eulerAngles = AzFramework::ConvertTransformToEulerDegrees(AZ::Transform::CreateFromQuaternion((*quat)));
+                    m_eulerAngles = AZ::ConvertTransformToEulerDegrees(AZ::Transform::CreateFromQuaternion((*quat)));
                 }
             }
         }

@@ -42,13 +42,17 @@ namespace AssetProcessor
 
     Q_SIGNALS:
         void AssetScanningStatusChanged(AssetScanningStatus status);
-        void FileOfInterestFound(QString file);
+        void FilesFound(QSet<AssetFileInfo> files);
+        void FoldersFound(QSet<AssetFileInfo> folders);
+        void ExcludedFound(QSet<AssetFileInfo> excluded);
 
     private:
 
         QThread m_assetWorkerScannerThread;
         AssetScannerWorker m_assetScannerWorker;
-        AssetScanningStatus m_status = AssetScanningStatus::Unknown;
+
+        bool m_workerCreated = false;
+        AZStd::atomic<AssetScanningStatus> m_status;
     };
 }// end namespace AssetProcessor
 

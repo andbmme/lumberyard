@@ -10,11 +10,10 @@
 *
 */
 
-#include "TestTypes.h"
-
 #include <AzCore/Jobs/Job.h>
 #include <AzCore/Jobs/JobCompletion.h>
 #include <AzCore/Jobs/JobCompletionSpin.h>
+#include <AzCore/Jobs/JobFunction.h>
 #include <AzCore/Jobs/JobManager.h>
 #include <AzCore/Jobs/task_group.h>
 #include <AzCore/Jobs/Algorithms.h>
@@ -34,6 +33,7 @@
 
 #include <AzCore/std/time.h>
 #include <AzCore/std/parallel/thread.h>
+#include <AzCore/UnitTest/TestTypes.h>
 
 #if AZ_TRAIT_SUPPORTS_MICROSOFT_PPL
 // Enable this to test against Microsoft PPL, keep in mind you MUST have Exceptions enabled to use PPL
@@ -67,40 +67,31 @@ namespace UnitTest
     static AZStd::sys_time_t s_totalJobsTime = 0;
 
     class DefaultJobManagerSetupFixture
-        : public ::testing::Test
+        : public AllocatorsTestFixture
+
     {
     protected:
         JobManager* m_jobManager = nullptr;
         JobContext* m_jobContext = nullptr;
-        void* m_memBlock = nullptr;
-        const size_t m_memBlockSize;
         unsigned int m_numWorkerThreads;
     public:
-        DefaultJobManagerSetupFixture(const size_t memBlockSize = 15 * 1024 * 1024, unsigned int numWorkerThreads = 0)
-            : m_memBlockSize(memBlockSize)
-            , m_numWorkerThreads(numWorkerThreads)
+        DefaultJobManagerSetupFixture(unsigned int numWorkerThreads = 0)
+            : m_numWorkerThreads(numWorkerThreads)
         {
         }
 
         void SetUp() override
         {
-            SystemAllocator::Descriptor memDesc;
+            AllocatorsTestFixture::SetUp();
 
-            m_memBlock = DebugAlignAlloc(m_memBlockSize, memDesc.m_heap.m_memoryBlockAlignment);
-
-            memDesc.m_heap.m_numMemoryBlocks = 1;
-            memDesc.m_heap.m_memoryBlocksByteSize[0] = m_memBlockSize;
-            memDesc.m_heap.m_memoryBlocks[0] = m_memBlock;
-
-            AllocatorInstance<SystemAllocator>::Create(memDesc);
             AllocatorInstance<PoolAllocator>::Create();
             AllocatorInstance<ThreadPoolAllocator>::Create();
 
             JobManagerDesc desc;
             JobManagerThreadDesc threadDesc;
-#if !defined(AZ_PLATFORM_WINDOWS)
+#if AZ_TRAIT_SET_JOB_PROCESSOR_ID
             threadDesc.m_cpuId = 0; // Don't set processors IDs on windows
-#endif // AZ_PLATFORM_WINDOWS
+#endif // AZ_TRAIT_SET_JOB_PROCESSOR_ID
 
             if (m_numWorkerThreads == 0)
             {
@@ -110,9 +101,9 @@ namespace UnitTest
             for (unsigned int i = 0; i < m_numWorkerThreads; ++i)
             {
                 desc.m_workerThreads.push_back(threadDesc);
-#if !defined(AZ_PLATFORM_WINDOWS)
+#if AZ_TRAIT_SET_JOB_PROCESSOR_ID
                 threadDesc.m_cpuId++;
-#endif // #if !defined(AZ_PLATFORM_WINDOWS)
+#endif // AZ_TRAIT_SET_JOB_PROCESSOR_ID
             }
 
             m_jobManager = aznew JobManager(desc);
@@ -130,9 +121,8 @@ namespace UnitTest
 
             AllocatorInstance<ThreadPoolAllocator>::Destroy();
             AllocatorInstance<PoolAllocator>::Destroy();
-            AllocatorInstance<SystemAllocator>::Destroy();
 
-            DebugAlignFree(m_memBlock);
+            AllocatorsTestFixture::TearDown();
         }
     };
 
@@ -206,7 +196,7 @@ namespace UnitTest
             , m_result(result)
         {
         }
-        virtual void Process()
+        void Process() override
         {
             Vector3 sum = Vector3::CreateZero();
             for (unsigned int i = 0; i < m_size; ++i)
@@ -300,7 +290,7 @@ namespace UnitTest
             , m_result(result)
         {
         }
-        void Process()
+        void Process() override
         {
             *m_result = m_value1 + m_value2;
         }
@@ -321,7 +311,7 @@ namespace UnitTest
             , m_result(result)
         {
         }
-        void Process()
+        void Process() override
         {
             AZStd::sys_time_t tStart = AZStd::GetTimeNowMicroSecond();
 
@@ -391,7 +381,7 @@ namespace UnitTest
             , m_result(result)
         {
         }
-        void Process()
+        void Process() override
         {
             AZStd::sys_time_t tStart = AZStd::GetTimeNowMicroSecond();
 
@@ -459,7 +449,7 @@ namespace UnitTest
             , m_size2(size2)
         {
         }
-        void Process()
+        void Process() override
         {
             //merge
             int pos1 = 0;
@@ -513,7 +503,7 @@ namespace UnitTest
             , m_size(size)
         {
         }
-        void Process()
+        void Process() override
         {
             unsigned int size1 = m_size / 2;
             unsigned int size2 = m_size - size1;
@@ -602,7 +592,7 @@ namespace UnitTest
             , m_right(right)
         {
         }
-        void Process()
+        void Process() override
         {
             if (m_right <= m_left)
             {
@@ -1159,7 +1149,7 @@ namespace UnitTest
 #endif
 
         PERF_JobParallelForOverheadTest()
-            : DefaultJobManagerSetupFixture((100 + (300 / numElementsScale)) * 1024 * 1024)
+            : DefaultJobManagerSetupFixture()
         {}
 
         void TearDown() override
@@ -1207,10 +1197,8 @@ namespace UnitTest
             nonParallelMS = AZStd::GetTimeNowMicroSecond() - tStart;
             nonParallelProcessMS = m_processElementsTime;
 
-            //AZStd::this_thread::sleep_for(AZStd::chrono::milliseconds(100));
 
             // parallel_for test
-
             {
 #ifdef AZ_JOBS_PRINT_CALL_ORDER
                 m_callOrder.clear();
@@ -1225,9 +1213,7 @@ namespace UnitTest
                 parallelForProcessMS = m_processElementsTime;
             }
 
-            //AZStd::this_thread::sleep_for(AZStd::chrono::milliseconds(100));
 
-            //
 #if defined(AZ_COMPARE_TO_PPL)
             // compare to MS Concurrency::parallel_for
             {
@@ -1244,8 +1230,6 @@ namespace UnitTest
                 parallelForPPLMS = AZStd::GetTimeNowMicroSecond() - tStart;
                 parallelForProcessPPLMS = m_processElementsTime;
             }
-
-            //AZStd::this_thread::sleep_for(AZStd::chrono::milliseconds(100));
 #endif // AZ_COMPARE_TO_PPL
 
             AZ_Printf("UnitTest", "\n\nJob overhead test. Serial %lld (%lld) Parallel %lld (%lld) PPL %lld (%lld) Total: %lld\n\n", nonParallelMS, nonParallelProcessMS, parallelForMS, parallelForProcessMS, parallelForPPLMS, parallelForProcessPPLMS, s_totalJobsTime);
@@ -1288,7 +1272,7 @@ namespace UnitTest
             printf("\nTotal Elements %d\n", totalProcessedElements);
 
             m_jobManager->PrintStats();
-#endif // #ifdef AZ_JOBS_PRINT_CALL_ORDER
+#endif
         }
 
         void ProcessElement(size_t index)
@@ -1300,10 +1284,9 @@ namespace UnitTest
             }
             //int numIterations = m_random.GetRandom() % 100;
 
-            //AZStd::sys_time_t tStart = AZStd::GetTimeNowMicroSecond();
 #ifdef AZ_JOBS_PRINT_CALL_ORDER
             m_callOrder.push_back(AZStd::make_pair(index, AZStd::this_thread::get_id().m_id));
-#endif // #ifdef AZ_JOBS_PRINT_CALL_ORDER
+#endif
             for (int i = 0; i < numIterations; ++i)
             {
                 Transform tm = m_transforms[index].GetInverseFull();
@@ -1312,7 +1295,6 @@ namespace UnitTest
                 Vector3 v = m_vectors[index] * m_vectors1[index].GetLength();
                 m_results[index] = v * tm;
             }
-            //m_processElementsTime += AZStd::GetTimeNowMicroSecond() - tStart;
         }
 
     private:
@@ -1330,5 +1312,89 @@ namespace UnitTest
     {
         run();
     }
-#endif // ENABLE_PERFORMANCE_TEST
+#endif
+
+    class JobFunctionTestWithoutCurrentJobArg
+        : public DefaultJobManagerSetupFixture
+    {
+    public:
+        void run()
+        {
+            constexpr size_t JobCount = 32;
+            size_t jobData[JobCount] = { 0 };
+
+            AZ::JobCompletion completion;
+            for (size_t i = 0; i < JobCount; ++i)
+            {
+                AZ::Job* job = AZ::CreateJobFunction([i, &jobData]() // NOT passing the current job as an argument
+                    {
+                        jobData[i] = i + 1;
+                    },
+                    true
+                );
+                job->SetDependent(&completion);
+                job->Start();
+            }
+            completion.StartAndWaitForCompletion();
+
+            for (size_t i = 0; i < JobCount; ++i)
+            {
+                EXPECT_EQ(jobData[i], i + 1);
+            }
+        }
+    };
+
+    TEST_F(JobFunctionTestWithoutCurrentJobArg, Test)
+    {
+        run();
+    }
+
+    class JobFunctionTestWithCurrentJobArg
+        : public DefaultJobManagerSetupFixture
+    {
+    public:
+        void run()
+        {
+            constexpr size_t JobCount = 32;
+            size_t jobData[JobCount] = { 0 };
+
+            AZ::JobCompletion completion;
+
+            // Push a parent job that pushes the work as child jobs (requires the current job, so this is a real world test of "functor with current job as param")
+            AZ::Job* parentJob = AZ::CreateJobFunction([this, &jobData, JobCount](AZ::Job& thisJob)
+                {
+                    EXPECT_EQ(m_jobManager->GetCurrentJob(), &thisJob);
+
+                    for (size_t i = 0; i < JobCount; ++i)
+                    {
+                        AZ::Job* childJob = AZ::CreateJobFunction([this, i, &jobData](AZ::Job& thisJob)
+                            {
+                                EXPECT_EQ(m_jobManager->GetCurrentJob(), &thisJob);
+                                jobData[i] = i + 1;
+                            },
+                            true
+                        );
+                        thisJob.StartAsChild(childJob);
+                    }
+
+                    thisJob.WaitForChildren(); // Note: this is required before the parent job returns
+                },
+                true
+            );
+            parentJob->SetDependent(&completion);
+            parentJob->Start();
+
+            completion.StartAndWaitForCompletion();
+
+            for (size_t i = 0; i < JobCount; ++i)
+            {
+                EXPECT_EQ(jobData[i], i + 1);
+            }
+        }
+    };
+
+    TEST_F(JobFunctionTestWithCurrentJobArg, Test)
+    {
+        run();
+    }
 }

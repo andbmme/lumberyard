@@ -51,15 +51,10 @@
 // If so, it needs special treatment.
 // Metrowerks CodeWarrior, Intel, and CodePlay fraudulently define Microsoft's
 // identifier, _MSC_VER. We need to filter Metrowerks out.
-#if defined(_MSC_VER) && !defined(AZ_COMPILER_MWERKS)
+#if defined(_MSC_VER)
 #define FASTDLGT_ISMSVC
 #define FASTDLGT_MICROSOFT_MFP
 #define FASTDLGT_HASINHERITANCE_KEYWORDS
-#endif
-
-#ifdef AZ_COMPILER_GCC // Workaround GCC bug #8271
-// At present, GCC doesn't recognize constness of MFPs in templates
-    #define FASTDELEGATE_GCC_BUG_8271
 #endif
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -120,7 +115,7 @@ namespace AZStd
             // Cause a compile-time error if in, out and u are not the same size.
             // If the compile fails here, it means the compiler has peculiar
             // unions which would prevent the cast from working.
-            AZ_STATIC_ASSERT(sizeof(InputClass) == sizeof(u)
+            static_assert(sizeof(InputClass) == sizeof(u)
                 && sizeof(InputClass) == sizeof(OutputClass),
                 "Can't use horrible_cast");
             u.in = input;
@@ -196,7 +191,7 @@ namespace AZStd
                 (void)bound_func;
                 // Unsupported member function type -- force a compile failure.
                 // (it's illegal to have a array with negative size).
-                AZ_STATIC_ASSERT((N - 100) > 0, "Unsupported member function pointer on this compiler");
+                static_assert((N - 100) > 0, "Unsupported member function pointer on this compiler");
                 return 0;
             }
         };
@@ -257,7 +252,7 @@ namespace AZStd
                     } s;
                 } u;
                 // Check that the horrible_cast will work
-                AZ_STATIC_ASSERT(sizeof(function_to_bind) == sizeof(u.s), "Can't use horrible_cast");
+                static_assert(sizeof(function_to_bind) == sizeof(u.s), "Can't use horrible_cast");
                 u.func = function_to_bind;
                 bound_func = u.s.funcaddress;
                 return reinterpret_cast<GenericClass*>(reinterpret_cast<char*>(pthis) + u.s.delta);
@@ -329,7 +324,7 @@ namespace AZStd
                     MicrosoftVirtualMFP s;
                 } u2;
                 // Check that the horrible_cast<>s will work
-                AZ_STATIC_ASSERT(sizeof(function_to_bind) == sizeof(u.s)
+                static_assert(sizeof(function_to_bind) == sizeof(u.s)
                     && sizeof(function_to_bind) == sizeof(u.ProbeFunc)
                     && sizeof(u2.virtfunc) == sizeof(u2.s),
                     "Can't use horrible_cast");
@@ -373,7 +368,7 @@ namespace AZStd
                     } s;
                 } u;
                 // Check that the horrible_cast will work
-                AZ_STATIC_ASSERT(sizeof(XFuncType) == sizeof(u.s), "Can't use horrible_cast");
+                static_assert(sizeof(XFuncType) == sizeof(u.s), "Can't use horrible_cast");
                 u.func = function_to_bind;
                 bound_func = u.s.funcaddress;
                 int virtual_delta = 0;
@@ -609,16 +604,6 @@ namespace AZStd
                 m_pStaticFunction = 0;
         #endif
             }
-        #ifdef FASTDELEGATE_GCC_BUG_8271    // At present, GCC doesn't recognize constness of MFPs in templates
-            template < class X, class XMemFunc>
-            inline void bindmemfunc(const X* pthis, XMemFunc function_to_bind)
-            {
-                bindconstmemfunc(pthis, function_to_bind);
-        #if !defined(FASTDELEGATE_USESTATICFUNCTIONHACK)
-                m_pStaticFunction = 0;
-        #endif
-            }
-        #endif
             // These functions are required for invoking the stored function
             inline GenericClass*   GetClosureThis() const { return m_pthis; }
             inline GenericMemFunc   GetClosureMemPtr() const { return reinterpret_cast<GenericMemFunc>(m_pFunction); }
@@ -713,7 +698,7 @@ namespace AZStd
                 // Ensure that there's a compilation failure if function pointers
                 // and data pointers have different sizes.
                 // If you get this error, you need to #undef FASTDELEGATE_USESTATICFUNCTIONHACK.
-                AZ_STATIC_ASSERT(sizeof(GenericClass*) == sizeof(function_to_bind), "Can't use static function hack");
+                static_assert(sizeof(GenericClass*) == sizeof(function_to_bind), "Can't use static function hack");
                 m_pthis = horrible_cast<GenericClass*>(function_to_bind);
                 // MSVC, SunC++ and DMC accept the following (non-standard) code:
                 //      m_pthis = static_cast<GenericClass *>(static_cast<void *>(function_to_bind));
@@ -729,7 +714,7 @@ namespace AZStd
                 // Ensure that there's a compilation failure if function pointers
                 // and data pointers have different sizes.
                 // If you get this error, you need to #undef FASTDELEGATE_USESTATICFUNCTIONHACK.
-                AZ_STATIC_ASSERT(sizeof(UnvoidStaticFuncPtr) == sizeof(this), "Can't use static function hack");
+                static_assert(sizeof(UnvoidStaticFuncPtr) == sizeof(this), "Can't use static function hack");
                 return horrible_cast<UnvoidStaticFuncPtr>(this);
             }
         #endif // !defined(FASTDELEGATE_USESTATICFUNCTIONHACK)

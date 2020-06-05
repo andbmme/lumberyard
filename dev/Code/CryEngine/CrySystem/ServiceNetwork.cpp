@@ -1640,6 +1640,15 @@ void CServiceNetwork::Run()
 {
     CryThreadSetName(THREADID_NULL, "ServiceNetworkThread");
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/ServiceNetwork_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/ServiceNetwork_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/ServiceNetwork_cpp_salem.inl"
+    #endif
+#endif
 
     TListenerArray updatingListeners;
     TConnectionArray updatingConnections;
@@ -1654,6 +1663,12 @@ void CServiceNetwork::Run()
             updatingListeners = m_pListeners;
             updatingConnections = m_pConnections;
             updatingConnectionsToClose = m_connectionsToClose;
+        }
+
+        if ((!gEnv) || (!gEnv->pTimer))
+        {
+            Sleep(5);
+            continue;
         }
 
         // Update network time

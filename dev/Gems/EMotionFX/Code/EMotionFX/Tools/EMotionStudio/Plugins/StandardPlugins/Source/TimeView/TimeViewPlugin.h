@@ -13,17 +13,14 @@
 #ifndef __EMSTUDIO_TIMEVIEWPLUGIN_H
 #define __EMSTUDIO_TIMEVIEWPLUGIN_H
 
-// include MCore
+#include <AzCore/PlatformIncl.h>
 #include "../StandardPluginsConfig.h"
 #include "../../../../EMStudioSDK/Source/DockWidgetPlugin.h"
 #include <EMotionFX/CommandSystem/Source/MotionEventCommands.h>
 #include <EMotionFX/Source/Recorder.h>
 #include "TimeTrack.h"
 
-#include <QScrollBar>
-#include <QBasicTimer>
-
-
+#include <QScrollArea>
 
 //#define TIMEVIEW_PIXELSPERSECOND 200.0
 //#define TIMEVIEW_SECONDSPERPIXEL (1.0 / 200.0) // every 200 pixels represents a second inside the timeline (with mTimeScale = 1)
@@ -31,7 +28,8 @@
 namespace EMStudio
 {
     // forward declarations
-    //class TimeViewWidget;
+    class TrackDataHeaderWidget;
+    class TrackDataHeaderWidget;
     class TrackDataWidget;
     class TrackHeaderWidget;
     class TimeInfoWidget;
@@ -39,6 +37,7 @@ namespace EMStudio
     class MotionEventsPlugin;
     class MotionListWindow;
     class MotionEventPresetsWidget;
+    class MotionSetsWindowPlugin;
 
     struct EventSelectionItem
     {
@@ -48,7 +47,7 @@ namespace EMStudio
         EMotionFX::MotionEventTrack* GetEventTrack();
 
         uint32                          mEventNr;// the motion event index in its track
-        uint32                          mTrackNr;// the corresponding track in which the event is in
+        size_t                          mTrackNr;// the corresponding track in which the event is in
         EMotionFX::Motion*              mMotion;// the parent motion of the event track
     };
 
@@ -61,7 +60,8 @@ namespace EMStudio
     {
         Q_OBJECT
         MCORE_MEMORYOBJECTCATEGORY(TimeViewPlugin, MCore::MCORE_DEFAULT_ALIGNMENT, MEMCATEGORY_STANDARDPLUGINS);
-
+        
+        friend class TrackDataHeaderWidget;
         friend class TrackDataWidget;
         friend class TimeViewWidget;
         friend class TimeInfoWidget;
@@ -95,13 +95,10 @@ namespace EMStudio
         void ProcessFrame(float timePassedInSeconds) override;
 
         double GetScrollX() const       { return mScrollX; }
-        double GetScrollY() const       { return mScrollY; }
 
         void DeltaScrollX(double deltaX, bool animate = true);
-        void DeltaScrollY(double deltaY, bool animate = true);
 
         void SetScrollX(double scrollX, bool animate = true);
-        void SetScrollY(double scrollY, bool animate = true);
 
         void CalcTime(double xPixel, double* outPixelTime, uint32* outMinutes, uint32* outSeconds, uint32* outMilSecs, uint32* outFrameNr, bool scaleXPixel = true) const;
         void DecomposeTime(double timeValue, uint32* outMinutes, uint32* outSeconds, uint32* outMilSecs, uint32* outFrameNr) const;
@@ -117,10 +114,9 @@ namespace EMStudio
         double CalcFitScale(double minScale = 1.0, double maxScale = 100.0) const;
         void MakeTimeVisible(double timeValue, double offsetFactor = 0.95, bool animate = true);
         bool GetIsTimeVisible(double timeValue) const;
-        float GetTimeScale() const                  { return mTimeScale; }
+        float GetTimeScale() const                  { return aznumeric_cast<float>(mTimeScale); }
 
         void RenderElementTimeHandles(QPainter& painter, uint32 dataWindowHeight, const QPen& pen);
-        void RenderElementToolTips(QPainter& painter, uint32 dataWindowHeight, const QPen& pen);
         void DisableAllToolTips();
 
         void AddTrack(TimeTrack* track);
@@ -145,6 +141,7 @@ namespace EMStudio
         QCursor* GetZoomOutCursor() const           { return mZoomOutCursor; }
 
         // some getters
+        TrackDataHeaderWidget* GetTrackDataHeaderWidget() { return mTrackDataHeaderWidget; }
         TrackDataWidget*    GetTrackDataWidget()    { return mTrackDataWidget; }
         TrackHeaderWidget*  GetTrackHeaderWidget()  { return mTrackHeaderWidget; }
         TimeInfoWidget*     GetTimeInfoWidget()     { return mTimeInfoWidget; }
@@ -172,12 +169,9 @@ namespace EMStudio
         void ReInit();
 
     public slots:
-        //void OnHSliderValueChanged(int value);
-        //void OnScaleSliderValueChanged(int value);
         void VisibilityChanged(bool visible);
         void OnSelectionChanged()                   { emit SelectionChanged(); }
         void MotionSelectionChanged();
-        void OnVerticalScrollBar(int value);
 
         void AddMotionEvent(int32 x, int32 y);
         void RemoveMotionEvent(int32 x, int32 y);
@@ -206,24 +200,24 @@ namespace EMStudio
         MCORE_DEFINECOMMANDCALLBACK(CommandSelectCallback);
         MCORE_DEFINECOMMANDCALLBACK(CommandUnselectCallback);
         MCORE_DEFINECOMMANDCALLBACK(CommandClearSelectionCallback);
+        MCORE_DEFINECOMMANDCALLBACK(CommandRecorderClearCallback);
         CommandAdjustMotionCallback*    mAdjustMotionCallback;
         CommandSelectCallback*          mSelectCallback;
         CommandUnselectCallback*        mUnselectCallback;
         CommandClearSelectionCallback*  mClearSelectionCallback;
+        CommandRecorderClearCallback*   mRecorderClearCallback;
 
-        //void timerEvent(QTimerEvent* event);
-
+        TrackDataHeaderWidget* mTrackDataHeaderWidget;
         TrackDataWidget*    mTrackDataWidget;
         TrackHeaderWidget*  mTrackHeaderWidget;
         TimeInfoWidget*     mTimeInfoWidget;
-        QScrollBar*         mVerticalScrollBar;
         QWidget*            mMainWidget;
-        QBasicTimer         mTimer;
 
         EMotionFX::Motion*                  mMotion;
         MotionWindowPlugin*                 mMotionWindowPlugin;
         MotionEventsPlugin*                 mMotionEventsPlugin;
         MotionListWindow*                   mMotionListWindow;
+        MotionSetsWindowPlugin*             m_motionSetPlugin;
         MCore::Array<EventSelectionItem>    mSelectedEvents;
 
         EMotionFX::Recorder::ActorInstanceData* mActorInstanceData;
@@ -247,7 +241,6 @@ namespace EMStudio
 
         double              mPixelsPerSecond;   // pixels per second
         double              mScrollX;           // horizontal scroll offset
-        double              mScrollY;           // vertical scroll offset
         double              mCurTime;           // current time
         double              mFPS;               // the frame rate, used to snap time values to and to calculate frame numbers
         double              mCurMouseX;
@@ -262,7 +255,6 @@ namespace EMStudio
 
         double              mTargetTimeScale;
         double              mTargetScrollX;
-        double              mTargetScrollY;
 
         bool                mIsAnimating;
         bool                mDirty;

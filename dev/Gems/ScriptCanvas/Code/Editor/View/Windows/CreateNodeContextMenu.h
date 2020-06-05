@@ -18,141 +18,85 @@
 #include <QMenu>
 #include <QWidgetAction>
 
+#include <GraphCanvas/Widgets/EditorContextMenu/EditorContextMenu.h>
+#include <GraphCanvas/Widgets/EditorContextMenu/ContextMenus/SceneContextMenu.h>
+#include <GraphCanvas/Widgets/EditorContextMenu/ContextMenus/ConnectionContextMenu.h>
+#include <GraphCanvas/Widgets/EditorContextMenu/ContextMenuActions/SceneMenuActions/SceneContextMenuAction.h>
+
 namespace ScriptCanvasEditor
 {
+    class NodePaletteModel;
+
     namespace Widget
     {
-        class NodePalette;
+        class NodePaletteDockWidget;
     }
 
-    class CreateNodeAction
-        : public QAction
-    {
-        Q_OBJECT;
-    protected:
-        CreateNodeAction(const QString& text, QObject* parent);
-
-    public:
-        virtual ~CreateNodeAction() = default;
-
-        virtual void RefreshAction(const AZ::EntityId& sceneId) = 0;
-
-        // Returns whether or not the action needs to create an Undo state after executing.
-        virtual bool TriggerAction(const AZ::EntityId& sceneId, const AZ::Vector2& scenePos) = 0;
-    };
-
     class AddSelectedEntitiesAction
-        : public CreateNodeAction
+        : public GraphCanvas::ContextMenuAction
     {
         Q_OBJECT
     public:
+        AZ_CLASS_ALLOCATOR(AddSelectedEntitiesAction, AZ::SystemAllocator, 0);
+
         AddSelectedEntitiesAction(QObject* parent);
         virtual ~AddSelectedEntitiesAction() = default;
 
-        void RefreshAction(const AZ::EntityId& sceneId) override;
-        bool TriggerAction(const AZ::EntityId& sceneId, const AZ::Vector2& scenePos) override;
+        GraphCanvas::ActionGroupId GetActionGroupId() const override;
+
+        void RefreshAction(const GraphCanvas::GraphId& graphCanvasGraphId, const AZ::EntityId& targetId) override;
+        SceneReaction TriggerAction(const GraphCanvas::GraphId& graphCanvasGraphId, const AZ::Vector2& scenePos) override;
     };
 
-    class CutGraphSelectionAction
-        : public CreateNodeAction
+    class EndpointSelectionAction
+        : public QAction
     {
         Q_OBJECT
     public:
-        CutGraphSelectionAction(QObject* parent);
-        virtual ~CutGraphSelectionAction() = default;
+        AZ_CLASS_ALLOCATOR(EndpointSelectionAction, AZ::SystemAllocator, 0);
 
-        void RefreshAction(const AZ::EntityId& sceneId) override;
-        bool TriggerAction(const AZ::EntityId& sceneId, const AZ::Vector2& scenePos) override;
+        EndpointSelectionAction(const GraphCanvas::Endpoint& endpoint);
+        ~EndpointSelectionAction() = default;
+
+        const GraphCanvas::Endpoint& GetEndpoint() const;
+
+    private:
+        GraphCanvas::Endpoint m_endpoint;
     };
 
-    class CopyGraphSelectionAction
-        : public CreateNodeAction
+    class RemoveUnusedVariablesMenuAction
+        : public GraphCanvas::SceneContextMenuAction
+    {
+    public:
+        AZ_CLASS_ALLOCATOR(RemoveUnusedVariablesMenuAction, AZ::SystemAllocator, 0);
+
+        RemoveUnusedVariablesMenuAction(QObject* parent);
+        virtual ~RemoveUnusedVariablesMenuAction() = default;
+
+        bool IsInSubMenu() const override;
+        AZStd::string GetSubMenuPath() const override;
+
+        void RefreshAction(const GraphCanvas::GraphId& graphId, const AZ::EntityId& targetId) override;
+        GraphCanvas::ContextMenuAction::SceneReaction TriggerAction(const GraphCanvas::GraphId& graphId, const AZ::Vector2& scenePos) override;
+    };
+
+    class SceneContextMenu
+        : public GraphCanvas::SceneContextMenu
     {
         Q_OBJECT
     public:
-        CopyGraphSelectionAction(QObject* parent);
-        virtual ~CopyGraphSelectionAction() = default;
+        AZ_CLASS_ALLOCATOR(SceneContextMenu, AZ::SystemAllocator, 0);
 
-        void RefreshAction(const AZ::EntityId& sceneId) override;
-        bool TriggerAction(const AZ::EntityId& sceneId, const AZ::Vector2& scenePos) override;
-    };
-
-    class PasteGraphSelectionAction
-        : public CreateNodeAction
-    {
-        Q_OBJECT
-    public:
-        PasteGraphSelectionAction(QObject* parent);
-        virtual ~PasteGraphSelectionAction() = default;
-
-        void RefreshAction(const AZ::EntityId& sceneId) override;
-        bool TriggerAction(const AZ::EntityId& sceneId, const AZ::Vector2& scenePos) override;
-    };
-
-    class DuplicateGraphSelectionAction
-        : public CreateNodeAction
-    {
-        Q_OBJECT
-    public:
-        DuplicateGraphSelectionAction(QObject* parent);
-        virtual ~DuplicateGraphSelectionAction() = default;
-
-        void RefreshAction(const AZ::EntityId& sceneId) override;
-        bool TriggerAction(const AZ::EntityId& sceneId, const AZ::Vector2& scenePos) override;
-    };
-
-    class DeleteGraphSelectionAction
-        : public CreateNodeAction
-    {
-        Q_OBJECT
-    public:
-        DeleteGraphSelectionAction(QObject* parent);
-        virtual ~DeleteGraphSelectionAction() = default;
-
-        void RefreshAction(const AZ::EntityId& sceneId) override;
-        bool TriggerAction(const AZ::EntityId& sceneId, const AZ::Vector2& scenePos) override;
-    };
-
-    class AddCommentAction
-        : public CreateNodeAction
-    {
-        Q_OBJECT
-    public:
-        AddCommentAction(QObject* parent);
-        virtual ~AddCommentAction() = default;
-
-        void RefreshAction(const AZ::EntityId& sceneId) override;
-        bool TriggerAction(const AZ::EntityId& sceneId, const AZ::Vector2& scenePos) override;
-    };
-
-    class CreateBlockCommentAction
-        : public CreateNodeAction
-    {
-        Q_OBJECT
-    public:
-        CreateBlockCommentAction(QObject* parent);
-        virtual ~CreateBlockCommentAction() = default;
-
-        void RefreshAction(const AZ::EntityId& sceneId) override;
-        bool TriggerAction(const AZ::EntityId& sceneId, const AZ::Vector2& scenePos) override;
-    };
-
-    class CreateNodeContextMenu
-        : public QMenu
-    {
-        Q_OBJECT
-    public:
-        AZ_CLASS_ALLOCATOR(CreateNodeContextMenu, AZ::SystemAllocator, 0);
-
-        CreateNodeContextMenu();
-        ~CreateNodeContextMenu() = default;
-
-        void DisableCreateActions();
-        void RefreshActions(const AZ::EntityId& sceneId);
+        SceneContextMenu(const NodePaletteModel& nodePaletteModel, AzToolsFramework::AssetBrowser::AssetBrowserFilterModel* assetModel);
+        ~SceneContextMenu() = default;
 
         void ResetSourceSlotFilter();
-        void FilterForSourceSlot(const AZ::EntityId& sceneId, const AZ::EntityId& sourceSlotId);
-        const Widget::NodePalette* GetNodePalette() const;
+        void FilterForSourceSlot(const AZ::EntityId& scriptCanvasGraphId, const AZ::EntityId& sourceSlotId);
+        const Widget::NodePaletteDockWidget* GetNodePalette() const;
+
+        // EditConstructContextMenu
+        void OnRefreshActions(const GraphCanvas::GraphId& graphId, const AZ::EntityId& targetMemberId) override;
+        ////
 
     public slots:
 
@@ -162,7 +106,37 @@ namespace ScriptCanvasEditor
     protected:
         void keyPressEvent(QKeyEvent* keyEvent) override;
         
-        AZ::EntityId            m_sourceSlotId;
-        Widget::NodePalette*    m_palette;
+        AZ::EntityId                      m_sourceSlotId;
+        Widget::NodePaletteDockWidget*    m_palette;
+    };
+
+    class ConnectionContextMenu
+        : public GraphCanvas::ConnectionContextMenu
+    {
+        Q_OBJECT
+    public:
+        AZ_CLASS_ALLOCATOR(ConnectionContextMenu, AZ::SystemAllocator, 0);
+
+        ConnectionContextMenu(const NodePaletteModel& nodePaletteModel, AzToolsFramework::AssetBrowser::AssetBrowserFilterModel* assetModel);
+        ~ConnectionContextMenu() = default;
+
+        const Widget::NodePaletteDockWidget* GetNodePalette() const;
+
+    protected:
+
+        void OnRefreshActions(const GraphCanvas::GraphId& graphId, const AZ::EntityId& targetMemberId);
+
+    public slots:
+
+        void HandleContextMenuSelection();
+        void SetupDisplay();
+
+    protected:
+        void keyPressEvent(QKeyEvent* keyEvent) override;
+
+    private:
+
+        AZ::EntityId                      m_connectionId;
+        Widget::NodePaletteDockWidget*    m_palette;
     };
 }

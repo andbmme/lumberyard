@@ -14,7 +14,6 @@
 
 #include "../StandardPluginsConfig.h"
 #include <AzCore/std/containers/vector.h>
-#include <AzCore/std/string/string.h>
 #include <MCore/Source/StandardHeaders.h>
 #include <MCore/Source/CommandManagerCallback.h>
 #include <MCore/Source/Command.h>
@@ -22,6 +21,7 @@
 #include <MCore/Source/CommandLine.h>
 #include <EMotionFX/CommandSystem/Source/CommandManager.h>
 
+#include <QBrush>
 #include <QListWidget>
 #include <QDialog>
 #include <QTextEdit>
@@ -32,7 +32,7 @@ namespace EMStudio
     class ErrorWindow
         : public QDialog
     {
-        Q_OBJECT
+        Q_OBJECT // AUTOMOC
         MCORE_MEMORYOBJECTCATEGORY(ErrorWindow, MCore::MCORE_DEFAULT_ALIGNMENT, MEMCATEGORY_STANDARDPLUGINS);
 
     public:
@@ -55,7 +55,7 @@ namespace EMStudio
         ~ActionHistoryCallback();
 
         void OnPreExecuteCommand(MCore::CommandGroup* group, MCore::Command* command, const MCore::CommandLine& commandLine) override;
-        void OnPostExecuteCommand(MCore::CommandGroup* group, MCore::Command* command, const MCore::CommandLine& commandLine, bool wasSuccess, const MCore::String& outResult) override;
+        void OnPostExecuteCommand(MCore::CommandGroup* group, MCore::Command* command, const MCore::CommandLine& commandLine, bool wasSuccess, const AZStd::string& outResult) override;
         void OnAddCommandToHistory(uint32 historyIndex, MCore::CommandGroup* group, MCore::Command* command, const MCore::CommandLine& commandLine) override;
         void OnPreExecuteCommandGroup(MCore::CommandGroup* group, bool undo) override;
         void OnPostExecuteCommandGroup(MCore::CommandGroup* group, bool wasSuccess) override;
@@ -64,15 +64,17 @@ namespace EMStudio
         void OnShowErrorReport(const AZStd::vector<AZStd::string>& errors) override;
 
     private:
-        QListWidget*            mList;
-        AZStd::string           mTempString;
-        uint32                  mIndex;
-        bool                    mIsRemoving;
-        ErrorWindow*            mErrorWindow;
+        QListWidget* mList;
+        AZStd::string mTempString;
+        uint32 mIndex;
+        bool mIsRemoving;
+        ErrorWindow* mErrorWindow;
 
-        bool                    mGroupExecuting;
-        MCore::CommandGroup*    mExecutedGroup;
-        uint32                  mNumGroupCommands;
-        uint32                  mCurrentCommandIndex;
+        bool mGroupExecuting;
+        MCore::CommandGroup* mExecutedGroup;
+        size_t mNumGroupCommands;
+        uint32 mCurrentCommandIndex;
+        QBrush m_brush;
+        QBrush m_darkenedBrush;
     };
 } // namespace EMStudio

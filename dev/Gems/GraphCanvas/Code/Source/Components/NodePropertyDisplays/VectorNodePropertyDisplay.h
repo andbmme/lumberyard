@@ -11,17 +11,19 @@
 */
 #pragma once
 
+AZ_PUSH_DISABLE_WARNING(4251 4800 4244, "-Wunknown-warning-option")
 #include <QEvent>
 #include <QGraphicsWidget>
 #include <QObject>
+AZ_POP_DISABLE_WARNING
 
 #include <AzToolsFramework/UI/PropertyEditor/PropertyVectorCtrl.hxx>
 
-#include <Components/NodePropertyDisplay/NodePropertyDisplay.h>
-#include <Components/NodePropertyDisplay/VectorDataInterface.h>
+#include <GraphCanvas/Components/NodePropertyDisplay/NodePropertyDisplay.h>
+#include <GraphCanvas/Components/NodePropertyDisplay/VectorDataInterface.h>
 
-#include <Components/MimeDataHandlerBus.h>
-#include <Styling/StyleHelper.h>
+#include <GraphCanvas/Components/MimeDataHandlerBus.h>
+#include <GraphCanvas/Styling/StyleHelper.h>
 
 class QGraphicsLinearLayout;
 
@@ -58,7 +60,10 @@ namespace GraphCanvas
 
         int GetIndex() const;
 
+        GraphCanvasLabel* GetTextLabel();
         const GraphCanvasLabel* GetTextLabel() const;
+        
+        GraphCanvasLabel* GetValueLabel();
         const GraphCanvasLabel* GetValueLabel() const;
     
     private:    
@@ -86,15 +91,21 @@ namespace GraphCanvas
         void RefreshStyle() override;
         void UpdateDisplay() override;
         
-        QGraphicsLayoutItem* GetDisabledGraphicsLayoutItem() const override;
-        QGraphicsLayoutItem* GetDisplayGraphicsLayoutItem() const override;
-        QGraphicsLayoutItem* GetEditableGraphicsLayoutItem() const override;
+        QGraphicsLayoutItem* GetDisabledGraphicsLayoutItem() override;
+        QGraphicsLayoutItem* GetDisplayGraphicsLayoutItem() override;
+        QGraphicsLayoutItem* GetEditableGraphicsLayoutItem() override;
+        ////
+
+        // DataSlotNotifications
+        void OnDragDropStateStateChanged(const DragDropState& dragState);
         ////
     
     private:
 
         void OnFocusIn();
         void OnFocusOut();
+        void SetupProxyWidget();
+        void CleanupProxyWidget();
         
         void SubmitValue(int elementIndex, double newValue);
     

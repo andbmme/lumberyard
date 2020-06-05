@@ -25,7 +25,6 @@
 #include "EMStudioConfig.h"
 #include <MCore/Source/StandardHeaders.h>
 #include <MCore/Source/Array.h>
-#include <MCore/Source/UnicodeString.h>
 #include <EMotionFX/Source/MotionSet.h>
 #include <EMotionFX/Source/Motion.h>
 #include <EMotionFX/Source/Actor.h>
@@ -50,6 +49,10 @@ namespace EMStudio
 
         static AZStd::string GetAssetFilenameFromAssetId(const AZ::Data::AssetId& assetId);
 
+        void SourceAssetChanged(AZStd::string filename);
+        bool DidSourceAssetGetSaved(const AZStd::string& filename) const;
+        void RemoveFromSavedSourceAssets(AZStd::string filename);
+
         static bool IsAssetLoaded(const char* filename);
         static bool IsSourceAssetLoaded(const char* filename);
 
@@ -59,7 +62,7 @@ namespace EMStudio
         void OnCatalogAssetRemoved(const AZ::Data::AssetId& assetId) override;
 
         // Editor asset system API
-        void SourceFileChanged(AZStd::string relativePath, AZStd::string scanFolder, AZ::Uuid sourceUuid) override;
+        void SourceFileChanged(AZStd::string relativePath, AZStd::string scanFolder, AZ::TypeId sourceTypeId) override;
 
         // helpers
         void RelocateToAssetCacheFolder(AZStd::string& filename);
@@ -87,7 +90,7 @@ namespace EMStudio
         // motion file dialogs
         AZStd::string LoadMotionFileDialog(QWidget* parent);
         AZStd::vector<AZStd::string> LoadMotionsFileDialog(QWidget* parent);
-        void SaveMotion(EMotionFX::Motion* motion);
+        void SaveMotion(AZ::u32 motionId);
 
         // node mapping files
         AZStd::string LoadNodeMapFileDialog(QWidget* parent);
@@ -98,17 +101,18 @@ namespace EMStudio
         AZStd::string SaveAnimGraphFileDialog(QWidget* parent);
 
         // game controller preset files
-        MCore::String LoadControllerPresetFileDialog(QWidget* parent, const char* defaultFolder);
-        MCore::String SaveControllerPresetFileDialog(QWidget* parent, const char* defaultFolder);
+        AZStd::string LoadControllerPresetFileDialog(QWidget* parent, const char* defaultFolder);
+        AZStd::string SaveControllerPresetFileDialog(QWidget* parent, const char* defaultFolder);
 
     private:
-        QString                                         mLastActorFolder;
-        QString                                         mLastMotionSetFolder;
-        QString                                         mLastAnimGraphFolder;
-        QString                                         mLastWorkspaceFolder;
-        QString                                         mLastNodeMapFolder;
+        AZStd::vector<AZStd::string> m_savedSourceAssets;
+        QString mLastActorFolder;
+        QString mLastMotionSetFolder;
+        QString mLastAnimGraphFolder;
+        QString mLastWorkspaceFolder;
+        QString mLastNodeMapFolder;
 
-        bool                                            mSkipFileChangedCheck;
+        bool mSkipFileChangedCheck;
 
         void UpdateLastUsedFolder(const char* filename, QString& outLastFolder) const;
         QString GetLastUsedFolder(const QString& lastUsedFolder) const;

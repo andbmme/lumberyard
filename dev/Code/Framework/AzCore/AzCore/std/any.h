@@ -20,8 +20,10 @@
 #include <AzCore/std/typetraits/add_const.h>
 #include <AzCore/std/typetraits/add_pointer.h>
 #include <AzCore/std/typetraits/is_abstract.h>
+#include <AzCore/std/typetraits/is_reference.h>
 #include <AzCore/std/typetraits/remove_reference.h>
 #include <AzCore/std/typetraits/void_t.h>
+#include <AzCore/std/typetraits/internal/is_template_copy_constructible.h>
 #include <AzCore/std/string/string.h>
 
 namespace AZStd
@@ -30,31 +32,11 @@ namespace AZStd
     {
         // Size of small buffer optimization buffer
         enum { ANY_SBO_BUF_SIZE = 32 };
-
-        //Workaround to get around issue that is_copy_constructible always returns true for containers 
-        //http://stackoverflow.com/questions/18404108/issue-with-is-copy-constructible
-        template<typename ClassType, typename = AZStd::void_t<>>
-        struct template_is_copy_constructible
-        {
-            using type = typename AZStd::is_copy_constructible<ClassType>::type;
-            static const bool value = AZStd::is_copy_constructible<ClassType>::value;
-        };
-
-        template<template<typename...> class ClassTemplate, typename... TemplateArgs>
-        struct template_is_copy_constructible<ClassTemplate<TemplateArgs...>, typename AZStd::make_void<typename ClassTemplate<TemplateArgs...>::value_type>::type>
-        {
-            using ValueType = typename ClassTemplate<TemplateArgs...>::value_type;
-            static const bool value = AZStd::is_copy_constructible<ClassTemplate<TemplateArgs...>>::value && AZStd::is_copy_constructible<ValueType>::value;
-            using type = AZStd::conditional<value, AZStd::true_type, AZStd::false_type>;
-        };
     }
     
     /// distinguishes between any Extension constructor calls
     struct transfer_ownership_t { explicit transfer_ownership_t() = default; };
     const transfer_ownership_t s_transfer_ownership{};
-
-    template<typename T> struct in_place_type_t { explicit in_place_type_t() = default; };
-    //template<typename T> const in_place_type_t<T> in_place_type{}; // VS 2013 does not like this
 
     /**
      * The class any describes a type-safe container for single values of any type.
@@ -164,13 +146,40 @@ namespace AZStd
                 temp.m_typeInfo = type_info();
             }
         }
+        //! [Extension] Create an any with a custom typeinfo while forwarding the arguments to ValueType constructor
+        template <typename ValueType, typename... Args>
+        any(const type_info& typeInfo, in_place_type_t<ValueType>, Args&&... args)
+            : m_typeInfo(typeInfo)
+        {
+            static_assert(AZStd::is_constructible<decay_t<ValueType>, Args...>::value,
+                "ValueType must be constructible with Args... and copy constructible.");
+            // Reserve heap space if necessary
+            m_typeInfo.m_handler(Action::Reserve, this, nullptr);
+
+            // forward arguments to ValueType constructor
+            new (get_data()) decay_t<ValueType>(AZStd::forward<Args>(args)...);
+        }
+
+        //! [Extension] Create an any with a custom typeinfo while forwarding the initializer_list and variadic arguments to ValueType constructor
+        template <typename ValueType, typename U, typename... Args>
+        any(const type_info& typeInfo, in_place_type_t<ValueType>, AZStd::initializer_list<U> il, Args&&... args)
+            : m_typeInfo(typeInfo)
+        {
+            static_assert(AZStd::is_constructible<decay_t<ValueType>, AZStd::initializer_list<U>, Args...>::value,
+                "ValueType must be constructible with Args... and copy constructible.");
+            // Reserve heap space if necessary
+            m_typeInfo.m_handler(Action::Reserve, this, nullptr);
+
+            // forward arguments to ValueType constructor
+            new (get_data()) decay_t<ValueType>(il, AZStd::forward<Args>(args)...);
+        }
 
         /// Constructs an object with initial content an object of type decay_t<ValueType>, direct-initialized from forward<ValueType>(val)
         template <typename ValueType, typename = enable_if_t<!is_same<decay_t<ValueType>, any>::value>>
         explicit any(ValueType&& val, allocator alloc = allocator("AZStd::any"))
             : any(alloc)
         {
-            AZ_STATIC_ASSERT(Internal::template_is_copy_constructible<decay_t<ValueType>>::value
+            static_assert(std::is_copy_constructible<decay_t<ValueType>>::value
                         ||  (std::is_rvalue_reference<ValueType>::value && std::is_move_constructible<decay_t<ValueType>>::value), "ValueType must be copy constructible or a movable rvalue ref.");
 
             // Initialize typeinfo from the type given
@@ -189,9 +198,6 @@ namespace AZStd
         explicit any(in_place_type_t<ValueType>, Args&&... args)
             : any(allocator("AZStd::any"))
         {
-            static_assert(AZStd::is_constructible<decay_t<ValueType>, Args...>::value && Internal::template_is_copy_constructible<decay_t<ValueType>>::value,
-                "ValueType must be constructible and copy constructible.");
-
             // Initialize typeinfo from the type given
             m_typeInfo = create_template_type_info<decay_t<ValueType>>();
 
@@ -207,9 +213,6 @@ namespace AZStd
         explicit any(in_place_type_t<ValueType>, AZStd::initializer_list<U> il, Args&&... args)
             : any(allocator("AZStd::any"))
         {
-            static_assert(AZStd::is_constructible<decay_t<ValueType>, AZStd::initializer_list<U>&, Args...>::value && Internal::template_is_copy_constructible<decay_t<ValueType>>::value,
-                "ValueType must be constructible and copy constructible.");
-
             // Initialize typeinfo from the type given
             m_typeInfo = create_template_type_info<decay_t<ValueType>>();
 
@@ -279,15 +282,16 @@ namespace AZStd
     private:
         // Any elements must be copy constructible
         template<typename ValueType, typename ParamType> // ParamType must be deduced to allow universal ref
-        static void construct(AZStd::any* dest, ParamType&& value, AZStd::enable_if_t<!AZStd::is_abstract<ValueType>::value && Internal::template_is_copy_constructible<ValueType>::value, AZStd::true_type*> = nullptr /* AZStd::is_copy_constructible<ValueType>::value*/)
+        static void construct(AZStd::any* dest, ParamType&& value, AZStd::enable_if_t<AZStd::is_constructible_v<ValueType, ParamType>, AZStd::true_type*> = nullptr /* AZStd::is_constructible_v<ValueType, ParamType>*/)
         {
             new (dest->get_data()) ValueType(forward<ParamType>(value));
         }
 
         // The ValueType is not copy constructible in this case
         template<typename ValueType, typename ParamType>
-        static void construct(AZStd::any* dest, ParamType&&, AZStd::enable_if_t<AZStd::is_abstract<ValueType>::value || !Internal::template_is_copy_constructible<ValueType>::value, AZStd::false_type*> = nullptr /* !AZStd::is_copy_constructible<ValueType>::value*/)
+        static void construct(AZStd::any* dest, ParamType&& value, AZStd::enable_if_t<!AZStd::is_constructible_v<ValueType, ParamType>, AZStd::false_type*> = nullptr /* !AZStd::is_constructible_v<ValueType, ParamType>*/)
         {
+            AZ_UNUSED(value);
             AZ_Assert(false, "Contained type %s is not copyable. Any will not attempt to invoke copy constructor", dest->get_type_info().m_id.ToString<AZStd::string>().data());
         }
 
@@ -421,9 +425,9 @@ namespace AZStd
         void assert_value_type_valid(const any& operand)
         {
             (void)operand;
-            AZ_STATIC_ASSERT(!std::is_rvalue_reference<ValueType>::value, "Type requested from any_cast cannot be an rvalue reference (taking the value stored is not supported).");
-            AZ_STATIC_ASSERT(is_reference<ValueType>::value || std::is_copy_constructible<ValueType>::value, "Type requested from any_cast must be a reference or copy constructable.");
-            AZ_STATIC_ASSERT(!is_reference<ValueType>::value || (!isConst || is_const<remove_reference_t<ValueType>>::value), "Type requested must be const; const cannot be any_cast'ed away.");
+            static_assert(!std::is_rvalue_reference<ValueType>::value, "Type requested from any_cast cannot be an rvalue reference (taking the value stored is not supported).");
+            static_assert(is_reference<ValueType>::value || std::is_copy_constructible<ValueType>::value, "Type requested from any_cast must be a reference or copy constructable.");
+            static_assert(!is_reference<ValueType>::value || (!isConst || is_const<remove_reference_t<ValueType>>::value), "Type requested must be const; const cannot be any_cast'ed away.");
             AZ_Assert(!operand.empty(), "Bad any_cast: object is empty");
             AZ_Assert(operand.is<ValueType>(), "Bad any_cast: type requested doesn't match type stored.\nCall .is<ExpectedType>() before any_cast to properly handle unexpected type.");
         }
@@ -464,7 +468,7 @@ namespace AZStd
     template <typename ValueType>
     add_pointer_t<ValueType> any_cast(any* operand)
     {
-        AZ_STATIC_ASSERT(!is_reference<ValueType>::value, "ValueType must not be a reference (cannot return pointer to reference).");
+        static_assert(!is_reference<ValueType>::value, "ValueType must not be a reference (cannot return pointer to reference).");
         if (!operand || operand->empty() || !operand->is<ValueType>())
         {
             return nullptr;

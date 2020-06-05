@@ -15,11 +15,12 @@
 //               initialize OpenGL contexts and detect hardware
 //               capabilities
 
-
 #include <StdAfx.h>
+
 #include "GLDevice.hpp"
 #include "GLResource.hpp"
 #include <Common/RenderCapabilities.h>
+#include <SFunctor.h>
 
 #include <AzCore/std/smart_ptr/make_shared.h>
 #include <AzCore/Module/DynamicModuleHandle.h>
@@ -27,6 +28,20 @@
 #if defined(ANDROID)
 #include <AzCore/Android/Utils.h>
 #include <android/native_window.h>
+#endif
+
+#if defined(AZ_RESTRICTED_PLATFORM)
+#undef AZ_RESTRICTED_SECTION
+#define GLDEVICE_CPP_SECTION_1 1
+#define GLDEVICE_CPP_SECTION_2 2
+#define GLDEVICE_CPP_SECTION_3 3
+#define GLDEVICE_CPP_SECTION_4 4
+#define GLDEVICE_CPP_SECTION_5 5
+#define GLDEVICE_CPP_SECTION_6 6
+#define GLDEVICE_CPP_SECTION_7 7
+#define GLDEVICE_CPP_SECTION_8 8
+#define GLDEVICE_CPP_SECTION_9 9
+#define GLDEVICE_CPP_SECTION_10 10
 #endif
 
 #if defined(DEBUG) && !defined(MAC)
@@ -48,25 +63,18 @@
 // Used when checking the capabilities of an adapter.
 static const int MIN_UNIFORM_BUFFERS_REQUIRED = 8;
 
-#if defined(DXGLES_LOAD_EXTENSIONS)
-// Declare the function pointers for the gles extensions.
-#undef EXTENSION_FUNC
-#define EXTENSION_FUNC(func, ...) FunctPtr ## func DXGL_EXT_FUNCPTR(func) = nullptr;
-#include "GLExtensionFunctions.inl"
-#endif
-
 namespace NCryOpenGL
 {
     extern const DXGI_FORMAT DXGI_FORMAT_INVALID = DXGI_FORMAT_FORCE_UINT;
 
-    // Size of uniform buffers to hold all the skinning data (768 bones * 4 floats
-    // per quaternion * 4 bytes per float * 2 for motion blur). If the device does
-    // not support this size then we set a shader constant (SMALL_UNIFORM_BUFFERS)
-    // to indicate this, which in FXConstantDefs.cfi changes the max number of
-    // bones to 512.
-    static const int BASE_UNIFORM_BUFFER_SIZE = 24 * 1024;
-
     CDevice::WindowSizeList CDevice::m_windowSizes;
+
+#if defined(AZ_PLATFORM_LINUX)
+    // Unfortunately this cannot be a member variable because it gets initialized in the static function CreateWindow,
+    // which only intends to return the handle of the created window.  That function is called before CDevice is ever created,
+    // so we can't simply initialize the display in that class.
+    Display* s_defaultDisplay = nullptr;
+#endif
 
 #if DXGL_DEBUG_OUTPUT_VERBOSITY
     #if defined(WIN32)
@@ -92,7 +100,7 @@ namespace NCryOpenGL
         : m_display(EGL_NO_DISPLAY)
         , m_surface(EGL_NO_SURFACE)
         , m_config(nullptr)
-        , m_window(nullptr)
+        , m_window(EGL_NULL_VALUE)
         , m_dirtyFlag(false)
     {}
 
@@ -130,17 +138,32 @@ namespace NCryOpenGL
         EGLint renderableType = EGL_OPENGL_BIT;
 #   endif
         AZStd::lock_guard<AZStd::mutex> lock(m_mutex);
+        
         m_window = kDefaultNativeDisplay->second;
-        if (eglBindAPI(api) == EGL_FALSE)
+
+        // Desktop egl platforms only currently support OpenGL ES while mobile egl platforms support OpenGL and OpenGL ES.
+        // The api selection function is unavailable on desktop egl platforms
+        if (eglBindAPI != NULL)
         {
-            DXGL_ERROR("eglGetDisplay failed");
-            return false;
+            if (eglBindAPI(api) == EGL_FALSE)
+            {
+                DXGL_ERROR("eglBindAPI failed");
+                return false;
+            }
         }
 
+#if !defined(AZ_PLATFORM_LINUX)
         m_display = eglGetDisplay(kDefaultNativeDisplay->first);
+#else
+        // If we use the EGL_DEFAULT_DISPLAY for the remaining code in this function when doing some of these operations
+        // many operations fail and we end up failing to initialize anything.  Always use the default egl dislpay created
+        // from the XOpenDisplay results instead of whatever the kDefaultNativeDisplay has
+        m_display = eglGetDisplay(s_defaultDisplay);
+#endif
+
         if (m_display == EGL_NO_DISPLAY)
         {
-            DXGL_ERROR("eglBindAPI failed");
+            DXGL_ERROR("eglGetDisplay failed");
             return false;
         }
 
@@ -150,20 +173,20 @@ namespace NCryOpenGL
             return false;
         }
 
-        bool usePbuffer = m_window == nullptr;
+        bool usePbuffer = m_window == EGL_NULL_VALUE;
         EGLint aiAttributes[] =
         {
             EGL_RENDERABLE_TYPE,          renderableType,
             EGL_SURFACE_TYPE,             usePbuffer ? EGL_PBUFFER_BIT : EGL_WINDOW_BIT,
-            EGL_RED_SIZE,                 kPixelFormatSpec.m_pLayout->m_uRedBits,
-            EGL_GREEN_SIZE,               kPixelFormatSpec.m_pLayout->m_uGreenBits,
-            EGL_BLUE_SIZE,                kPixelFormatSpec.m_pLayout->m_uBlueBits,
-            EGL_ALPHA_SIZE,               kPixelFormatSpec.m_pLayout->m_uAlphaBits,
-            EGL_BUFFER_SIZE,              kPixelFormatSpec.m_pLayout->GetColorBits(),
-            EGL_DEPTH_SIZE,               kPixelFormatSpec.m_pLayout->m_uDepthBits,
-            EGL_STENCIL_SIZE,             kPixelFormatSpec.m_pLayout->m_uStencilBits,
-            EGL_SAMPLE_BUFFERS,           kPixelFormatSpec.m_uNumSamples > 1 ? 1 : 0,
-            EGL_SAMPLES,                  kPixelFormatSpec.m_uNumSamples > 1 ? kPixelFormatSpec.m_uNumSamples : 0,
+            EGL_RED_SIZE,                 static_cast<EGLint>(kPixelFormatSpec.m_pLayout->m_uRedBits),
+            EGL_GREEN_SIZE,               static_cast<EGLint>(kPixelFormatSpec.m_pLayout->m_uGreenBits),
+            EGL_BLUE_SIZE,                static_cast<EGLint>(kPixelFormatSpec.m_pLayout->m_uBlueBits),
+            EGL_ALPHA_SIZE,               static_cast<EGLint>(kPixelFormatSpec.m_pLayout->m_uAlphaBits),
+            EGL_BUFFER_SIZE,              static_cast<EGLint>(kPixelFormatSpec.m_pLayout->GetColorBits()),
+            EGL_DEPTH_SIZE,               static_cast<EGLint>(kPixelFormatSpec.m_pLayout->m_uDepthBits),
+            EGL_STENCIL_SIZE,             static_cast<EGLint>(kPixelFormatSpec.m_pLayout->m_uStencilBits),
+            EGL_SAMPLE_BUFFERS,           static_cast<EGLint>(kPixelFormatSpec.m_uNumSamples > 1 ? 1 : 0),
+            EGL_SAMPLES,                  static_cast<EGLint>(kPixelFormatSpec.m_uNumSamples > 1 ? kPixelFormatSpec.m_uNumSamples : 0),
             EGL_NONE
         };
 
@@ -174,7 +197,32 @@ namespace NCryOpenGL
             return false;
         }
 
+#if !defined(AZ_PLATFORM_LINUX)
         CreateSurface();
+#else
+        // If we want to run in headless mode and not create a window, for optimal setup when rendering video from the server,
+        // then do not create an X11 window and only create an offscreen pixel buffer surface.
+        // r_GetScreenShot can then be triggered to capture a screenshot to user/screenshots/
+        ICVar* skipWindowCreationCvar = gEnv->pConsole->GetCVar("r_linuxSkipWindowCreation");
+        if (skipWindowCreationCvar && (skipWindowCreationCvar->GetIVal() > 0))
+        {
+            usePbuffer = true;
+        }
+
+        if (usePbuffer)
+        {
+            CreateSurface();
+        }
+        else
+        {
+            bool result = CreateX11Window();
+            if (!result)
+            {
+                DXGL_ERROR("Failed to create X11 window");
+                return false;
+            }
+        }
+#endif
 
         if (m_surface == EGL_NO_SURFACE)
         {
@@ -221,6 +269,59 @@ namespace NCryOpenGL
         return result == EGL_TRUE;
     }
 
+#if defined(AZ_PLATFORM_LINUX)
+    bool SDisplayConnection::CreateX11Window()
+    {
+        // We need to create an actual window and a window-renderable surface
+        EGLint visualID;
+        if (!eglGetConfigAttrib(m_display, m_config, EGL_NATIVE_VISUAL_ID, &visualID))
+        {
+            AZ_Assert(false, "Error: eglGetConfigAttrib failed - [0x%08x]", eglGetError());
+            return false;
+        }
+
+        // TODO Linux - Get these from somewhere else besides the cvars
+        ICVar* widthCVar = gEnv->pConsole->GetCVar("r_width");
+        ICVar* heightCVar = gEnv->pConsole->GetCVar("r_height");
+        int width = static_cast<int>(widthCVar->GetIVal());
+        int height = static_cast<int>(heightCVar->GetIVal());
+        const char* title = "Placeholder Title";
+
+
+        // Get the XVisualInfo config that matches the EGL config.
+        int numberXVisuals = 0;
+        XVisualInfo visualInfoTemplate;
+        visualInfoTemplate.visualid = visualID;
+        XVisualInfo* visualInfo = XGetVisualInfo(s_defaultDisplay, VisualIDMask, &visualInfoTemplate, &numberXVisuals);
+        if (numberXVisuals == 0)
+        {
+            AZ_Assert(false, "XGetVisualInfo failed to match egl configurations");
+            return false;
+        }
+
+        Window rootWindow = DefaultRootWindow(s_defaultDisplay);
+        Colormap colorMap = XCreateColormap(s_defaultDisplay, rootWindow, visualInfo->visual, AllocNone);
+
+        XSetWindowAttributes windowAttributes;
+        windowAttributes.colormap = colorMap;
+        windowAttributes.event_mask = ExposureMask | KeyPressMask;
+
+        Window applicationWindow = XCreateWindow(s_defaultDisplay, rootWindow, 0, 0, width, height, 0, visualInfo->depth, InputOutput, visualInfo->visual, CWColormap | CWEventMask, &windowAttributes);
+
+        m_surface = eglCreateWindowSurface(m_display, m_config, applicationWindow, NULL);
+        if (!m_surface)
+        {
+            AZ_Assert(false, "Error: eglCreateWindowSurface failed - [0x%08x]", eglGetError());
+            return false;
+        }
+
+        // Map the window and set the name
+        XMapWindow(s_defaultDisplay, applicationWindow);
+        XStoreName(s_defaultDisplay, applicationWindow, title);
+        return true;
+    }
+#endif
+
     void SDisplayConnection::SetWindow(EGLNativeWindowType window)
     {
         AZStd::lock_guard<AZStd::mutex> lock(m_mutex);
@@ -245,7 +346,9 @@ namespace NCryOpenGL
     {
         AZStd::lock_guard<AZStd::mutex> lock(m_mutex);
         EGLSurface surface = context ? m_surface : EGL_NO_SURFACE;
-        return eglMakeCurrent(m_display, surface, surface, context) == EGL_TRUE;
+        EGLBoolean res = eglMakeCurrent(m_display, surface, surface, context);
+        AZ_Warning("Rendering", res == EGL_TRUE, "eglMakeCurrent failed [0x%08x]", eglGetError());
+        return res == EGL_TRUE;
     }
 
     bool SDisplayConnection::SwapBuffers(const TRenderingContext context)
@@ -498,7 +601,7 @@ namespace NCryOpenGL
         if (kWindowHandle == NULL || GetWindowRect(kWindowHandle, &kWindowRect) != TRUE)
         {
             DXGL_ERROR("Could not retrieve the device window rectangle");
-            return false;
+            return nullptr;
         }
 
         int32 iWindowCenterX((kWindowRect.left + kWindowRect.right) / 2);
@@ -513,7 +616,7 @@ namespace NCryOpenGL
             RECT kDisplayRect;
             if (!NWin32Helper::GetDisplayRect(&kDisplayRect, pOutput))
             {
-                return NULL;
+                return nullptr;
             }
 
             if (kWindowRect.left   >= kDisplayRect.left  &&
@@ -563,7 +666,7 @@ namespace NCryOpenGL
 #endif //defined(WIN32)
 
         SDummyWindow()
-            : m_kNativeDisplay(NULL)
+            : m_kNativeDisplay()
 #if defined(WIN32)
             , m_kWndHandle(NULL)
             , m_kWndClassAtom(0)
@@ -575,7 +678,7 @@ namespace NCryOpenGL
         {
 #if defined(DXGL_USE_EGL)
             // No need to create a window because we are going to use an EGL pixel buffer surface.
-            m_kNativeDisplay = AZStd::make_shared<EGLNativePlatform>(EGL_DEFAULT_DISPLAY, nullptr);
+            m_kNativeDisplay = AZStd::make_shared<EGLNativePlatform>(EGL_DEFAULT_DISPLAY, EGL_NULL_VALUE);
 #elif defined(WIN32)
             WNDCLASSW kWndClass;
             kWndClass.style = CS_HREDRAW | CS_VREDRAW;
@@ -622,6 +725,7 @@ namespace NCryOpenGL
         }
     };
 
+
     ////////////////////////////////////////////////////////////////////////////
     // CDevice implementation
     ////////////////////////////////////////////////////////////////////////////
@@ -633,6 +737,11 @@ namespace NCryOpenGL
     uint32 CDevice::ms_uNumContextsPerDevice = 1;
 #endif
 
+#if DXGL_EXTENSION_LOADER && defined(AZ_PLATFORM_LINUX)
+    // Linux needs an early call to LoadEarlyGLEntryPoints, so we need to forward declare it.
+    bool LoadEarlyGLEntryPoints();
+#endif // DXGL_EXTENSION_LOADER
+
     CDevice* CDevice::ms_pCurrentDevice = NULL;
 
     CDevice::CDevice(SAdapter* pAdapter, const SFeatureSpec& kFeatureSpec, const SPixelFormatSpec& kPixelFormatSpec)
@@ -640,6 +749,7 @@ namespace NCryOpenGL
         , m_kFeatureSpec(kFeatureSpec)
         , m_kPixelFormatSpec(kPixelFormatSpec)
         , m_kContextFenceIssued(false)
+        , m_texturesStreamingFunctorId(0)
     {
         if (ms_pCurrentDevice == NULL)
         {
@@ -663,10 +773,39 @@ namespace NCryOpenGL
 #if !defined(WIN32)
     bool CDevice::CreateWindow(const char* title, uint32 width, uint32 height, bool fullscreen, HWND * handle)
     {
-#if defined(ANDROID)
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION GLDEVICE_CPP_SECTION_1
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/GLDevice_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/GLDevice_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/GLDevice_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#elif defined(ANDROID)
         // Windows is already created by the Native Activity. We just return a pointer to the ANativeWindow.
         ANativeWindow* nativeWindow = AZ::Android::Utils::GetWindow();
         *handle = reinterpret_cast<HWND>(nativeWindow);
+#elif defined(AZ_PLATFORM_LINUX)
+        // Get the default display and root window handles.
+        // We are currently only rendering to a pixel buffer and not yet creating an actual window via X11
+        Display* defaultDisplay = XOpenDisplay(NULL);
+        AZ_Assert(defaultDisplay, "XOpenDisplay failed");
+
+        Window rootWindow = DefaultRootWindow(defaultDisplay);
+
+#if DXGL_EXTENSION_LOADER
+        if (!LoadEarlyGLEntryPoints())
+        {
+            return false;
+        }
+#endif // DXGL_EXTENSION_LOADER
+
+        *handle = reinterpret_cast<HWND>(rootWindow);
+        s_defaultDisplay = defaultDisplay;
 #else
 #error "Not implemented for this platform"
 #endif
@@ -677,8 +816,22 @@ namespace NCryOpenGL
 
     void CDevice::DestroyWindow(HWND handle)
     {
-#if defined(ANDROID)
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION GLDEVICE_CPP_SECTION_2
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/GLDevice_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/GLDevice_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/GLDevice_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#elif defined(ANDROID)
         // Nothing to do since the window is destroyed by the OS when the Native Activity is destroyed
+#elif defined(AZ_PLATFORM_LINUX)
+        AZ_Assert(0, "TODO Linux OpenGL");
 #else
 #error "Not implemented for this platform"
 #endif
@@ -690,7 +843,10 @@ namespace NCryOpenGL
 #if defined(ANDROID)
         ANativeWindow* nativeWindow = reinterpret_cast<ANativeWindow*>(handle);
         // We need to set the windows size to match the engine width and height. The Android compositor will upscale it to fullscreen.
-        ANativeWindow_setBuffersGeometry(nativeWindow, width, height, WINDOW_FORMAT_RGBA_8888);
+        ANativeWindow_setBuffersGeometry(nativeWindow, width, height, WINDOW_FORMAT_RGBX_8888); // discard alpha
+#elif defined(AZ_PLATFORM_LINUX)
+        // TODO Linux - What needs done here?
+        //AZ_Assert(0, "TODO Linux OpenGL");
 #endif
     }
 #endif // !defined(WIN32)
@@ -715,12 +871,62 @@ namespace NCryOpenGL
 
         HWND window = reinterpret_cast<HWND>(AZ::Android::Utils::GetWindow());
         CDevice::InitWindow(window, width, height);
+#elif defined(AZ_PLATFORM_LINUX)
+        AZ_Assert(0, "TODO Linux OpenGL");
+#endif
+    }
+
+    void CDevice::OnApplicationWindowRedrawNeeded()
+    {
+#if defined(ANDROID)
+        if (gEnv && gEnv->pConsole && gEnv->pRenderer)
+        {
+            ICVar* widthCVar = gEnv->pConsole->GetCVar("r_width");
+            ICVar* heightCVar = gEnv->pConsole->GetCVar("r_height");
+
+            int width, height;
+            if (AZ::Android::Utils::GetWindowSize(width, height))
+            {
+                gcpRendD3D->GetClampedWindowSize(width, height);
+
+                widthCVar->Set(width);
+                heightCVar->Set(height);
+
+                // We need to wait for the render thread to finish before we set the new dimensions.
+                // Since Android has a separate render thread, it'll be in the middle of rendering the scene when this function is called.
+                if (!gRenDev->m_pRT->IsRenderThread(true))
+                {
+                    gEnv->pRenderer->GetRenderThread()->WaitFlushFinishedCond();
+                }
+
+                gcpRendD3D->SetWidth(widthCVar->GetIVal());
+                gcpRendD3D->SetHeight(heightCVar->GetIVal());
+
+                InitWindow(AZ::Android::Utils::GetWindow(), width, height);
+                DetectOutputs(*m_spAdapter, m_spAdapter->m_kOutputs);
+            }
+        }
+#elif defined(AZ_PLATFORM_LINUX)
+        AZ_Assert(0, "TODO Linux OpenGL");
 #endif
     }
 
     void CDevice::Configure(uint32 uNumSharedContexts)
     {
         ms_uNumContextsPerDevice = min((uint32)MAX_NUM_CONTEXT_PER_DEVICE, 1 + uNumSharedContexts);
+    }
+
+
+    static void OnChangeTexturesStreaming(ICVar* pCVar, CDevice* device)
+    {
+        int32 newVal = pCVar->GetIVal();
+        if (newVal > 0 && !device->IsFeatureSupported(NCryOpenGL::eF_CopyImage))
+        {
+            AZ_Warning("Rendering", false, "Disabling Textures Streaming because is not supported on this device.");
+            newVal = 0;
+        }
+
+        pCVar->Set(newVal);
     }
 
     bool CDevice::Initialize(const TNativeDisplay& kDefaultNativeDisplay)
@@ -751,7 +957,7 @@ namespace NCryOpenGL
             // We use the window's surface for the context that will do the actual rendering and 1x1 PBuffer surfaces for the loading threads.
             if (type == CContext::ResourceType)
             {
-                windowContext.reset(SDisplayConnection::Create(m_kPixelFormatSpec, AZStd::make_shared<EGLNativePlatform>(EGL_DEFAULT_DISPLAY, nullptr)));
+                windowContext.reset(SDisplayConnection::Create(m_kPixelFormatSpec, AZStd::make_shared<EGLNativePlatform>(EGL_DEFAULT_DISPLAY, EGL_NULL_VALUE)));
             }
 #endif // ANDROID
 
@@ -774,6 +980,15 @@ namespace NCryOpenGL
         }
 
         MakeCurrent(m_kDefaultWindowContext, NULL);
+
+        // Check for textures streaming support
+        if (ICVar* cVar = gEnv->pConsole->GetCVar("r_texturesStreaming"))
+        {
+            SFunctor onChange;
+            onChange.Set(OnChangeTexturesStreaming, cVar, this);
+            m_texturesStreamingFunctorId = cVar->AddOnChangeFunctor(onChange);
+            onChange.Call();
+        }
 
         return true;
     }
@@ -804,6 +1019,11 @@ namespace NCryOpenGL
         if (m_kDefaultWindowContext != NULL)
         {
             ReleaseWindowContext(m_kDefaultWindowContext);
+        }
+
+        if (ICVar* cVar = gEnv->pConsole->GetCVar("r_texturesStreaming"))
+        {
+            cVar->RemoveOnChangeFunctor(m_texturesStreamingFunctorId);
         }
     }
 
@@ -954,13 +1174,19 @@ namespace NCryOpenGL
         }
 
 #if defined(DXGL_USE_EGL)
+    #if defined(AZ_PLATFORM_LINUX)
+        EGLint aiContextAttributes[] = {
+            EGL_CONTEXT_CLIENT_VERSION, 2,
+            EGL_NONE};
+    #else
         SVersion version = GetRequiredGLVersion();
         EGLint aiContextAttributes[] = 
         {
-            EGL_CONTEXT_MAJOR_VERSION, version.m_uMajorVersion,
-            EGL_CONTEXT_MINOR_VERSION, version.m_uMinorVersion,
+            EGL_CONTEXT_MAJOR_VERSION, static_cast<EGLint>(version.m_uMajorVersion),
+            EGL_CONTEXT_MINOR_VERSION, static_cast<EGLint>(version.m_uMinorVersion),
             EGL_NONE
         };
+    #endif
 #elif defined(DXGL_USE_WGL)
         int32 aiAttributes[] =
         {
@@ -1052,7 +1278,19 @@ namespace NCryOpenGL
 
     bool CDevice::SetFullScreenState(const SFrameBufferSpec& kFrameBufferSpec, bool bFullScreen, SOutput* pOutput)
     {
-#if defined(WIN32)
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION GLDEVICE_CPP_SECTION_3
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/GLDevice_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/GLDevice_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/GLDevice_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#elif defined(WIN32)
         if (bFullScreen)
         {
             if (pOutput == NULL)
@@ -1107,7 +1345,19 @@ namespace NCryOpenGL
 
     bool CDevice::ResizeTarget(const SDisplayMode& kTargetMode)
     {
-#if defined(WIN32)
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION GLDEVICE_CPP_SECTION_4
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/GLDevice_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/GLDevice_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/GLDevice_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#elif defined(WIN32)
         if (kTargetMode.m_uBitsPerPixel != m_kPixelFormatSpec.m_pLayout->GetPixelBits())
         {
             DXGL_WARNING("ResizeTarget does not support changing the window pixel format");
@@ -1138,6 +1388,8 @@ namespace NCryOpenGL
 #elif defined(ANDROID)
         DXGL_WARNING("ResizeTarget is not supported on this platform");
         return false;
+#elif defined(AZ_PLATFORM_LINUX)
+        AZ_Assert(0, "TODO Linux OpenGL");
 #else
 #error "Not implemented on this platform"
 #endif
@@ -1374,20 +1626,30 @@ namespace NCryOpenGL
                 return false;
             }
 
+#if defined(AZ_PLATFORM_LINUX)
             SVersion version = GetRequiredGLVersion();
             EGLint aiContextAttributes[] = {
-                EGL_CONTEXT_MAJOR_VERSION, version.m_uMajorVersion,
-                EGL_CONTEXT_MINOR_VERSION, version.m_uMinorVersion,
+                EGL_CONTEXT_CLIENT_VERSION, 2,
                 EGL_NONE};
-
+#else
+            SVersion version = GetRequiredGLVersion();
+            EGLint aiContextAttributes[] = {
+                EGL_CONTEXT_MAJOR_VERSION, static_cast<EGLint>(version.m_uMajorVersion),
+                EGL_CONTEXT_MINOR_VERSION, static_cast<EGLint>(version.m_uMinorVersion),
+                EGL_NONE};
+#endif
             m_kRenderingContext = eglCreateContext(m_kDisplayConnection->GetDisplay(),
-                                                    m_kDisplayConnection->GetConfig(), 
+                                                   m_kDisplayConnection->GetConfig(), 
                                                     EGL_NO_CONTEXT, 
                                                     aiContextAttributes);
-            if (m_kRenderingContext == EGL_NO_CONTEXT ||
-                !m_kDisplayConnection->MakeCurrent(m_kRenderingContext))
+            if (m_kRenderingContext == EGL_NO_CONTEXT)
             {
-                DXGL_ERROR("Dummy DXGL context creation failed");
+                DXGL_ERROR("Dummy DXGL context creation failed: [0x%08x]", eglGetError());
+                return false;
+            }
+            if (!m_kDisplayConnection->MakeCurrent(m_kRenderingContext))
+            {
+                DXGL_ERROR("Dummy DXGL context MakeCurrent failed: [0x%08x]", eglGetError());
                 return false;
             }
 #elif defined(DXGL_USE_WGL)
@@ -1516,7 +1778,19 @@ namespace NCryOpenGL
 
     bool GetNativeDisplay(TNativeDisplay& kNativeDisplay, HWND kWindowHandle)
     {
-#if defined(WIN32)
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION GLDEVICE_CPP_SECTION_5
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/GLDevice_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/GLDevice_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/GLDevice_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#elif defined(WIN32)
         HDC deviceContext = GetDC(kWindowHandle);
         if (deviceContext == NULL)
         {
@@ -1537,6 +1811,9 @@ namespace NCryOpenGL
         return true;
 #elif defined(ANDROID)
         kNativeDisplay = AZStd::make_shared<EGLNativePlatform>(static_cast<EGLNativeDisplayType>(EGL_DEFAULT_DISPLAY), static_cast<EGLNativeWindowType>(kWindowHandle));
+        return true;
+#elif defined(AZ_PLATFORM_LINUX)
+        kNativeDisplay = AZStd::make_shared<EGLNativePlatform>(s_defaultDisplay, reinterpret_cast<EGLNativeWindowType>(kWindowHandle));
         return true;
 #else
 #error "Not supported on this platform"
@@ -1699,7 +1976,7 @@ namespace NCryOpenGL
         return uSupport;
     }
 
-#if DXGL_SUPPORT_COPY_IMAGE && DXGL_SUPPORT_GETTEXIMAGE
+#if DXGL_SUPPORT_GETTEXIMAGE
 
     bool DetectIfCopyImageWorksOnCubeMapFaces()
     {
@@ -1749,7 +2026,7 @@ namespace NCryOpenGL
         return memcmp(auInput, auOutput, sizeof(auOutput)) == 0;
     }
 
-#endif //DXGL_SUPPORT_COPY_IMAGE && DXGL_SUPPORT_GETTEXIMAGE
+#endif //DXGL_SUPPORT_GETTEXIMAGE
 
 #define ELEMENT(_Enum) _Enum,
 
@@ -1829,6 +2106,7 @@ namespace NCryOpenGL
 #if DXGLES || defined(DXGL_ES_SUBSET)
         bool gles30orHigher = glVersion >= DXGLES_VERSION_30;
         bool gles31orHigher = glVersion >= DXGLES_VERSION_31;
+        bool gles32orHigher = glVersion >= DXGLES_VERSION_32;
 
         kFeatures.Set(eF_IndexedBoolState, gles31orHigher);
         kFeatures.Set(eF_StencilOnlyFormat, gles31orHigher);
@@ -1842,9 +2120,15 @@ namespace NCryOpenGL
         kFeatures.Set(eF_SeparablePrograms, gles31orHigher || DXGL_GL_EXTENSION_SUPPORTED(EXT_separate_shader_objects));
         kFeatures.Set(eF_ComputeShader, gles31orHigher);
         kFeatures.Set(eF_DualSourceBlending, false);
+        kFeatures.Set(eF_IndependentBlending, gles32orHigher);
+        // glCopyImageSubData causes a crash on Mali GPUs. Disabling it for now.
+        kFeatures.Set(eF_CopyImage, (gles32orHigher || DXGL_GL_EXTENSION_SUPPORTED(EXT_copy_image)) && driverVendor != RenderCapabilities::s_gpuVendorIdARM);
         // OpenGLES doesn't support depth clamping but we emulate it by writing the depth in the pixel shader.
         // Unfortunately Qualcomm OpenGL ES 3.0 drivers have a bug and they don't support modifying the depth in the pixel shader.
         kFeatures.Set(eF_DepthClipping, !(glVersion == DXGLES_VERSION_30 && driverVendor == RenderCapabilities::s_gpuVendorIdQualcomm));
+
+        bool isAnisotropicFilteringEnabled = DXGL_GL_EXTENSION_SUPPORTED(EXT_texture_filter_anisotropic);
+        kFeatures.Set(eF_TextureAnisotropicFiltering, isAnisotropicFilteringEnabled);
 
         bool textureBorderClamp = false;
 #if defined(DXGL_ES_SUBSET)
@@ -1877,6 +2161,8 @@ namespace NCryOpenGL
         kFeatures.Set(eF_DebugOutput, gl43orHigher || DXGL_GL_EXTENSION_SUPPORTED(KHR_debug));
         kFeatures.Set(eF_ComputeShader, gl43orHigher || DXGL_GL_EXTENSION_SUPPORTED(ARB_compute_shader));
         kFeatures.Set(eF_BufferStorage, gl44orHigher || DXGL_GL_EXTENSION_SUPPORTED(ARB_buffer_storage));
+        kFeatures.Set(eF_IndependentBlending, true);
+        kFeatures.Set(eF_CopyImage, gl43orHigher);
 #if DXGL_GLSL_FROM_HLSLCROSSCOMPILER
         // Technically dual source blending is supported since OpenGL 3.3 but you need to declare the fragment shader output with the 
         // position and the index (for OpenGL < 4.4): 
@@ -1930,7 +2216,6 @@ namespace NCryOpenGL
             DetectResourceUnitCapabilities(&kCapabilities.m_akResourceUnits[eRUT_Image], g_aeMaxImageUnits);
         }
 #endif
-        gRenDev->m_hasSmallUniformBuffers = (kCapabilities.m_iMaxUniformBlockSize <= BASE_UNIFORM_BUFFER_SIZE);
 
 #if DXGL_SUPPORT_VERTEX_ATTRIB_BINDING
         if (kFeatures.Get(eF_VertexAttribBinding))
@@ -1949,20 +2234,54 @@ namespace NCryOpenGL
         {
             kCapabilities.m_auFormatSupport[uGIFormat] = DetectGIFormatSupport((EGIFormat)uGIFormat);
         }
-
-#if DXGL_SUPPORT_COPY_IMAGE && DXGL_SUPPORT_GETTEXIMAGE
-        kCapabilities.m_bCopyImageWorksOnCubeMapFaces = DetectIfCopyImageWorksOnCubeMapFaces();
-#endif //DXGL_SUPPORT_COPY_IMAGE && DXGL_SUPPORT_GETTEXIMAGE
+        
+        // Assume it works
+        kCapabilities.m_bCopyImageWorksOnCubeMapFaces = true;
+#if DXGL_SUPPORT_GETTEXIMAGE
+        if(kFeatures.Get(eF_CopyImage))
+        {
+            kCapabilities.m_bCopyImageWorksOnCubeMapFaces = DetectIfCopyImageWorksOnCubeMapFaces();
+        }
+#endif // DXGL_SUPPORT_GETTEXIMAGE
 
 
         glGetIntegerv(GL_MAX_COLOR_ATTACHMENTS, &kCapabilities.m_maxRenderTargets);
         kCapabilities.m_plsSizeInBytes = 0;
-#if defined(OPENGL_ES)
-        if (RenderCapabilities::SupportsPLSExtension())
+#if defined(GL_EXT_shader_pixel_local_storage)
+        if (DXGL_GL_EXTENSION_SUPPORTED(EXT_shader_pixel_local_storage))
         {
             glGetIntegerv(GL_MAX_SHADER_PIXEL_LOCAL_STORAGE_FAST_SIZE_EXT, &kCapabilities.m_plsSizeInBytes);
         }
-#endif
+#endif // GL_EXT_shader_pixel_local_storage
+
+#if defined(GL_EXT_shader_framebuffer_fetch)
+        if (DXGL_GL_EXTENSION_SUPPORTED(EXT_shader_framebuffer_fetch))
+        {
+            kCapabilities.m_frameBufferFetchSupport.set(RenderCapabilities::FBF_ALL_COLORS);
+            kCapabilities.m_frameBufferFetchSupport.set(RenderCapabilities::FBF_COLOR0);
+        }
+#endif // GL_EXT_shader_framebuffer_fetch
+
+#if defined(GL_ARM_shader_framebuffer_fetch)
+        if (DXGL_GL_EXTENSION_SUPPORTED(ARM_shader_framebuffer_fetch))
+        {
+            // Check that we can fetch COLOR0 when using multiple render targets.
+            GLboolean mrtSupport = GL_FALSE;
+            glGetBooleanv(GL_FRAGMENT_SHADER_FRAMEBUFFER_FETCH_MRT_ARM, &mrtSupport);
+            if (mrtSupport)
+            {
+                kCapabilities.m_frameBufferFetchSupport.set(RenderCapabilities::FBF_COLOR0);
+            }
+        }
+#endif // GL_ARM_shader_framebuffer_fetch
+
+#if defined(GL_ARM_shader_framebuffer_fetch_depth_stencil)
+        if (DXGL_GL_EXTENSION_SUPPORTED(ARM_shader_framebuffer_fetch_depth_stencil))
+        {
+            kCapabilities.m_frameBufferFetchSupport.set(RenderCapabilities::FBF_DEPTH);
+            kCapabilities.m_frameBufferFetchSupport.set(RenderCapabilities::FBF_STENCIL);
+        }
+#endif // GL_ARM_shader_framebuffer_fetch_depth_stencil
 
         return true;
     }
@@ -2033,109 +2352,83 @@ namespace NCryOpenGL
     }
 
 #if DXGL_EXTENSION_LOADER
-#if defined(DXGLES_LOAD_EXTENSIONS)
-    void LoadDXGLESExtensionEntryPoints()
+    bool LoadEarlyGLEntryPoints()
     {
-        // Assign the function pointer to the correct function.
-        #undef EXTENSION_FUNC
-        #define EXTENSION_FUNC(func, ...) DXGL_EXT_FUNCPTR(func) = DXGL_GL_LOADER_FUNCTION_PTR(func) ? \
-                                                                            DXGL_GL_LOADER_FUNCTION_PTR(func) : \
-                                                                            DXGL_GL_LOADER_FUNCTION_PTR(func ## EXT);
-        #include "GLExtensionFunctions.inl"
-    }
-#endif // defined(DXGLES_LOAD_EXTENSIONS)
-
-#if defined(OPENGL_ES) && defined(DXGL_USE_LOADER_GLAD)
-    namespace FunctionLoaderHelper
-    {
-        AZStd::unique_ptr<AZ::DynamicModuleHandle> s_moduleHandle;
-
-        bool LoadModule()
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION GLDEVICE_CPP_SECTION_6
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/GLDevice_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/GLDevice_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/GLDevice_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#elif defined(DXGL_USE_LOADER_GLAD)
+#   if defined(DXGL_USE_EGL)
+        if (gladLoaderLoadEGL(NULL) == 0)
         {
-            s_moduleHandle = AZ::DynamicModuleHandle::Create("libGLESv2");
-            return s_moduleHandle->Load(false);
-        }
-        
-        bool UnloadModule()
-        {
-            if (s_moduleHandle)
-            {
-                return s_moduleHandle->Unload();
-            }
-
+            DXGL_ERROR("Failed to retrieve EGL entry points");
             return false;
         }
-
-        void* GetGLProcAddress(const char* funcName)
-        {
-             AZStd::function<void*(const char*)> libLoader;
- #if defined(DXGL_USE_WGL)
-             libLoader = wglGetProcAddress;
- #elif defined(DXGL_USE_EGL)
-             typedef void* (*funcLoader)(const char *name);
-             libLoader = reinterpret_cast<funcLoader>(eglGetProcAddress);
- #endif
-             // First try to load the function address using the library function
-             if (libLoader)
-             {
-                 void* function = libLoader(funcName);
-                 if (function)
-                 {
-                     return function;
-                 }
-             }
-
-            // Now try to load the function symbol directly from the library.
-            // This is needed because some implementations only load extensions and not core functions.
-            if (!s_moduleHandle)
-            {
-                if (!LoadModule())
-                {
-                    AZ_Assert(false, "Failed to load module");
-                    return nullptr;
-                }
-            }
-
-            return s_moduleHandle->GetFunction<void*>(funcName);
-        }
-    };
-#endif //defined(OPENGL_ES) && defined(DXGL_USE_LOADER_GLAD)
+#   endif
+#else
+#error "Not implemented on this platform"
+#endif
+        return true;
+    }
 
     bool LoadGLEntryPoints(SDummyContext& kDummyContext)
     {
-#if defined(DXGL_USE_LOADER_GLAD)
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION GLDEVICE_CPP_SECTION_7
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/GLDevice_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/GLDevice_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/GLDevice_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#elif defined(DXGL_USE_LOADER_GLAD)
+#   if defined(DXGL_USE_EGL)
+        if (gladLoaderLoadEGL(NULL) == 0)
+        {
+            DXGL_ERROR("Failed to retrieve EGL entry points");
+            return false;
+        }
+#   elif defined(DXGL_USE_GLX)
+        if (gladLoaderLoadGLX(NULL, 0) == 0)
+        {
+            DXGL_ERROR("Failed to retrieve GLX entry points");
+            return false;
+        }
+#   endif
+
 #if defined(OPENGL_ES)
-        int ret = gladLoadGLES2Loader(FunctionLoaderHelper::GetGLProcAddress);
-        // Unload library if needed
-        FunctionLoaderHelper::UnloadModule();
+        int ret = gladLoaderLoadGLES2();
 #else
-        int ret = gladLoadGL();
+        int ret = gladLoaderLoadGL();
 #endif //defined(OPENGL_ES)
-        if (ret != 1)
+        
+        if (ret == 0)
         {
             DXGL_ERROR("Failed to retrieve GL entry points");
             return false;
         }
 
 #   if defined(DXGL_USE_WGL)
-        if (gladLoadWGL(kDummyContext.m_kDummyWindow.m_kNativeDisplay) != 1)
+        if (gladLoaderLoadWGL(kDummyContext.m_kDummyWindow.m_kNativeDisplay) == 0)
         {
             DXGL_ERROR("Failed to retrieve WGL entry points");
             return false;
         }
-#   elif defined(DXGL_USE_EGL)
-        if (gladLoadEGL() != 1)
-        {
-            DXGL_ERROR("Failed to retrieve EGL entry points");
-            return false;
-        }
-#   elif defined(DXGL_USE_GLX)
-        if (gladLoadGLX(NULL, 0) != 1)
-        {
-            DXGL_ERROR("Failed to retrieve GLX entry points");
-            return false;
-        }
-#   endif
+#   endif 
+
 #elif defined(DXGL_USE_LOADER_GLEW)
         GLenum err = glewInit();
         if (GLEW_OK != err)
@@ -2161,15 +2454,9 @@ namespace NCryOpenGL
 #else
 #error "Not implemented on this platform"
 #endif
-
-#if defined(DXGLES_LOAD_EXTENSIONS)
-        LoadDXGLESExtensionEntryPoints();
-#endif // defined(DXGLES_LOAD_EXTENSIONS)
         return true;
     }
-
 #endif //DXGL_EXTENSION_LOADER
-
     bool GetGLVersion(SAdapterPtr& pAdapter)
     {
         if (!pAdapter)
@@ -2218,6 +2505,14 @@ namespace NCryOpenGL
 
     bool DetectAdapters(std::vector<SAdapterPtr>& kAdapters)
     {
+        // Linux needs access to EGL much earlier than other EGL platforms do, so the EGL entry points are loaded in CreateWindow
+#if DXGL_EXTENSION_LOADER && !defined(AZ_PLATFORM_LINUX)
+        if (!LoadEarlyGLEntryPoints())
+        {
+            return false;
+        }
+#endif // DXGL_EXTENSION_LOADER
+
         SDummyContext kDummyContext;
         if (!kDummyContext.Initialize())
         {
@@ -2243,6 +2538,11 @@ namespace NCryOpenGL
         AZ_Warning("Renderer", result, "Failed to get the OpenGL version for adapter %s %s", spAdapter->m_strVendor.c_str(), spAdapter->m_strRenderer.c_str());
         result = ParseExtensions(spAdapter);
         AZ_Warning("Renderer", result, "Failed to parse OpenGL Extensions for adapter %s %s", spAdapter->m_strVendor.c_str(), spAdapter->m_strRenderer.c_str());
+
+        if (gEnv->pRenderer)
+        {
+            gEnv->pRenderer->SetApiVersion(spAdapter->m_strVersion.c_str());
+        }
 
         if (!DetectFeaturesAndCapabilities(spAdapter->m_kFeatures, spAdapter->m_kCapabilities, spAdapter->m_sVersion, spAdapter->m_eDriverVendor))
         {
@@ -2290,7 +2590,19 @@ namespace NCryOpenGL
 
     bool DetectOutputs(const SAdapter& kAdapter, std::vector<SOutputPtr>& kOutputs)
     {
-#if defined(WIN32)
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION GLDEVICE_CPP_SECTION_8
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/GLDevice_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/GLDevice_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/GLDevice_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#elif defined(WIN32)
         uint32 uDisplay(0);
         DISPLAY_DEVICEA kDisplayDevice;
         ZeroMemory(&kDisplayDevice, sizeof(kDisplayDevice));
@@ -2344,11 +2656,31 @@ namespace NCryOpenGL
             return false;
         }
 
+        gcpRendD3D->GetClampedWindowSize(widthPixels, heightPixels);
+
         SDisplayMode mode;
         mode.m_uWidth = static_cast<uint32>(widthPixels);
         mode.m_uHeight = static_cast<uint32>(heightPixels);
         mode.m_uFrequency = 0;
         mode.m_nativeFormat = ANativeWindow_getFormat(nativeWindow);
+
+        SOutputPtr output(new SOutput());
+        output->m_strDeviceID = "0";
+        output->m_strDeviceName = "Main Output";
+        output->m_kModes.push_back(mode);
+        output->m_kDesktopMode = mode;
+        kOutputs.push_back(output);
+        return true;
+#elif defined(AZ_PLATFORM_LINUX)
+        // TODO Linux - Query window dims from adapter
+        int widthPixels = 1280;
+        int heightPixels = 720;
+        gcpRendD3D->GetClampedWindowSize(widthPixels, heightPixels);
+
+        SDisplayMode mode;
+        mode.m_uWidth = static_cast<uint32>(widthPixels);
+        mode.m_uHeight = static_cast<uint32>(heightPixels);
+        mode.m_uFrequency = 0;
 
         SOutputPtr output(new SOutput());
         output->m_strDeviceID = "0";
@@ -2376,7 +2708,19 @@ namespace NCryOpenGL
         pDXGIModeDesc->RefreshRate.Numerator = kDisplayMode.m_uFrequency;
         pDXGIModeDesc->RefreshRate.Denominator = 1;
 
-#if defined(WIN32)
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION GLDEVICE_CPP_SECTION_9
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/GLDevice_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/GLDevice_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/GLDevice_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#elif defined(WIN32)
         DXGL_TODO("Check if there is a better way of mapping GL display modes to formats")
         switch (kDisplayMode.m_uBitsPerPixel)
         {
@@ -2406,6 +2750,8 @@ namespace NCryOpenGL
             pDXGIModeDesc->Format = DXGI_FORMAT_UNKNOWN;
             break;
         }
+#elif defined(AZ_PLATFORM_LINUX)
+        // Do nothing?
 #else
         DXGL_NOT_IMPLEMENTED;
 #endif
@@ -2426,7 +2772,19 @@ namespace NCryOpenGL
         {
             pDisplayMode->m_uFrequency = 0;
         }
-#if defined(WIN32)
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION GLDEVICE_CPP_SECTION_10
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/GLDevice_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/GLDevice_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/GLDevice_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#elif defined(WIN32)
         switch (kDXGIModeDesc.Format)
         {
         case DXGI_FORMAT_R8G8B8A8_UNORM:
@@ -2476,13 +2834,11 @@ namespace NCryOpenGL
 
     void DXGL_DEBUG_CALLBACK_CONVENTION DebugCallback(GLenum source, GLenum type, GLuint id, GLenum severity, GLsizei length, const char* message, void* userParam)
     {
-        //  Confetti BEGIN: Igor Lobanchikov
-        //  Igor: this filters out the debug messages earlier saving the performance which might be broken by excessive string creation.
+        //  this filters out the debug messages earlier saving the performance which might be broken by excessive string creation.
         if ((type == GL_DEBUG_SEVERITY_LOW) || (type == GL_DEBUG_SEVERITY_NOTIFICATION))
         {
             return;
         }
-        //  Confetti End: Igor Lobanchikov
 
         ::string errorMessage, sourceStr, typeStr, severityStr;
         ELogSeverity eLogSeverity = eLS_Warning;

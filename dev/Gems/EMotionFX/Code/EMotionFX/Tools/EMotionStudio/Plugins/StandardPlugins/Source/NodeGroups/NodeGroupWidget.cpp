@@ -14,6 +14,7 @@
 #include "NodeGroupWidget.h"
 #include "../../../../EMStudioSDK/Source/EMStudioManager.h"
 #include <EMotionFX/Source/NodeGroup.h>
+#include <MCore/Source/StringConversions.h>
 
 // include qt headers
 #include <QPushButton>
@@ -127,15 +128,15 @@ namespace EMStudio
         setLayout(layout);
 
         // connect controls to the slots
-        connect(mSelectNodesButton, SIGNAL(clicked()), this, SLOT(SelectNodesButtonPressed()));
-        connect(mAddNodesButton, SIGNAL(clicked()), this, SLOT(SelectNodesButtonPressed()));
-        connect(mRemoveNodesButton, SIGNAL(clicked()), this, SLOT(RemoveNodesButtonPressed()));
-        connect(mNodeTable, SIGNAL(itemSelectionChanged()), this, SLOT(OnItemSelectionChanged()));
+        connect(mSelectNodesButton, &QPushButton::clicked, this, &NodeGroupWidget::SelectNodesButtonPressed);
+        connect(mAddNodesButton, &QPushButton::clicked, this, &NodeGroupWidget::SelectNodesButtonPressed);
+        connect(mRemoveNodesButton, &QPushButton::clicked, this, &NodeGroupWidget::RemoveNodesButtonPressed);
+        connect(mNodeTable, &QTableWidget::itemSelectionChanged, this, &NodeGroupWidget::OnItemSelectionChanged);
         //connect( mEnabledOnDefaultCheckbox, SIGNAL(clicked()), this, SLOT(EnabledOnDefaultChanged()) );
         //connect( mNodeGroupNameEdit, SIGNAL(editingFinished()), this, SLOT(NodeGroupNameEditingFinished()) );
         //connect( mNodeGroupNameEdit, SIGNAL(textChanged(QString)), this, SLOT(NodeGroupNameEditChanged(QString)) );
-        connect(mNodeSelectionWindow->GetNodeHierarchyWidget(), SIGNAL(OnSelectionDone(MCore::Array<SelectionItem>)), this, SLOT(NodeSelectionFinished(MCore::Array<SelectionItem>)));
-        connect(mNodeSelectionWindow->GetNodeHierarchyWidget(), SIGNAL(OnDoubleClicked(MCore::Array<SelectionItem>)), this, SLOT(NodeSelectionFinished(MCore::Array<SelectionItem>)));
+        connect(mNodeSelectionWindow->GetNodeHierarchyWidget(), static_cast<void (NodeHierarchyWidget::*)(MCore::Array<SelectionItem>)>(&NodeHierarchyWidget::OnSelectionDone), this, &NodeGroupWidget::NodeSelectionFinished);
+        connect(mNodeSelectionWindow->GetNodeHierarchyWidget(), static_cast<void (NodeHierarchyWidget::*)(MCore::Array<SelectionItem>)>(&NodeHierarchyWidget::OnDoubleClicked), this, &NodeGroupWidget::NodeSelectionFinished);
     }
 
 
@@ -356,19 +357,19 @@ namespace EMStudio
         }
 
         // generate node list string
-        MCore::String nodeList;
-        nodeList.Reserve(16448);
+        AZStd::string nodeList;
+        nodeList.reserve(16448);
         const uint32 numSelectedNodes = selectionList.GetLength();
         for (uint32 i = 0; i < numSelectedNodes; ++i)
         {
             nodeList += selectionList[i].GetNodeName();
             nodeList += ";";
         }
-        nodeList.TrimRight(MCore::UnicodeCharacter::semiColon);
+        AzFramework::StringFunc::Strip(nodeList, MCore::CharacterConstants::semiColon, true /* case sensitive */, false /* beginning */, true /* ending */);
 
         // call command for adjusting disable on default flag
         AZStd::string outResult;
-        AZStd::string command = AZStd::string::format("AdjustNodeGroup -actorID %i -name \"%s\" -nodeAction \"%s\" -nodeNames \"%s\"", mActor->GetID(), mNodeGroup->GetName(), mNodeAction.c_str(), nodeList.AsChar());
+        AZStd::string command = AZStd::string::format("AdjustNodeGroup -actorID %i -name \"%s\" -nodeAction \"%s\" -nodeNames \"%s\"", mActor->GetID(), mNodeGroup->GetName(), mNodeAction.c_str(), nodeList.c_str());
         if (EMStudio::GetCommandManager()->ExecuteCommand(command, outResult) == false)
         {
             AZ_Error("EMotionFX", false, outResult.c_str());

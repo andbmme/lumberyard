@@ -17,11 +17,9 @@
 #include "StdAfx.h"
 #include <ICryAnimation.h>
 
-#include "terrain.h"
 #include "StatObj.h"
 #include "ObjMan.h"
 #include "VisAreas.h"
-#include "terrain_sector.h"
 #include "3dEngine.h"
 #include "CullBuffer.h"
 #include "3dEngine.h"
@@ -163,6 +161,11 @@ void CObjManager::RenderVegetation(CVegetation* pEnt,
         }
     }
 
+    if (GetCVars()->e_LodForceUpdate)
+    {
+        pEnt->m_pRNTmpData->userData.nWantedLod = CObjManager::GetObjectLOD(pEnt, fEntDistance);
+    }
+
     const CLodValue lodValue = pEnt->ComputeLod(pEnt->m_pRNTmpData->userData.nWantedLod, passInfo);
     pEnt->Render(passInfo, lodValue, pTerrainTexInfo,  rendItemSorter);
 }
@@ -246,6 +249,14 @@ void CObjManager::RenderObject(IRenderNode* pEnt,
             return;
         }
         break;
+#ifdef LY_TERRAIN_RUNTIME
+    case eERType_TerrainSystem:
+        if (!passInfo.RenderTerrain())
+        {
+            return;
+        }
+        break;
+#endif
     default:
         if (!passInfo.RenderEntities())
         {
@@ -389,6 +400,11 @@ void CObjManager::RenderObject(IRenderNode* pEnt,
         DrawParams.dwFObjFlags |= FOB_SELECTED;
     }
 
+    if (pCVars->e_LodForceUpdate)
+    {
+        pEnt->m_pRNTmpData->userData.nWantedLod = CObjManager::GetObjectLOD(pEnt, fEntDistance);
+    }
+
     // draw bbox
 #if !defined(_RELEASE)
     if (pCVars->e_BBoxes)// && eERType != eERType_Light)
@@ -400,6 +416,7 @@ void CObjManager::RenderObject(IRenderNode* pEnt,
     if (pEnt->m_dwRndFlags & ERF_NO_DECALNODE_DECALS)
     {
         DrawParams.dwFObjFlags |= FOB_DYNAMIC_OBJECT;
+        DrawParams.NoDecalReceiver = true;
     }
 
     DrawParams.m_pVisArea =   pVisArea;

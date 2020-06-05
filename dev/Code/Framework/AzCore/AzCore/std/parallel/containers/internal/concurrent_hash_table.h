@@ -17,6 +17,7 @@
 #include <AzCore/std/containers/fixed_vector.h>
 #include <AzCore/std/allocator_static.h>
 #include <AzCore/std/allocator_ref.h>
+#include <AzCore/std/parallel/allocator_concurrent_static.h>
 #include <AzCore/std/parallel/atomic.h>
 #include <AzCore/std/parallel/mutex.h>
 
@@ -160,9 +161,7 @@ namespace AZStd
             typedef concurrent_hash_table_storage<Traits, false> this_type;
 
         public:
-            //TODO: must use a thread-safe allocator here!
-            //typedef static_pool_concurrent_allocator<typename Internal::list_node<typename Traits::value_type>,Traits::fixed_num_elements> element_allocator_type;
-            typedef static_pool_allocator<typename Internal::list_node<typename Traits::value_type>, Traits::fixed_num_elements> element_allocator_type;
+            typedef static_pool_concurrent_allocator<typename Internal::list_node<typename Traits::value_type>,Traits::fixed_num_elements> element_allocator_type;
 
             typedef typename Traits::allocator_type allocator_type;
             typedef AZStd::list<typename Traits::value_type, allocator_ref<element_allocator_type> > list_type;
@@ -183,7 +182,7 @@ namespace AZStd
 
             void init_buckets()
             {
-                m_vector.assign(Traits::fixed_num_buckets, list_type(&m_elementAllocator));
+                m_vector.assign(Traits::fixed_num_buckets, list_type(allocator_ref<element_allocator_type>(m_elementAllocator)));
             }
 
             AZ_FORCE_INLINE void pre_copy(const this_type&)
@@ -547,7 +546,7 @@ namespace AZStd
                 num_locks = Traits::num_locks,
                 lock_mask = num_locks - 1
             };
-            AZ_STATIC_ASSERT((num_locks & (num_locks - 1)) == 0, "must be power of 2");
+            static_assert((num_locks & (num_locks - 1)) == 0, "must be power of 2");
 
             storage_type m_storage;
             key_eq m_keyEqual;

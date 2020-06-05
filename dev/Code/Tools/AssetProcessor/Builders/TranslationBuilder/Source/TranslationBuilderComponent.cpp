@@ -3,9 +3,9 @@
 * its licensors.
 *
 * For complete copyright and license terms please see the LICENSE at the root of this
-* distribution(the "License").All use of this software is governed by the License,
-*or, if provided, by the license below or the license accompanying this file.Do not
-* remove or modify any license notices.This file is distributed on an "AS IS" BASIS,
+* distribution (the "License"). All use of this software is governed by the License,
+*or, if provided, by the license below or the license accompanying this file. Do not
+* remove or modify any license notices. This file is distributed on an "AS IS" BASIS,
 *WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
@@ -55,6 +55,9 @@ namespace TranslationBuilder
         builderDescriptor.m_processJobFunction = AZStd::bind(&TranslationBuilderWorker::ProcessJob, &m_builderWorker, AZStd::placeholders::_1, AZStd::placeholders::_2);
 
         m_builderWorker.BusConnect(builderDescriptor.m_busId);
+
+        // (optimization) this builder does not emit source dependencies:
+        builderDescriptor.m_flags |= AssetBuilderSDK::AssetBuilderDesc::BF_EmitsNoDependencies;
 
         EBUS_EVENT(AssetBuilderSDK::AssetBuilderBus, RegisterBuilderInformation, builderDescriptor);
     }
@@ -157,9 +160,8 @@ namespace TranslationBuilder
                     response.m_resultCode = AssetBuilderSDK::ProcessJobResult_Failed;
                     return;
                 }
-
+                AZ::u32 exitCode = 0;
                 bool result = watcher->WaitForProcessToExit(300);
-
                 if (result)
                 {
                     // grab output and append to logs, will help with any debugging down the road.
@@ -183,10 +185,12 @@ namespace TranslationBuilder
                         }
                     }
 
+#if defined(AZ_PLATFORM_LINUX)
                     // the process ran, but was it successful in its run?
-                    AZ::u32 exitCode = 0;
                     bool wasRunning = watcher->IsProcessRunning(&exitCode);
-
+#else
+                    bool wasRunning = false;
+#endif
                     if( !wasRunning && (exitCode == 0) )
                     {
                         // if you succeed in building assets into your temp dir, you should push them back into the response's product list
@@ -255,9 +259,12 @@ namespace TranslationBuilder
         
         fileToSearchFor += ".exe";
 
-#elif defined(AZ_PLATFORM_APPLE_OSX)
+#elif defined(AZ_PLATFORM_MAC)
         otherPaths.push_back(AZStd::string::format(R"(%s/Code/Sandbox/SDKs/Qt/clang_64/bin/)", engineRoot.empty() ? "" : engineRoot.data()) );
         otherPaths.push_back(AZStd::string::format(R"(%s/Gems/ScriptCanvas/Tools/qt/clang_64/bin/)", engineRoot.empty() ? "" : engineRoot.data()) );
+#elif defined(AZ_PLATFORM_LINUX)        
+        otherPaths.push_back(AZStd::string::format(R"(%s/Code/Sandbox/SDKs/Qt/gcc_64/bin/)", engineRoot.empty() ? "" : engineRoot.data()) );
+        otherPaths.push_back(AZStd::string::format(R"(%s/Gems/ScriptCanvas/Tools/qt/gcc_64/bin/)", engineRoot.empty() ? "" : engineRoot.data()) );
 #endif
         AZStd::string toolPath;
 

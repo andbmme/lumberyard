@@ -137,7 +137,9 @@ typedef HANDLE THREAD_HANDLE;
 #define _O_SEQUENTIAL   0x0020  /* file access is primarily sequential */
 #define _O_RANDOM       0x0010  /* file access is primarily random */
 
-#define MemoryBarrier() __sync_synchronize()
+inline void MemoryBarrier() {
+    __sync_synchronize();
+}
 // Memory barrier implementation taken from https://code.google.com/p/gperftools/
 //inline void MemoryBarrier() {
 //  __asm__ __volatile__("mfence" : : : "memory");
@@ -314,9 +316,6 @@ inline uint32 GetTickCount()
 #endif
 //begin--------------------------------findfirst/-next declaration/implementation----------------------------------------------------
 
-//////////////////////////////////////////////////////////////////////////
-
-typedef int64 __time64_t;     /* 64-bit time value */
 
 //////////////////////////////////////////////////////////////////////////
 // function renaming
@@ -338,16 +337,14 @@ typedef int64 __time64_t;     /* 64-bit time value */
 // Need to include this before using it's used in finddata, but after the strnicmp definition
 #include "CryString.h"
 
-#if defined(ANDROID) || defined (APPLE) || defined(LINUX)
-
 typedef struct __finddata64_t
 {
     //!< atributes set by find request
     unsigned    int attrib;         //!< attributes, only directory and readonly flag actually set
-    __time64_t  time_create;        //!< creation time, cannot parse under linux, last modification time is used instead (game does nowhere makes decision based on this values)
-    __time64_t  time_access;        //!< last access time
-    __time64_t  time_write;         //!< last modification time
-    __time64_t  size;                       //!< file size (for a directory it will be the block size)
+    int64  time_create;        //!< creation time, cannot parse under linux, last modification time is used instead (game does nowhere makes decision based on this values)
+    int64  time_access;        //!< last access time
+    int64  time_write;         //!< last modification time
+    int64  size;                       //!< file size (for a directory it will be the block size)
     char        name[256];          //!< file/directory name
 
 private:
@@ -390,10 +387,6 @@ extern intptr_t _findfirst64(const char* pFileName, __finddata64_t* pFindData);
 extern DWORD GetFileAttributes(LPCSTR lpFileName);
 
 extern const bool GetFilenameNoCase(const char* file, char*, const bool cCreateNew = false);
-
-
-#endif //defined(ANDROID) || defined (APPLE)
-
 
 extern BOOL GetUserName(LPSTR lpBuffer, LPDWORD nSize);
 
@@ -505,26 +498,6 @@ extern void adaptFilenameToLinux(char* rAdjustedFilename);
 extern const int comparePathNames(const char* cpFirst, const char* cpSecond, unsigned int len);//returns 0 if identical
 extern void replaceDoublePathFilename(char* szFileName);//removes "\.\" to "\" and "/./" to "/"
 
-
-//////////////////////////////////////////////////////////////////////////
-inline LONG _InterlockedCompareExchange(LONG volatile* Destination, LONG Exchange, LONG Comperand)
-{
-    LONG prev = *Destination;
-    if (*Destination == Comperand)
-    {
-        *Destination = Exchange;
-    }
-    return prev;
-}
-
-//////////////////////////////////////////////////////////////////////////
-inline LONG _InterlockedExchangeAdd(LONG volatile* Addend, LONG Value)
-{
-    LONG prev = *Addend;
-    *Addend += Value;
-    return prev;
-}
-
 //////////////////////////////////////////////////////////////////////////
 extern char* _fullpath(char* absPath, const char* relPath, size_t maxLength);
 //////////////////////////////////////////////////////////////////////////
@@ -533,7 +506,6 @@ extern void _splitpath(const char* inpath, char* drv, char* dir, char* fname, ch
 
 //////////////////////////////////////////////////////////////////////////
 extern int memicmp(LPCSTR s1, LPCSTR s2, DWORD len);
-extern int strcmpi(const char* str1, const char* str2);
 
 extern "C" char* strlwr (char* str);
 extern "C" char* strupr(char* str);

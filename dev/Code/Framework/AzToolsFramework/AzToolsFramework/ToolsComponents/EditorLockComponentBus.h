@@ -9,9 +9,11 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
+
 #pragma once
 
 #include <AzCore/Component/ComponentBus.h>
+#include <AzFramework/Entity/EntityContext.h>
 
 namespace AzToolsFramework
 {
@@ -23,10 +25,10 @@ namespace AzToolsFramework
         : public AZ::ComponentBus
     {
     public:
-        /// Set whether this entity is locked
+        /// Set whether this entity is set to be locked in the editor (individual state/flag).
         virtual void SetLocked(bool locked) = 0;
 
-        /// Gets whether this entity is locked
+        /// Get whether this entity is set to be locked in the editor (individual state/flag).
         virtual bool GetLocked() = 0;
     };
 
@@ -37,14 +39,28 @@ namespace AzToolsFramework
      * Notifications about whether an Entity is locked in the Editor.
      * See \ref EditorLockRequests.
      */
-    class EditorLockComponentNotifications
+    class EditorEntityLockComponentNotifications
         : public AZ::ComponentBus
     {
     public:
-        /// The entity's current lock state has changed.
+        /// The entity's current internal lock state/flag has changed.
+        /// ATTN: Only EditorEntityModelEntry listens to this notification.
+        virtual void OnEntityLockFlagChanged(bool /*locked*/) {}
+
+        /// The entity's current lock has changed (in terms of viewport interaction).
+        /// Note: The event may be caused by a layer lock changing or an individually entity lock changing.
         virtual void OnEntityLockChanged(bool /*locked*/) {}
     };
 
-    /// \ref EditorVisibilityNotifications
-    using EditorLockComponentNotificationBus = AZ::EBus<EditorLockComponentNotifications>;
-}
+    /// \ref EditorEntityLockComponentNotifications
+    using EditorEntityLockComponentNotificationBus = AZ::EBus<EditorEntityLockComponentNotifications>;
+
+    /// Alias for EditorEntityLockComponentNotifications - prefer EditorEntityLockComponentNotifications,
+    /// EditorLockComponentNotifications is deprecated.
+    using EditorLockComponentNotifications = EditorEntityLockComponentNotifications;
+
+    /// Alias for EditorEntityLockComponentNotificationBus - prefer EditorEntityLockComponentNotificationBus,
+    /// EditorLockComponentNotificationBus is deprecated.
+    using EditorLockComponentNotificationBus = EditorEntityLockComponentNotificationBus;
+
+} // namespace AzToolsFramework

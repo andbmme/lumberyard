@@ -87,11 +87,15 @@ namespace Gems
 
             // First priority goes to the project root's folder
             AZStd::string testGemPath = settings.GetProjectRootPath();
-            AzFramework::StringFunc::Path::ConstructFull(settings.GetProjectRootPath().c_str(), pair.second.m_path.c_str(), testGemPath, true);
-            AzFramework::StringFunc::Path::Join(testGemPath.c_str(), GEM_DEF_FILE, testGemPath);
-            if (AZ::IO::SystemFile::Exists(testGemPath.c_str()))
+            if (AzFramework::StringFunc::Path::ConstructFull(settings.GetProjectRootPath().c_str(), pair.second.m_path.c_str(), testGemPath, true))
             {
-                absolutePath = testGemPath.c_str();
+                if (AzFramework::StringFunc::Path::Join(testGemPath.c_str(), GEM_DEF_FILE, testGemPath))
+                {
+                    if (AZ::IO::SystemFile::Exists(testGemPath.c_str()))
+                    {
+                        absolutePath = testGemPath.c_str();
+                    }
+                }
             }
 
             auto loadOutcome = LoadGemDescription(pair.second.m_path, absolutePath);
@@ -240,8 +244,7 @@ namespace Gems
                         errorString += AZStd::string::format("Fail to load Gems from path %s disk. %s\n", searchPath.m_path.c_str(), loadOutcome.GetError().c_str());
                     }
 
-                    // We found the Gem.json file, we can stop now
-                    return false;
+                    // We found the Gem.json file but we have to keep looking to support nested gems
                 }
             }
 

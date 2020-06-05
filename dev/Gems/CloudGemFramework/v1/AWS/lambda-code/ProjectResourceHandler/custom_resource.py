@@ -10,32 +10,40 @@
 #
 # $Revision: #1 $
 
+from cgf_utils import custom_resource_utils
 from cgf_utils import custom_resource_response
 import traceback
 import os
-import imp
 import sys
 import json
 from cgf_utils import aws_utils
 from cgf_utils import json_utils
-from resource_manager_common import constant
 from resource_manager_common import module_utils
 from resource_manager_common import stack_info
 
 from cgf_utils.properties import ValidationError
 
 import boto3
+from botocore.config import Config
+
+# See https://botocore.amazonaws.com/v1/documentation/api/latest/reference/config.html
+LAMBDA_READ_TIMEOUT = 120           # In seconds, boto3 default is 60s
+LAMBDA_CONNECTION_TIMEOUT = 10      # In seconds, boto3 default is 60s
 
 # This is patched by unit tests
 PLUGIN_DIRECTORY_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), 'plugin'))
 
 _LOCAL_CUSTOM_RESOURCE_WHITELIST = {"Custom::LambdaConfiguration", "Custom::ResourceTypes"}
 
+_UPDATE_CHANGED_PHYSICAL_ID_WARNING = "Warning: resource \"{}\" has updated physical resource ID from \"{}\" to " \
+                                      "\"{}\". This is forbidden by the CloudFormation specification for custom resources and may result in " \
+                                      "unspecified behavior."
+
 
 def handler(event, context):
+    """Main handler for custom resources, wired in via project-template.json as the ProjectResourceHandler"""
     try:
-
-        print 'Dispatching event {} with context {}.'.format(json.dumps(event, cls=json_utils.SafeEncoder), context)
+        print('Dispatching event {} with context {}.'.format(json.dumps(event, cls=json_utils.SafeEncoder), context))
 
         resource_type = event.get('ResourceType', None)
         if resource_type is None:
@@ -75,7 +83,7 @@ def handler(event, context):
                 if not hasattr(module, 'handler'):
                     raise RuntimeError('No handler function found for the {} resource type.'.format(resource_type))
 
-                print 'Using {}'.format(module)
+                print('Using {}'.format(module))
 
                 module.handler(event, context)
 
@@ -90,21 +98,81 @@ def handler(event, context):
             if type_definition.handler_function is None:
                 raise RuntimeError('No handler function defined for custom resource type {}.'.format(resource_type))
 
-            lambda_client = aws_utils.ClientWrapper(boto3.client("lambda", stack.region))
-            lambda_data = { 'Handler': type_definition.handler_function }
+            request_type = event['RequestType']
+
+            if type_definition.deleted and request_type == "Create":
+                raise RuntimeError('Attempting to Create a new resource of deleted type {}.'.format(resource_type))
+
+            create_version = type_definition.handler_function_version
+            logical_id = event['LogicalResourceId']
+            embedded_physical_id = None
+
+            # Access control can take over 60s so set custom timeouts
+            config_dict = {'region_name': stack.region, 'connect_timeout': LAMBDA_CONNECTION_TIMEOUT, 'read_timeout': LAMBDA_READ_TIMEOUT}
+            lambda_client_config = Config(**config_dict)
+            lambda_client = aws_utils.ClientWrapper(boto3.client("lambda", config=lambda_client_config))
+
+            cf_client = aws_utils.ClientWrapper(boto3.client("cloudformation", stack.region))
+
+            if request_type != "Create":
+                physical_id = event['PhysicalResourceId']
+                embedded_physical_id = physical_id
+                try:
+                    existing_resource_info = json.loads(physical_id)
+                    embedded_physical_id = existing_resource_info['id']
+                    create_version = existing_resource_info['v']
+                except (ValueError, TypeError, KeyError):
+                    # Backwards compatibility with resources created prior to versioning support
+                    create_version = None
+
+            run_version = create_version
+
+            # Check the metadata on the resource to see if we're coercing to a different version
+            resource_info = cf_client.describe_stack_resource(StackName=event['StackId'], LogicalResourceId=logical_id)
+            metadata = aws_utils.get_cloud_canvas_metadata(resource_info['StackResourceDetail'],
+                                                           custom_resource_utils.METADATA_VERSION_TAG)
+            if metadata:
+                run_version = metadata
+                if request_type == "Create":
+                    create_version = metadata
+
+            # Configure our invocation, and invoke the handler lambda
+            lambda_data = {'Handler': type_definition.handler_function}
             lambda_data.update(event)
-            response = lambda_client.invoke(
-                FunctionName=type_definition.get_custom_resource_lambda_function_name(),
-                Payload=json.dumps(lambda_data)
-            )
+            invoke_params = {
+                'FunctionName': type_definition.get_custom_resource_lambda_function_name(),
+                'Payload': json.dumps(lambda_data)
+            }
+
+            if run_version:
+                invoke_params['Qualifier'] = run_version
+
+            response = lambda_client.invoke(**invoke_params)
 
             if response['StatusCode'] == 200:
                 response_data = json.loads(response['Payload'].read().decode())
                 response_success = response_data.get('Success', None)
+
                 if response_success is not None:
                     if response_success:
-                        custom_resource_response.succeed(event, context, response_data['Data'],
-                                                         response_data['PhysicalResourceId'])
+                        if create_version:
+                            if request_type == "Update" and response_data['PhysicalResourceId'] != embedded_physical_id:
+                                # Physical ID changed during an update, which is *technically* illegal according to the
+                                # docs, but we allow it because CloudFormation doesn't act to prevent it.
+                                print(_UPDATE_CHANGED_PHYSICAL_ID_WARNING.format(
+                                    logical_id, embedded_physical_id,
+                                    response_data['PhysicalResourceId']))
+
+                            out_resource_id = json.dumps({
+                                'id': response_data['PhysicalResourceId'],
+                                'v': create_version
+                            })
+                        else:
+                            # Backwards compatibility with resources created prior to versioning support
+                            out_resource_id = response_data['PhysicalResourceId']
+
+                        custom_resource_response.succeed(event, context, response_data['Data'], out_resource_id)
+
                     else:
                         custom_resource_response.fail(event, context, response_data['Reason'])
                 else:
@@ -117,9 +185,10 @@ def handler(event, context):
     except ValidationError as e:
         custom_resource_response.fail(event, context, str(e))
     except Exception as e:
-        print 'Unexpected error occured when processing event {} with context {}. {}'.format(event, context, traceback.format_exc())
-        custom_resource_response.fail(event, context, 'Unexpected {} error occured: {}. Additional details can be found in the CloudWatch log group {} stream {}'.format(
-            type(e).__name__,
-            e.message,
-            context.log_group_name,
-            context.log_stream_name))
+        print('Unexpected error occurred when processing event {} with context {}. {}'.format(event, context, traceback.format_exc()))
+        custom_resource_response.fail(event, context,
+                                      'Unexpected {} error occurred: {}. Additional details can be found in the CloudWatch log group {} stream {}'.format(
+                                          type(e).__name__,
+                                          str(e),
+                                          context.log_group_name,
+                                          context.log_stream_name))

@@ -3,9 +3,9 @@
 * its licensors.
 *
 * For complete copyright and license terms please see the LICENSE at the root of this
-* distribution(the "License").All use of this software is governed by the License,
-*or, if provided, by the license below or the license accompanying this file.Do not
-* remove or modify any license notices.This file is distributed on an "AS IS" BASIS,
+* distribution (the "License"). All use of this software is governed by the License,
+*or, if provided, by the license below or the license accompanying this file. Do not
+* remove or modify any license notices. This file is distributed on an "AS IS" BASIS,
 *WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
@@ -16,7 +16,7 @@
 #include <AssetBuilderSDK/AssetBuilderBusses.h>
 #include <LyShine/UiComponentTypes.h>
 #include <LyShine/UiAssetTypes.h>
-#include <AzToolsFramework/ToolsComponents/GenericComponentWrapper.h>
+#include <AzToolsFramework/Entity/EditorEntityFixupComponent.h>
 
 void BuilderOnInit()
 {
@@ -43,17 +43,8 @@ void BuilderAddComponents(AZ::Entity* entity)
         entity->CreateComponent(LyShine::lyShineSystemComponentUuid);
     }
 
-    // Add the ScriptCanvas Builder System Component to an entity so that the AssetHandler is registered with the AssetManager
-    // Furthermore this also registers the ScriptCanvas asset type as a source asset type so that it is opened in the source asset folder
-    AZ::Component* scriptCanvasBuilderComponent{};
-    AZ::ComponentDescriptorBus::EventResult(scriptCanvasBuilderComponent, AZ::Uuid("{2FB1C848-B863-4562-9C4B-01E18BD61583}"), &AZ::ComponentDescriptorBus::Events::CreateComponent); // {2FB1C848-B863-4562-9C4B-01E18BD61583} is the ScriptCanvas BuilderSystemComponent
-    if (scriptCanvasBuilderComponent)
-    {
-        entity->AddComponent(scriptCanvasBuilderComponent); 
-    }
-
-    // Add the GenericComponentUnwrapper for slice processing
-    entity->CreateComponent(azrtti_typeid<AzToolsFramework::Components::GenericComponentUnwrapper>());
+    // Add the EditorEntityFixupComponent for slice processing
+    entity->CreateComponent(azrtti_typeid<AzToolsFramework::EditorEntityFixupComponent>());
 }
 
 // we must use this macro to register this as an assetbuilder

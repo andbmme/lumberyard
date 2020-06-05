@@ -12,6 +12,16 @@
 #
 # Original file Copyright Crytek GMBH or its affiliates, used under license.
 #
+pushd_silent()
+{
+    pushd "$@" > /dev/null
+}
+
+popd_silent()
+{
+    popd "$@" > /dev/null
+}
+
 TIME="`date +%Y%m%d%H%M%S`"
 export COMMAND_ID="$COMPUTERNAME-$TIME"
 if [ -n "$BUILD_TAG" ]; then
@@ -20,7 +30,7 @@ if [ -n "$BUILD_TAG" ]; then
     fi
 fi
 
-pushd $(dirname "$0")
+pushd_silent $(dirname "$0")
 
 # Extract an optional external engine path if present, otherwise use the cwd as the engine dir
 EXTERNAL_ENGINE_PATH=`cat engine.json | grep "ExternalEnginePath" | awk -F":" '{ print $2 }' | sed "s/,//g" | sed "s/\"//g" | xargs echo -n`
@@ -33,26 +43,32 @@ else
     exit 1
 fi
 
-env python "$ENGINE_DIR/Tools/build/waf-1.7.13/lmbr_waf" "$@"
+echo [WAF] Engine Root: $ENGINE_DIR
+
+PYTHON_PATH="$ENGINE_DIR/Tools/Python"
+
+PYTHON_EXECUTABLE=$PYTHON_PATH/python3.sh
+
+bash $PYTHON_EXECUTABLE "$ENGINE_DIR/Tools/build/waf-1.7.13/lmbr_waf" "$@"
 
 RESULT=$?
 
-pushd $ENGINE_DIR
+pushd_silent $ENGINE_DIR
 
 if [ -f "Tools/build/waf-1.7.13/build_metrics/build_metrics_overrides.py" ]; then
     if [ $RESULT -eq 0 ]; then
-        env python Tools/build/waf-1.7.13/build_metrics/write_build_metric.py WafBuildResult 1 Unitless $*
+        bash $PYTHON_EXECUTABLE Tools/build/waf-1.7.13/build_metrics/write_build_metric.py WafBuildResult 1 Unitless $*
         if [ -f "build_metrics.txt" ]; then
             env sed -i -e 's/#BUILD_RESULT#/True/g' build_metrics.txt
         fi
     else
         if [ -f "build_metrics.txt" ]; then
-            env python Tools/build/waf-1.7.13/build_metrics/write_build_metric.py WafBuildResult 0 Unitless $*
+            bash $PYTHON_EXECUTABLE Tools/build/waf-1.7.13/build_metrics/write_build_metric.py WafBuildResult 0 Unitless $*
             env sed -i -e 's/#BUILD_RESULT#/False/g' build_metrics.txt
         fi
     fi
 fi
 
-popd
-popd
+popd_silent
+popd_silent
 exit $RESULT

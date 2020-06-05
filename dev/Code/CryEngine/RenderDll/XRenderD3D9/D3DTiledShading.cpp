@@ -20,6 +20,14 @@
 
 #include "../Common/Textures/TextureManager.h"
 
+
+#if defined(AZ_RESTRICTED_PLATFORM)
+#undef AZ_RESTRICTED_SECTION
+#define D3DTILEDSHADING_CPP_SECTION_1 1
+#define D3DTILEDSHADING_CPP_SECTION_2 2
+#define D3DTILEDSHADING_CPP_SECTION_3 3
+#endif
+
 #if defined(FEATURE_SVO_GI)
 #include "D3D_SVO.h"
 #endif
@@ -88,8 +96,8 @@ const float SunSourceDiameter = 94.0f;  // atan(AngDiameterSun) * 2 * SunDistanc
 
 namespace
 {
-    STiledLightCullInfo tileLightsCull[MaxNumTileLights];
-    STiledLightShadeInfo tileLightsShade[MaxNumTileLights];
+    STiledLightCullInfo g_tileLightsCull[MaxNumTileLights];
+    STiledLightShadeInfo g_tileLightsShade[MaxNumTileLights];
 }
 
 CTiledShading::CTiledShading()
@@ -158,7 +166,7 @@ void CTiledShading::CreateResources()
     if (!m_specularProbeAtlas.texArray)
     {
         ETEX_Format specProbeAtlasFormat = eTF_BC6UH;
-#if defined(AZ_PLATFORM_APPLE_OSX)
+#if defined(AZ_PLATFORM_MAC)
         specProbeAtlasFormat = eTF_R9G9B9E5;
 #endif
         m_specularProbeAtlas.texArray = CTexture::CreateTextureArray("$TiledSpecProbeTexArr", eTT_Cube, SpecProbeSize, SpecProbeSize, AtlasArrayDim, IntegerLog2(SpecProbeSize) - 1, 0, specProbeAtlasFormat);
@@ -169,12 +177,22 @@ void CTiledShading::CreateResources()
             CryFatalError("Couldn't allocate specular probe texture atlas");
         }
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DTILEDSHADING_CPP_SECTION_1
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DTiledShading_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DTiledShading_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DTiledShading_cpp_salem.inl"
+    #endif
+#endif
     }
 
     if (!m_diffuseProbeAtlas.texArray)
     {
         ETEX_Format diffuseProbeAtlasFormat = eTF_BC6UH;
-#if defined(AZ_PLATFORM_APPLE_OSX)
+#if defined(AZ_PLATFORM_MAC)
         diffuseProbeAtlasFormat = eTF_R9G9B9E5;
 #endif
         m_diffuseProbeAtlas.texArray = CTexture::CreateTextureArray("$TiledDiffuseProbeTexArr", eTT_Cube, DiffuseProbeSize, DiffuseProbeSize, AtlasArrayDim, 1, 0, diffuseProbeAtlasFormat);
@@ -185,6 +203,16 @@ void CTiledShading::CreateResources()
             CryFatalError("Couldn't allocate diffuse probe texture atlas");
         }
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DTILEDSHADING_CPP_SECTION_2
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DTiledShading_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DTiledShading_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DTiledShading_cpp_salem.inl"
+    #endif
+#endif
     }
 
     if (!m_spotTexAtlas.texArray)
@@ -198,6 +226,16 @@ void CTiledShading::CreateResources()
             CryFatalError("Couldn't allocate spot texture atlas");
         }
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DTILEDSHADING_CPP_SECTION_3
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DTiledShading_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DTiledShading_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DTiledShading_cpp_salem.inl"
+    #endif
+#endif
     }
 
     STexState ts1(FILTER_LINEAR, true);
@@ -418,8 +456,8 @@ void CTiledShading::PrepareLightList(TArray<SRenderLight>& envProbes, TArray<SRe
     uint32 numValidRenderLights = 0;
 
     // Reset lights
-    ZeroMemory(tileLightsCull, sizeof(STiledLightCullInfo) * MaxNumTileLights);
-    ZeroMemory(tileLightsShade, sizeof(STiledLightShadeInfo) * MaxNumTileLights);
+    ZeroMemory(g_tileLightsCull, sizeof(STiledLightCullInfo) * MaxNumTileLights);
+    ZeroMemory(g_tileLightsShade, sizeof(STiledLightShadeInfo) * MaxNumTileLights);
 
     TArray<SRenderLight>* lightLists[3] = {
         CRenderer::CV_r_DeferredShadingEnvProbes ? &envProbes : NULL,
@@ -437,8 +475,8 @@ void CTiledShading::PrepareLightList(TArray<SRenderLight>& envProbes, TArray<SRe
         for (uint32 lightIdx = 0, lightListSize = lightLists[lightListIdx]->size(); lightIdx < lightListSize; ++lightIdx)
         {
             SRenderLight& renderLight = (*lightLists[lightListIdx])[lightIdx];
-            STiledLightCullInfo& lightCullInfo = tileLightsCull[numTileLights];
-            STiledLightShadeInfo& lightShadeInfo = tileLightsShade[numTileLights];
+            STiledLightCullInfo& lightCullInfo = g_tileLightsCull[numTileLights];
+            STiledLightShadeInfo& lightShadeInfo = g_tileLightsShade[numTileLights];
 
             if (renderLight.m_Flags & (DLF_FAKE | DLF_VOLUMETRIC_FOG_ONLY))
             {
@@ -642,7 +680,7 @@ void CTiledShading::PrepareLightList(TArray<SRenderLight>& envProbes, TArray<SRe
                 if (!ambientLight && lightIdx >= firstShadowLight && lightIdx < curShadowPoolLight)
                 {
                     int numDLights = rd->m_RP.m_DLights[nThreadID][nRecurseLevel].size();
-                    int frustumIdx = lightIdx + numDLights;
+                    int frustumIdx = renderLight.m_lightId + numDLights;
                     int startIdx = SRendItem::m_StartFrust[nThreadID][frustumIdx];
                     int endIdx = SRendItem::m_EndFrust[nThreadID][frustumIdx];
 
@@ -716,13 +754,13 @@ void CTiledShading::PrepareLightList(TArray<SRenderLight>& envProbes, TArray<SRe
                             {
                                 // Split point light
                                 ++numTileLights;
-                                tileLightsCull[numTileLights] = lightCullInfo;
-                                tileLightsShade[numTileLights] = lightShadeInfo;
-                                tileLightsShade[numTileLights].shadowParams = sideShadowParams;
-                                tileLightsShade[numTileLights].shadowMatrix = shadowMat;
-                                tileLightsShade[numTileLights].resIndex = side;
-                                tileLightsCull[numTileLights].volumeParams0 = spotParamsVS;
-                                tileLightsCull[numTileLights].depthBounds = depthBoundsVS;
+                                g_tileLightsCull[numTileLights] = lightCullInfo;
+                                g_tileLightsShade[numTileLights] = lightShadeInfo;
+                                g_tileLightsShade[numTileLights].shadowParams = sideShadowParams;
+                                g_tileLightsShade[numTileLights].shadowMatrix = shadowMat;
+                                g_tileLightsShade[numTileLights].resIndex = side;
+                                g_tileLightsCull[numTileLights].volumeParams0 = spotParamsVS;
+                                g_tileLightsCull[numTileLights].depthBounds = depthBoundsVS;
                             }
                         }
                     }
@@ -738,8 +776,8 @@ void CTiledShading::PrepareLightList(TArray<SRenderLight>& envProbes, TArray<SRe
     // Invalidate last light in case it got skipped
     if (numTileLights < MaxNumTileLights)
     {
-        ZeroMemory(&tileLightsCull[numTileLights], sizeof(STiledLightCullInfo));
-        ZeroMemory(&tileLightsShade[numTileLights], sizeof(STiledLightShadeInfo));
+        ZeroMemory(&g_tileLightsCull[numTileLights], sizeof(STiledLightCullInfo));
+        ZeroMemory(&g_tileLightsShade[numTileLights], sizeof(STiledLightShadeInfo));
     }
 
     m_numSkippedLights = numRenderLights - numValidRenderLights;
@@ -749,8 +787,8 @@ void CTiledShading::PrepareLightList(TArray<SRenderLight>& envProbes, TArray<SRe
     {
         if (numTileLights < MaxNumTileLights)
         {
-            STiledLightCullInfo& lightCullInfo = tileLightsCull[numTileLights];
-            STiledLightShadeInfo& lightShadeInfo = tileLightsShade[numTileLights];
+            STiledLightCullInfo& lightCullInfo = g_tileLightsCull[numTileLights];
+            STiledLightShadeInfo& lightShadeInfo = g_tileLightsShade[numTileLights];
 
             lightCullInfo.volumeType = tlVolumeSun;
             lightCullInfo.depthBounds = Vec2(-100000, 100000);
@@ -780,8 +818,8 @@ void CTiledShading::PrepareLightList(TArray<SRenderLight>& envProbes, TArray<SRe
 #endif
 
     // Update light buffer
-    m_lightCullInfoBuf.UpdateBufferContent(tileLightsCull, sizeof(STiledLightCullInfo) * MaxNumTileLights);
-    m_LightShadeInfoBuf.UpdateBufferContent(tileLightsShade, sizeof(STiledLightShadeInfo) * MaxNumTileLights);
+    m_lightCullInfoBuf.UpdateBufferContent(g_tileLightsCull, sizeof(STiledLightCullInfo) * MaxNumTileLights);
+    m_LightShadeInfoBuf.UpdateBufferContent(g_tileLightsShade, sizeof(STiledLightShadeInfo) * MaxNumTileLights);
 
 
     rd->GetVolumetricFog().PrepareLightList(lightLists[0], lightLists[1], lightLists[2], firstShadowLight, curShadowPoolLight);
@@ -799,7 +837,7 @@ void CTiledShading::PrepareShadowCastersList(TArray<SRenderLight>& defLights)
         const SRenderLight& light = defLights[lightIdx];
         if (light.m_Flags & DLF_CASTSHADOW_MAPS)
         {
-            m_arrShadowCastingLights.Add(lightIdx);
+            m_arrShadowCastingLights.Add(light.m_lightId);
         }
     }
 }
@@ -886,12 +924,21 @@ void CTiledShading::Render(TArray<SRenderLight>& envProbes, TArray<SRenderLight>
     {
         rd->m_RP.m_FlagsShader_RT |= g_HWSR_MaskBit[HWSR_APPLY_TOON_SHADING];
     }
-	
+
     if (CRenderer::CV_r_ssdo)
     {
         rd->m_RP.m_FlagsShader_RT |= g_HWSR_MaskBit[HWSR_APPLY_SSDO];
     }
-	
+
+    if (CRenderer::CV_r_SlimGBuffer)
+    {
+        rd->m_RP.m_FlagsShader_RT |= g_HWSR_MaskBit[HWSR_SLIM_GBUFFER];
+    }
+
+    if (CRenderer::CV_r_DeferredShadingLBuffersFmt == 2)
+    {
+        rd->m_RP.m_FlagsShader_RT |= g_HWSR_MaskBit[HWSR_DEFERRED_RENDER_TARGET_OPTIMIZATION];
+    }
 #if defined(FEATURE_SVO_GI)
     rd->m_RP.m_FlagsShader_RT &= ~g_HWSR_MaskBit[HWSR_CUBEMAP0];
     rd->m_RP.m_FlagsShader_RT &= ~g_HWSR_MaskBit[HWSR_DECAL_TEXGEN_2D];
@@ -900,7 +947,7 @@ void CTiledShading::Render(TArray<SRenderLight>& envProbes, TArray<SRenderLight>
     {
         int nModeGI = CSvoRenderer::GetInstance()->GetIntegratioMode();
 
-        if (nModeGI == 0 && CSvoRenderer::GetInstance()->GetUseLightProbes())
+        if (nModeGI == 0 && gEnv->pConsole->GetCVar("e_svoTI_UseLightProbes")->GetIVal())
         { // AO modulates diffuse and specular
             rd->m_RP.m_FlagsShader_RT |= g_HWSR_MaskBit[HWSR_CUBEMAP0];
         }
@@ -937,7 +984,7 @@ void CTiledShading::Render(TArray<SRenderLight>& envProbes, TArray<SRenderLight>
     uint32 dispatchSizeY = nScreenHeight / LightTileSizeY + (nScreenHeight % LightTileSizeY > 0 ? 1 : 0);
 
     const bool shaderAvailable = SD3DPostEffectsUtils::ShBeginPass(CShaderMan::s_shDeferredShading, techTiledShading, FEF_DONTSETSTATES);
-    if (shaderAvailable)  // Temporary workaround for PS4 shader cache issue
+    if (shaderAvailable)  // Temporary workaround for a shader cache issue
     {
         D3DShaderResourceView* pTiledBaseRes[8] = {
             m_LightShadeInfoBuf.GetShaderResourceView(),
@@ -1081,7 +1128,7 @@ void CTiledShading::Render(TArray<SRenderLight>& envProbes, TArray<SRenderLight>
 
 void CTiledShading::BindForwardShadingResources(CShader*, EHWShaderClass shaderType)
 {
-    if (!CRenderer::CV_r_DeferredShadingTiled)
+    if (!CRenderer::CV_r_DeferredShadingTiled || !m_dispatchSizeX || !m_dispatchSizeY)
     {
         return;
     }
@@ -1118,6 +1165,7 @@ void CTiledShading::BindForwardShadingResources(CShader*, EHWShaderClass shaderT
         ptexRsmCol ? ptexRsmCol->GetShaderResourceView() : NULL,
         ptexRsmNor ? ptexRsmNor->GetShaderResourceView() : NULL,
     };
+
     rd->m_DevMan.BindSRV(shaderType, pTiledBaseRes, 16, 12);
 
     D3DSamplerState* pSamplers[1] = {
@@ -1146,5 +1194,5 @@ void CTiledShading::UnbindForwardShadingResources(EHWShaderClass shaderType)
 
 struct STiledLightShadeInfo* CTiledShading::GetTiledLightShadeInfo()
 {
-    return &tileLightsShade[0];
+    return &g_tileLightsShade[0];
 }

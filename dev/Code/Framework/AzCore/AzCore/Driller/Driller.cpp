@@ -9,7 +9,6 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
-#ifndef AZ_UNITY_BUILD
 
 #include <AzCore/Driller/Driller.h>
 #include <AzCore/Driller/DrillerBus.h>
@@ -34,18 +33,18 @@ namespace AZ
             typedef vector<Driller*>::type DrillerArrayType;
             DrillerArrayType m_drillers;
 
-            virtual ~DrillerManagerImpl();
+            ~DrillerManagerImpl() override;
 
-            virtual void Register(Driller* factory);
-            virtual void Unregister(Driller* factory);
+            void Register(Driller* factory) override;
+            void Unregister(Driller* factory) override;
 
-            virtual void FrameUpdate();
+            void FrameUpdate() override;
 
-            virtual DrillerSession*     Start(DrillerOutputStream& output, const DrillerListType& drillerList, int numFrames = -1);
-            virtual void                Stop(DrillerSession* session);
+            DrillerSession*     Start(DrillerOutputStream& output, const DrillerListType& drillerList, int numFrames = -1) override;
+            void                Stop(DrillerSession* session) override;
 
-            virtual int                 GetNumDrillers() const  { return static_cast<int>(m_drillers.size()); }
-            virtual Driller*            GetDriller(int index)   { return m_drillers[index]; }
+            int                 GetNumDrillers() const override  { return static_cast<int>(m_drillers.size()); }
+            Driller*            GetDriller(int index) override   { return m_drillers[index]; }
         };
 
         //////////////////////////////////////////////////////////////////////////
@@ -71,12 +70,15 @@ namespace AZ
         //=========================================================================
         DrillerManager* DrillerManager::Create(/*const Descriptor& desc*/)
         {
-            if (!AZ::AllocatorInstance<OSAllocator>::IsReady())
+            const bool createAllocator = !AZ::AllocatorInstance<OSAllocator>::IsReady();
+            if (createAllocator)
             {
                 AZ::AllocatorInstance<OSAllocator>::Create();
             }
 
-            return aznew DrillerManagerImpl;
+            DrillerManagerImpl* impl = aznew DrillerManagerImpl;
+            impl->m_ownsOSAllocator = createAllocator;
+            return impl;
         }
 
         //=========================================================================
@@ -85,7 +87,12 @@ namespace AZ
         //=========================================================================
         void DrillerManager::Destroy(DrillerManager* manager)
         {
+            const bool allocatorCreated = manager->m_ownsOSAllocator;
             delete manager;
+            if (allocatorCreated)
+            {
+                AZ::AllocatorInstance<OSAllocator>::Destroy();
+            }
         }
 
         //////////////////////////////////////////////////////////////////////////
@@ -299,5 +306,3 @@ namespace AZ
         }
     } // namespace Debug
 } // namespace AZ
-
-#endif // #ifndef AZ_UNITY_BUILD

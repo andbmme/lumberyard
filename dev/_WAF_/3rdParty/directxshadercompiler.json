@@ -1,0 +1,12 @@
+{
+    "name": "DirectXShaderCompiler",
+    "source": "@3P:DirectXShaderCompiler@",
+    "description": "DirectX Shader Compiler",
+    "aliases": {
+        "lib_names": [],
+        "shared_names": []
+    },
+    "system_includes": [],
+    "defines": [],
+    "lib_required": "False"
+}

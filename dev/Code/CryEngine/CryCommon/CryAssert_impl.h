@@ -13,12 +13,27 @@
 
 // Description : Assert dialog box
 
-#ifndef CRYINCLUDE_CRYCOMMON_CRYASSERT_IMPL_H
-#define CRYINCLUDE_CRYCOMMON_CRYASSERT_IMPL_H
 #pragma once
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#undef AZ_RESTRICTED_SECTION
+#define CRYASSERT_IMPL_H_SECTION_1 1
+#define CRYASSERT_IMPL_H_SECTION_2 2
+#endif
 
-#if defined(USE_CRY_ASSERT) && defined(APPLE)
+#if defined(USE_CRY_ASSERT)
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION CRYASSERT_IMPL_H_SECTION_1
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/CryAssert_impl_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/CryAssert_impl_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/CryAssert_impl_h_salem.inl"
+    #endif
+#endif
+
+#if defined(APPLE)
 #if defined(MAC)
 #include "CryAssert_Mac.h"
 #else
@@ -26,7 +41,7 @@
 #endif
 #endif
 
-#if defined(USE_CRY_ASSERT) && defined(LINUX)
+#if defined(LINUX)
 #if defined(ANDROID)
 #include "CryAssert_Android.h"
 #else
@@ -34,7 +49,16 @@
 #endif
 #endif
 
-#if   defined(USE_CRY_ASSERT) && defined(WIN32)
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION CRYASSERT_IMPL_H_SECTION_2
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/CryAssert_impl_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/CryAssert_impl_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/CryAssert_impl_h_salem.inl"
+    #endif
+#elif defined(WIN32)
 
 //-----------------------------------------------------------------------------------------------------
 
@@ -444,7 +468,7 @@ bool CryAssert(const char* _pszCondition, const char* _pszFile, unsigned int _ui
         }
     }
     
-    if (gEnv)
+    if (gEnv && gEnv->pSystem)
     {
         // this also can cause fatal / shutdown behavior:
         gEnv->pSystem->OnAssert(_pszCondition, gs_szMessage, _pszFile, _uiLine);
@@ -456,7 +480,6 @@ bool CryAssert(const char* _pszCondition, const char* _pszFile, unsigned int _ui
 //-----------------------------------------------------------------------------------------------------
 
 #endif
+#endif
 
 //-----------------------------------------------------------------------------------------------------
-
-#endif // CRYINCLUDE_CRYCOMMON_CRYASSERT_IMPL_H

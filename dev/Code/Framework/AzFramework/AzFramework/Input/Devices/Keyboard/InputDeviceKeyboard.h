@@ -90,7 +90,7 @@ namespace AzFramework
         //!
         //! Supplementary ISO Key
         //! - The additional key (found to the right of the left-shift key) on ISO keyboards
-        //! - Its use should be avoided if you wish to supprt the widest range of keyboard devices
+        //! - Its use should be avoided if you wish to support the widest range of keyboard devices
         //!
         //! Windows System Keys
         //! - The windows specific pause/break, print/sysrq, and scroll lock keys
@@ -248,15 +248,15 @@ namespace AzFramework
         InputDeviceKeyboard();
 
         ////////////////////////////////////////////////////////////////////////////////////////////
-        // Disable copying (protected to workaround a VS2013 bug in std::is_copy_constructible)
-        // https://connect.microsoft.com/VisualStudio/feedback/details/800328/std-is-copy-constructible-is-broken
-    protected:
+        // Disable copying
         AZ_DISABLE_COPY_MOVE(InputDeviceKeyboard);
-    public:
 
         ////////////////////////////////////////////////////////////////////////////////////////////
         //! Destructor
         ~InputDeviceKeyboard() override;
+
+        ////////////////////////////////////////////////////////////////////////////////////////////
+        LocalUserId GetAssignedLocalUserId() const override;
 
         ////////////////////////////////////////////////////////////////////////////////////////////
         //! \ref AzFramework::InputDevice::GetInputChannelsById
@@ -285,6 +285,11 @@ namespace AzFramework
         ////////////////////////////////////////////////////////////////////////////////////////////
         //! \ref AzFramework::InputDeviceRequests::TickInputDevice
         void TickInputDevice() override;
+
+        ////////////////////////////////////////////////////////////////////////////////////////////
+        //! \ref AzFramework::InputDeviceRequests::GetPhysicalKeyOrButtonText
+        void GetPhysicalKeyOrButtonText(const InputChannelId& inputChannelId,
+                                        AZStd::string& o_keyOrButtonText) const override;
 
     protected:
         ////////////////////////////////////////////////////////////////////////////////////////////
@@ -326,6 +331,9 @@ namespace AzFramework
             virtual ~Implementation();
 
             ////////////////////////////////////////////////////////////////////////////////////////
+            virtual LocalUserId GetAssignedLocalUserId() const;
+
+            ////////////////////////////////////////////////////////////////////////////////////////
             //! Query the connected state of the input device
             //! \return True if the input device is currently connected, false otherwise
             virtual bool IsConnected() const = 0;
@@ -347,6 +355,14 @@ namespace AzFramework
             ////////////////////////////////////////////////////////////////////////////////////////
             //! Tick/update the input device to broadcast all input events since the last frame
             virtual void TickInputDevice() = 0;
+
+            ////////////////////////////////////////////////////////////////////////////////////////
+            //! Get the text displayed on the physical key/button associated with an input channel.
+            //! In the case of keyboard keys, we must take into account the current keyboard layout.
+            //! \param[in] inputChannelId The input channel id whose key or button text to return
+            //! \param[out] o_keyOrButtonText The text displayed on the physical key/button if found
+            virtual void GetPhysicalKeyOrButtonText(const InputChannelId& /*inputChannelId*/,
+                                                    AZStd::string& /*o_keyOrButtonText*/) const {}
 
         protected:
             ////////////////////////////////////////////////////////////////////////////////////////

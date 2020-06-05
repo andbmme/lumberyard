@@ -15,12 +15,15 @@
 #include <Integration/System/PipelineComponent.h>
 #include <EMotionFX/Source/EMotionFXManager.h>
 #include <EMotionFX/CommandSystem/Source/CommandManager.h>
+#include <Integration/System/SystemCommon.h>
 
 
 namespace EMotionFX
 {
     namespace Pipeline
     {
+        AZ::EnvironmentVariable<EMotionFXAllocatorInitializer> PipelineComponent::s_eMotionFXAllocatorInitializer = nullptr;
+
         PipelineComponent::PipelineComponent()
             : m_EMotionFXInited(false)
         {
@@ -31,9 +34,10 @@ namespace EMotionFX
         {
             if (!m_EMotionFXInited)
             {
+                // Start EMotionFX allocator or increase the reference counting
+                s_eMotionFXAllocatorInitializer = AZ::Environment::CreateVariable<EMotionFXAllocatorInitializer>(EMotionFXAllocatorInitializer::EMotionFXAllocatorInitializerTag);
+                
                 MCore::Initializer::InitSettings coreSettings;
-                coreSettings.mNumThreads = 0;
-
                 if (!MCore::Initializer::Init(&coreSettings))
                 {
                     AZ_Error("EMotionFX", false, "Failed to initialize EMotion FX SDK Core");
@@ -64,6 +68,9 @@ namespace EMotionFX
                 m_commandManager.reset();
                 EMotionFX::Initializer::Shutdown();
                 MCore::Initializer::Shutdown();
+
+                // Remove our reference
+                s_eMotionFXAllocatorInitializer = nullptr;
             }
         }
 
@@ -72,7 +79,7 @@ namespace EMotionFX
             AZ::SerializeContext* serializeContext = azrtti_cast<AZ::SerializeContext*>(context);
             if (serializeContext)
             {
-                serializeContext->Class<PipelineComponent>()->Version(1);
+                serializeContext->Class<PipelineComponent, AZ::SceneAPI::SceneCore::SceneSystemComponent>()->Version(1);
             }
         }
     } // Pipeline

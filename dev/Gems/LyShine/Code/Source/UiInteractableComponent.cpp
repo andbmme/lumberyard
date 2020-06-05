@@ -65,6 +65,7 @@ public:
 UiInteractableComponent::UiInteractableComponent()
     : m_isAutoActivationEnabled(false)
     , m_isHandlingEvents(true)
+    , m_isHandlingMultiTouchEvents(true)
     , m_isHover(false)
     , m_isPressed(false)
     , m_pressedPoint(0.0f, 0.0f)
@@ -127,6 +128,21 @@ bool UiInteractableComponent::HandleReleased(AZ::Vector2 point)
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+bool UiInteractableComponent::HandleMultiTouchPressed(AZ::Vector2 point, int multiTouchIndex)
+{
+    AZ_UNUSED(multiTouchIndex);
+    bool shouldStayActive = false;
+    return m_isHandlingMultiTouchEvents && HandlePressed(point, shouldStayActive);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+bool UiInteractableComponent::HandleMultiTouchReleased(AZ::Vector2 point, int multiTouchIndex)
+{
+    AZ_UNUSED(multiTouchIndex);
+    return m_isHandlingMultiTouchEvents && HandleReleased(point);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
 bool UiInteractableComponent::HandleEnterPressed(bool& shouldStayActive)
 {
     bool handled = false;
@@ -182,6 +198,16 @@ void UiInteractableComponent::InputPositionUpdate(AZ::Vector2 point)
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+void UiInteractableComponent::MultiTouchPositionUpdate(AZ::Vector2 point, int multiTouchIndex)
+{
+    AZ_UNUSED(multiTouchIndex);
+    if (m_isHandlingMultiTouchEvents)
+    {
+        InputPositionUpdate(point);
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
 void UiInteractableComponent::LostActiveStatus()
 {
     m_isPressed = false;
@@ -210,6 +236,12 @@ void UiInteractableComponent::HandleReceivedHoverByNavigatingFromDescendant(AZ::
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+bool UiInteractableComponent::IsPressed()
+{
+    return m_isPressed;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
 bool UiInteractableComponent::IsHandlingEvents()
 {
     return m_isHandlingEvents;
@@ -219,6 +251,18 @@ bool UiInteractableComponent::IsHandlingEvents()
 void UiInteractableComponent::SetIsHandlingEvents(bool isHandlingEvents)
 {
     m_isHandlingEvents = isHandlingEvents;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+bool UiInteractableComponent::IsHandlingMultiTouchEvents()
+{
+    return m_isHandlingMultiTouchEvents;
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+void UiInteractableComponent::SetIsHandlingMultiTouchEvents(bool isHandlingMultiTouchEvents)
+{
+    m_isHandlingMultiTouchEvents = isHandlingMultiTouchEvents;
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -344,6 +388,35 @@ void UiInteractableComponent::Update(float /* deltaTime */)
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+void UiInteractableComponent::OnUiElementFixup(AZ::EntityId canvasEntityId, AZ::EntityId /*parentEntityId*/)
+{
+    bool isElementEnabled = false;
+    EBUS_EVENT_ID_RESULT(isElementEnabled, GetEntityId(), UiElementBus, GetAreElementAndAncestorsEnabled);
+    if (isElementEnabled)
+    {
+        UiCanvasUpdateNotificationBus::Handler::BusConnect(canvasEntityId);
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+void UiInteractableComponent::OnUiElementAndAncestorsEnabledChanged(bool areElementAndAncestorsEnabled)
+{
+    if (areElementAndAncestorsEnabled)
+    {
+        AZ::EntityId canvasEntityId;
+        EBUS_EVENT_ID_RESULT(canvasEntityId, GetEntityId(), UiElementBus, GetCanvasEntityId);
+        if (canvasEntityId.IsValid())
+        {
+            UiCanvasUpdateNotificationBus::Handler::BusConnect(canvasEntityId);
+        }
+    }
+    else
+    {
+        UiCanvasUpdateNotificationBus::Handler::BusDisconnect();
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
 // PUBLIC STATIC MEMBER FUNCTIONS
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -357,6 +430,7 @@ void UiInteractableComponent::Reflect(AZ::ReflectContext* context)
         serializeContext->Class<UiInteractableComponent, AZ::Component>()
             ->Version(2, &VersionConverter)
             ->Field("IsHandlingEvents", &UiInteractableComponent::m_isHandlingEvents)
+            ->Field("IsHandlingMultiTouchEvents", &UiInteractableComponent::m_isHandlingMultiTouchEvents)
 
             ->Field("HoverStateActions", &UiInteractableComponent::m_hoverStateActions)
             ->Field("PressedStateActions", &UiInteractableComponent::m_pressedStateActions)
@@ -381,7 +455,14 @@ void UiInteractableComponent::Reflect(AZ::ReflectContext* context)
 
             editInfo->DataElement("CheckBox", &UiInteractableComponent::m_isHandlingEvents, "Input enabled",
                 "When checked, this interactable will handle events.\n"
-                "When unchecked, this interactable is drawn in the Disabled state.");
+                "When unchecked, this interactable is drawn in the Disabled state.")
+                ->Attribute(AZ::Edit::Attributes::ChangeNotify, AZ_CRC("RefreshEntireTree", 0xefbc823c));
+
+            editInfo->DataElement("CheckBox", &UiInteractableComponent::m_isHandlingMultiTouchEvents, "Multi-touch input enabled",
+                "When checked, this interactable will handle all multi-touch input events.\n"
+                "When unchecked, this interactable will handle only primary touch input events.\n"
+                "Will be ignored if the parent UICanvasComponent does not support multi-touch.")
+                ->Attribute(AZ::Edit::Attributes::Visibility, &UiInteractableComponent::IsHandlingEvents);
 
             // Navigation
             editInfo->DataElement(0, &UiInteractableComponent::m_navigationSettings, "Navigation",
@@ -424,14 +505,14 @@ void UiInteractableComponent::Reflect(AZ::ReflectContext* context)
     if (behaviorContext)
     {
         behaviorContext->EBus<UiInteractableBus>("UiInteractableBus")
-            ->Attribute(AZ::Script::Attributes::ExcludeFrom, AZ::Script::Attributes::ExcludeFlags::Preview)
             ->Event("IsHandlingEvents", &UiInteractableBus::Events::IsHandlingEvents)
             ->Event("SetIsHandlingEvents", &UiInteractableBus::Events::SetIsHandlingEvents)
+            ->Event("IsHandlingMultiTouchEvents", &UiInteractableBus::Events::IsHandlingMultiTouchEvents)
+            ->Event("SetIsHandlingMultiTouchEvents", &UiInteractableBus::Events::SetIsHandlingMultiTouchEvents)
             ->Event("GetIsAutoActivationEnabled", &UiInteractableBus::Events::GetIsAutoActivationEnabled)
             ->Event("SetIsAutoActivationEnabled", &UiInteractableBus::Events::SetIsAutoActivationEnabled);
 
         behaviorContext->EBus<UiInteractableActionsBus>("UiInteractableActionsBus")
-            ->Attribute(AZ::Script::Attributes::ExcludeFrom, AZ::Script::Attributes::ExcludeFlags::Preview)
             ->Event("GetHoverStartActionName", &UiInteractableActionsBus::Events::GetHoverStartActionName)
             ->Event("SetHoverStartActionName", &UiInteractableActionsBus::Events::SetHoverStartActionName)
             ->Event("GetHoverEndActionName", &UiInteractableActionsBus::Events::GetHoverEndActionName)
@@ -447,7 +528,6 @@ void UiInteractableComponent::Reflect(AZ::ReflectContext* context)
             ->Enum<(int)UiInteractableStatesInterface::StateDisabled>("eUiInteractableState_Disabled");
 
         behaviorContext->EBus<UiInteractableStatesBus>("UiInteractableStatesBus")
-            ->Attribute(AZ::Script::Attributes::ExcludeFrom, AZ::Script::Attributes::ExcludeFlags::Preview)
             ->Event("GetStateColor", &UiInteractableStatesBus::Events::GetStateColor)
             ->Event("SetStateColor", &UiInteractableStatesBus::Events::SetStateColor)
             ->Event("HasStateColor", &UiInteractableStatesBus::Events::HasStateColor)
@@ -463,7 +543,6 @@ void UiInteractableComponent::Reflect(AZ::ReflectContext* context)
             ->Event("HasStateFont", &UiInteractableStatesBus::Events::HasStateFont);
 
         behaviorContext->EBus<UiInteractableNotificationBus>("UiInteractableNotificationBus")
-            ->Attribute(AZ::Script::Attributes::ExcludeFrom, AZ::Script::Attributes::ExcludeFlags::Preview)
             ->Handler<BehaviorUiInteractableNotificationBusHandler>();
     }
 
@@ -489,9 +568,27 @@ void UiInteractableComponent::Activate()
     m_stateActionManager.Activate();
     m_navigationSettings.Activate(m_entity->GetId(), GetNavigableInteractables);
 
-    UiInteractableBus::Handler::BusConnect(m_entity->GetId());
-    UiUpdateBus::Handler::BusConnect(m_entity->GetId());
-    UiInteractableActionsBus::Handler::BusConnect(m_entity->GetId());
+    UiInteractableBus::Handler::BusConnect(GetEntityId());
+    UiInteractableActionsBus::Handler::BusConnect(GetEntityId());
+    UiElementNotificationBus::Handler::BusConnect(GetEntityId());
+
+    // The first time the component is activated the owning canvas will not be known. However if
+    // the element is fixed up and then we deactivate and reactivate, OnUiElementFixup will
+    // not get called again. So we need to connect to the UiCanvasUpdateNotificationBus here.
+    // This assumes than on an element activate it will activate the UiElementComponent before
+    // this component. We can rely on this because all UI components depend on UiElementService
+    // as a required service.
+    AZ::EntityId canvasEntityId;
+    EBUS_EVENT_ID_RESULT(canvasEntityId, GetEntityId(), UiElementBus, GetCanvasEntityId);
+    if (canvasEntityId.IsValid())
+    {
+        bool isElementEnabled = false;
+        EBUS_EVENT_ID_RESULT(isElementEnabled, GetEntityId(), UiElementBus, GetAreElementAndAncestorsEnabled);
+        if (isElementEnabled)
+        {
+            UiCanvasUpdateNotificationBus::Handler::BusConnect(canvasEntityId);
+        }
+    }
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -501,7 +598,8 @@ void UiInteractableComponent::Deactivate()
     m_navigationSettings.Deactivate();
 
     UiInteractableBus::Handler::BusDisconnect();
-    UiUpdateBus::Handler::BusDisconnect();
+    UiCanvasUpdateNotificationBus::Handler::BusDisconnect();
+    UiElementNotificationBus::Handler::BusDisconnect();
     UiInteractableActionsBus::Handler::BusDisconnect();
 }
 

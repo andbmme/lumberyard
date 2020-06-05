@@ -55,13 +55,23 @@ class IHeightmap
 {
 public:
     virtual void UpdateEngineTerrain(int x1, int y1, int width, int height, bool bElevation, bool bInfoBits) = 0;
-    virtual void RecordUndo(int x1, int y1, int width, int height, bool bInfo) = 0;
+    virtual void RecordAzUndoBatchTerrainModify(AZ::u32 x, AZ::u32 y, AZ::u32 width, AZ::u32 height) = 0;
+    virtual bool GetUseTerrain() = 0;
+    virtual float GetOceanLevel() const = 0;
 };
 
 // Editor data structure to keep the heights, detail layer information/holes, terrain texture
 class CHeightmap : public IHeightmap
 {
 public:
+
+    enum class HeightmapImportTechnique
+    {
+        Resize,
+        Clip,
+        PromptUser
+    };
+
     CHeightmap();
     CHeightmap(const CHeightmap&);
     virtual ~CHeightmap();
@@ -103,17 +113,28 @@ public:
     //! @param iDestWidth The width of the destination
     //! @param bSmooth Apply smoothing function before returning the data
     //! @param bNoise Apply noise function before returning the data
-    bool GetDataEx(t_hmap* pData, UINT iDestWidth, bool bSmooth = true, bool bNoise = true) const;
+    //! @param treatHolesAsMinHeight Set the height value to the min float value anywhere a hole exists
+    bool GetDataEx(t_hmap* pData, UINT iDestWidth, bool bSmooth = true, bool bNoise = true, bool treatHolesAsMinHeight = false) const;
 
     // Fill image data
     // Arguments:
     //   resolution Resolution of needed heightmap.
     //   vTexOffset offset within hmap
     //   trgRect Target rectangle in scaled heightmap.
-    bool GetData(const QRect& trgRect, const int resolution, const QPoint& vTexOffset, CFloatImage& hmap, bool bSmooth = true, bool bNoise = true);
+    //   hmap Pointer to float image that will hold the output heights
+    //   bSmooth Apply smoothing function before returning the data
+    //   bNoise Apply noise function before returning the data
+    //   treatHolesAsMinHeight Set the height value to the min float value anywhere a hole exists
+    bool GetData(const QRect& trgRect, const int resolution, const QPoint& vTexOffset, CFloatImage& hmap, bool bSmooth = true, bool bNoise = true, bool treatHolesAsMinHeight = false);
 
     //! resets the height map data, ocean, and mods
     void Reset(int resolution, int unitSize);
+
+    //! Invalidate and reload the terrain in the editor
+    void RefreshTerrain();
+
+    //! Invalidate and reload a layer texture tile in the editor
+    void RefreshTextureTile(uint32 xIndex, uint32 yIndex);
 
     //////////////////////////////////////////////////////////////////////////
     // Terrain Grid functions.
@@ -155,6 +176,7 @@ public:
 
     void SetLayerWeightAt(const int x, const int y, const LayerWeight& weight);
 
+    void GetLayerWeights(uint8 layerId, CImageEx* splatMap);
     void SetLayerWeights(const AZStd::vector<uint8>& layerIds, const CImageEx* splatMaps, size_t splatMapCount);
 
     void EraseLayerID(uint8 id, uint8 replacementId);
@@ -175,22 +197,8 @@ public:
     void SerializeTerrain(CXmlArchive& xmlAr);
     void SaveImage(LPCSTR pszFileName) const;
 
-    void LoadImage(const QString& fileName);
-    void LoadASC(const QString& fileName);
-    void LoadBT(const QString& fileName);
-    void LoadTIF(const QString& fileName);
-
-    void SaveASC(const QString& fileName);
-    void SaveBT(const QString& fileName);
-    void SaveTIF(const QString& fileName);
-
-    //! Save heightmap to 16-bit image file format (PGM, ASC, BT)
-    void SaveImage16Bit(const QString& fileName);
-
-    //! Save heightmap in RAW format.
-    void    SaveRAW(const QString& rawFile);
-    //! Load heightmap from RAW format.
-    void    LoadRAW(const QString& rawFile);
+    void ImportHeightmap(const QString& fileName, HeightmapImportTechnique importType = HeightmapImportTechnique::PromptUser);
+    void ExportHeightmap(const QString& fileName);
 
     //! Return the heightmap as type CImageEx
     //! The image will be BGR format in grayscale
@@ -222,7 +230,7 @@ public:
         bool bAddNoise = false);
 
     void DrawSpot2(int iX, int iY, int radius, float insideRadius, float fHeigh, float fHardness = 1.0f, bool bAddNoise = false, float noiseFreq = 1, float noiseScale = 1);
-    void SmoothSpot(int iX, int iY, int radius, float fHeigh, float fHardness);
+    void SmoothSpot(int iX, int iY, int radius, float fHeigh, float fHardness, bool refreshTerrain = true);
     void RiseLowerSpot(int iX, int iY, int radius, float insideRadius, float fHeigh, float fHardness = 1.0f, bool bAddNoise = false, float noiseFreq = 1, float noiseScale = 1);
 
     //! Make hole in the terrain.
@@ -249,7 +257,7 @@ public:
     void UpdateEngineHole(int x1, int y1, int width, int height);
 
     void SetOceanLevel(float oceanLevel);
-    float GetOceanLevel() const;
+    float GetOceanLevel() const override;
 
     void CopyData(t_hmap* pDataOut) const
     {
@@ -265,7 +273,8 @@ public:
 
     void GetMemoryUsage(ICrySizer* pSizer);
 
-    void RecordUndo(int x1, int y1, int width, int height, bool bInfo = false) override;
+    void RecordUndo(int x1, int y1, int width, int height, bool bInfo = false);
+    void RecordAzUndoBatchTerrainModify(AZ::u32 x, AZ::u32 y, AZ::u32 width, AZ::u32 height) override;
 
     CRGBLayer* GetRGBLayer() { return &m_TerrainBGRTexture; }
 
@@ -277,7 +286,7 @@ public:
 
     void AddModSector(int x, int y);
     void ClearModSectors();
-    void UpdateModSectors();
+    void UpdateModSectors(bool forceUpdate=false);
     void UnlockSectorsTexture(const QRect& rc);
 
     int GetNoiseSize() const;
@@ -287,15 +296,37 @@ public:
 
 
     void SetUseTerrain(bool useTerrain);
-    bool GetUseTerrain();
+    bool GetUseTerrain() override;
+
+    void GetTerrainInfo(STerrainInfo& terrainInfoOut);
+
+    // Expose the ability to tell the Heightmap class that it's running in "standalone mode".  This disables some of the integration
+    // with the Editor UI and the renderer so that a subset of class functionality can still be used for exporters, unit tests, etc.
+    bool GetStandaloneMode() { return m_standaloneMode; }
+    void SetStandaloneMode(bool standaloneMode) { m_standaloneMode = standaloneMode; }
 
 private:
     void CopyFrom(t_hmap* prevHeightmap, LayerWeight* prevWeightmap, int prevSize);
     void CopyFromInterpolate(t_hmap* prevHeightmap, LayerWeight* prevWeightmap, int resolution, int prevUnitSize);
 
-    bool ProcessLoadedImage(const QString& fileName, const CFloatImage& tmpImage, bool atWorldScale, ImageRotationDegrees rotationAmount);
+    void LoadImage(const QString& fileName, HeightmapImportTechnique importType = HeightmapImportTechnique::PromptUser);
+    void LoadASC(const QString& fileName, HeightmapImportTechnique importType = HeightmapImportTechnique::PromptUser);
+    void LoadBT(const QString& fileName, HeightmapImportTechnique importType = HeightmapImportTechnique::PromptUser);
+    void LoadTIF(const QString& fileName, HeightmapImportTechnique importType = HeightmapImportTechnique::PromptUser);
+    //! Load heightmap from RAW format.
+    void    LoadRAW(const QString& rawFile, HeightmapImportTechnique importType);
 
-    __inline float ExpCurve(float v, float fCover, float fSharpness);
+    void SaveASC(const QString& fileName);
+    void SaveBT(const QString& fileName);
+    void SaveTIF(const QString& fileName);
+    //! Save heightmap in RAW format.
+    void    SaveRAW(const QString& rawFile);
+
+    //! Save heightmap to 16-bit image file format (PGM, ASC, BT)
+    void SaveImage16Bit(const QString& fileName);
+
+
+    bool ProcessLoadedImage(const QString& fileName, const CFloatImage& tmpImage, bool atWorldScale, ImageRotationDegrees rotationAmount, HeightmapImportTechnique importType);
 
     // Verify internal class state
     __inline void Verify()
@@ -309,6 +340,7 @@ private:
 
     float m_fOceanLevel;
     float m_fMaxHeight;
+    float m_defaultHeight;
 
     std::vector<t_hmap> m_pHeightmap;
 

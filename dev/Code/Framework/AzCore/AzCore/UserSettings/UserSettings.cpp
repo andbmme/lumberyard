@@ -17,6 +17,7 @@
 #include <AzCore/Serialization/EditContext.h>
 #include <AzCore/std/string/string.h>
 #include <AzCore/std/containers/unordered_map.h>
+#include <AzCore/RTTI/ReflectContext.h>
 
 namespace AZ
 {
@@ -66,5 +67,15 @@ namespace AZ
             delete this;
         }
     }
+
+    void UserSettings::Reflect(ReflectContext* context)
+    {
+        if (SerializeContext* serializeContext = azrtti_cast<SerializeContext*>(context))
+        {
+            serializeContext->Class<UserSettings>()
+                ;
+        }
+    }
+
     //-------------------------------------------------------------------------
 }   // namespace AZ

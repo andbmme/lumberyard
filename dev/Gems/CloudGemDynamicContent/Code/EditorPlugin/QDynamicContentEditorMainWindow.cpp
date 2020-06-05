@@ -72,17 +72,20 @@ namespace DynamicContent
         m_fileWatcherProxyModel(new QSortFilterProxyModel(this)),
         m_packagesProxyModel(new QSortFilterProxyModel(this))
     {
-
-        EBUS_EVENT_RESULT(m_requestId, PythonWorkerRequests::Bus, AllocateRequestId);
+        auto pythonWorkerRequestsInterface = AZ::Interface<PythonWorkerRequestsInterface>::Get();
+        if (pythonWorkerRequestsInterface)
+        {
+            m_requestId = pythonWorkerRequestsInterface->AllocateRequestId();
+        }
 
         m_manifestStatus.reset(new ManifestInfo);
 
         setupUi(this);
-        PythonWorkerEvents::Bus::Handler::BusConnect();
+        AZ::Interface<PythonWorkerEventsInterface>::Register(this);
         SetupUI();
 
         m_platformMap = PlatformMap();
-        QList<QString> platformCheckList = QList<QString>() << "xboxone" << "ps4"; // ACCEPTED_USE
+        QList<QString> platformCheckList = QList<QString>() << "xenia" << "provo";
         for (auto platform : platformCheckList)
         {
             CheckPlatformLicense(platform);
@@ -95,7 +98,7 @@ namespace DynamicContent
 
     QDynamicContentEditorMainWindow::~QDynamicContentEditorMainWindow()
     {
-        PythonWorkerEvents::Bus::Handler::BusDisconnect();
+        AZ::Interface<PythonWorkerEventsInterface>::Unregister(this);
         auto metricId = LyMetrics_CreateEvent(DCM_METRIC_EVENT_NAME);
         LyMetrics_AddAttribute(metricId, DCM_OPERATION_ATTRIBUTE_NAME, "close");
         LyMetrics_SubmitEvent(metricId);
@@ -103,7 +106,7 @@ namespace DynamicContent
 
     void QDynamicContentEditorMainWindow::CheckPlatformLicense(QString platform)
     {
-        AZStd::string fullPathToAssets = gEnv->pFileIO->GetAlias("@assets@");
+        AZStd::string fullPathToAssets = AZ::IO::FileIOBase::GetInstance()->GetAlias("@assets@");
         QString fullPath = fullPathToAssets.c_str();
         fullPath.replace("\\", "/");
         QStringList pathList = fullPath.split("/", QString::SkipEmptyParts);
@@ -112,8 +115,8 @@ namespace DynamicContent
         if (pathList.size() >= 2)
         {
             pathList[pathList.size() - 2] = platform;
-            QString ps4FullPath = pathList.join("/"); // ACCEPTED_USE
-            if (!QDir(ps4FullPath).exists()) // ACCEPTED_USE
+            QString provoFullPath = pathList.join("/");
+            if (!QDir(provoFullPath).exists())
             {
                 m_platformMap[platform].LicenseExists = false;
                 QLabel* platformLabel = findChild<QLabel *>(platform);
@@ -272,7 +275,7 @@ namespace DynamicContent
             }
             else if (key == COMMAND_SIGNAL_DONE_UPLOADING)
             {
-                m_packagesModel->stopS3StatusAnimation(value.toString()); // ACCEPTED_USE
+                m_packagesModel->stopS3StatusAnimation(value.toString());
                 return true;
             }
             else if (key == COMMAND_CHECK_EXISTING_KEYS)
@@ -283,7 +286,7 @@ namespace DynamicContent
             else if (key == COMMAND_GENERATE_KEYS)
             {
                 QString message = value.toString();
-                gEnv->pLog->Log("(Cloud Canvas) %s", message.toStdString().c_str());
+                AZ_TracePrintf("DynamicContentKeys", "%s", message.toStdString().c_str());
                 GenerateKeyCompleted();
                 return true;
             }
@@ -389,7 +392,11 @@ namespace DynamicContent
 
     void QDynamicContentEditorMainWindow::PythonExecute(const char* command, const QVariantMap& args)
     {
-        EBUS_EVENT(PythonWorkerRequests::Bus, ExecuteAsync, m_requestId, command, args);
+        auto pythonWorkerRequestsInterface = AZ::Interface<PythonWorkerRequestsInterface>::Get();
+        if (pythonWorkerRequestsInterface)
+        {
+            pythonWorkerRequestsInterface->ExecuteAsync(m_requestId, command, args);
+        }
     }
 
 
@@ -409,7 +416,7 @@ namespace DynamicContent
 
     void QCreateNewManifestDialog::SetManifestNameRegExp()
     {
-        manifestNameEdit->setValidator(new QRegExpValidator(QRegExp("^[-0-9a-zA-Z!_.]*$")));
+        manifestNameEdit->setValidator(new QRegExpValidator(QRegExp("^[-0-9a-zA-Z_][-0-9a-zA-Z!_.]*$")));
     }
 
     QString QCreateNewManifestDialog::ManifestName()
@@ -434,10 +441,21 @@ namespace DynamicContent
 
         createNewManifestDialog->SetManifestNameRegExp();
         int execCode = createNewManifestDialog->exec();
-        auto newName = createNewManifestDialog->ManifestName();
 
-        if (execCode > 0)
+        QString newName;
+
+        while (execCode > 0)
         {
+            newName = createNewManifestDialog->ManifestName();
+            if (newName.length()==0)
+            {
+                auto nameMissing = QString(tr("Please enter a name for the manifest."));
+                auto reply = QMessageBox::information(this,
+                    tr("Attention"),
+                    nameMissing);
+                execCode = createNewManifestDialog->exec();
+                continue;
+            }
             QVariantList* selectedPlatformTypes = new QVariantList();
             m_dataRetainer.enqueue(selectedPlatformTypes);
             QList<QCheckBox*> checkBoxList = createNewManifestDialog->findChildren<QCheckBox*>();
@@ -450,8 +468,9 @@ namespace DynamicContent
             m_manifestStatus->m_currentlySelectedManifestName = newName + ".json";
             m_manifestStatus->m_fullPathToManifest = cbManifestSelection->currentData().toString();
             PythonExecute(COMMAND_NEW_MANIFEST, args);
+            break;
         }
-        else
+        if(execCode <= 0)
         {
             SelectCurrentManifest();
         }
@@ -916,7 +935,7 @@ namespace DynamicContent
 
     bool QDynamicContentEditorMainWindow::FileProcessedByAssetProcessor(QString filePath)
     {
-        AZStd::string fullPathToAssets = gEnv->pFileIO->GetAlias("@assets@");
+        AZStd::string fullPathToAssets = AZ::IO::FileIOBase::GetInstance()->GetAlias("@assets@");
         QString fullPath = fullPathToAssets.c_str();
         fullPath.replace("\\", "/");
         QStringList pathList = fullPath.split("/");
@@ -1227,6 +1246,11 @@ namespace DynamicContent
             if (reply == QMessageBox::Yes)
             {
                 auto pakItem = m_packagesModel->itemFromIndex(pakIndex);
+                if (!pakItem)
+                {
+                    AZ_Warning("Dynamic Content Editor", false, "Item already deleted");
+                    return;
+                }
                 auto fileEntry = pakItem->text();
                 auto platformIndex = m_packagesModel->index(pakIndex.row(), PackagesModel::ColumnName::Platform, pakIndex.parent());
                 auto platformItem = m_packagesModel->itemFromIndex(platformIndex);
@@ -1351,7 +1375,7 @@ namespace DynamicContent
         args[ARGS_SECTION] = KEY_FILES_SECTION;
 
         m_isLoading = true;
-        status->showMessage("Retriving file info from " + filePath);
+        status->showMessage("Retrieving file info from " + filePath);
 
         PythonExecute(COMMAND_SHOW_MANIFESTS, args);
         PythonExecute(COMMAND_GET_BUCKET_STATUS, args);

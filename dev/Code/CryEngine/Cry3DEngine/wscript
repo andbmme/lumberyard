@@ -21,17 +21,15 @@ def build(bld):
         target             = 'Cry3DEngine',
         vs_filter          = 'CryEngine',
         copyright_org      = 'Amazon-CryTek',
-        file_list          = ['cry3dengine.waf_files'],
+        file_list          = ['cry3dengine.waf_files', 'cry3dengine_terrain.waf_files'],
         pch                = 'StdAfx.cpp',
         platforms          = ['all'],
         configurations     = ['all'],
         use                = [ 'AzFramework' ],
-        defines            = ['ENGINE_EXPORTS'],
         win_features       = ['crcfix'],
-
-       
-
-       
+        includes           = [bld.Path('Code/CryEngine/CryCommon'),
+                              bld.ThirdPartyPath('mikkt')
+                             ],
 
         # Testing
         test_all_file_list = ['cry3dengine_test.waf_files'],

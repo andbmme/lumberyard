@@ -9,7 +9,7 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
-#include "stdafx.h"
+#include "EditorUI_QT_Precompiled.h"
 #include "DockableLibraryPanel.h"
 #include "Utils.h"
 #include "UIFactory.h"
@@ -24,7 +24,7 @@
 #include <Include/IEditorParticleManager.h>
 
 //QT
-#include <qmenu.h>
+#include <QMenu>
 #include <QScrollArea>
 #include <QVBoxLayout>
 #include <QMessageBox>
@@ -129,7 +129,7 @@ void DockableLibraryPanel::Init(const QString& panelName, CBaseLibraryManager* l
     connect(m_searchField, &QComboBox::currentTextChanged, this, &DockableLibraryPanel::OnSearchFilterChanged);
     m_searchLayout->addWidget(m_searchField);
     m_searchLayout->addWidget(m_AddNewLibraryButton);
-    connect(m_AddNewLibraryButton, &QPushButton::pressed, this, &DockableLibraryPanel::OnLibraryToggleButtonPushed);
+    connect(m_AddNewLibraryButton, &QPushButton::clicked, this, &DockableLibraryPanel::OnLibraryToggleButtonPushed);
 
     //set up dock area
     m_scrollArea->setWidgetResizable(true);
@@ -342,7 +342,10 @@ QAction* DockableLibraryPanel::GetMenuAction(LibraryActions action, QString disp
     {
     case DockableLibraryPanel::LibraryActions::ADD:
     {
-        connect(act, &QAction::triggered, this, &DockableLibraryPanel::AddLibrary, connection);
+        connect(act, &QAction::triggered, this, [=]()
+        {
+            AddLibrary();
+        }, connection);
         SET_ICON("Editor/UI/Icons/toolbar/libraryAdd.png");
         SET_SHORTCUT("File Menu.Create new library");
         break;
@@ -1127,8 +1130,12 @@ void DockableLibraryPanel::AddLibraryListToMenu(QMenu* subMenu)
 
 void DockableLibraryPanel::ReloadLibrary(const QString& libName)
 {
+    if (libName.isEmpty())
+    {
+        return;
+    }
     IDataBaseLibrary *lib = m_libraryManager->FindLibrary(libName.toUtf8().data());
-    if (libName.isEmpty() || !lib)
+    if (!lib)
     {
         return;
     }
@@ -1172,7 +1179,19 @@ void DockableLibraryPanel::ReloadLibrary(const QString& libName)
             return;
         }
     }
-    dock->Reload();
+
+    if (!dock->Reload())
+    {
+        // Force to remove the library from the panel since
+        // it was destroyed during the reload. Thanks to the Scoped
+        // Modified Undo command the user will be able to recover it.
+
+        SelectSingleLibrary("");
+        SignalItemSelected(nullptr);
+
+        m_libraryManager->DeleteLibrary(libName.toUtf8().data());
+        RebuildFromEngineData();
+    }
 }
 
 void DockableLibraryPanel::ImportLibrary(const QString& file)
@@ -1798,7 +1817,9 @@ void DockableLibraryPanel::RegisterActions()
     // Library Action, Add Library
     action = new QAction(this);
     action->setShortcut(utils->HotKey_GetShortcut("File Menu.Create new library"));
-    connect(action, &QAction::triggered, this, [=]() { AddLibrary(); });
+    connect(action, &QAction::triggered, this, [=]() {
+        AddLibrary();
+    });
     addAction(action);
 
     ///////////////////////////////////////////

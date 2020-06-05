@@ -12,51 +12,126 @@
 
 #include <AzTest/AzTest.h>
 #include <AzTest/Platform.h>
+#include <AzCore/UnitTest/UnitTest.h>
 
 namespace AZ
 {
     namespace Test
     {
+        ::testing::Environment* sTestEnvironment = nullptr;
+
         //! Add a single test environment to the framework
         void addTestEnvironment(ITestEnvironment* env)
         {
-            ::testing::AddGlobalTestEnvironment(env);
+            sTestEnvironment = ::testing::AddGlobalTestEnvironment(env);
         }
 
         //! Add a list of test environments to the framework
         void addTestEnvironments(std::vector<ITestEnvironment*> envs)
         {
-            for (auto env : envs)
+            //! If nothing is supplied, add the default hook
+            if (envs.empty())
             {
-                addTestEnvironment(env);
+                addTestEnvironment(new UnitTest::TraceBusHook());
+            }
+
+            else
+            {
+                for (auto env : envs)
+                {
+                    //! Skip over nullptr to allow callers to avoid the default hook
+                    if (env != nullptr)
+                    {
+                        addTestEnvironment(env);
+                    }
+                }
             }
         }
 
         std::vector<TestEnvironmentRegistry*> TestEnvironmentRegistry::s_envs;
 
-        //! Filter out integration tests from the test run
-        void excludeIntegTests()
+        void AddExcludeFilter(const char* name)
         {
-            if (::testing::GTEST_FLAG(filter).find("-") == std::string::npos)
+            std::string currentFilter = ::testing::GTEST_FLAG(filter);
+
+            if (currentFilter.compare("*") == 0)  // is the current filter already the wildcard '*' ?
             {
-                ::testing::GTEST_FLAG(filter).append("-INTEG_*:Integ_*");
+                // in which case, change it from wildcard to be everything except the filter ('-thing')
+                ::testing::GTEST_FLAG(filter) = "-";
             }
             else
             {
-                ::testing::GTEST_FLAG(filter).append(":INTEG_*:Integ_*");
+                // otherwise, there is some sort of filter already. Is it a negation filter?
+                if (currentFilter.find("-") == std::string::npos)
+                {
+                    // no, add a negation.  Only one negation (minus symbol) can appear and everything
+                    // after that negation is negated.
+                    ::testing::GTEST_FLAG(filter).append(":-");
+                }
+                else
+                {
+                    // if there's a negation filter already, we just append to the end, and we dont negate again
+                    ::testing::GTEST_FLAG(filter).append(":");
+                }
             }
+            ::testing::GTEST_FLAG(filter).append(name);
+        }
+
+        void AddIncludeFilter(const char* name)
+        {
+            std::string currentFilter = ::testing::GTEST_FLAG(filter);
+            if (currentFilter.compare("*") == 0)  // is the current filter already the wildcard '*' only
+            {
+                // replace it to filter the name
+                ::testing::GTEST_FLAG(filter) = name;
+            }
+            else
+            {
+                // prepend to the exisiting filter.
+                std::stringstream integFilter;
+                integFilter << name << ":" << currentFilter;
+                ::testing::GTEST_FLAG(filter) = integFilter.str();
+            }
+        }
+
+        //! Filter out integration tests from the test run
+        void excludeIntegTests()
+        {
+            AddExcludeFilter("INTEG_*");
+            AddExcludeFilter("Integ_*");
         }
 
         //! Filter out all tests except integration tests from the test run
         void runOnlyIntegTests()
         {
-            if (::testing::GTEST_FLAG(filter).compare("*") == 0)
+            AddIncludeFilter("INTEG_*");
+            AddIncludeFilter("Integ_*");
+        }
+
+        void FilterOutSuites()
+        {
+            AddExcludeFilter("Suite_*");
+        }
+
+        void FilterToSpecificSuite(const char* suiteName)
+        {
+            std::stringstream suiteFilter;
+            suiteFilter << "Suite_" << suiteName << "*";
+            AddIncludeFilter(suiteFilter.str().c_str());
+        }
+
+        void ApplyGlobalParameters(int* argc, char** argv)
+        {
+            // this is a hook that can be used to apply any other global non-google parameters
+            // that we use.
+            std::string suiteName = GetParameterValue(*argc, argv, "--suite", true);
+            if (!suiteName.empty())
             {
-                ::testing::GTEST_FLAG(filter) = "INTEG_*:Integ_*";
+                FilterToSpecificSuite(suiteName.c_str());
             }
             else
             {
-                ::testing::GTEST_FLAG(filter).insert(0, "INTEG_*:Integ_*:");
+                FilterOutSuites();
             }
         }
 
@@ -79,11 +154,26 @@ namespace AZ
         {
             using namespace AZ::Test;
             m_returnCode = 0;
-            if (ContainsParameter(argc, argv, "--unittest"))
+            if (ContainsParameter(argc, argv, "--unittest") || ContainsParameter(argc, argv, "--unittests"))
             {
-                // Run tests built inside this executable
+                // the --unittest parameter makes us run tests built inside this executable
+
+                // first, remove the unit test parameter so that it doesn't get passed into google 
+                // test, which would potentially generate warnings since its a non standard param:
+                int unitTestIndex = GetParameterIndex(argc, argv, "--unittest");
+                if (unitTestIndex != -1)
+                {
+                    RemoveParameters(argc, argv, unitTestIndex, unitTestIndex);
+                }
+                unitTestIndex = GetParameterIndex(argc, argv, "--unittests");
+                if (unitTestIndex != -1)
+                {
+                    RemoveParameters(argc, argv, unitTestIndex, unitTestIndex);
+                }
+
                 ::testing::InitGoogleMock(&argc, argv);
                 AZ::Test::excludeIntegTests();
+                AZ::Test::ApplyGlobalParameters(&argc, argv);
                 AZ::Test::printUnusedParametersWarning(argc, argv);
                 AZ::Test::addTestEnvironments(m_envs);
                 m_returnCode = RUN_ALL_TESTS();

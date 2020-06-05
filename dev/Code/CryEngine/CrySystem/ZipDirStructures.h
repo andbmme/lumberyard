@@ -32,7 +32,6 @@
 #include "CryEndian.h"
 #include <IMemory.h>
 #include <ProjectDefines.h>
-#include <CheatProtection.h>
 
 #include "MTSafeAllocator.h"
 #include "ZipFileFormat.h"
@@ -47,6 +46,14 @@
 
 
 struct z_stream_s;
+
+namespace AZ
+{
+    namespace IO
+    {
+        class FileIOBase;
+    }
+}
 
 namespace ZipDir
 {
@@ -63,6 +70,7 @@ namespace ZipDir
         int64 m_nCursor;
         const char* m_szFilename;
         ICustomMemoryBlock* m_pInMemoryData;
+        AZ::IO::FileIOBase* m_fileIOBase = nullptr;
 
 
         CZipFile()
@@ -91,6 +99,7 @@ namespace ZipDir
             swap(m_nCursor, other.m_nCursor);
             swap(m_szFilename, other.m_szFilename);
             swap(m_pInMemoryData, other.m_pInMemoryData);
+            m_fileIOBase = other.m_fileIOBase;
         }
 
         bool IsInMemory() const { return m_pInMemoryData != 0; }
@@ -233,6 +242,8 @@ namespace ZipDir
     // compresses the raw data into raw data. The buffer for compressed data itself with the heap passed. Uses method 8 (deflate)
     // returns one of the Z_* errors (Z_OK upon success), and the size in *pDestSize. the pCompressed buffer must be at least nSrcSize*1.001+12 size
     extern int ZipRawCompress (CMTSafeHeap* pHeap, const void* pUncompressed, unsigned long* pDestSize, void* pCompressed, unsigned long nSrcSize, int nLevel);
+    extern int ZipRawCompressZSTD(CMTSafeHeap* pHeap, const void* pUncompressed, unsigned long* pDestSize, void* pCompressed, unsigned long nSrcSize, int nLevel);
+    extern int ZipRawCompressLZ4(CMTSafeHeap* pHeap, const void* pUncompressed, unsigned long* pDestSize, void* pCompressed, unsigned long nSrcSize, int nLevel);
 
     // fseek wrapper with memory in file support.
     extern int64 FSeek(CZipFile* zipFile, int64 origin, int command);
@@ -557,7 +568,7 @@ namespace ZipDir
     extern void Encrypt(char* buffer, size_t size);
     extern void StreamCipher(char* buffer, size_t size, uint32 inKey);
     extern void StreamCipher(char* buffer, const FileEntry* inEntry);
-    CHEAT_PROTECTION_EXPORT extern unsigned long GetStreamCipherKey(const FileEntry* inEntry);
+    extern unsigned long GetStreamCipherKey(const FileEntry* inEntry);
 #endif
 
 #if defined(SUPPORT_XTEA_PAK_ENCRYPTION)

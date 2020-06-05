@@ -1,0 +1,13 @@
+{
+    "auto": {
+      "Tests": [
+        "Tests/GradientSignalImageTests.cpp",
+        "Tests/GradientSignalReferencesTests.cpp",
+        "Tests/GradientSignalServicesTests.cpp",
+        "Tests/GradientSignalSurfaceTests.cpp",
+        "Tests/GradientSignalTestMocks.h",
+        "Tests/GradientSignalTest.cpp",
+        "Tests/ImageAssetTests.cpp"
+      ]
+    }
+}

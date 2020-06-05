@@ -11,20 +11,22 @@
 */
 #pragma once
 
+AZ_PUSH_DISABLE_WARNING(4251 4800 4244, "-Wunknown-warning-option")
 #include <QGraphicsGridLayout>
 #include <QGraphicsLinearLayout>
 #include <QGraphicsProxyWidget>
 #include <QGraphicsWidget>
 #include <QPlainTextEdit>
 #include <QTimer>
+AZ_POP_DISABLE_WARNING
 
 #include <AzCore/Component/EntityId.h>
 
 #include <GraphCanvas/Components/Nodes/Comment/CommentBus.h>
 #include <GraphCanvas/Components/SceneBus.h>
 #include <GraphCanvas/Components/StyleBus.h>
+#include <GraphCanvas/Styling/StyleHelper.h>
 #include <Widgets/GraphCanvasLabel.h>
-#include <Styling/StyleHelper.h>
 
 namespace GraphCanvas
 {
@@ -41,6 +43,7 @@ namespace GraphCanvas
         public:
             AZ_CLASS_ALLOCATOR(FocusableTextEdit, AZ::SystemAllocator, 0);
             FocusableTextEdit()
+                : m_eatEnterKey(false)
             {
                 setContextMenuPolicy(Qt::ContextMenuPolicy::PreventContextMenu);
             }
@@ -51,19 +54,53 @@ namespace GraphCanvas
             void OnFocusIn();
             void OnFocusOut();
 
+            void EnterPressed();
+
         private:
 
-            void focusInEvent(QFocusEvent* focusEvent)
+            void focusInEvent(QFocusEvent* focusEvent) override
             {
                 QTextEdit::focusInEvent(focusEvent);
                 emit OnFocusIn();
             }
 
-            void focusOutEvent(QFocusEvent* focusEvent)
+            void focusOutEvent(QFocusEvent* focusEvent) override
             {
                 QTextEdit::focusOutEvent(focusEvent);
                 emit OnFocusOut();
             }
+
+            void keyPressEvent(QKeyEvent* keyEvent) override
+            {
+                if (keyEvent->key() == Qt::Key_Enter
+                    || keyEvent->key() == Qt::Key_Return)
+                {
+                    if (keyEvent->modifiers() == Qt::KeyboardModifier::NoModifier)
+                    {
+                        m_eatEnterKey = true;
+                        return;
+                    }
+                }
+
+                QTextEdit::keyPressEvent(keyEvent);
+            }
+
+            void keyReleaseEvent(QKeyEvent* keyEvent) override
+            {
+                if (keyEvent->key() == Qt::Key_Enter
+                    || keyEvent->key() == Qt::Key_Return)
+                {
+                    if (m_eatEnterKey)
+                    {
+                        emit EnterPressed();
+                        m_eatEnterKey = false;
+                    }
+                }
+
+                QTextEdit::keyReleaseEvent(keyEvent);
+            }
+
+            bool m_eatEnterKey;
         };
     }
 
@@ -124,15 +161,19 @@ namespace GraphCanvas
 
         void UpdateSizing();
         void SubmitValue();
+        void UpdateSizePolicies();
         
         bool sceneEventFilter(QGraphicsItem*, QEvent* event);
 
         const AZ::EntityId& GetEntityId() const { return m_entityId; }
+        void SetupProxyWidget();
+        void CleanupProxyWidget();
 
     private:
         CommentTextGraphicsWidget(const CommentTextGraphicsWidget&) = delete;
 
         CommentMode m_commentMode;
+        AZStd::string m_commentText;
 
         bool m_editable;
         bool m_layoutLock;
@@ -148,8 +189,6 @@ namespace GraphCanvas
         
         QPointF m_initialClick;
         bool m_pressed;
-
-        QTimer m_timer;
 
         AZ::EntityId m_entityId;
     };

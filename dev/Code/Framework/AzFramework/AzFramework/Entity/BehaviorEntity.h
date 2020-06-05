@@ -31,6 +31,7 @@ namespace AzFramework
     public:
         AZ_TYPE_INFO(BehaviorComponentId, "{60A9A069-9C3D-465A-B7AD-0D6CC803990A}");
         AZ_CLASS_ALLOCATOR(BehaviorComponentId, AZ::SystemAllocator, 0);
+        static void Reflect(AZ::ReflectContext* context);
 
         BehaviorComponentId() = default;
         BehaviorComponentId(AZ::ComponentId id);
@@ -176,6 +177,13 @@ namespace AzFramework
          * Returns an invalid type ID if the component is not found.
          */
         AZ::TypeId GetComponentType(BehaviorComponentId componentId) const;
+
+        /**
+         * Get the name of a specific component on the entity.
+         * @param componentId the ID of the component to query.
+         * @return The name of the component.
+         */
+        AZStd::string GetComponentName(BehaviorComponentId componentId) const;
 
         /**
          * Set the component's configuration.

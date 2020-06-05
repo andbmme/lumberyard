@@ -11,7 +11,7 @@
 */
 // Original file Copyright Crytek GMBH or its affiliates, used under license.
 
-#include "StdAfx.h"
+#include "stdafx.h"
 #include "ThreadUtils.h"
 #include <AzCore/std/parallel/thread.h>
 #include <AzCore/std/bind/bind.h>
@@ -77,8 +77,10 @@ namespace ThreadUtils
         // Called from main thread
         void Join(JobTraces& traces)
         {
-            m_handle.join();
-            m_handle.detach();
+            if(m_handle.joinable())
+            {
+                m_handle.join();
+            }
 
             if (m_trace)
             {

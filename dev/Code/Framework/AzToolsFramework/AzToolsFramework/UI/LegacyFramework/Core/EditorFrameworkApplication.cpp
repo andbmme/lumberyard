@@ -20,14 +20,13 @@
 #include <AzCore/IO/SystemFile.h>
 #include <AzCore/IO/GenericStreams.h>
 #include <AzCore/Serialization/ObjectStream.h>
-#include <AzCore/Debug/trace.h>
+#include <AzCore/Debug/Trace.h>
 #include <AzCore/Math/Sfmt.h>
 #include <AzCore/std/time.h>
 
 #include <AzCore/Component/ComponentApplication.h>
 #include <AzCore/Memory/MemoryComponent.h>
 #include <AzCore/Jobs/JobManagerComponent.h>
-#include <AzCore/Serialization/ObjectStreamComponent.h>
 #include <AzCore/Asset/AssetManagerComponent.h>
 #include <AzCore/Script/ScriptSystemComponent.h>
 #include <AzCore/IO/StreamerComponent.h>
@@ -51,17 +50,19 @@
 #include "shlobj.h"
 #endif
 
-#if defined(AZ_PLATFORM_APPLE)
+#if AZ_TRAIT_OS_PLATFORM_APPLE
 #   include <mach-o/dyld.h>
 #endif
 
+AZ_PUSH_DISABLE_WARNING(4251, "-Wunknown-warning-option") // 'QFileInfo::d_ptr': class 'QSharedDataPointer<QFileInfoPrivate>' needs to have dll-interface to be used by clients of class 'QFileInfo'
 #include <QFileInfo>
+AZ_POP_DISABLE_OVERRIDE_WARNING
 #include <QSharedMemory>
 #include <QStandardPaths>
 
 namespace LegacyFramework
 {
-    ApplicationDesc::ApplicationDesc(const char* name)
+    ApplicationDesc::ApplicationDesc(const char* name, int argc, char** argv)
         : m_applicationModule(NULL)
         , m_enableGridmate(true)
         , m_enablePerforce(true)
@@ -69,11 +70,13 @@ namespace LegacyFramework
         , m_enableProjectManager(true)
         , m_shouldRunAssetProcessor(true)
         , m_saveUserSettings(true)
+        , m_argc(argc)
+        , m_argv(argv)
     {
         m_applicationName[0] = 0;
         if (name)
         {
-            qstrcpy(m_applicationName, name);
+            azstrcpy(m_applicationName, _MAX_PATH, name);
         }
     }
 
@@ -93,10 +96,12 @@ namespace LegacyFramework
         m_enableGUI = other.m_enableGUI;
         m_enableGridmate = other.m_enableGridmate;
         m_enablePerforce = other.m_enablePerforce;
-        qstrcpy(m_applicationName, other.m_applicationName);
+        azstrcpy(m_applicationName, _MAX_PATH, other.m_applicationName);
         m_enableProjectManager = other.m_enableProjectManager;
         m_shouldRunAssetProcessor = other.m_shouldRunAssetProcessor;
         m_saveUserSettings = other.m_saveUserSettings;
+        m_argc = other.m_argc;
+        m_argv = other.m_argv;
         return *this;
     }
 
@@ -174,7 +179,7 @@ namespace LegacyFramework
         QSharedMemory* shared = new QSharedMemory(appNameConcat);
         if (qApp)
         {
-            QObject::connect(qApp, &QCoreApplication::aboutToQuit, [shared]() { delete shared; });
+            QObject::connect(qApp, &QCoreApplication::aboutToQuit, qApp, [shared]() { delete shared; });
         }
         m_isMaster = shared->create(1);
 
@@ -193,11 +198,18 @@ namespace LegacyFramework
         ::_splitpath_s(m_applicationModule, szDrv, _MAX_DRIVE, szDir, _MAX_DIR, NULL, 0, NULL, 0);
 
         ::_makepath_s(configFilePath, _MAX_PATH, szDrv, szDir, desc.m_applicationName, ".xml");
-#else
+#elif defined (AZ_PLATFORM_APPLE_OSX)
         uint32_t bufSize = AZ_ARRAY_SIZE(m_applicationModule);
         _NSGetExecutablePath(m_applicationModule, &bufSize);
         QString path = QStringLiteral("%1/%2.xml").arg(m_exeDirectory, desc.m_applicationName);
         qstrcpy(configFilePath, path.toUtf8().data());
+#elif defined (AZ_PLATFORM_LINUX)
+        uint32_t bufSize = AZ_ARRAY_SIZE(m_applicationModule);
+        size_t pathLen = readlink("/proc/self/exe", m_applicationModule, bufSize);
+        QString path = QStringLiteral("%1/%2.xml").arg(m_exeDirectory, desc.m_applicationName);
+        qstrcpy(configFilePath, path.toUtf8().data());
+#else
+#error ("Unsupported Platform")
 #endif
 
         // Enable next line to load from the last state
@@ -218,7 +230,7 @@ namespace LegacyFramework
         azstrncpy(m_appRoot, AZ_MAX_PATH_LEN, m_exeDirectory, AZ_MAX_PATH_LEN);
 
         m_ptrCommandLineParser = aznew AzFramework::CommandLine();
-        m_ptrCommandLineParser->Parse();
+        m_ptrCommandLineParser->Parse(m_desc.m_argc, m_desc.m_argv);
         if (m_ptrCommandLineParser->HasSwitch("app-root"))
         {
             auto appRootOverride = m_ptrCommandLineParser->GetSwitchValue("app-root", 0);
@@ -508,14 +520,12 @@ namespace LegacyFramework
             AZStd::string tmpFileName(applicationFilePath);
             tmpFileName += ".tmp";
 
-            IO::VirtualStream* fileStream = IO::Streamer::Instance().RegisterFileStream(tmpFileName.c_str(), IO::OpenMode::ModeWrite, false);
-            if (fileStream == nullptr)
+            IO::FileIOStream stream(tmpFileName.c_str(), IO::OpenMode::ModeWrite);
+            if (!stream.IsOpen())
             {
                 return;
             }
-
             AZ::SerializeContext* serializeContext = GetSerializeContext();
-            IO::StreamerStream stream(fileStream, false);
             AZ_Assert(serializeContext, "ComponentApplication::m_serializeContext is NULL!");
             ObjectStream* objStream = ObjectStream::Create(&stream, *serializeContext, ObjectStream::ST_XML);
 
@@ -523,8 +533,7 @@ namespace LegacyFramework
             AZ_Warning("ComponentApplication", entityWriteOk, "Failed to write application entity to application file %s!", applicationFilePath.c_str());
             bool flushOk = objStream->Finalize();
             AZ_Warning("ComponentApplication", flushOk, "Failed finalizing application file %s!", applicationFilePath.c_str());
-            IO::Streamer::Instance().UnRegisterStream(fileStream);
-
+            
             if (entityWriteOk && flushOk)
             {
                 if (IO::SystemFile::Rename(tmpFileName.c_str(), applicationFilePath.c_str(), true))
@@ -549,7 +558,6 @@ namespace LegacyFramework
         EnsureComponentCreated(AZ::MemoryComponent::RTTI_Type());
         EnsureComponentCreated(AZ::JobManagerComponent::RTTI_Type());
         EnsureComponentCreated(AZ::StreamerComponent::RTTI_Type());
-        EnsureComponentCreated(AZ::ObjectStreamComponent::RTTI_Type());
 
         AZ_Assert(!m_desc.m_enableProjectManager || m_desc.m_enableGUI, "Enabling the project manager in the application settings requires enabling the GUI as well.");
 
@@ -567,7 +575,7 @@ namespace LegacyFramework
     void Application::ReflectSerialize()
     {
         AZ::SerializeContext* serializeContext = GetSerializeContext();
-        if (serializeContext->GetEditContext() == nullptr)
+        if (serializeContext && serializeContext->GetEditContext() == nullptr)
         {
             serializeContext->CreateEditContext(); // we are the editor make a serialize context.
         }

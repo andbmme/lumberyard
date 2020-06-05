@@ -22,13 +22,49 @@ def build(bld):
         target              = 'FrameworkTests',
         vs_filter           = 'AZ Framework/TestSuites',
         file_list           = 'frameworktests.waf_files',
-        platforms           = ['win'],
-        configurations      = ['test_all'],
-        use                 = ['AzTest', 'AzToolsFramework'],
-        uselib              = [ 'QT5CORE',
-                                'QT5GUI',
-                                'QT5WIDGETS'],
+        platforms           = ['win', 'darwin', 'linux'],
+        configurations      = ['all'],
+        test_only           = True,
+        use                 = ['AzTest', 'AzToolsFramework', 'AzTestShared'],
+        uselib              = ['QT5CORE',
+                               'QT5GUI',
+                               'QT5WIDGETS'],
+        test_all_use        = ['AzTestShared'],
+        # Platform Roots
+        platform_roots      = [bld.PlatformRoot('Platform', export_includes=False)],
+        
+        # Platform Specific
         msvc_cxxflags       = ['/W4'],
     )
     
+    bld.CryConsoleApplication(
+
+        # Settings
+        target          = 'ProcessLaunchTest',
+        file_list       = ['process_launch_test.waf_files'],
+        platforms       = ['win', 'darwin'],
+        exclude_monolithic  = True,
+        test_only       = True,
+        vs_filter       = 'AZ Framework/TestSuites',
+        use             = ['AzCore','AzFramework'],
+
+        test_all_file_list = ['process_launch_test_tests.waf_files'],
+                
+        # Platform Specific
+        darwin_rpath    = ['@executable_path']
+    )
+
+    bld.CryEngineStaticLibrary(
+        target                  = 'AzFrameworkTestShared',
+        vs_filter               = 'AZ Framework',
+        file_list               = ['framework_shared.waf_files'],
+        platforms               = ['win', 'darwin', 'linux'],
+        configurations          = ['all'],
+        test_only               = True,
+        use                     = ['AzFramework', 'AzTest'],
+        includes                = ['..'],
+        export_includes         = ['..'],
+        msvc_cxxflags           = ['/W4'],
+    )
+
     bld.recurse(SUBFOLDERS)

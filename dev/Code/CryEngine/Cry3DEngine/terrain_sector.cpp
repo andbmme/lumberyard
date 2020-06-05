@@ -17,7 +17,6 @@
 #include "StdAfx.h"
 #include "terrain_sector.h"
 #include "terrain.h"
-#include "ObjMan.h"
 
 void CTerrainNode::SetLOD(const SRenderingPassInfo& passInfo)
 {
@@ -38,7 +37,7 @@ void CTerrainNode::SetLOD(const SRenderingPassInfo& passInfo)
         // The LOD range spans the entire sector quad, so we can't go higher than that. The unit-to-sector bitshift encodes this maximum LOD.
         // Each sector has a min LOD that it has encoded in the height data (e.g. some have only a 3x3 heightmap). We can't go lower than this.
         //
-        const int maxLOD = GetTerrain()->m_UnitToSectorBitShift - 1;
+        const int maxLOD = CTerrain::GetTerrain()->m_UnitToSectorBitShift - 1;
         const int minLOD = 0;
 
         int lod = maxLOD;
@@ -66,3 +65,27 @@ int CTerrainNode::GetSecIndex()
     int nSectorsTableSize = CTerrain::GetSectorsTableSize() >> m_nTreeLevel;
     return (m_nOriginX / nSectorSize) * nSectorsTableSize + (m_nOriginY / nSectorSize);
 }
+
+void CTerrainNode::GetMaterials(AZStd::vector<_smart_ptr<IMaterial>>& materials)
+{
+    const int projectionAxisCount = 3;
+    const uint8 projectionAxis[projectionAxisCount] = { 'X', 'Y', 'Z' };
+
+    for (int i = 0; i < m_DetailLayers.Count(); i++)
+    {
+        if (!m_DetailLayers[i].surfaceType || !m_DetailLayers[i].surfaceType->HasMaterial() || !m_DetailLayers[i].HasRM())
+        {
+            continue;
+        }
+
+        for (int p = 0; p < projectionAxisCount; p++)
+        {
+            _smart_ptr<IMaterial> pMat = m_DetailLayers[i].surfaceType->GetMaterialOfProjection(projectionAxis[p]);
+            if (pMat)
+            {
+                materials.push_back(pMat);
+            }
+        }
+    }
+}
+

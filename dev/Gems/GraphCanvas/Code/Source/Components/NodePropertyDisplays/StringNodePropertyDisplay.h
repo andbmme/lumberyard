@@ -13,9 +13,9 @@
 
 #include <qlineedit.h>
 
-#include <Components/NodePropertyDisplay/NodePropertyDisplay.h>
+#include <GraphCanvas/Components/NodePropertyDisplay/NodePropertyDisplay.h>
 
-#include <Components/NodePropertyDisplay/StringDataInterface.h>
+#include <GraphCanvas/Components/NodePropertyDisplay/StringDataInterface.h>
 
 class QGraphicsProxyWidget;
 
@@ -70,16 +70,24 @@ namespace GraphCanvas
         void RefreshStyle() override;
         void UpdateDisplay() override;
         
-        QGraphicsLayoutItem* GetDisabledGraphicsLayoutItem() const override;
-        QGraphicsLayoutItem* GetDisplayGraphicsLayoutItem() const override;
-        QGraphicsLayoutItem* GetEditableGraphicsLayoutItem() const override;
+        QGraphicsLayoutItem* GetDisabledGraphicsLayoutItem() override;
+        QGraphicsLayoutItem* GetDisplayGraphicsLayoutItem() override;
+        QGraphicsLayoutItem* GetEditableGraphicsLayoutItem() override;
         ////
     
+        // DataSlotNotifications
+        void OnDragDropStateStateChanged(const DragDropState& dragState) override;
+        ////
+
     private:
 
         void EditStart();
         void SubmitValue();
         void EditFinished();
+        void SetupProxyWidget();
+        void CleanupProxyWidget();
+
+        void ResizeToContents();
     
         StringDataInterface*   m_dataInterface;
     
@@ -87,5 +95,8 @@ namespace GraphCanvas
         GraphCanvasLabel*               m_displayLabel;
         Internal::FocusableLineEdit*    m_lineEdit;
         QGraphicsProxyWidget*           m_proxyWidget;
+
+        bool m_valueDirty;
+        bool m_isNudging;
     };
 }

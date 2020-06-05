@@ -17,18 +17,9 @@
 #include <AzCore/std/string/string_view.h>
 #include <AzToolsFramework/Undo/UndoSystem.h>
 
-#include <GraphCanvas/Types/SceneData.h>
-#include <ScriptCanvas/Core/Graph.h>
-
-namespace ScriptCanvas
-{
-    struct GraphData;
-}
-
-namespace GraphCanvas
-{
-    struct SceneData;
-}
+#include <GraphCanvas/Types/EntitySaveData.h>
+#include <ScriptCanvas/Core/GraphData.h>
+#include <ScriptCanvas/Variable/VariableData.h>
 
 namespace ScriptCanvasEditor
 {
@@ -50,14 +41,17 @@ namespace ScriptCanvasEditor
             if (auto serializeContext = azrtti_cast<AZ::SerializeContext*>(reflectContext))
             {
                 serializeContext->Class<UndoData>()
+                    ->Version(2)
                     ->Field("m_graphData", &UndoData::m_graphData)
-                    ->Field("m_sceneData", &UndoData::m_sceneData)
+                    ->Field("m_variableData", &UndoData::m_variableData)
+                    ->Field("m_visualSaveData",&UndoData::m_visualSaveData)
                     ;
             }
         }
 
-        ScriptCanvas::GraphData m_graphData;
-        GraphCanvas::SceneData m_sceneData;
+        ScriptCanvas::GraphData             m_graphData;
+        ScriptCanvas::VariableData          m_variableData;
+        AZStd::unordered_map< AZ::EntityId, GraphCanvas::EntitySaveDataContainer* > m_visualSaveData;
     };
 
     class UndoCache;
@@ -75,7 +69,7 @@ namespace ScriptCanvasEditor
         /*!
         * Retrieves the undo cache for specific Script Canvas entity
         */
-        virtual UndoCache* GetSceneUndoCache(AZ::EntityId sceneId) = 0;
+        virtual UndoCache* GetSceneUndoCache(ScriptCanvas::ScriptCanvasId scriptCanvasId) = 0;
 
         /*!
         * Start batch undo so we can add multiple undo to one undo step.
@@ -100,7 +94,7 @@ namespace ScriptCanvasEditor
         virtual void Redo() = 0;
         virtual void Reset() = 0;
 
-        virtual UndoData CreateUndoData(AZ::EntityId entityId) = 0;
+        virtual UndoData CreateUndoData(ScriptCanvas::ScriptCanvasId scriptCanvasId) = 0;
     };
     using UndoRequestBus = AZ::EBus<UndoRequests>;
 

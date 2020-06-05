@@ -13,11 +13,11 @@
 #pragma once
 
 // include the required headers
+#include <AzCore/Math/Quaternion.h>
 #include "EMotionFXConfig.h"
 #include "BaseObject.h"
 #include "EMotionFXManager.h"
-#include <MCore/Source/Quaternion.h>
-#include <MCore/Source/StringIDGenerator.h>
+#include <MCore/Source/StringIdPool.h>
 
 
 namespace EMotionFX
@@ -36,7 +36,7 @@ namespace EMotionFX
     class EMFX_API MorphTarget
         : public BaseObject
     {
-        MCORE_MEMORYOBJECTCATEGORY(MorphTarget, EMFX_DEFAULT_ALIGNMENT, EMFX_MEMCATEGORY_GEOMETRY_PMORPHTARGETS);
+        AZ_CLASS_ALLOCATOR_DECL
 
     public:
         /**
@@ -72,7 +72,7 @@ namespace EMotionFX
          * @param scale This must contain the initial scale, and will be modified inside this method as well.
          * @param weight The absolute weight value.
          */
-        virtual void ApplyTransformation(ActorInstance* actorInstance, uint32 nodeIndex, AZ::Vector3& position, MCore::Quaternion& rotation, AZ::Vector3& scale, float weight) = 0;
+        virtual void ApplyTransformation(ActorInstance* actorInstance, uint32 nodeIndex, AZ::Vector3& position, AZ::Quaternion& rotation, AZ::Vector3& scale, float weight) = 0;
 
         /**
          * Get the unique ID of this morph target.
@@ -90,10 +90,10 @@ namespace EMotionFX
         const char* GetName() const;
 
         /**
-         * Get the unique name of the morph target, in form of a MCore::String object.
+         * Get the unique name of the morph target, in form of a AZStd::string object.
          * @result The name of the morph target.
          */
-        const MCore::String& GetNameString() const;
+        const AZStd::string& GetNameString() const;
 
         /**
          * Set the minimum weight range value of this morph target.
@@ -181,7 +181,7 @@ namespace EMotionFX
          * @param phonemeName The name of the phoneme (e.g. "UW", TH", "EY").
          * @result The corresponding phoneme set. If the phoneme set has not been found or if it is empty the PHONEMESET_NEUTRAL_POSE value will be returned.
          */
-        static EPhonemeSet FindPhonemeSet(const MCore::String& phonemeName);
+        static EPhonemeSet FindPhonemeSet(const AZStd::string& phonemeName);
 
         /**
          * Get the name of a phoneme set from the given phoneme set type.
@@ -191,7 +191,7 @@ namespace EMotionFX
          * @param phonemeSet The phoneme set value.
          * @return String describing the given phoneme set.
          */
-        static MCore::String GetPhonemeSetString(const EPhonemeSet phonemeSet);
+        static AZStd::string GetPhonemeSetString(const EPhonemeSet phonemeSet);
 
         /**
          * Get the number of available phoneme sets inside the enum EPhonemeSet.
@@ -209,12 +209,8 @@ namespace EMotionFX
          * @param captureMeshDeforms Set this to true if you want this morph target to capture mesh deformations (changes in vertex positions).
          * @param neutralPose The actor that contains the neutral pose.
          * @param targetPose The actor representing the pose of the character when the weight value would equal 1.
-         * @param delPoseFromMem When set to true (which is default) the target pose actor will automatically be deleted from memory
-         *                       deleted from memory when it's no longer needed by this method anymore.
-         *                       So when set to true, you cannot use this actor (targetPose) anymore, because it is deleted from memory.
-         *                       When set to false, you must not forget to delete this pose actor later on yourself.
          */
-        virtual void InitFromPose(bool captureTransforms, bool captureMeshDeforms, Actor* neutralPose, Actor* targetPose, bool delPoseFromMem = true) = 0;
+        virtual void InitFromPose(bool captureTransforms, bool captureMeshDeforms, Actor* neutralPose, Actor* targetPose) = 0;
 
         /**
          * Checks if this morph target would influence a given node.

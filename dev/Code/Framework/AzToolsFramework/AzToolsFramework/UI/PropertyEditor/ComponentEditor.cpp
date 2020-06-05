@@ -12,7 +12,6 @@
 #include "StdAfx.h"
 #include "ComponentEditor.hxx"
 #include "ComponentEditorHeader.hxx"
-#include "ComponentEditorNotification.hxx"
 
 #include <AzCore/RTTI/AttributeReader.h>
 #include <AzCore/std/containers/map.h>
@@ -20,14 +19,28 @@
 #include <AzToolsFramework/API/EntityCompositionRequestBus.h>
 #include <AzToolsFramework/API/ToolsApplicationAPI.h>
 #include <AzToolsFramework/Entity/EditorEntityHelpers.h>
+#include <AzToolsFramework/Entity/EditorEntityInfoBus.h>
 #include <AzToolsFramework/ToolsComponents/GenericComponentWrapper.h>
 #include <AzToolsFramework/UI/PropertyEditor/ReflectedPropertyEditor.hxx>
+#include <AzFramework/Entity/EntityContextBus.h>
+
+#include <AzQtComponents/Components/Widgets/CardHeader.h>
+#include <AzQtComponents/Components/Widgets/CardNotification.h>
+#include <AzQtComponents/Utilities/QtViewPaneEffects.h>
 
 #include "EntityIdQLabel.hxx"
 #include <QDesktopWidget>
 #include <QMenu>
 #include <QPushButton>
+AZ_PUSH_DISABLE_WARNING(4251, "-Wunknown-warning-option") // 4251: 'QLayoutItem::align': class 'QFlags<Qt::AlignmentFlag>' needs to have dll-interface to be used by clients of class 'QLayoutItem'
 #include <QVBoxLayout>
+AZ_POP_DISABLE_WARNING
+#include <QGraphicsEffect>
+AZ_PUSH_DISABLE_WARNING(4251 4244, "-Wunknown-warning-option") // 4251: 'QInputEvent::modState': class 'QFlags<Qt::KeyboardModifier>' needs to have dll-interface to be used by clients of class 'QInputEvent'
+                                                               // 4244: 'return': conversion from 'qreal' to 'int', possible loss of data
+#include <QContextMenuEvent>
+AZ_POP_DISABLE_WARNING
+#include <AzToolsFramework/Viewport/ViewportMessages.h>
 
 namespace AzToolsFramework
 {
@@ -37,7 +50,6 @@ namespace AzToolsFramework
         static const char* kUnknownComponentTitle = "-";
 
         // names for widgets so they can be found in stylesheet
-        static const char* kHeaderId = "Header";
         static const char* kPropertyEditorId = "PropertyEditor";
 
         static const int kAddComponentMenuHeight = 150;
@@ -132,49 +144,34 @@ namespace AzToolsFramework
     }
 
     ComponentEditor::ComponentEditor(AZ::SerializeContext* context, IPropertyEditorNotify* notifyTarget /* = nullptr */, QWidget* parent /* = nullptr */)
-        : QFrame(parent)
+        : AzQtComponents::Card(aznew ComponentEditorHeader(), parent)
         , m_serializeContext(context)
     {
-        setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Maximum);
-
-        m_warningIcon = QIcon(":/PropertyEditor/Resources/warning.png");
-
-        // create header bar
-        m_header = aznew ComponentEditorHeader(this);
-        m_header->setObjectName(ComponentEditorConstants::kHeaderId);
-        m_header->SetTitle(ComponentEditorConstants::kUnknownComponentTitle);
-        m_header->SetWarningIcon(m_warningIcon);
-        m_header->SetWarning(false);
-        m_header->SetReadOnly(false);
-        m_header->SetExpandable(true);
-        m_header->SetHasContextMenu(true);
-        m_header->setStyleSheet("QToolTip { padding: 5px; }");
+        GetHeader()->SetTitle(ComponentEditorConstants::kUnknownComponentTitle);
 
         // create property editor
         m_propertyEditor = aznew ReflectedPropertyEditor(this);
         m_propertyEditor->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Maximum);
         m_propertyEditor->setObjectName(ComponentEditorConstants::kPropertyEditorId);
-        m_propertyEditor->Setup(context, notifyTarget, false, ComponentEditorConstants::kPropertyLabelWidth);
+        m_propertyEditor->Setup(context, notifyTarget, false, ComponentEditorConstants::kPropertyLabelWidth, this);
         m_propertyEditor->SetHideRootProperties(true);
         m_propertyEditor->setProperty("ComponentBlock", true); // used by stylesheet
         m_savedKeySeed = AZ_CRC("WorldEditorEntityEditor_Component", 0x926c865f);
 
-        m_mainLayout = aznew QVBoxLayout(this);
-        m_mainLayout->setSizeConstraint(QLayout::SetMinimumSize);
-        m_mainLayout->setMargin(0);
-        m_mainLayout->setContentsMargins(0, 0, 0, 0);
-        m_mainLayout->addWidget(m_header);
-        m_mainLayout->addWidget(m_propertyEditor);
-        setLayout(m_mainLayout);
+        setContentWidget(m_propertyEditor);
 
-        connect(m_header, &ComponentEditorHeader::OnExpanderChanged, this, &ComponentEditor::OnExpanderChanged);
-        connect(m_header, &ComponentEditorHeader::OnContextMenuClicked, this, &ComponentEditor::OnContextMenuClicked);
+        connect(this, &AzQtComponents::Card::expandStateChanged, this, &ComponentEditor::OnExpanderChanged);
+        connect(GetHeader(), &ComponentEditorHeader::OnContextMenuClicked, this, &ComponentEditor::OnContextMenuClicked);
         connect(m_propertyEditor, &ReflectedPropertyEditor::OnExpansionContractionDone, this, &ComponentEditor::OnExpansionContractionDone);
 
         SetExpanded(true);
         SetSelected(false);
         SetDragged(false);
         SetDropTarget(false);
+    }
+
+    ComponentEditor::~ComponentEditor()
+    {
     }
 
     void ComponentEditor::AddInstance(AZ::Component* componentInstance, AZ::Component* aggregateInstance, AZ::Component* compareInstance)
@@ -204,7 +201,7 @@ namespace AzToolsFramework
             SetComponentType(*componentInstance);
         }
 
-        m_header->setToolTip(BuildHeaderTooltip());
+        GetHeader()->setToolTip(BuildHeaderTooltip());
     }
 
     void ComponentEditor::ClearInstances(bool invalidateImmediately)
@@ -212,8 +209,8 @@ namespace AzToolsFramework
         m_propertyEditor->SetDynamicEditDataProvider(nullptr);
 
         //clear warning flag and icon
-        m_header->SetWarning(false);
-        m_header->SetReadOnly(false);
+        GetHeader()->SetWarning(false);
+        GetHeader()->SetReadOnly(false);
 
         ClearNotifications();
         //clear component cache
@@ -227,7 +224,7 @@ namespace AzToolsFramework
 
         InvalidateComponentType();
 
-        m_header->setToolTip(BuildHeaderTooltip());
+        GetHeader()->setToolTip(BuildHeaderTooltip());
     }
 
     void ComponentEditor::AddNotifications()
@@ -251,8 +248,8 @@ namespace AzToolsFramework
         bool isReadOnly = isWarning || AreAnyComponentsDisabled();
 
         //display warning icon if component isn't valid
-        m_header->SetWarning(isWarning);
-        m_header->SetReadOnly(isReadOnly);
+        GetHeader()->SetWarning(isWarning);
+        GetHeader()->SetReadOnly(isReadOnly);
 
         //disable property editor if component isn't valid
         m_propertyEditor->setDisabled(isReadOnly);
@@ -277,7 +274,7 @@ namespace AzToolsFramework
         //display notification for conflicting components, including duplicates
         if (!reversePendingComponentInfo.m_validComponentsThatAreIncompatible.empty())
         {
-            CreateNotificationForConflictingComponents(tr("This component conflicts with one or more duplicate or incompatible components on this entity. Those components have been disabled."));
+            CreateNotificationForConflictingComponents(tr("This component conflicts with one or more duplicate or incompatible components on this entity. Those components have been disabled."), reversePendingComponentInfo.m_validComponentsThatAreIncompatible);
         }
 
         //display notification for conflicting components, including duplicates
@@ -288,7 +285,7 @@ namespace AzToolsFramework
         }
         for (const auto& message : uniqueMessages)
         {
-            CreateNotificationForConflictingComponents(message.first);
+            CreateNotificationForConflictingComponents(message.first, forwardPendingComponentInfo.m_validComponentsThatAreIncompatible);
         }
         uniqueMessages.clear();
 
@@ -314,67 +311,56 @@ namespace AzToolsFramework
 
     void ComponentEditor::ClearNotifications()
     {
-        for (auto notification : m_notifications)
-        {
-            delete notification;
-        }
-
-        m_notifications.clear();
+        AzQtComponents::Card::clearNotifications();
     }
 
-    ComponentEditorNotification* ComponentEditor::CreateNotification(const QString& message)
+    AzQtComponents::CardNotification* ComponentEditor::CreateNotification(const QString& message)
     {
-        auto notification = aznew ComponentEditorNotification(this, message, m_warningIcon);
-        notification->setVisible(IsExpanded());
-        m_notifications.push_back(notification);
-        layout()->addWidget(m_notifications.back());
-        return notification;
+        return AzQtComponents::Card::addNotification(message);
     }
 
-    ComponentEditorNotification* ComponentEditor::CreateNotificationForConflictingComponents(const QString& message)
+    AzQtComponents::CardNotification* ComponentEditor::CreateNotificationForConflictingComponents(const QString& message, const AZ::Entity::ComponentArrayType& conflictingComponents)
     {
         //TODO ask about moving all of these to the context menu instead
         auto notification = CreateNotification(message);
-        auto featureButton = aznew QPushButton(tr("Delete component"), notification);
+        auto featureButton = notification->addButtonFeature(tr("Delete component"));
         connect(featureButton, &QPushButton::clicked, this, [this]()
         {
             emit OnRequestRemoveComponents(GetComponents());
         });
-        notification->AddFeature(featureButton);
 
 #if 0 //disabling features until UX/UI is reworked or actions added to menu as stated above
-        featureButton = aznew QPushButton(tr("Disable this component"), notification);
+        featureButton = notification->addButtonFeature(tr("Disable this component"));
         connect(featureButton, &QPushButton::clicked, this, [this]()
         {
             emit OnRequestDisableComponents(GetComponents());
         });
-        notification->AddFeature(featureButton);
 
-        featureButton = aznew QPushButton("Remove incompatible components", notification);
+        featureButton = notification->addButtonFeature(tr("Remove incompatible components"));
         connect(featureButton, &QPushButton::clicked, this, [this]()
         {
             const AZStd::unordered_set<AZ::Component*> incompatibleComponents = GetRelatedIncompatibleComponents(GetComponents());
             emit OnRequestRemoveComponents(AZStd::vector<AZ::Component*>(incompatibleComponents.begin(), incompatibleComponents.end()));
         });
-        notification->AddFeature(featureButton);
 #endif
 
         //Activate/Enable are overloaded terms. "Disable incompatible components"
-        featureButton = aznew QPushButton("Activate this component", notification);
-        connect(featureButton, &QPushButton::clicked, this, [this]()
+        featureButton = notification->addButtonFeature(tr("Activate this component"));
+
+        // create a list copy that we can capture that will persist if/when the passed conflictingComponents list is destroyed
+        AZ::Entity::ComponentArrayType listCopy = conflictingComponents;
+        connect(featureButton, &QPushButton::clicked, this, [this, listCopy]()
         {
-            const AZStd::unordered_set<AZ::Component*> incompatibleComponents = GetRelatedIncompatibleComponents(GetComponents());
-            emit OnRequestDisableComponents(AZStd::vector<AZ::Component*>(incompatibleComponents.begin(), incompatibleComponents.end()));
+            emit OnRequestDisableComponents(AZStd::vector<AZ::Component*>(listCopy.begin(), listCopy.end()));
         });
-        notification->AddFeature(featureButton);
 
         return notification;
     }
 
-    ComponentEditorNotification* ComponentEditor::CreateNotificationForMissingComponents(const QString& message, const AZStd::vector<AZ::ComponentServiceType>& services)
+    AzQtComponents::CardNotification* ComponentEditor::CreateNotificationForMissingComponents(const QString& message, const AZStd::vector<AZ::ComponentServiceType>& services)
     {
         auto notification = CreateNotification(message);
-        auto featureButton = aznew QPushButton(tr("Add Required Component \342\226\276"), notification);
+        auto featureButton = notification->addButtonFeature(tr("Add Required Component \342\226\276"));
         connect(featureButton, &QPushButton::clicked, this, [this, featureButton, services]()
         {
             QRect screenRect(qApp->desktop()->availableGeometry(featureButton));
@@ -394,7 +380,6 @@ namespace AzToolsFramework
 
             emit OnRequestRequiredComponents(menuRect.topLeft(), menuRect.size(), services);
         });
-        notification->AddFeature(featureButton);
 
         return notification;
     }
@@ -499,9 +484,45 @@ namespace AzToolsFramework
         m_propertyEditor->QueueInvalidation(refreshLevel);
     }
 
+    void ComponentEditor::CancelQueuedRefresh()
+    {
+        m_propertyEditor->CancelQueuedRefresh();
+    }
+
+    void ComponentEditor::PreventRefresh(bool shouldPrevent)
+    {
+        m_propertyEditor->PreventRefresh(shouldPrevent);
+    }
+
+    void ComponentEditor::SetComponentOverridden(const bool overridden)
+    {
+        AZ_PROFILE_FUNCTION(AZ::Debug::ProfileCategory::AzToolsFramework);
+
+        const auto entityId = m_components[0]->GetEntityId();
+        AZ::SliceComponent::SliceInstanceAddress sliceInstanceAddress;
+        AzFramework::EntityIdContextQueryBus::EventResult(
+            sliceInstanceAddress, entityId, &AzFramework::EntityIdContextQueries::GetOwningSlice);
+
+        const auto wasOverridden = GetHeader()->titleLabel()->property("IsOverridden");
+        if (wasOverridden.toBool() != overridden)
+        {
+            auto sliceInstance = sliceInstanceAddress.GetInstance();
+            if (sliceInstance)
+            {
+                GetHeader()->setTitleProperty("IsOverridden", overridden);
+                GetHeader()->RefreshTitle();
+            }
+            else
+            {
+                GetHeader()->setTitleProperty("IsOverridden", false);
+                GetHeader()->RefreshTitle();
+            }
+        }
+    }
+
     void ComponentEditor::SetComponentType(const AZ::Component& componentInstance)
     {
-        const AZ::Uuid componentType = GetUnderlyingComponentType(componentInstance);
+        const AZ::Uuid& componentType = GetUnderlyingComponentType(componentInstance);
 
         auto classData = m_serializeContext->FindClassData(componentType);
         if (!classData || !classData->m_editData)
@@ -515,9 +536,9 @@ namespace AzToolsFramework
 
         m_propertyEditor->SetSavedStateKey(AZ::Crc32(componentType.ToString<AZStd::string>().data()));
 
-        m_header->SetTitle(GetFriendlyComponentName(&componentInstance).c_str());
+        GetHeader()->SetTitle(GetFriendlyComponentName(&componentInstance).c_str());
 
-        m_header->ClearHelpURL();
+        GetHeader()->ClearHelpURL();
 
         if (classData->m_editData)
         {
@@ -528,25 +549,29 @@ namespace AzToolsFramework
                     AZStd::string helpUrl;
                     AZ::AttributeReader nameReader(const_cast<AZ::Component*>(&componentInstance), nameAttribute);
                     nameReader.Read<AZStd::string>(helpUrl);
-                    m_header->SetHelpURL(helpUrl);
+                    GetHeader()->SetHelpURL(helpUrl);
                 }
             }
         }
 
         AZStd::string iconPath;
         EBUS_EVENT_RESULT(iconPath, AzToolsFramework::EditorRequests::Bus, GetComponentEditorIcon, componentType, const_cast<AZ::Component*>(&componentInstance));
-        m_header->SetIcon(QIcon(iconPath.c_str()));
+        GetHeader()->SetIcon(QIcon(iconPath.c_str()));
+
+        bool isExpanded = true;
+        AzToolsFramework::EditorEntityInfoRequestBus::EventResult(isExpanded, componentInstance.GetEntityId(), &AzToolsFramework::EditorEntityInfoRequestBus::Events::IsComponentExpanded, componentInstance.GetId());
+        GetHeader()->SetExpanded(isExpanded);
     }
 
     void ComponentEditor::InvalidateComponentType()
     {
         m_componentType = AZ::Uuid::CreateNull();
 
-        m_header->SetTitle(ComponentEditorConstants::kUnknownComponentTitle);
+        GetHeader()->SetTitle(ComponentEditorConstants::kUnknownComponentTitle);
 
         AZStd::string iconPath;
         EBUS_EVENT_RESULT(iconPath, AzToolsFramework::EditorRequests::Bus, GetDefaultComponentEditorIcon);
-        m_header->SetIcon(QIcon(iconPath.c_str()));
+        GetHeader()->SetIcon(QIcon(iconPath.c_str()));
     }
 
     QString ComponentEditor::BuildHeaderTooltip()
@@ -636,7 +661,11 @@ namespace AzToolsFramework
 
     void ComponentEditor::OnExpanderChanged(bool expanded)
     {
-        SetExpanded(expanded);
+        for (auto component : m_components)
+        {
+            EditorEntityInfoRequestBus::Event(component->GetEntityId(), &EditorEntityInfoRequestBus::Events::SetComponentExpanded, component->GetId(), expanded);
+        }
+
         emit OnExpansionContractionDone();
     }
 
@@ -655,37 +684,24 @@ namespace AzToolsFramework
     {
         //updating whether or not expansion is allowed and forcing collapse if it's not
         bool isExpandable = IsExpandable();
-        m_header->SetExpandable(isExpandable);
+        GetHeader()->SetExpandable(isExpandable);
         SetExpanded(IsExpanded() && isExpandable);
     }
 
     void ComponentEditor::SetExpanded(bool expanded)
     {
-        setUpdatesEnabled(false);
-
-        m_header->SetExpanded(expanded);
-
-        //toggle property editor visibility
-        m_propertyEditor->setVisible(expanded);
-
-        //toggle notification visibility
-        for (auto notification : m_notifications)
-        {
-            notification->setVisible(expanded);
-        }
-
-        setUpdatesEnabled(true);
+        AzQtComponents::Card::setExpanded(expanded);
     }
 
     bool ComponentEditor::IsExpanded() const
     {
-        return m_header->IsExpanded();
+        return GetHeader()->IsExpanded();
     }
 
     bool ComponentEditor::IsExpandable() const
     {
         //if there are any notifications, expansion must be allowed
-        if (!m_notifications.empty())
+        if (getNotificationCount())
         {
             return true;
         }
@@ -755,43 +771,44 @@ namespace AzToolsFramework
 
     void ComponentEditor::SetSelected(bool selected)
     {
-        if (m_selected != selected)
+        // do not allow cards to be selected when they are disabled
+        // (show the yellow outline)
+        if (!isEnabled())
         {
-            m_selected = selected;
-            setProperty("selected", m_selected);
-            style()->unpolish(this);
-            style()->polish(this);
+            return;
         }
+
+        AzQtComponents::Card::setSelected(selected);
     }
 
     bool ComponentEditor::IsSelected() const
     {
-        return m_selected;
+        return AzQtComponents::Card::isSelected();
     }
 
     void ComponentEditor::SetDragged(bool dragged)
     {
-        m_dragged = dragged;
+        AzQtComponents::Card::setDragging(dragged);
     }
 
     bool ComponentEditor::IsDragged() const
     {
-        return m_dragged;
+        return AzQtComponents::Card::isDragging();
     }
 
     void ComponentEditor::SetDropTarget(bool dropTarget)
     {
-        m_dropTarget = dropTarget;
+        AzQtComponents::Card::setDropTarget(dropTarget);
     }
 
     bool ComponentEditor::IsDropTarget() const
     {
-        return m_dropTarget;
+        return AzQtComponents::Card::isDropTarget();
     }
 
-    AzToolsFramework::ComponentEditorHeader* ComponentEditor::GetHeader()
+    ComponentEditorHeader* ComponentEditor::GetHeader() const
     {
-        return m_header;
+        return static_cast<ComponentEditorHeader*>(header());
     }
 
     AzToolsFramework::ReflectedPropertyEditor* ComponentEditor::GetPropertyEditor()
@@ -820,6 +837,44 @@ namespace AzToolsFramework
         }
 
         return false;
+    }
+
+    void ComponentEditor::EnteredComponentMode(const AZStd::vector<AZ::Uuid>& componentModeTypes)
+    {
+        // disable all component cards not matching the ComponentMode type
+        if (AZStd::find(
+            componentModeTypes.begin(),
+            componentModeTypes.end(), m_componentType) == componentModeTypes.end())
+        {
+            SetWidgetInteractEnabled(this, false);
+        }
+        else
+        {
+            if (!componentModeTypes.empty())
+            {
+                // only set the first item to be selected/highlighted
+                SetSelected(componentModeTypes.front() == m_componentType);
+            }
+        }
+    }
+
+    void ComponentEditor::LeftComponentMode(const AZStd::vector<AZ::Uuid>& componentModeTypes)
+    {
+        // restore all component cards to normal when leaving ComponentMode
+        if (AZStd::find(
+            componentModeTypes.begin(),
+            componentModeTypes.end(), m_componentType) == componentModeTypes.end())
+        {
+            SetWidgetInteractEnabled(this, true);
+        }
+
+        SetSelected(false);
+    }
+
+    void ComponentEditor::ActiveComponentModeChanged(const AZ::Uuid& componentType)
+    {
+        // refresh which Component Editor/Card looks selected in the Entity Outliner
+        SetSelected(componentType == m_componentType);
     }
 }
 

@@ -13,8 +13,9 @@
 #pragma once
 
 // include the required headers
+#include <AzCore/RTTI/TypeInfo.h>
+#include <AzCore/Math/Quaternion.h>
 #include "StandardHeaders.h"
-#include "Quaternion.h"
 #include "Algorithms.h"
 
 
@@ -50,20 +51,20 @@ namespace MCore
          * Please note that the uncompressed quaternion has to be normalized or a unit quaternion!
          * @param quat The normalized uncompressed quaternion.
          */
-        MCORE_INLINE TCompressedQuaternion(const Quaternion& quat);
+        MCORE_INLINE TCompressedQuaternion(const AZ::Quaternion& quat);
 
         /**
          * Update the compressed quaternion from an uncompressed one.
          * Please note that the uncompressed quaternion has to be normalized or a unit quaternion!
          * @param quat The normalized uncompressed quaternion.
          */
-        MCORE_INLINE void FromQuaternion(const Quaternion& quat);
+        MCORE_INLINE void FromQuaternion(const AZ::Quaternion& quat);
 
         /**
          * Uncompress the compressed quaternion into an uncompressed one.
          * @param output The output uncompressed quaternion to write the result in.
          */
-        MCORE_INLINE void UnCompress(Quaternion* output) const;
+        MCORE_INLINE void UnCompress(AZ::Quaternion* output) const;
 
         /**
          * Convert the compressed quaternion into an uncompressed one.
@@ -71,7 +72,7 @@ namespace MCore
          * the output quaternion.
          * @result The uncompressed version of this compressed quaternion.
          */
-        MCORE_INLINE Quaternion ToQuaternion() const;
+        MCORE_INLINE AZ::Quaternion ToQuaternion() const;
 
     public:
         StorageType mX, mY, mZ, mW; /**< The compressed/packed quaternion components values. */
@@ -90,3 +91,8 @@ namespace MCore
     typedef TCompressedQuaternion<int16>    Compressed16BitQuaternion;
     typedef TCompressedQuaternion<int8>     Compressed8BitQuaternion;
 } // namespace MCore
+
+namespace AZ
+{
+    AZ_TYPE_INFO_TEMPLATE(MCore::TCompressedQuaternion, "{31AD5C7F-A999-40C5-AC3A-E13D150036E3}", AZ_TYPE_INFO_CLASS);
+}

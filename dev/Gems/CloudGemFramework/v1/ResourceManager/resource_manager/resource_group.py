@@ -9,46 +9,47 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #
 # $Revision: #1 $
-
-from errors import HandledError
+from __future__ import absolute_import
 import os
-import util
 import json
 import copy
-from resource_manager_common import constant,service_interface
-
 import time
-import file_util
-
-import mappings
-import project
-import security
-import common_code
+import six
 
 from botocore.exceptions import NoCredentialsError
 
-from uploader import ProjectUploader, ResourceGroupUploader, Phase
+from resource_manager_common import constant
+from resource_manager_common import service_interface
+from .config import ResourceTemplateAggregator
+
+from . import util
+from . import file_util
+from . import security
+import resource_manager.deployment
+from .deployment_tags import DeploymentTag
+from .errors import HandledError
+from .uploader import ProjectUploader, ResourceGroupUploader
+
 
 class ResourceGroup(object):
 
-    def __init__(self, context, resource_group_name, directory_path, cpp_base_directory_path, cpp_aws_directory_path, gem = None):
-        '''Initialize an ResourceGroup object.'''
+    def __init__(self, context, resource_group_name, directory_path, cpp_base_directory_path, cpp_aws_directory_path):
+        """Initialize an ResourceGroup object."""
 
         self.__context = context
         self.__name = resource_group_name
         self.__directory_path = directory_path
         self.__cpp_aws_directory_path = cpp_aws_directory_path
         self.__cpp_base_directory_path = cpp_base_directory_path
-        self.__gem = gem
         self.__template_path = os.path.join(self.__directory_path, constant.RESOURCE_GROUP_TEMPLATE_FILENAME)
         self.__template = None
         self.__cli_plugin_code_path = os.path.join(self.__directory_path, 'cli-plugin-code')
         self.__cgp_code_path = os.path.join(self.__directory_path, constant.GEM_CGP_DIRECTORY_NAME)
         self.__base_settings_file_path = os.path.join(self.__directory_path, constant.RESOURCE_GROUP_SETTINGS)
-        self.__game_settings_file_path = os.path.join(self.__context.config.game_directory_path, 'AWS', 'resource-group', self.__name, constant.RESOURCE_GROUP_SETTINGS)
+        self.__game_project_extensions_path = os.path.join(self.__context.config.game_directory_path, 'AWS', 'resource-group', self.__name)
+        self.__game_settings_file_path = os.path.join(self.__game_project_extensions_path, constant.RESOURCE_GROUP_SETTINGS)
         self.__base_settings = None
         self.__game_settings = None
-        
 
     @property
     def name(self):
@@ -56,7 +57,15 @@ class ResourceGroup(object):
 
     @property
     def is_enabled(self):
-        return self.name not in self.__context.config.local_project_settings.get(constant.DISABLED_RESOURCE_GROUPS_KEY, []);
+        for name in self.dependencies:
+            if name in self.__context.config.local_project_settings.get(constant.DISABLED_RESOURCE_GROUPS_KEY, []):
+                return False
+
+        return self.name not in self.__context.config.local_project_settings.get(constant.DISABLED_RESOURCE_GROUPS_KEY, [])
+
+    @property
+    def dependencies(self):
+        return self.get_base_settings().get('GemSettings', {}).get(self.name, {}).get('DependsOn', [])
 
     def enable(self):
         if not self.is_enabled:
@@ -85,39 +94,22 @@ class ResourceGroup(object):
         return self.__cpp_base_directory_path
 
     @property
-    def is_gem(self):
-        return self.__gem is not None
-
-    @property
-    def gem(self):
-        return self.__gem
-
-    def verify_gem_enabled(self):
-        if self.gem:
-            if not self.gem.is_defined:
-                raise HandledError('The resource group {resource_group_name} relies on a gem from {gem_path} which does not exist.'.format(
-                    resource_group_name = self.name, 
-                    gem_path = self.gem.root_directory_path))
-            if not self.gem.is_enabled:
-                raise HandledError('The resource group {resource_group_name} relies on gem {gem_name} version {gem_version} (from {gem_path}) which is not enabled for the project. Please enable the gem {gem_name} in the project configurator.'.format(
-                    resource_group_name = self.name, 
-                    gem_name = self.gem.name,
-                    gem_version = self.gem.version,
-                    gem_path = self.gem.root_directory_path))
-
-    @property
     def template_path(self):
         return self.__template_path
 
     @property
     def template(self):
         if self.__template is None:
-            self.__template = util.load_json(self.template_path, optional=False)
+            self.__template = ResourceTemplateAggregator(self.__context, self.__directory_path, self.__game_project_extensions_path).effective_template
         return self.__template
+
+    def effective_template(self, deployment_name):
+        tags = DeploymentTag(deployment_name, self.__context)
+        return tags.apply_overrides(self)
 
     def get_inter_gem_dependencies(self):
         dependencies = []
-        for resource_name, definition in self.template.get("Resources", {}).iteritems():
+        for resource_name, definition in six.iteritems(self.template.get("Resources", {})):
             if not definition["Type"] == "Custom::LambdaConfiguration":
                 continue
             services = definition.get("Properties", {}).get("Services", [])
@@ -126,15 +118,15 @@ class ResourceGroup(object):
                 dependencies.append({
                     "gem": target_gem_name,
                     "id": service["InterfaceId"],
-                    "function":  definition.get("Properties", {}).get("FunctionName", "")
+                    "function": definition.get("Properties", {}).get("FunctionName", "")
                 })
         return dependencies
 
     def get_template_with_parameters(self, deployment_name):
 
-        resource_group_template = self.template
+        resource_group_template = self.effective_template(deployment_name)
 
-        # override default parameter values if a deployment is speciified
+        # override default parameter values if a deployment is specified
 
         if deployment_name:
 
@@ -148,21 +140,41 @@ class ResourceGroup(object):
             if 'Parameters' in resource_group_template:
                 resource_group_template_parameters = resource_group_template['Parameters']
 
-                for paramName, paramValue in resource_group_template_parameters.iteritems():
-                    newParamValue = self.__find_setting(resource_group_parameters, paramName)
+                for paramName, paramValue in six.iteritems(resource_group_template_parameters):
+                    new_param_value = self.__find_setting(resource_group_parameters, paramName)
 
-                    if newParamValue == None:
-                        newParamValue = self.__find_setting(resource_group_default_parameters, paramName)
+                    if new_param_value is None:
+                        new_param_value = self.__find_setting(resource_group_default_parameters, paramName)
 
-                    if newParamValue != None:
-                        resource_group_template_parameters[paramName]['Default'] = newParamValue
+                    if new_param_value is not None:
+                        resource_group_template_parameters[paramName]['Default'] = new_param_value
 
         return resource_group_template
 
+    def record_lambda_language_usage(self, context):
+        lang_count = {}
+        for resource_name, resource_description in six.iteritems(self.template["Resources"]):
+            if resource_description.get("Type", "") != "Custom::LambdaConfiguration":
+                continue
+            runtime = resource_description["Properties"]["Runtime"]
+            lang_count[runtime] = lang_count.get(runtime, 0) + 1
+        if not lang_count:
+            return
+
+        metric_id = context.metrics.create_new_event_id(
+            "ResourceManagement_LambdaLanguage")
+
+        if metric_id == -1:
+            return
+
+        for runtime, count in six.iteritems(lang_count):
+            context.metrics.add_metric_to_event_by_id(
+                metric_id, "{}".format(runtime), count)
+        context.metrics.submit_event_by_id(metric_id)
 
     def __find_setting(self, dictionary, *levels):
 
-        if dictionary == None:
+        if dictionary is None:
             return None
 
         current = dictionary
@@ -188,7 +200,7 @@ class ResourceGroup(object):
 
     def update_cgp_code(self, resource_group_uploader):
 
-        content_path = os.path.join(self.cgp_code_path,  "dist")
+        content_path = os.path.join(self.cgp_code_path, "dist")
         if not os.path.isdir(content_path):
             return
 
@@ -202,18 +214,18 @@ class ResourceGroup(object):
     def game_settings_file_path(self):
         return self.__game_settings_file_path
 
-    def get_stack_id(self, deployment_name, optional = False):
-        return self.__context.config.get_resource_group_stack_id(deployment_name, self.name, optional = optional)
+    def get_stack_id(self, deployment_name, optional=False):
+        return self.__context.config.get_resource_group_stack_id(deployment_name, self.name, optional=optional)
 
-    def get_stack_parameters(self, deployment_name, uploader = None):
+    def get_stack_parameters(self, deployment_name, uploader=None):
 
         if deployment_name:
-            deployment_stack_arn = self.__context.config.get_deployment_stack_id(deployment_name, optional = True)
+            deployment_stack_arn = self.__context.config.get_deployment_stack_id(deployment_name, optional=True)
         else:
             deployment_stack_arn = None
 
         return {
-            'ConfigurationBucket' :  uploader.bucket if uploader else None,
+            'ConfigurationBucket': uploader.bucket if uploader else None,
             'ConfigurationKey': uploader.key if uploader else None,
             'ProjectResourceHandler': self.__context.config.project_resource_handler_id if self.__context.config.project_initialized else None,
             'DeploymentStackArn': deployment_stack_arn,
@@ -224,47 +236,47 @@ class ResourceGroup(object):
     def get_pending_resource_status(self, deployment_name):
 
         if deployment_name:
-            resource_group_stack_id = self.get_stack_id(deployment_name, optional = True)
+            resource_group_stack_id = self.get_stack_id(deployment_name, optional=True)
         else:
             resource_group_stack_id = None
 
         template = self.get_template_with_parameters(deployment_name)
 
-        parameters = self.get_stack_parameters(deployment_name, uploader = None)
+        parameters = self.get_stack_parameters(deployment_name)
 
         lambda_function_content_paths = []
 
         resources = self.template["Resources"]
-        for name, description in  resources.iteritems():
+        for name, description in six.iteritems(resources):
 
-            if not description["Type"] == "AWS::Lambda::Function":
+            if not description["Type"] == "Custom::LambdaConfiguration":
                 continue
 
-            code_path, imported_paths, multi_imports = ResourceGroupUploader.get_lambda_function_code_paths(self.__context, self.name, name)
-
+            function_runtime = description["Properties"]["Runtime"]
+            code_path, imported_paths, multi_imports = ResourceGroupUploader.get_lambda_function_code_paths(
+                self.__context, self.name, description["Properties"]["FunctionName"], function_runtime)
             lambda_function_content_paths.append(code_path)
             lambda_function_content_paths.extend(imported_paths)
 
         # TODO: need to support swagger.json IN the lambda directory.
-        service_api_content_paths = [ os.path.join(self.directory_path, 'swagger.json') ]
+        service_api_content_paths = [os.path.join(self.directory_path, 'swagger.json')]
 
         # TODO: get_pending_resource_status's new_content_paths parameter needs to support
         # a per-resource mapping instead of an per-type mapping. As is, a change in any lambda
         # directory makes all lambdas look like they need to be updated.
         return self.__context.stack.get_pending_resource_status(
-            resource_group_stack_id, 
-            new_template = template,
-            new_parameter_values = parameters,
-            new_content_paths = {
+            resource_group_stack_id,
+            new_template=template,
+            new_parameter_values=parameters,
+            new_content_paths={
                 'AWS::Lambda::Function': lambda_function_content_paths,
                 'Custom::ServiceApi': service_api_content_paths
             },
-            is_enabled = self.is_enabled
+            is_enabled=self.is_enabled
         )
 
-
     def add_output(self, logical_id, description, value, force=False):
-        '''Adds an output to a resource group's resource-template.json file.
+        """Adds an output to a resource group's resource-template.json file.
 
         Args:
 
@@ -282,7 +294,7 @@ class ResourceGroup(object):
         Returns:
 
             True if a change was made.
-        '''
+        """
         changed = False
 
         outputs = util.dict_get_or_add(self.template, 'Outputs', {})
@@ -298,9 +310,8 @@ class ResourceGroup(object):
 
         return changed
 
-
     def remove_output(self, logical_id):
-        '''Removes an output to a resource group's resource-template.json file.
+        """Removes an output to a resource group's resource-template.json file.
 
         Args:
 
@@ -309,7 +320,7 @@ class ResourceGroup(object):
         Returns:
 
             True if a change was made.
-        '''
+        """
         changed = False
 
         outputs = util.dict_get_or_add(self.template, 'Outputs', {})
@@ -322,10 +333,8 @@ class ResourceGroup(object):
 
         return changed
 
-
-
     def add_resources(self, resource_definitions, force=False, dependencies=None):
-        '''Adds resource definitions to a resource group's resource-template.json file.
+        """Adds resource definitions to a resource group's resource-template.json file.
 
         Args:
 
@@ -333,14 +342,14 @@ class ResourceGroup(object):
 
             force (named): indicates if resource and parameter definitions replace existing definitions. Default is False.
 
-            dependencies (named): a dictionary that provides updates to the DepondsOn property of existing resources:
+            dependencies (named): a dictionary that provides updates to the DependsOn property of existing resources:
 
               {
                   '<dependent-resource-name>': [ '<dependency-resource-name>', ... ],
                   ...
               }
 
-            resutls in:
+            results in:
 
                 "<dependent-resource-name>": {
                    "DependsOn": [ "<dependency-resource-name>" ]
@@ -350,7 +359,7 @@ class ResourceGroup(object):
         Returns:
 
             True if any definitions were added.
-        '''
+        """
 
         changed = False
 
@@ -358,7 +367,7 @@ class ResourceGroup(object):
             dependencies = {}
 
         resources = util.dict_get_or_add(self.template, 'Resources', {})
-        for resource_name, resource_definition in resource_definitions.iteritems():
+        for resource_name, resource_definition in six.iteritems(resource_definitions):
             if resource_name in resources and not force:
                 self.__context.view.resource_exists(self.template_path, resource_name)
             else:
@@ -371,7 +380,7 @@ class ResourceGroup(object):
 
         if dependencies:
 
-            for dependent_name, dependency_list in dependencies.iteritems():
+            for dependent_name, dependency_list in six.iteritems(dependencies):
 
                 if dependent_name == 'AccessControl':
                     dependent_definition = resources.setdefault('AccessControl', security.DEFAULT_ACCESS_CONTROL_RESOURCE_DEFINITION)
@@ -382,11 +391,11 @@ class ResourceGroup(object):
 
             dependencies = dependent_definition.setdefault('DependsOn', [])
             if not isinstance(dependencies, type([])):
-                dependencies = [ dependencies ]
+                dependencies = [dependencies]
                 dependent_definition['DependsOn'] = dependencies
 
             if not isinstance(dependency_list, type([])):
-                dependency_list = [ dependency_list ]
+                dependency_list = [dependency_list]
 
             dependencies.extend(set(dependency_list))
 
@@ -431,12 +440,10 @@ class ResourceGroup(object):
                         resource_definition['DependsOn'] = []
                         changed = True
 
-
         return changed
 
-
     def add_parameters(self, parameter_definitions, force=False):
-        '''Adds resource and parameter definitions to a resource group's resource-template.json file.
+        """Adds resource and parameter definitions to a resource group's resource-template.json file.
 
         Args:
 
@@ -447,12 +454,12 @@ class ResourceGroup(object):
         Returns:
 
             True if any definitions were added.
-        '''
+        """
 
         changed = False
 
         parameters = util.dict_get_or_add(self.template, 'Parameters', {})
-        for parameter_name, parameter_definition in parameter_definitions.iteritems():
+        for parameter_name, parameter_definition in six.iteritems(parameter_definitions):
             if parameter_name in parameters and not force:
                 self.__context.view.parameter_exists(self.template_path, parameter_name)
             else:
@@ -462,9 +469,8 @@ class ResourceGroup(object):
 
         return changed
 
-
     def remove_parameters(self, parameter_names):
-        '''Removes resource and parameter definitions from a resource group's resource-template.json file.
+        """Removes resource and parameter definitions from a resource group's resource-template.json file.
 
         Args:
 
@@ -473,24 +479,23 @@ class ResourceGroup(object):
         Returns:
 
             True if any definitions were removed.
-        '''
+        """
 
         changed = False
 
         parameters = util.dict_get_or_add(self.template, 'Parameters', {})
         for parameter_name in parameter_names:
             if parameter_name not in parameters:
-                self.__context.view.parameter_not_found(self.template_path, parameter_name)
+                self.__context.view.parameter_not_found_in_template(self.template_path, parameter_name)
             else:
-                self.__context.view.removing_parameter(self.template_path, parameter_name)
+                self.__context.view.parameter_not_found_in_template(self.template_path, parameter_name)
                 del parameters[parameter_name]
                 changed = True
 
         return changed
 
-
-    def copy_directory(self, source_path, relative_destination_path = '.', force=False):
-        '''Adds a copy of the contents of a directory to a resource group. Subdirectories are recursively merged.
+    def copy_directory(self, source_path, relative_destination_path='.', force=False):
+        """Adds a copy of the contents of a directory to a resource group. Subdirectories are recursively merged.
 
         Arguments:
 
@@ -503,34 +508,27 @@ class ResourceGroup(object):
             force (named): if True, overwrite destination files that already exists.
             The default is False.
 
-        '''
+        """
 
         destination_path = os.path.abspath(os.path.join(self.directory_path, relative_destination_path))
 
-        file_util.copy_directory_content(self.__context, destination_path, source_path, overwrite_existing = force)
-
+        file_util.copy_directory_content(self.__context, destination_path, source_path, overwrite_existing=force)
 
     def copy_file(self, source_path, relative_destination_path, force=False):
-        '''Adds a copy of a file to a resource group.
+        """Adds a copy of a file to a resource group.
 
-        Arguments:
-
-            source_path - path and name of the file to copy.
-
-            relative_destination_path - path and name of the destination file, relative to the
+        :param source_path: path and name of the file to copy.
+        :param relative_destination_path: path and name of the destination file, relative to the
             resource group directory.
-
-            force (named) - if True, existing files will be overwitten. Default is False.
-
-        '''
+        :param force: (named) - if True, existing files will be overwritten. Default is False.
+        """
 
         destination_path = os.path.abspath(os.path.join(self.directory_path, relative_destination_path))
 
-        file_util.copy_file(self.__context, destination_path, source_path, everwrite_existing = force)
-
+        file_util.copy_file(self.__context, destination_path, source_path, overwrite_existing=force)
 
     def create_file(self, relative_destination_path, initial_content, force=False):
-        '''Creates a file in a resource group.
+        """Creates a file in a resource group.
 
         Args:
 
@@ -539,112 +537,96 @@ class ResourceGroup(object):
 
             initial_content: The file's initial content.
 
-            force (named): Overwite existing files. Default is False.
+            force (named): Overwrite existing files. Default is False.
 
         Returns:
 
             True if the file was created.
-        '''
+        """
 
         destination_path = os.path.join(self.directory_path, relative_destination_path)
 
-        return file_util.create_ignore_filter_function(self.__context, destination_path, initial_content, overwrite_existing = force)
+        return file_util.create_ignore_filter_function(self.__context, destination_path, initial_content)
 
-
-    def get_editor_setting(self, setting_name, preference = 'game_or_base'):
-
+    def get_base_settings(self):
         if self.__base_settings is None:
             self.__base_settings = self.__context.config.load_json(self.__base_settings_file_path)
+        return self.__base_settings
 
+    def add_aggregate_settings(self, context):
+        if context.config.aggregate_settings is not None:
+            settings_data = self.get_base_settings()
+
+            if settings_data:
+                context.config.aggregate_settings[self.name] = settings_data
+
+    def get_game_settings(self):
         if self.__game_settings is None:
             self.__game_settings = self.__context.config.load_json(self.__game_settings_file_path)
+        return self.__game_settings
+
+    def get_editor_setting(self, setting_name, preference='game_or_base'):
+
+        base_settings = self.get_base_settings()
+        game_settings = self.get_game_settings()
 
         setting = None
         if preference == 'game_or_base':
-            setting = self.__game_settings.get(setting_name)
+            setting = game_settings.get(setting_name)
             if setting is None:
-                setting = self.__base_settings.get(setting_name)
+                setting = base_settings.get(setting_name)
         elif preference == 'base_or_game':
-            setting = self.__base_settings.get(setting_name)
+            setting = base_settings.get(setting_name)
             if setting is None:
-                setting = self.__game_settings.get(setting_name)
+                setting = game_settings.get(setting_name)
         elif preference == 'base':
-            setting = self.__base_settings.get(setting_name)
+            setting = base_settings.get(setting_name)
         elif preference == 'game':
-            setting = self.__game_settings.get(setting_name)
+            setting = game_settings.get(setting_name)
 
         return setting
 
 
 def enable(context, args):
-
     group = context.resource_groups.get(args.resource_group)
     if group.is_enabled:
         raise HandledError('The {} resource group is not disabled.'.format(group.name))
 
-    util.validate_writable_list(context, [ context.config.local_project_settings.path ])
+    util.validate_writable_list(context, [context.config.local_project_settings.path])
+
+    for name in group.dependencies:
+        dependency = context.resource_groups.get(name, True)
+        if dependency:
+            dependency.enable()
 
     group.enable()
     context.view.resource_group_enabled(group.name)
 
 
 def disable(context, args):
+    current_group = context.resource_groups.get(args.resource_group)
+    if not current_group.is_enabled:
+        raise HandledError('The {} resource group is not enabled.'.format(current_group.name))
 
-    group = context.resource_groups.get(args.resource_group)
-    if not group.is_enabled:
-        raise HandledError('The {} resource group is not enabled.'.format(group.name))
+    for name, group in context.resource_groups:
+        if group.is_enabled and args.resource_group in group.dependencies:
+            raise HandledError('The {} resource group cannot be disabled since it is a dependency of resource group: {}.'.format(args.resource_group, name))
 
-    util.validate_writable_list(context, [ context.config.local_project_settings.path ])
+    util.validate_writable_list(context, [context.config.local_project_settings.path])
 
-    group.disable()
-    context.view.resource_group_disabled(group.name)
-
-
-def add(context, args):
-
-    # Old functionality, which created project local resource group directories, was deprcated 
-    # in Lumberyard 1.11 (CGF 1.1.1). The new "gem create" or "resource-group enable" commands 
-    # should be used instead.
-    #
-    # This command approximates the old behavior by either executing gem create or enabling
-    # a resource group if it exists but was disabled.
-
-    if not args.is_gui:
-        context.view.using_deprecated_command('resource-group add', ['cloud-gem create', 'cloud-gem enable'])
-
-    if args.resource_group in context.config.local_project_settings.get(constant.DISABLED_RESOURCE_GROUPS_KEY, []):
-        enable(context, util.Args(resource_group = args.resource_group))
-    else:
-        context.gem.create_gem(
-            gem_name = args.resource_group,
-            initial_content = 'api-lambda-dynamodb' if args.include_example_resources else 'no-resources',
-            enable = True,
-            asset_only = True)
-
-
-def remove(context, args):
-
-    # Deprecated in Lumberyard 1.11 (CGF 1.1.1).
-
-    if not args.is_gui:
-        context.view.using_deprecated_command('resource-group remove', 'cloud-gem disable')
-
-    group = context.resource_groups.get(args.resource_group)
-    if group.is_gem:
-        context.gem.disable_gem(gem_name = args.resource_group)
-    else:
-        disable(context, args)
+    current_group.disable()
+    context.view.resource_group_disabled(current_group.name)
 
 
 def update_stack(context, args):
-
     deployment_name = args.deployment
     resource_group_name = args.resource_group
 
     # Use default deployment if necessary
     if deployment_name is None:
         if context.config.default_deployment is None:
-            raise HandledError('No default deployment has been set. Provide the --deployment parameter or use the default-deployment command to set a default deployment.')
+            raise HandledError(
+                'No default deployment has been set. Provide the --deployment parameter or use the default-deployment command to set a default deployment.')
         deployment_name = context.config.default_deployment
 
     # Get needed data, verifies the resource group stack exists
@@ -668,49 +650,50 @@ def update_stack(context, args):
     deployment_uploader = project_uploader.get_deployment_uploader(deployment_name)
 
     resource_group_uploader, resource_group_template_url = before_update(
-        deployment_uploader, 
+        deployment_uploader,
         resource_group_name
     )
 
     parameters = resource_group.get_stack_parameters(
-        deployment_name, 
-        uploader = resource_group_uploader
+        deployment_name,
+        uploader=resource_group_uploader
     )
 
     # wait a bit for S3 to help insure that templates can be read by cloud formation
     time.sleep(constant.STACK_UPDATE_DELAY_TIME)
 
     context.stack.update(
-        resource_group_stack_id, 
-        resource_group_template_url, 
-        parameters = parameters, 
-        pending_resource_status = pending_resource_status,
-        capabilities = capabilities
+        resource_group_stack_id,
+        resource_group_template_url,
+        parameters=parameters,
+        pending_resource_status=pending_resource_status,
+        capabilities=capabilities
+
     )
 
     after_update(deployment_uploader, resource_group_name)
 
     # Deprecated in 1.9 - TODO remove
-    context.hooks.call_module_handlers('cli-plugin-code/resource_group_hooks.py', 'on_post_update', 
-        args=[deployment_name, resource_group_name], 
-        deprecated=True
-    )
+    context.hooks.call_module_handlers('cli-plugin-code/resource_group_hooks.py', 'on_post_update',
+                                       args=[deployment_name, resource_group_name],
+                                       deprecated=True
+                                       )
 
 
 def create_stack(context, args):
-
     # Does a "safe" create of a resource group stack. The existing deployment
     # template is modified to add the stack and config resources and used
     # to update the deployment stack. This prevents unexpected changes to other
     # resource groups as a side effect of the deployment update.
 
     resource_group = context.resource_groups.get(args.resource_group)
+
     pending_resource_status = resource_group.get_pending_resource_status(args.deployment)
 
     # Is it ok to do this?
 
     capabilities = context.stack.confirm_stack_operation(
-        None, # stack id
+        None,  # stack id
         'deployment {} resource group {}'.format(args.deployment, args.resource_group),
         args,
         pending_resource_status
@@ -722,7 +705,7 @@ def create_stack(context, args):
     deployment_uploader = project_uploader.get_deployment_uploader(args.deployment)
 
     before_update(
-        deployment_uploader, 
+        deployment_uploader,
         args.resource_group
     )
 
@@ -734,7 +717,12 @@ def create_stack(context, args):
 
     deployment_resources = deployment_template.get('Resources', {})
 
-    effective_deployment_resources = context.config.deployment_template_aggregator.effective_template.get('Resources',{})
+    effective_deployment_resources = context.config.deployment_template_aggregator.effective_template.get('Resources', {})
+
+    if constant.CROSS_GEM_RESOLVER_KEY in effective_deployment_resources and args.resource_group in \
+            effective_deployment_resources[constant.CROSS_GEM_RESOLVER_KEY]['DependsOn']:
+        raise HandledError(
+            'Adding resource group {} will require changes to cross-gem dependencies. Run lmbr_aws deployment update to add it.'.format(args.resource_group))
 
     resource_group_stack_resource = deployment_resources.get(args.resource_group, None)
     if resource_group_stack_resource is None:
@@ -748,6 +736,9 @@ def create_stack(context, args):
         resource_group_config_resource.get('Properties', {})['ConfigurationKey'] = deployment_uploader.key
         deployment_resources[resource_group_config_name] = resource_group_config_resource
 
+    add_deployment_capabilities(context, args, deployment_stack_id,
+                                deployment_template, deployment_parameters, capabilities)
+
     if 'EmptyDeployment' in deployment_resources:
         del deployment_resources['EmptyDeployment']
 
@@ -759,11 +750,11 @@ def create_stack(context, args):
 
     try:
         context.stack.update(
-            deployment_stack_id, 
-            deployment_template_url, 
+            deployment_stack_id,
+            deployment_template_url,
             deployment_parameters,
-            pending_resource_status = __nest_pending_resource_status(args.deployment, pending_resource_status),
-            capabilities = capabilities
+            pending_resource_status=__nest_pending_resource_status(args.deployment, pending_resource_status),
+            capabilities=capabilities
         )
     except:
         context.config.force_gui_refresh()
@@ -776,25 +767,34 @@ def create_stack(context, args):
     after_update(deployment_uploader, args.resource_group)
 
     # Deprecated in 1.9 - TODO remove
-    context.hooks.call_module_handlers('cli-plugin-code/resource_group_hooks.py', 'on_post_update', 
-        args=[args.deployment, args.resource_group], 
-        deprecated=True
-    )
+    context.hooks.call_module_handlers('cli-plugin-code/resource_group_hooks.py', 'on_post_update',
+                                       args=[args.deployment, args.resource_group],
+                                       deprecated=True
+                                       )
 
+
+def add_deployment_capabilities(context, args, deployment_stack_id, template, params, capabilities):
+    deployment_resource_status = resource_manager.deployment.get_pending_deployment_resource_status(
+        context, args.deployment, deployment_stack_id, template, params)
+    deployment_capabilities = context.stack.get_stack_operation_capabilities(
+        deployment_resource_status)
+
+    for capability in deployment_capabilities:
+        if capability not in capabilities:
+            capabilities.append(capability)
 
 
 def delete_stack(context, args):
-
     resource_group_stack_id = context.config.get_resource_group_stack_id(args.deployment, args.resource_group)
     pending_resource_status = context.stack.get_pending_resource_status(
-        resource_group_stack_id, 
-        new_template = {}
+        resource_group_stack_id,
+        new_template={}
     )
 
     # Is it ok to do this?
 
     capabilities = context.stack.confirm_stack_operation(
-        None, # stack id
+        None,  # stack id
         'deployment {} resource group {}'.format(args.deployment, args.resource_group),
         args,
         pending_resource_status
@@ -824,16 +824,24 @@ def delete_stack(context, args):
     if resource_group_config_resource is not None:
         del deployment_resources[args.resource_group + 'Configuration']
 
+    if constant.CROSS_GEM_RESOLVER_KEY in deployment_resources and args.resource_group in deployment_resources[constant.CROSS_GEM_RESOLVER_KEY]['DependsOn']:
+        raise HandledError('The resource group {} has cross-gem dependencies. Run lmbr_aws deployment update to remove it.'.format(args.resource_group))
+
     if resource_group_stack_resource is None and resource_group_config_resource is None:
-        raise HandledError('Definitions for {} resource group related resources where not found in the current {} deployment template.'.format(args.resource_group, args.deployment))
+        raise HandledError(
+            'Definitions for {} resource group related resources where not found in the current {} deployment template.'.format(args.resource_group,
+                                                                                                                                args.deployment))
 
     if not deployment_resources:
         deployment_resources['EmptyDeployment'] = {
             "Type": "Custom::EmptyDeployment",
             "Properties": {
-                "ServiceToken": { "Ref": "ProjectResourceHandler" }
+                "ServiceToken": {"Ref": "ProjectResourceHandler"}
             }
         }
+
+    add_deployment_capabilities(context, args, deployment_stack_id,
+                                deployment_template, deployment_parameters, capabilities)
 
     deployment_template_url = deployment_uploader.upload_content(constant.DEPLOYMENT_TEMPLATE_FILENAME, json.dumps(deployment_template),
                                                                  'deployment template without resource group definitions')
@@ -856,11 +864,11 @@ def delete_stack(context, args):
 
     try:
         context.stack.update(
-            deployment_stack_id, 
-            deployment_template_url, 
-            deployment_parameters, 
-            pending_resource_status = pending_resource_status,
-            capabilities = capabilities
+            deployment_stack_id,
+            deployment_template_url,
+            deployment_parameters,
+            pending_resource_status=pending_resource_status,
+            capabilities=capabilities
         )
     except:
         context.config.force_gui_refresh()
@@ -872,11 +880,10 @@ def delete_stack(context, args):
 
 
 def __nest_pending_resource_status(deployment_name, pending_resource_status):
-    return { deployment_name + '.' + k:v for k,v in pending_resource_status.iteritems() }
+    return {deployment_name + '.' + k: v for k, v in six.iteritems(pending_resource_status)}
 
 
 def before_update(deployment_uploader, resource_group_name):
-
     context = deployment_uploader.context
     deployment_name = deployment_uploader.deployment_name
 
@@ -886,6 +893,8 @@ def before_update(deployment_uploader, resource_group_name):
 
     context.view.processing_template('{} resource group'.format(resource_group_name))
 
+    group.add_aggregate_settings(context)
+
     resource_group_template_with_parameters = group.get_template_with_parameters(deployment_name)
 
     resource_group_template_url = resource_group_uploader.upload_content(
@@ -893,32 +902,32 @@ def before_update(deployment_uploader, resource_group_name):
         json.dumps(resource_group_template_with_parameters, indent=4, sort_keys=True),
         'processed resource group template')
 
-    __zip_individual_lambda_code_folders(group, resource_group_uploader)
+    __zip_individual_lambda_code_folders(
+        group, resource_group_uploader, deployment_name)
 
     # Deprecated in 1.9. TODO: remove.
     resource_group_uploader.execute_uploader_pre_hooks()
 
     context.hooks.call_single_module_handler('resource-manager-code/update.py', 'before_this_resource_group_updated', resource_group_name,
-        kwargs = {
-            'deployment_name': deployment_name, 
-            'resource_group_name': resource_group_name, 
-            'resource_group_uploader': resource_group_uploader
-        }
-    )
+                                             kwargs={
+                                                 'deployment_name': deployment_name,
+                                                 'resource_group_name': resource_group_name,
+                                                 'resource_group_uploader': resource_group_uploader
+                                             }
+                                             )
 
-    context.hooks.call_module_handlers('resource-manager-code/update.py', 'before_resource_group_updated', 
-        kwargs = {
-            'deployment_name': deployment_name, 
-            'resource_group_name': resource_group_name, 
-            'resource_group_uploader': resource_group_uploader
-        }
-    )
+    context.hooks.call_module_handlers('resource-manager-code/update.py', 'before_resource_group_updated',
+                                       kwargs={
+                                           'deployment_name': deployment_name,
+                                           'resource_group_name': resource_group_name,
+                                           'resource_group_uploader': resource_group_uploader
+                                       }
+                                       )
 
-    return (resource_group_uploader, resource_group_template_url)
+    return resource_group_uploader, resource_group_template_url
 
 
 def after_update(deployment_uploader, resource_group_name):
-
     context = deployment_uploader.context
     deployment_name = deployment_uploader.deployment_name
     group = context.resource_groups.get(resource_group_name)
@@ -929,48 +938,45 @@ def after_update(deployment_uploader, resource_group_name):
     resource_group_uploader.execute_uploader_post_hooks()
 
     context.hooks.call_single_module_handler('resource-manager-code/update.py', 'after_this_resource_group_updated', resource_group_name,
-        kwargs = {
-            'deployment_name': deployment_name, 
-            'resource_group_name': resource_group_name, 
-            'resource_group_uploader': resource_group_uploader
-        }
-    )
+                                             kwargs={
+                                                 'deployment_name': deployment_name,
+                                                 'resource_group_name': resource_group_name,
+                                                 'resource_group_uploader': resource_group_uploader
+                                             }
+                                             )
 
-    context.hooks.call_module_handlers('resource-manager-code/update.py', 'after_resource_group_updated', 
-        kwargs = {
-            'deployment_name': deployment_name, 
-            'resource_group_name': resource_group_name, 
-            'resource_group_uploader': resource_group_uploader
-        }
-    )
+    context.hooks.call_module_handlers('resource-manager-code/update.py', 'after_resource_group_updated',
+                                       kwargs={
+                                           'deployment_name': deployment_name,
+                                           'resource_group_name': resource_group_name,
+                                           'resource_group_uploader': resource_group_uploader
+                                       }
+                                       )
 
 
-def __zip_individual_lambda_code_folders(group, uploader):
-
-    resources = group.template["Resources"]
-    for name, description in  resources.iteritems():
+def __zip_individual_lambda_code_folders(group, uploader, deployment_name):
+    resources = group.effective_template(deployment_name)["Resources"]
+    for name, description in six.iteritems(resources):
         if not description["Type"] == "Custom::LambdaConfiguration":
             continue
-
-        uploader.zip_and_upload_lambda_function_code(description["Properties"]["FunctionName"])
+        uploader.upload_lambda_function_code(
+            description["Properties"]["FunctionName"], description["Properties"]["Runtime"])
 
 
 def list(context, args):
-
     resource_groups = []
 
     for group in context.resource_groups.values():
-        
         resource_group_description = {
-                'Name': group.name,
-                'ResourceGroupTemplateFilePath': group.template_path,
-                'CliPluginCodeDirectoryPath': group.cli_plugin_code_path,
-                'CGPResourceCodePath': group.cgp_code_path,
-                'BaseSettingsFilePath': group.base_settings_file_path,
-                'GameSettingsFilePath': group.game_settings_file_path,
-                'Enabled': group.is_enabled
-            }
-        resource_group_description['LambdaFunctionCodeDirectoryPaths'] = __gather_additional_code_directories(context, group)
+            'Name': group.name,
+            'ResourceGroupTemplateFilePath': group.template_path,
+            'CliPluginCodeDirectoryPath': group.cli_plugin_code_path,
+            'CGPResourceCodePath': group.cgp_code_path,
+            'BaseSettingsFilePath': group.base_settings_file_path,
+            'GameSettingsFilePath': group.game_settings_file_path,
+            'Enabled': group.is_enabled,
+            'LambdaFunctionCodeDirectoryPaths': __gather_additional_code_directories(context, group)
+        }
 
         resource_groups.append(resource_group_description)
 
@@ -1010,9 +1016,8 @@ def list(context, args):
                             })
                 resource_group.update(resource)
 
-
             # find stack resources in deployment stack that don't exist in the template
-            for name, resource in resources.iteritems():
+            for name, resource in six.iteritems(resources):
                 if resource['ResourceType'] == 'AWS::CloudFormation::Stack':
                     found = False
                     for resource_group in resource_groups:
@@ -1025,7 +1030,7 @@ def list(context, args):
                             {
                                 'Name': name,
                                 'PendingAction': context.stack.PENDING_DELETE,
-                                'PendingReason': context.stack.PENDING_DELETE_REASON 
+                                'PendingReason': context.stack.PENDING_DELETE_REASON
                             }
                         )
                         resource_groups.append(resource)
@@ -1048,32 +1053,33 @@ def list(context, args):
 
     context.view.resource_group_list(deployment_name, resource_groups)
 
+
 def __gather_additional_code_directories(context, group):
-    
     additional_dirs = []
 
     # do any individual folders exist?
-    for name, description in group.template.get("Resources", {}).iteritems():
+    for name, description in six.iteritems(group.template.get("Resources", {})):
 
-        if description == None: # This can happen with a malformed template
+        if description is None:  # This can happen with a malformed template
             continue
 
-        if not description.get("Type", "") == "AWS::Lambda::Function":
+        if not description.get("Type", "") == "Custom::LambdaConfiguration":
             continue
-        
-        code_path = ResourceGroupUploader.get_lambda_function_code_path(context, group.name, name)
+
+        code_path = ResourceGroupUploader.get_lambda_function_code_path(
+            context, group.name, description["Properties"]["FunctionName"], description["Properties"]["Runtime"])
         additional_dirs.append(code_path)
 
     # TODO: should this list include common-code directories as well?
 
     return additional_dirs
 
-def describe_stack(context, args):
 
+def describe_stack(context, args):
     stack_id = context.config.get_resource_group_stack_id(args.deployment, args.resource_group, optional=True)
     group = context.resource_groups.get(args.resource_group, optional=True)
 
-    if(stack_id is None):
+    if stack_id is None:
 
         if group.is_enabled:
 
@@ -1118,7 +1124,7 @@ def describe_stack(context, args):
     if group:
         this_template = group.template
 
-    for key, resource in this_template.get('Resources', {}).iteritems():
+    for key, resource in six.iteritems(this_template.get('Resources', {})):
         if key != 'AccessControl':
             user_defined_resource_count += 1
 
@@ -1126,7 +1132,6 @@ def describe_stack(context, args):
 
 
 def list_parameters(context, args):
-
     if not context.config.project_initialized:
         raise HandledError('A project stack must be created before parameters can be listed.')
 
@@ -1134,11 +1139,11 @@ def list_parameters(context, args):
 
     parameters = []
 
-    for deployment_name, deployment_settings in project_settings.get('deployment', {}).iteritems():
+    for deployment_name, deployment_settings in six.iteritems(project_settings.get('deployment', {})):
         if not args.deployment or deployment_name == args.deployment or deployment_name == '*':
-            for resource_group_name, resource_group_settings in deployment_settings.get('resource-group', {}).iteritems():
+            for resource_group_name, resource_group_settings in six.iteritems(deployment_settings.get('resource-group', {})):
                 if not args.resource_group or resource_group_name == args.resource_group or resource_group_name == '*':
-                    for parameter_name, parameter_value in resource_group_settings.get('parameter', {}).iteritems():
+                    for parameter_name, parameter_value in six.iteritems(resource_group_settings.get('parameter', {})):
                         if not args.parameter or parameter_name == args.parameter:
                             parameters.append(
                                 {
@@ -1150,8 +1155,8 @@ def list_parameters(context, args):
 
     context.view.parameter_list(parameters)
 
-def set_parameter(context, args):
 
+def set_parameter(context, args):
     if not context.config.project_initialized:
         raise HandledError('A project stack must be created before parameters can be listed.')
 
@@ -1174,16 +1179,15 @@ def set_parameter(context, args):
 
 
 def clear_parameter(context, args):
-
     if not context.config.project_initialized:
         raise HandledError('A project stack must be created before parameters can be listed.')
 
     project_settings = context.config.project_settings
 
     change_list = []
-    for deployment_name, deployment_settings in project_settings.get('deployment', {}).iteritems():
+    for deployment_name, deployment_settings in six.iteritems(project_settings.get('deployment', {})):
         if not args.deployment or deployment_name == args.deployment:
-            for resource_group_name, resource_group_settings in deployment_settings.get('resource-group', {}).iteritems():
+            for resource_group_name, resource_group_settings in six.iteritems(deployment_settings.get('resource-group', {})):
                 if not args.resource_group or resource_group_name == args.resource_group:
                     parameters = resource_group_settings.get('parameter', {})
                     if args.parameter in parameters:
@@ -1212,14 +1216,13 @@ def clear_parameter(context, args):
 
 
 def list_resource_group_resources(context, args):
-
     deployment_name = args.deployment
     resource_group_name = args.resource_group
 
     if deployment_name is None:
         deployment_name = context.config.default_deployment
 
-    resource_group = context.resource_groups.get(resource_group_name, optional = True)
+    resource_group = context.resource_groups.get(resource_group_name, optional=True)
     if resource_group:
 
         if deployment_name:
@@ -1234,24 +1237,25 @@ def list_resource_group_resources(context, args):
         # resource group may have been removed but there is still a stack
 
         if deployment_name:
-            resource_group_stack_id = context.config.get_resource_group_stack_id(deployment_name, resource_group_name, optional=True) 
+            resource_group_stack_id = context.config.get_resource_group_stack_id(deployment_name, resource_group_name, optional=True)
         else:
             resource_group_stack_id = None
-        
+
         if not resource_group_stack_id:
             raise HandledError('The resource group {} does not exist.'.format(resource_group_name))
 
         pending_resource_status = context.stack.get_pending_resource_status(
-            resource_group_stack_id, 
-            new_template = {} # resource status will be pending DELETE
+            resource_group_stack_id,
+            new_template={}  # resource status will be pending DELETE
         )
 
     context.view.resource_group_resource_list(
-        resource_group_stack_id, 
-        deployment_name, 
-        resource_group_name, 
+        resource_group_stack_id,
+        deployment_name,
+        resource_group_name,
         pending_resource_status
     )
+
 
 def add_player_access(context, args):
     # Add player access to the resource permissions
@@ -1273,7 +1277,8 @@ def create_function_folder(context, args):
         if not function_template_definition:
             raise HandledError("Function {} does not exist in Resource group {}. Not adding lambda-code folder".format(args.function, args.resource_group))
         if not function_template_definition['Type'] == 'AWS::Lambda::Function':
-            raise HandledError("{} is not a Lambda Function resource in Resource group {}. Not adding lambda-code folder".format(args.function, args.resource_group))
+            raise HandledError(
+                "{} is not a Lambda Function resource in Resource group {}. Not adding lambda-code folder".format(args.function, args.resource_group))
 
     if not os.path.exists(function_path):
         # if function folder does not already exist add it

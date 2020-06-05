@@ -25,15 +25,6 @@
 #include <stdio.h>
 
 #if defined(AZ_PLATFORM_WINDOWS)
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>   // needed for DbgHelp.h
-
-#pragma warning(push)
-#pragma warning(disable : 4091) // Needed to bypass the "'typedef ': ignored on left of '' when no variable is declared" brought in by DbgHelp.h
-#include <DbgHelp.h>
-#pragma warning(pop)
-
-#include <io.h>
 #include "CpuInfo.h"
 #include "MathHelpers.h"
 #include <psapi.h>       // GetProcessMemoryInfo()
@@ -53,7 +44,7 @@
 #include "ListFile.h"
 #include "Util.h"
 #include "ICryXML.h"
-#include "IXmlSerializer.h"
+#include "IXMLSerializer.h"
 
 #include "NameConvertor.h"
 #include "CryCrc32.h"
@@ -65,24 +56,29 @@
 #include "SettingsManagerHelpers.h"
 #include "UnitTestHelper.h"
 #include "CryLibrary.h"
-#include "FunctionThread.h"
 
 #include <ParseEngineConfig.h>
 #include <AzCore/Module/Environment.h>
 #include <AzFramework/StringFunc/StringFunc.h>
+#include <AzFramework/CommandLine/CommandLine.h>
 
-#include <AzCore/debug/TraceMessageBus.h>
-#include <AzCore/debug/TraceMessagesDrillerBus.h>
+#include <AzCore/Debug/TraceMessageBus.h>
+#include <AzCore/Debug/TraceMessagesDrillerBus.h>
 #include <AzCore/base.h>
 #include <AzCore/std/parallel/mutex.h>
 #include <AzFramework/IO/LocalFileIO.h>
 #include <AzCore/std/parallel/thread.h>
 #include <AzCore/std/parallel/binary_semaphore.h>
 #include <AzCore/Memory/SystemAllocator.h>
-#include <QSettings>
-#include <AzToolsFramework/API/ToolsApplicationAPI.h>
+#include <AzCore/Utils/Utils.h>
 
-#if defined(AZ_PLATFORM_APPLE)
+#include <QSettings>
+#include <QThread>
+#include <AzToolsFramework/API/ToolsApplicationAPI.h>
+#include <AzCore/Memory/AllocatorManager.h>
+#include <AzCore/Math/Sfmt.h>
+
+#if AZ_TRAIT_OS_PLATFORM_APPLE
 #include <mach-o/dyld.h>  // Needed for _NSGetExecutablePath
 #endif
 
@@ -101,6 +97,10 @@ const char* const ResourceCompiler::m_filenameCreatedFileList  = "rc_createdfile
 
 const size_t ResourceCompiler::s_internalBufferSize;
 const size_t ResourceCompiler::s_environmentBufferSize;
+
+#if defined(AZ_PLATFORM_WINDOWS)
+static CrashHandler s_crashHandler;
+#endif
 
 namespace
 {
@@ -151,24 +151,21 @@ public:
 // ResourceCompiler implementation.
 //////////////////////////////////////////////////////////////////////////
 ResourceCompiler::ResourceCompiler()
+    : m_platformCount(0)
+    , m_bQuiet(false)
+    , m_verbosityLevel(0)
+    , m_numWarnings(0)
+    , m_numErrors(0)
+    , m_memorySizePeakMb(0)
+    , m_pAssetWriter(nullptr)
+    , m_pPakManager(nullptr)
+    , m_currentRcCompileFileInfo(nullptr)
 {
-    m_platformCount = 0;
-    m_bQuiet = false;
-    m_verbosityLevel = 0;
-    m_maxThreads = 0;
-    m_numWarnings = 0;
-    m_numErrors = 0;
-    m_memorySizePeakMb = 0;
-    m_pAssetWriter = 0;
-    m_pPakManager = 0;
-    m_systemDll = nullptr;
-    InitializeThreadIds();
-    
     // install our ctrl handler by default, before we load system modules.  Unfortunately
     // some modules may install their own, so we will install ours again after loading perforce and crysystem.
 #if defined(AZ_PLATFORM_WINDOWS)
     SetConsoleCtrlHandler((PHANDLER_ROUTINE)CtrlHandlerRoutine, TRUE);
-#elif defined(AZ_PLATFORM_APPLE) || defined(AZ_PLATFORM_LINUX)
+#elif AZ_TRAIT_OS_PLATFORM_APPLE || defined(AZ_PLATFORM_LINUX)
     signal(SIGINT, CtrlHandlerRoutine);
 #endif
 }
@@ -176,41 +173,6 @@ ResourceCompiler::ResourceCompiler()
 ResourceCompiler::~ResourceCompiler()
 {
     delete m_pPakManager;
-
-    {
-        if (m_pSystem)
-        {
-            AssertInterceptor interceptor;
-            m_pSystem.reset();
-        }
-
-
-        if (m_systemDll)
-        {
-            typedef void*(* PtrFunc_ModuleShutdownISystem)(ISystem* pSystem);
-            PtrFunc_ModuleShutdownISystem pfnModuleShutdownISystem =
-                reinterpret_cast<PtrFunc_ModuleShutdownISystem>(CryGetProcAddress(m_systemDll, "ModuleShutdownISystem"));
-
-            if (pfnModuleShutdownISystem)
-            {
-                AssertInterceptor interceptor;
-                pfnModuleShutdownISystem(nullptr);
-            }
-
-            while (CryFreeLibrary(m_systemDll))
-            {
-                // keep freeing until free.
-                // this is unfortunate, but CryMemoryManager currently in its internal impl grabs an extra handle to this and does not free it nor
-                // does it have an interface to do so.
-                // until we can rewrite the memory manager init and shutdown code, we need to do this here because we need crysystem GONE
-                // before we attempt to destroy the memory managers which it uses.
-                ;
-            }
-            m_systemDll = nullptr;
-        }
-    }
-    
-    TLSFREE(m_tlsIndex_pThreadData);
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -344,79 +306,34 @@ void ResourceCompiler::RemoveOutputFiles()
     AZ::IO::SystemFile::Delete(FormLogFileName(m_filenameCreatedFileList));
 }
 
+static void ThreadFunc(ResourceCompiler::RcCompileFileInfo* data);
 
-
-class FilesToConvert
+class CompileFileThread
+    : public QThread
 {
 public:
-    std::vector<RcFile> m_allFiles;
-    std::vector<RcFile> m_inputFiles;
-    std::vector<RcFile> m_outOfMemoryFiles;
-    std::vector<RcFile> m_failedFiles;
-    std::vector<RcFile> m_convertedFiles;
-
+    CompileFileThread(const ResourceCompiler::RcCompileFileInfo& compileInfo)
+        : m_compileInfo(compileInfo)
+    {}
 private:
-    AZStd::mutex m_lock;
-
-public:
-    void lock()
+    void run()
     {
-        m_lock.lock();
+        ThreadFunc(&m_compileInfo);
     }
-
-    void unlock()
-    {
-        m_lock.unlock();
-    }
+    ResourceCompiler::RcCompileFileInfo m_compileInfo;
 };
-
-
-struct RcThreadData
-{
-    ResourceCompiler* rc;
-    FilesToConvert* pFilesToConvert;
-    unsigned long tlsIndex_pThreadData;   // copy of private rc->m_tlsIndex_pThreadData
-    int threadId;
-    IConvertor* convertor;
-    ICompiler* compiler;
-
-    bool bLogMemory;
-    bool bWarningHeaderLine;
-    bool bErrorHeaderLine;
-    string logHeaderLine;
-};
-
-
-unsigned int WINAPI ThreadFunc(void* threadDataMemory);
-
 
 static void CompileFilesMultiThreaded(
     ResourceCompiler* pRC,
-    unsigned long a_tlsIndex_pThreadData,
-    FilesToConvert& a_files,
-    int threadCount,
+    ResourceCompiler::FilesToConvert& a_files,
     IConvertor* convertor)
 {
     assert(pRC);
-
-    if (threadCount <= 0)
-    {
-        return;
-    }
 
     bool bLogMemory = false;
 
     while (!a_files.m_inputFiles.empty())
     {
-        // Never create more threads than needed
-        if (threadCount > a_files.m_inputFiles.size())
-        {
-            threadCount = a_files.m_inputFiles.size();
-        }
-
-        RCLog("Spawning %d thread%s", threadCount, ((threadCount > 1) ? "s" : ""));
-        RCLog("");
-
         // Initialize the convertor
         {
             ConvertorInitContext initContext;
@@ -428,95 +345,49 @@ static void CompileFilesMultiThreaded(
         }
 
         // Initialize the thread data for each thread.
-        std::vector<RcThreadData> threadData(threadCount);
-        for (int threadIndex = 0; threadIndex < threadCount; ++threadIndex)
-        {
-            threadData[threadIndex].rc = pRC;
-            threadData[threadIndex].convertor = convertor;
-            threadData[threadIndex].compiler = convertor->CreateCompiler();
-            threadData[threadIndex].tlsIndex_pThreadData = a_tlsIndex_pThreadData;
-            threadData[threadIndex].threadId = threadIndex + 1;  // our "thread ids" are 1-based indices
-            threadData[threadIndex].pFilesToConvert = &a_files;
-            threadData[threadIndex].bLogMemory = bLogMemory;
-            threadData[threadIndex].bWarningHeaderLine = false;
-            threadData[threadIndex].bErrorHeaderLine = false;
-            threadData[threadIndex].logHeaderLine = "";
-        }
+        ResourceCompiler::RcCompileFileInfo compileInfo;
+        compileInfo.rc = pRC;
+        compileInfo.convertor = convertor;
+        compileInfo.compiler = convertor->CreateCompiler();
+        compileInfo.pFilesToConvert = &a_files;
+        compileInfo.bLogMemory = bLogMemory;
+        compileInfo.bWarningHeaderLine = false;
+        compileInfo.bErrorHeaderLine = false;
+        compileInfo.logHeaderLine = "";
+
         AZStd::binary_semaphore waiter;
-#if defined(AZ_PLATFORM_WINDOWS) || defined(AZ_PLATFORM_APPLE)
-        // Spawn the threads.
-        QVector<QThread*> threads(threadCount);
-        for (int threadIndex = 0; threadIndex < threadCount; ++threadIndex)
+
+        // Spawn the thread. The old /threads option is no longer supported, and this should remain limited to one thread.
+        // Although this is limited to a single thread, running ThreadFunc on the main thread leads to other issues (LY-85364, LY-85364)
+        // so we should still be creating a new thread here
+        QScopedPointer<CompileFileThread> thread(new CompileFileThread(compileInfo));
+        bool done = false;
+        QObject::connect(thread.data(), &QThread::finished, thread.data(), [&waiter, &done]()
         {
-            threads[threadIndex] = FunctionThread::CreateThread(
-                    0,                           //void *security,
-                    0,                           //unsigned stack_size,
-                    ThreadFunc,                  //unsigned ( *start_address )( void * ),
-                    &threadData[threadIndex],    //void *arglist,
-                    0,                           //unsigned initflag,
-                    0);                          //unsigned *thrdaddr
+            // this makes the app break out of its event loop (below) ASAP.
+            done = true;
+            waiter.release();
+        });
+        thread->start();
 
-            QObject::connect(threads[threadIndex], &QThread::finished, [&waiter, threadIndex, &threads]()
-            {
-                threads.remove(threadIndex);
-                if (threads.isEmpty())
-                {
-                    // this makes the app break out of its event loop (below) ASAP.
-                    waiter.release();
-                }
-            });
-        }
-
-        // Wait until all the threads have exited
-        while (!threads.isEmpty())
+        // Wait until the thread has exited
+        while (!done)
         {
-            // Show progress
-
-            // unfortunately the below call to processEvents(...), 
+            // unfortunately the below call to processEvents(...),
             // even with a 'wait for more events' flag applied, causes it to still use up an entire CPU core
             // on windows platforms due to implementation details.
             // To avoid this, we will periodically pump events, but we will also wait on a semaphore to be raised to let us quit instantly
-            // this allows us to spend most of our time with a sleeping main thread, but still instantly exit once the job(s) are done.
+            // this allows us to spend most of our time with a sleeping main thread, but still instantly exit once the job is done.
             waiter.try_acquire_for(AZStd::chrono::milliseconds(50));
             qApp->processEvents(QEventLoop::AllEvents);
-
-            a_files.lock();
-
-            if (!a_files.m_inputFiles.empty())
-            {
-                const int processedFileCount = a_files.m_outOfMemoryFiles.size() + a_files.m_failedFiles.size() + a_files.m_convertedFiles.size();
-
-                pRC->ShowProgress(a_files.m_inputFiles.back().m_sourceInnerPathAndName.c_str(), processedFileCount, a_files.m_allFiles.size());
-            }
-
-            a_files.unlock();
         }
-#elif defined(AZ_PLATFORM_LINUX)
-        std::vector<AZStd::thread> threads(threadCount);
-        for (int threadIndex = 0; threadIndex < threadCount; ++threadIndex)
-        {
-        	threads[threadIndex] = AZStd::thread(AZStd::bind(ThreadFunc, &threadData[threadIndex]));
-        }
-        
-        //TODO:: Implement an atomic counter to track progress for these threads
-        //and switch the windows version to use this implementation.
-        for (int threadIndex = 0; threadIndex < threadCount; ++threadIndex)
-        {
-            threads[threadIndex].join();
-        }
-#else
-        #error Needs implementation!
-#endif
 
         pRC->FinishProgress();
 
         assert(a_files.m_inputFiles.empty());
 
-        // Release all the compiler objects.
-        for (int threadIndex = 0; threadIndex < threadCount; ++threadIndex)
-        {
-            threadData[threadIndex].compiler->Release();
-        }
+        // Release the compiler object
+        compileInfo.compiler->Release();
 
         // Clean up the converter.
         convertor->DeInit();
@@ -524,35 +395,14 @@ static void CompileFilesMultiThreaded(
         if (!a_files.m_outOfMemoryFiles.empty())
         {
             pRC->LogMemoryUsage(false);
-
-            if (threadCount > 1)
+            RCLogError("Run out of memory while processing %i file(s):", (int)a_files.m_outOfMemoryFiles.size());
+            for (int i = 0; i < (int)a_files.m_outOfMemoryFiles.size(); ++i)
             {
-                // If we ran out of memory while processing files, we should try
-                // to process the files again in single thread (since we may
-                // have run out of memory just because we had multiple threads).
-                RCLogWarning("Run out of memory while processing %i file(s):", (int)a_files.m_outOfMemoryFiles.size());
-                for (int i = 0; i < (int)a_files.m_outOfMemoryFiles.size(); ++i)
-                {
-                    const RcFile& rf = a_files.m_outOfMemoryFiles[i];
-                    RCLogWarning(" \"%s\" \"%s\"", rf.m_sourceLeftPath.c_str(), rf.m_sourceInnerPathAndName.c_str());
-                }
-                RCLogWarning("Switching to single-thread mode and trying to convert the files again");
-                a_files.m_inputFiles.insert(a_files.m_inputFiles.end(), a_files.m_outOfMemoryFiles.begin(), a_files.m_outOfMemoryFiles.end());
-                threadCount = 1;
-                bLogMemory = true;
-            }
-            else
-            {
-                RCLogError("Run out of memory while processing %i file(s):", (int)a_files.m_outOfMemoryFiles.size());
-                for (int i = 0; i < (int)a_files.m_outOfMemoryFiles.size(); ++i)
-                {
-                    const RcFile& rf = a_files.m_outOfMemoryFiles[i];
-                    RCLogError(" \"%s\" \"%s\"", rf.m_sourceLeftPath.c_str(), rf.m_sourceInnerPathAndName.c_str());
-                }
-
-                a_files.m_failedFiles.insert(a_files.m_failedFiles.end(), a_files.m_outOfMemoryFiles.begin(), a_files.m_outOfMemoryFiles.end());
+                const RcFile& rf = a_files.m_outOfMemoryFiles[i];
+                RCLogError(" \"%s\" \"%s\"", rf.m_sourceLeftPath.c_str(), rf.m_sourceInnerPathAndName.c_str());
             }
 
+            a_files.m_failedFiles.insert(a_files.m_failedFiles.end(), a_files.m_outOfMemoryFiles.begin(), a_files.m_outOfMemoryFiles.end());
             a_files.m_outOfMemoryFiles.resize(0);
         }
     }
@@ -688,21 +538,23 @@ bool ResourceCompiler::CollectFilesToCompile(const string& filespec, std::vector
     }
     else
     {
-        if (filespec.find_first_of("*?") != string::npos)
+        bool wildcardSearch = false;
+        // It's a mask (path\*.mask). Scan directory and accumulate matching filenames in the list.
+        // Multiple masks allowed, for example path\*.xml;*.dlg;path2\*.mtl
+
+        std::vector<string> tokens;
+        StringHelpers::Split(filespec, ";", false, tokens);
+
+        for (size_t i = 0; i < sourceRootsReversed.size(); ++i)
         {
-            // It's a mask (path\*.mask). Scan directory and accumulate matching filenames in the list.
-            // Multiple masks allowed, for example path\*.xml;*.dlg;path2\*.mtl
-
-            std::vector<string> tokens;
-            StringHelpers::Split(filespec, ";", false, tokens);
-
-            for (size_t i = 0; i < sourceRootsReversed.size(); ++i)
+            const string& sourceRoot = sourceRootsReversed[i];
+            for (size_t t = 0; t < tokens.size(); ++t)
             {
-                const string& sourceRoot = sourceRootsReversed[i];
-                for (size_t t = 0; t < tokens.size(); ++t)
+                if (tokens[t].find_first_of("*?") != string::npos)
                 {
+                    wildcardSearch = true;
                     // Scan directory and accumulate matching filenames in the list.
-                    const string path = PathHelpers::Join(sourceRoot, PathHelpers::GetDirectory(tokens[t]));
+                    const string path = PathHelpers::ToPlatformPath(PathHelpers::Join(sourceRoot, PathHelpers::GetDirectory(tokens[t])));
                     const string pattern = PathHelpers::GetFilename(tokens[t]);
                     RCLog("Scanning directory '%s' for '%s'...", path.c_str(), pattern.c_str());
                     std::vector<string> filenames;
@@ -721,82 +573,80 @@ bool ResourceCompiler::CollectFilesToCompile(const string& filespec, std::vector
                             sourceLeftPath = sourceRoot;
                             sourceInnerPathAndName = PathHelpers::Join(PathHelpers::GetDirectory(tokens[t]), filenames[i]);
                         }
-                        AddRcFile(files, addedFiles, sourceRootsReversed, sourceLeftPath, sourceInnerPathAndName, targetLeftPath);
-                    }
-                }
-            }
 
-            if (files.empty())
-            {
-                // We failed to find any file matching the mask specified by user.
-                // Using mask (say, *.cgf) usually means that user doesn't know if
-                // the file exists or not, so it's better to return "success" code.
-                RCLog("RC can't find files matching '%s', 0 files converted", filespec.c_str());
-                return true;
-            }
-        }
-        else
-        {
-            for (size_t i = 0; i < sourceRootsReversed.size(); ++i)
-            {
-                const string& sourceRoot = sourceRootsReversed[i];
-                const DWORD dwFileSpecAttr = GetFileAttributes(PathHelpers::Join(sourceRoot, filespec));
-
-                if (dwFileSpecAttr == INVALID_FILE_ATTRIBUTES)
-                {
-                    // There's no such file
-                    RCLog("RC can't find file '%s'. Will try to find the file in .pak files.", filespec.c_str());
-                    if (sourceRoot.empty())
-                    {
-                        AddRcFile(files, addedFiles, sourceRootsReversed, PathHelpers::GetDirectory(filespec), PathHelpers::GetFilename(filespec), targetLeftPath);
-                    }
-                    else
-                    {
-                        AddRcFile(files, addedFiles, sourceRootsReversed, sourceRoot, filespec, targetLeftPath);
+                        const DWORD dwFileSpecAttr = GetFileAttributes(PathHelpers::Join(sourceLeftPath, sourceInnerPathAndName));
+                        if (dwFileSpecAttr & FILE_ATTRIBUTE_DIRECTORY)
+                        {
+                            RCLog("Skipping adding file '%s' matched by wildcard '%s' because it is a directory", sourceInnerPathAndName.c_str(), filespec.c_str());
+                        }
+                        else
+                        {
+                            AddRcFile(files, addedFiles, sourceRootsReversed, sourceLeftPath, sourceInnerPathAndName, targetLeftPath);
+                        }
                     }
                 }
                 else
                 {
-                    // The file exists
+                    const auto& thisFile = tokens[t];
+                    const DWORD dwFileSpecAttr = GetFileAttributes(PathHelpers::Join(sourceRoot, thisFile));
 
-                    if (dwFileSpecAttr & FILE_ATTRIBUTE_DIRECTORY)
+                    if (dwFileSpecAttr == INVALID_FILE_ATTRIBUTES)
                     {
-                        // We found a file, but it's a directory, not a regular file.
-                        // Let's assume that the user wants to export every file in the
-                        // directory (with subdirectories if bRecursive == true) or
-                        // that he wants to export a file specified in /file option.
-                        const string path = PathHelpers::Join(sourceRoot, filespec);
-                        const string pattern = config->GetAsString("file", "*.*", "*.*");
-                        RCLog("Scanning directory '%s' for '%s'...", path.c_str(), pattern.c_str());
-                        std::vector<string> filenames;
-                        FileUtil::ScanDirectory(path, pattern, filenames, bRecursive, targetLeftPath);
-                        for (size_t i = 0; i < filenames.size(); ++i)
+                        // There's no such file
+                        RCLog("RC did not find %s in %s", thisFile.c_str(), sourceRoot.c_str());
+                        if (sourceRoot.empty())
                         {
-                            string sourceLeftPath;
-                            string sourceInnerPathAndName;
-                            if (sourceRoot.empty())
-                            {
-                                sourceLeftPath = filespec;
-                                sourceInnerPathAndName = filenames[i];
-                            }
-                            else
-                            {
-                                sourceLeftPath = sourceRoot;
-                                sourceInnerPathAndName = PathHelpers::Join(filespec, filenames[i]);
-                            }
-                            AddRcFile(files, addedFiles, sourceRootsReversed, sourceLeftPath, sourceInnerPathAndName, targetLeftPath);
+                            AddRcFile(files, addedFiles, sourceRootsReversed, PathHelpers::GetDirectory(thisFile), PathHelpers::GetFilename(thisFile), targetLeftPath);
+                        }
+                        else
+                        {
+                            AddRcFile(files, addedFiles, sourceRootsReversed, sourceRoot, thisFile, targetLeftPath);
                         }
                     }
                     else
                     {
-                        // we found a regular file
-                        if (sourceRoot.empty())
+                        // The file exists
+
+                        if (dwFileSpecAttr & FILE_ATTRIBUTE_DIRECTORY)
                         {
-                            AddRcFile(files, addedFiles, sourceRootsReversed, PathHelpers::GetDirectory(filespec), PathHelpers::GetFilename(filespec), targetLeftPath);
+                            // We found a file, but it's a directory, not a regular file.
+                            // Let's assume that the user wants to export every file in the
+                            // directory (with subdirectories if bRecursive == true) or
+                            // that he wants to export a file specified in /file option.
+                            const string path = PathHelpers::Join(sourceRoot, thisFile);
+                            const string pattern = config->GetAsString("file", "*.*", "*.*");
+                            RCLog("Scanning directory '%s' for '%s'...", path.c_str(), pattern.c_str());
+                            std::vector<string> filenames;
+                            FileUtil::ScanDirectory(path, pattern, filenames, bRecursive, targetLeftPath);
+                            for (size_t i = 0; i < filenames.size(); ++i)
+                            {
+                                string sourceLeftPath;
+                                string sourceInnerPathAndName;
+                                if (sourceRoot.empty())
+                                {
+                                    sourceLeftPath = thisFile;
+                                    sourceInnerPathAndName = filenames[i];
+                                }
+                                else
+                                {
+                                    sourceLeftPath = sourceRoot;
+                                    sourceInnerPathAndName = PathHelpers::Join(thisFile, filenames[i]);
+                                }
+                                AddRcFile(files, addedFiles, sourceRootsReversed, sourceLeftPath, sourceInnerPathAndName, targetLeftPath);
+                            }
                         }
                         else
                         {
-                            AddRcFile(files, addedFiles, sourceRootsReversed, sourceRoot, filespec, targetLeftPath);
+                            RCLog("Found %s in %s", thisFile.c_str(), sourceRoot.c_str());
+                            // we found a regular file
+                            if (sourceRoot.empty())
+                            {
+                                AddRcFile(files, addedFiles, sourceRootsReversed, PathHelpers::GetDirectory(thisFile), PathHelpers::GetFilename(thisFile), targetLeftPath);
+                            }
+                            else
+                            {
+                                AddRcFile(files, addedFiles, sourceRootsReversed, sourceRoot, thisFile, targetLeftPath);
+                            }
                         }
                     }
                 }
@@ -805,6 +655,14 @@ bool ResourceCompiler::CollectFilesToCompile(const string& filespec, std::vector
 
         if (files.empty())
         {
+            if (wildcardSearch)
+            {
+                // We failed to find any file matching the mask specified by user.
+                // Using mask (say, *.cgf) usually means that user doesn't know if
+                // the file exists or not, so it's better to return "success" code.
+                RCLog("RC can't find files matching '%s', 0 files converted", filespec.c_str());
+                return true;
+            }
             if (!bSkipMissing)
             {
                 RCLogError("No files found to convert.");
@@ -843,10 +701,15 @@ bool ResourceCompiler::CompileFilesBySingleProcess(const std::vector<RcFile>& fi
         // abort!
         return false;
     }
-
+    bool bRecompress = false;
+    if (config->GetAsBool("recompress", false, false))
+    {
+        RCLog("Recompressing files with fastest decompressor for data");
+        bRecompress = true;
+    }
     if (config->GetAsBool("copyonly", false, true) || config->GetAsBool("copyonlynooverwrite", false, true))
     {
-        const string targetroot = PathHelpers::CanonicalizePath(config->GetAsString("targetroot", "", ""));
+        const string targetroot = PathHelpers::ToPlatformPath(PathHelpers::CanonicalizePath(config->GetAsString("targetroot", "", "")));
         if (targetroot.empty() && config->GetAsBool("copyonly", false, true))
         {
             RCLogError("/copyonly: you must specify /targetroot.");
@@ -857,10 +720,16 @@ bool ResourceCompiler::CompileFilesBySingleProcess(const std::vector<RcFile>& fi
             RCLogError("/copyonlynooverwrite: you must specify /targetroot.");
             return false;
         }
-
-        CopyFiles(filesToConvert.m_allFiles, config->GetAsBool("copyonlynooverwrite", false, true));
-
-        return true;
+        CopyFiles(filesToConvert.m_allFiles, config->GetAsBool("copyonlynooverwrite", false, true), bRecompress);
+        if (!config->GetAsBool("outputproductdependencies", false, true))
+        {
+            return true;
+        }
+    }
+    else if (config->GetAsBool("outputproductdependencies", false, true))
+    {
+        RCLogError("/outputproductdependencies: you can only use this argument to output product dependencies for copy jobs.");
+        return false;
     }
 
     const PakManager::ECallResult eResult = m_pPakManager->CompileFilesIntoPaks(config, filesToConvert.m_allFiles);
@@ -904,7 +773,7 @@ bool ResourceCompiler::CompileFilesBySingleProcess(const std::vector<RcFile>& fi
             RCLogError("Cannot find convertor for %s", filenameForConvertorSearch.c_str());
             filesToConvert.m_failedFiles.push_back(filesToConvert.m_allFiles[i]);
             filesToConvert.m_allFiles.erase(filesToConvert.m_allFiles.begin() + i);
-            
+
             --i;
             continue;
         }
@@ -939,15 +808,6 @@ bool ResourceCompiler::CompileFilesBySingleProcess(const std::vector<RcFile>& fi
         IConvertor* const convertor = (*convertorIt).first;
         assert(convertor);
 
-        // Check whether this convertor is thread-safe.
-        assert(m_maxThreads >= 1);
-        int threadCount = m_maxThreads;
-        if ((threadCount > 1) && (!convertor->SupportsMultithreading()))
-        {
-            RCLog("/threads specified, but convertor does not support multi-threading. Falling back to single-threading.");
-            threadCount = 1;
-        }
-
         const std::vector<RcFile>& convertorFiles = (*convertorIt).second;
         assert(convertorFiles.size() > 0);
 
@@ -959,7 +819,7 @@ bool ResourceCompiler::CompileFilesBySingleProcess(const std::vector<RcFile>& fi
 
         LogMemoryUsage(false);
 
-        CompileFilesMultiThreaded(this, m_tlsIndex_pThreadData, filesToConvert, threadCount, convertor);
+        CompileFilesMultiThreaded(this, filesToConvert, convertor);
 
         assert(filesToConvert.m_inputFiles.empty());
         assert(filesToConvert.m_outOfMemoryFiles.empty());
@@ -985,8 +845,6 @@ bool ResourceCompiler::CompileFilesBySingleProcess(const std::vector<RcFile>& fi
     }
     else
     {
-        const bool bLogSourceControlInfo = config->HasKey("p4_workspace");
-
         RCLog("");
         RCLog(
             "%d of %d file%s were converted%s. Couldn't convert the following file%s:",
@@ -1023,42 +881,22 @@ void EnableFloatingPointExceptions()
 #endif
 }
 
-unsigned int WINAPI ThreadFunc(void* threadDataMemory)
+void ThreadFunc(ResourceCompiler::RcCompileFileInfo* data)
 {
-    EnableFloatingPointExceptions();
-    
-    RcThreadData* const data = static_cast<RcThreadData*>(threadDataMemory);
+    assert(data);
 
-    // Initialize the thread local storage, so the log can prepend the thread id to each line.
-    TLSSET(data->tlsIndex_pThreadData, static_cast<void *>(data));
-    
+    EnableFloatingPointExceptions();
+    data->rc->SetComplilingFileInfo(data);
     data->compiler->BeginProcessing(&data->rc->GetMultiplatformConfig().getConfig());
 
-    for (;; )
+    while (!data->pFilesToConvert->m_inputFiles.empty())
     {
-        data->pFilesToConvert->lock();
-
         if (g_gotCTRLBreakSignalFromOS)
         {
             RCLogError("Abort was requested during compilation.");
             data->pFilesToConvert->m_failedFiles.insert(data->pFilesToConvert->m_failedFiles.begin(), data->pFilesToConvert->m_inputFiles.begin(), data->pFilesToConvert->m_inputFiles.end());
             data->pFilesToConvert->m_inputFiles.clear();
         }
-
-
-        if (data->pFilesToConvert->m_inputFiles.empty())
-        {
-            data->pFilesToConvert->unlock();
-            break;
-        }
-
-        const RcFile fileToConvert = data->pFilesToConvert->m_inputFiles.back();
-        data->pFilesToConvert->m_inputFiles.pop_back();
-
-        data->pFilesToConvert->unlock();
-
-        const string sourceInnerPath = PathHelpers::GetDirectory(fileToConvert.m_sourceInnerPathAndName);
-        const string sourceFullFileName = PathHelpers::Join(fileToConvert.m_sourceLeftPath, fileToConvert.m_sourceInnerPathAndName);
 
         enum EResult
         {
@@ -1069,9 +907,12 @@ unsigned int WINAPI ThreadFunc(void* threadDataMemory)
         };
         EResult eResult;
 
+        const RcFile& fileToConvert = data->pFilesToConvert->m_inputFiles.back();
+#if !defined(AZ_PLATFORM_LINUX) // Exception handling not enabled on linux builds
         try
+#endif // !defined(AZ_PLATFORM_LINUX)
         {
-            if (data->rc->CompileFile(sourceFullFileName.c_str(), fileToConvert.m_targetLeftPath.c_str(), sourceInnerPath.c_str(), data->compiler))
+            if (data->rc->CompileFile())
             {
                 eResult = eResult_Ok;
             }
@@ -1080,10 +921,12 @@ unsigned int WINAPI ThreadFunc(void* threadDataMemory)
                 eResult = eResult_Error;
             }
         }
+#if !defined(AZ_PLATFORM_LINUX) // Exception handling not enabled on linux builds
         catch (std::bad_alloc&)
         {
             eResult = eResult_OutOfMemory;
         }
+#endif // !defined(AZ_PLATFORM_LINUX)
         // Any other exception should be uncaught and allowed to go to the unhandled exception handler,
         // which will actually record useful data
         //catch (...)
@@ -1091,7 +934,9 @@ unsigned int WINAPI ThreadFunc(void* threadDataMemory)
         //  eResult = eResult_Exception;
         //}
 
-        data->pFilesToConvert->lock();
+
+        data->pFilesToConvert->m_inputFiles.pop_back();
+
         switch (eResult)
         {
         case eResult_Ok:
@@ -1114,12 +959,10 @@ unsigned int WINAPI ThreadFunc(void* threadDataMemory)
             assert(0);
             break;
         }
-        data->pFilesToConvert->unlock();
     }
 
     data->compiler->EndProcessing();
-
-    return 0;
+    data->rc->SetComplilingFileInfo(nullptr);
 }
 
 
@@ -1145,36 +988,34 @@ const char* ResourceCompiler::GetAppRoot() const
 
 
 //////////////////////////////////////////////////////////////////////////
-bool ResourceCompiler::CompileFile(
-    const char* const sourceFullFileName,
-    const char* const targetLeftPath,
-    const char* const sourceInnerPath,
-    ICompiler* compiler)
+bool ResourceCompiler::CompileFile()
 {
+    if (!m_currentRcCompileFileInfo)
     {
-        RcThreadData* const pThreadData = static_cast<RcThreadData*>(TLSGET(m_tlsIndex_pThreadData));
-        
-        if (!pThreadData)
-        {
-            RCLogError("Unexpected threading failure");
-            exit(eRcExitCode_FatalError);
-        }
-        const bool bMemoryReportProblemsOnly = !pThreadData->bLogMemory;
-        LogMemoryUsage(bMemoryReportProblemsOnly);
+        return false;
     }
+
+    RcCompileFileInfo& compileFileInfo = *m_currentRcCompileFileInfo;
+    const RcFile& fileToConvert = compileFileInfo.pFilesToConvert->m_allFiles.back();
+    const string sourceInnerPath = PathHelpers::GetDirectory(fileToConvert.m_sourceInnerPathAndName);
+    const string sourceFullFileName = PathHelpers::Join(fileToConvert.m_sourceLeftPath, fileToConvert.m_sourceInnerPathAndName);
+    const string targetLeftPath = fileToConvert.m_targetLeftPath;
+    const string targetFullFileName = PathHelpers::Join(targetLeftPath, sourceInnerPath);
+    ICompiler* compiler = compileFileInfo.compiler;
+
+    const bool bMemoryReportProblemsOnly = !compileFileInfo.bLogMemory;
+    LogMemoryUsage(bMemoryReportProblemsOnly);
 
     MultiplatformConfig localMultiConfig = m_multiConfig;
     const IConfig* const config = &m_multiConfig.getConfig();
 
-    const string targetPath = PathHelpers::Join(targetLeftPath, sourceInnerPath);
-
     if (GetVerbosityLevel() >= 2)
     {
         RCLog("CompileFile():");
-        RCLog("  sourceFullFileName: '%s'", sourceFullFileName);
-        RCLog("  targetLeftPath: '%s'", targetLeftPath);
-        RCLog("  sourceInnerPath: '%s'", sourceInnerPath);
-        RCLog("targetPath: '%s'", targetPath);
+        RCLog("  sourceFullFileName: '%s'", sourceFullFileName.c_str());
+        RCLog("  targetLeftPath: '%s'", targetLeftPath.c_str());
+        RCLog("  sourceInnerPath: '%s'", sourceInnerPath.c_str());
+        RCLog("  targetPath: '%s'", targetFullFileName.c_str());
     }
 
     // Setup conversion context.
@@ -1182,7 +1023,6 @@ bool ResourceCompiler::CompileFile(
 
     pCC->SetMultiplatformConfig(&localMultiConfig);
     pCC->SetRC(this);
-    pCC->SetThreads(m_maxThreads);
 
     {
         bool bRefresh = config->GetAsBool("refresh", false, true);
@@ -1208,7 +1048,7 @@ bool ResourceCompiler::CompileFile(
     pCC->SetSourceFileNameOnly(PathHelpers::GetFilename(sourceFullFileName));
     pCC->SetSourceFolder(PathHelpers::GetDirectory(PathHelpers::GetAbsoluteAsciiPath(sourceFullFileName)));
 
-    const string outputFolder = PathHelpers::GetAbsoluteAsciiPath(targetPath);
+    const string outputFolder = PathHelpers::GetAbsoluteAsciiPath(targetFullFileName.c_str());
     pCC->SetOutputFolder(outputFolder);
 
     if (!FileUtil::EnsureDirectoryExists(outputFolder.c_str()))
@@ -1224,8 +1064,8 @@ bool ResourceCompiler::CompileFile(
 
     if (GetVerbosityLevel() >= 2)
     {
-        RCLog("sourceFullFileName: '%s'", sourceFullFileName);
-        RCLog("outputFolder: '%s'", outputFolder);
+        RCLog("sourceFullFileName: '%s'", sourceFullFileName.c_str());
+        RCLog("outputFolder: '%s'", outputFolder.c_str());
         RCLog("Path='%s'", PathHelpers::CanonicalizePath(sourceInnerPath).c_str());
         RCLog("File='%s'", PathHelpers::GetFilename(sourceFullFileName).c_str());
     }
@@ -1241,18 +1081,9 @@ bool ResourceCompiler::CompileFile(
     }
 
     // file name changed - print new header for warnings and errors
-    {
-        RcThreadData* const pThreadData = static_cast<RcThreadData*>(TLSGET(m_tlsIndex_pThreadData));
-        
-        if (!pThreadData)
-        {
-            RCLogError("Unexpected threading failure");
-            exit(eRcExitCode_FatalError);
-        }
-        pThreadData->bWarningHeaderLine = false;
-        pThreadData->bErrorHeaderLine = false;
-        pThreadData->logHeaderLine = sourceFullFileName;
-    }
+    compileFileInfo.bWarningHeaderLine = false;
+    compileFileInfo.bErrorHeaderLine = false;
+    compileFileInfo.logHeaderLine = sourceFullFileName;
 
     bool bRet;
     bool createJobs = this->GetMultiplatformConfig().getConfig().GetAsString("createjobs", "", "").empty() == false;
@@ -1263,7 +1094,7 @@ bool ResourceCompiler::CompileFile(
 
         if (!bRet)
         {
-            RCLogError("Failed to create jobs for file %s", sourceFullFileName);
+            RCLogError("Failed to create jobs for file %s", sourceFullFileName.c_str());
         }
     }
     else
@@ -1273,7 +1104,7 @@ bool ResourceCompiler::CompileFile(
 
         if (!bRet)
         {
-            RCLogError("Failed to convert file %s", sourceFullFileName);
+            RCLogError("Failed to convert file %s", sourceFullFileName.c_str());
         }
     }
 
@@ -1306,25 +1137,10 @@ void ResourceCompiler::MarkOutputFileForRemoval(const char* outputFilename)
     }
 }
 
-void ResourceCompiler::InitializeThreadIds()
-{
-    TLSALLOC(&m_tlsIndex_pThreadData);
-    
-#if defined(AZ_PLATFORM_WINDOW)
-    if (m_tlsIndex_pThreadData == TLS_OUT_OF_INDEXES)
-    {
-        printf("RC Initialization error");
-        exit(eRcExitCode_FatalError);
-    }
-#endif
-    
-    TLSSET(m_tlsIndex_pThreadData, static_cast<void *>(0));
-}
-
 void ResourceCompiler::LogLine(const IRCLog::EType eType, const char* szText)
 {
     AZStd::lock_guard<AZStd::mutex> lock(m_logLock);
-    
+
     if (eType == IRCLog::eType_Warning)
     {
         ++m_numWarnings;
@@ -1337,10 +1153,10 @@ void ResourceCompiler::LogLine(const IRCLog::EType eType, const char* szText)
     FILE* fLog = 0;
     if (!m_mainLogFileName.empty())
     {
-        fLog = fopen( m_mainLogFileName.c_str(), "a+t");
+        azfopen(&fLog, m_mainLogFileName.c_str(), "a+t");
     }
 
-    
+
     if (m_bQuiet)
     {
         if (fLog)
@@ -1349,17 +1165,6 @@ void ResourceCompiler::LogLine(const IRCLog::EType eType, const char* szText)
             fclose(fLog);
         }
         return;
-    }
-
-    RcThreadData* const pThreadData = static_cast<RcThreadData*>(TLSGET(m_tlsIndex_pThreadData));
-    
-    // if pThreadData is 0, then probably RC is just not running threads yet
-
-    char threadString[10];
-    threadString[0] = 0;
-    if (pThreadData)
-    {
-        sprintf_s(threadString, "%d> ", pThreadData->threadId);
     }
 
     char timeString[20];
@@ -1386,9 +1191,9 @@ void ResourceCompiler::LogLine(const IRCLog::EType eType, const char* szText)
         if (!m_warningLogFileName.empty())
         {
             additionalLogFileName = m_warningLogFileName.c_str();
-            if (pThreadData)
+            if (m_currentRcCompileFileInfo)
             {
-                pbAdditionalLogHeaderLine = &pThreadData->bWarningHeaderLine;
+                pbAdditionalLogHeaderLine = &m_currentRcCompileFileInfo->bWarningHeaderLine;
             }
         }
         break;
@@ -1398,15 +1203,19 @@ void ResourceCompiler::LogLine(const IRCLog::EType eType, const char* szText)
         if (!m_errorLogFileName.empty())
         {
             additionalLogFileName = m_errorLogFileName.c_str();
-            if (pThreadData)
+            if (m_currentRcCompileFileInfo)
             {
-                pbAdditionalLogHeaderLine = &pThreadData->bErrorHeaderLine;
+                pbAdditionalLogHeaderLine = &m_currentRcCompileFileInfo->bErrorHeaderLine;
             }
         }
         break;
 
     case IRCLog::eType_Context:
         prefix = "C: ";
+        break;
+
+    case IRCLog::eType_Summary:
+        prefix = "S: ";
         break;
 
     default:
@@ -1417,7 +1226,7 @@ void ResourceCompiler::LogLine(const IRCLog::EType eType, const char* szText)
     FILE* fAdditionalLog = 0;
     if (additionalLogFileName)
     {
-        fAdditionalLog = fopen( additionalLogFileName, "a+t");
+        azfopen(&fAdditionalLog, additionalLogFileName, "a+t");
     }
 
     if (fAdditionalLog)
@@ -1425,7 +1234,7 @@ void ResourceCompiler::LogLine(const IRCLog::EType eType, const char* szText)
         if (pbAdditionalLogHeaderLine && (*pbAdditionalLogHeaderLine == false))
         {
             fprintf(fAdditionalLog, "------------------------------------\n");
-            fprintf(fAdditionalLog, "%s%s%s%s\n", prefix, threadString, timeString, pThreadData->logHeaderLine.c_str());
+            fprintf(fAdditionalLog, "%s%s%s\n", prefix, timeString, m_currentRcCompileFileInfo->logHeaderLine.c_str());
             *pbAdditionalLogHeaderLine = true;
         }
     }
@@ -1441,15 +1250,15 @@ void ResourceCompiler::LogLine(const IRCLog::EType eType, const char* szText)
 
         if (fAdditionalLog)
         {
-            fprintf(fAdditionalLog, "%s%s%s%.*s\n", prefix, threadString, timeString, int(lineLen), line);
+            fprintf(fAdditionalLog, "%s%s%.*s\n", prefix, timeString, int(lineLen), line);
         }
 
         if (fLog)
         {
-            fprintf(fLog, "%s%s%s%.*s\n", prefix, threadString, timeString, int(lineLen), line);
+            fprintf(fLog, "%s%s%.*s\n", prefix, timeString, int(lineLen), line);
         }
 
-        printf("%s%s%s%.*s\n", prefix, threadString, timeString, int(lineLen), line);
+        printf("%s%s%.*s\n", prefix, timeString, int(lineLen), line);
         fflush(stdout);
 
         line += lineLen;
@@ -1518,11 +1327,6 @@ void ResourceCompiler::LogMultiLine(const char* szText)
     }
 }
 
-SSystemGlobalEnvironment* ResourceCompiler::GetSystemEnvironment()
-{
-    return gEnv;
-}
-
 //////////////////////////////////////////////////////////////////////////
 void ResourceCompiler::ShowHelp(const bool bDetailed)
 {
@@ -1577,13 +1381,13 @@ void ResourceCompiler::RemovePluginDLL(HMODULE pluginDLL)
 static bool RegisterConvertors(ResourceCompiler* pRc)
 {
     const string strDir = pRc->GetExePath();
-    
+
     AZ::IO::LocalFileIO localFile;
     bool foundOK = localFile.FindFiles(strDir.c_str(), CryLibraryDefName("ResourceCompiler*"), [&](const char* pluginFilename) -> bool
     {
 #if defined(AZ_PLATFORM_WINDOWS)
         HMODULE hPlugin = CryLoadLibrary(pluginFilename);
-#elif defined(AZ_PLATFORM_APPLE) || defined(AZ_PLATFORM_LINUX)
+#elif AZ_TRAIT_OS_PLATFORM_APPLE || defined(AZ_PLATFORM_LINUX)
         HMODULE hPlugin = CryLoadLibrary(pluginFilename, false, false);
 #endif
         if (!hPlugin)
@@ -1607,14 +1411,8 @@ static bool RegisterConvertors(ResourceCompiler* pRc)
             // it might not be the DLL that is required for this particular compile.
             return true;
         }
-        
-        FnInitializeModule fnInitializeAzEnvironment =
-            hPlugin ? (FnInitializeModule)CryGetProcAddress(hPlugin, "InitializeAzEnvironment") : NULL;
-        if (fnInitializeAzEnvironment)
-        {
-            fnInitializeAzEnvironment(AZ::Environment::GetInstance());
-        }
-        
+
+
         FnRegisterConvertors fnRegister =
             hPlugin ? (FnRegisterConvertors)CryGetProcAddress(hPlugin, "RegisterConvertors") : NULL;
         if (!fnRegister)
@@ -1626,11 +1424,11 @@ static bool RegisterConvertors(ResourceCompiler* pRc)
             // it might not be the DLL that is required for this particular compile.
             return true;
         }
-        
+
         RCLog("  Loaded \"%s\"", pluginFilename);
-        
+
         pRc->AddPluginDLL(hPlugin);
-        
+
         const int oldErrorCount = pRc->GetNumErrors();
         fnRegister(pRc);
         const int newErrorCount = pRc->GetNumErrors();
@@ -1647,7 +1445,7 @@ static bool RegisterConvertors(ResourceCompiler* pRc)
             // this return controls whether to keep going on other converters or stop the entire process here.
             return true;
         }
-        
+
         // Grab unit test function if the convertor has it
         FnRunUnitTests runUnitTestsFunction = hPlugin ? reinterpret_cast<FnRunUnitTests>(CryGetProcAddress(hPlugin, "RunUnitTests")) : nullptr;
         if (runUnitTestsFunction)
@@ -1657,7 +1455,7 @@ static bool RegisterConvertors(ResourceCompiler* pRc)
 
         return true; // continue iterating to all plugins
     });
-    
+
     return true;
 }
 
@@ -1685,6 +1483,12 @@ static string GetResourceCompilerGenericInfo(const ResourceCompiler& rc, const s
     s += newline;
 
     s += "Platform support: PC";
+#if defined(AZ_TOOLS_EXPAND_FOR_RESTRICTED_PLATFORMS)
+#define AZ_RESTRICTED_PLATFORM_EXPANSION(CodeName, CODENAME, codename, PrivateName, PRIVATENAME, privatename, PublicName, PUBLICNAME, publicname, PublicAuxName1, PublicAuxName2, PublicAuxName3)\
+    s += ", " #PublicAuxName3;
+    AZ_TOOLS_EXPAND_FOR_RESTRICTED_PLATFORMS
+#undef AZ_RESTRICTED_PLATFORM_EXPANSION
+#endif
 #if defined(TOOLS_SUPPORT_POWERVR)
     s += ", PowerVR";
 #endif
@@ -1963,7 +1767,8 @@ void GetCommandLineArguments(std::vector<string>& resArgs, int argc, char** argv
 
 void AddCommandLineArgumentsFromFile(std::vector<string>& args, const char* const pFilename)
 {
-    FILE* const f = fopen(pFilename, "rt");
+    FILE* f = nullptr;
+    azfopen(&f, pFilename, "rt");
     if (!f)
     {
         return;
@@ -1999,7 +1804,8 @@ static void GetFileSizeAndCrc32(int64& size, uint32& crc32, const char* pFilenam
         return;
     }
 
-    FILE* const f = fopen(pFilename, "rb");
+    FILE* f = nullptr;
+    azfopen(&f, pFilename, "rb");
     if (!f)
     {
         size = -1;
@@ -2029,11 +1835,8 @@ static void GetFileSizeAndCrc32(int64& size, uint32& crc32, const char* pFilenam
     crc32 = c.Get();
 }
 
-#if defined(AZ_PLATFORM_WINDOWS)
-static CrashHandler s_crashHandler;
-#endif
 
-std::unique_ptr<QApplication> CreateQApplication(int &argc, char** argv)
+std::unique_ptr<QCoreApplication> CreateQApplication(int &argc, char** argv)
 {
 #if defined(WIN32) || defined(WIN64)
     char modulePath[_MAX_PATH] = { 0 };
@@ -2041,7 +1844,7 @@ std::unique_ptr<QApplication> CreateQApplication(int &argc, char** argv)
     char drive[_MAX_DRIVE] = { 0 };
     char dir[_MAX_DIR] = { 0 };
     _splitpath_s(modulePath, drive, _MAX_DRIVE, dir, _MAX_DIR, NULL, 0, NULL, 0);
-    strcat_s(dir, R"(..\qtlibs\plugins)");
+    azstrcat(dir, R"(..\qtlibs\plugins)");
     char pluginPath[_MAX_PATH] = { 0 };
     _makepath_s(pluginPath, drive, dir, NULL, NULL);
     char pluginFullPath[_MAX_PATH] = { 0 };
@@ -2058,7 +1861,14 @@ std::unique_ptr<QApplication> CreateQApplication(int &argc, char** argv)
 #endif // #if defined(WIN32) || defined(WIN64)
 
     //we are not going to start a mesg loop. so exec will not be called on the qapp
-    auto qApplication = std::make_unique<QApplication>(argc, argv);
+
+    // special circumsance  - if 'userDialog' is present on the command line, we need an interactive app:
+    AzFramework::CommandLine cmdLine;
+    cmdLine.Parse(argc, argv);
+    bool userDialog = cmdLine.HasSwitch("userdialog") &&
+        ((cmdLine.GetNumSwitchValues("userdialog") == 0) || (cmdLine.GetSwitchValue("userdialog", 0) == "1"));
+
+    std::unique_ptr<QCoreApplication> qApplication = userDialog? std::make_unique<QApplication>(argc, argv) : std::make_unique<QCoreApplication>(argc, argv);
 
     // now that QT is initialized, we can use its path manip to set the rest up:
     QDir appPath(qApp->applicationDirPath());
@@ -2078,15 +1888,18 @@ std::unique_ptr<QApplication> CreateQApplication(int &argc, char** argv)
 }
 
 #ifdef AZ_TESTS_ENABLED
-int AzMainUnitTests();
+int AzMainUnitTests(int argc, char** argv);
 #endif // AZ_TESTS_ENABLED
 
-//////////////////////////////////////////////////////////////////////////
-// this is a wrapped version of main, so that we can freely create things on the stack like unique_ptrs
-// and know that the actual main() can clean up memory since no objects will be in scope upon return of this main.
-
-int __cdecl main_impl(int argc, char** argv, char** envp)
+int rcmain(int argc, char** argv, char** envp)
 {
+#ifdef AZ_TESTS_ENABLED
+    if (argc >= 2 && 0 == stricmp(argv[1], "--unittest"))
+    {
+        return AzMainUnitTests(argc, argv);
+    }
+#endif // AZ_TESTS_ENABLED
+
     std::unique_ptr<QCoreApplication> qApplication = CreateQApplication(argc, argv);
 
 #if 0
@@ -2114,100 +1927,7 @@ int __cdecl main_impl(int argc, char** argv, char** envp)
         AddCommandLineArgumentsFromFile(args, filename.c_str());
     }
 
-    rc.RegisterKey("_debug", "");   // hidden key for debug-related activities. parsing is module-dependent and subject to change without prior notice.
-
-    rc.RegisterKey("wait",
-        "wait for an user action on start and/or finish of RC:\n"
-        "0-don't wait (default),\n"
-        "1 or empty-wait for a key pressed on finish,\n"
-        "2-pop up a message box and wait for the button pressed on finish,\n"
-        "3-pop up a message box and wait for the button pressed on start,\n"
-        "4-pop up a message box and wait for the button pressed on start and on finish\n");
-    rc.RegisterKey("wx", "pause and display message box in case of warning or error");
-    rc.RegisterKey("recursive", "traverse input directory with sub folders");
-    rc.RegisterKey("refresh", "force recompilation of resources with up to date timestamp");
-    rc.RegisterKey("p", "to specify platform (for supported names see [_platform] sections in rc.ini)");
-    rc.RegisterKey("pi", "provides the platform id from the Asset Processor");
-    rc.RegisterKey("statistics", "log statistics to rc_stats_* files");
-    rc.RegisterKey("dependencies",
-        "Use it to specify a file with dependencies to be written.\n"
-        "Each line in the file will contain an input filename\n"
-        "and an output filename for every file written by RC.");
-    rc.RegisterKey("clean_targetroot", "When 'targetroot' switch specified will clean up this folder after rc runs, to delete all files that were not processed");
-    rc.RegisterKey("verbose", "to control amount of information in logs: 0-default, 1-detailed, 2-very detailed, etc");
-    rc.RegisterKey("quiet", "to suppress all printouts");
-    rc.RegisterKey("skipmissing", "do not produce warnings about missing input files");
-    rc.RegisterKey("logfiles", "to suppress generating log file rc_log.log");
-    rc.RegisterKey("logprefix", "prepends this prefix to every log file name used (by default the prefix is the rc.exe's folder).");
-    rc.RegisterKey("logtime", "logs time passed: 0=off, 1=on (default)");
-    rc.RegisterKey("gameroot", "The root of the current game project.  Used to find files related to the current game.");
-    rc.RegisterKey("watchfolder", "The watched root folder that this file is located in.  Used to produce the relative asset name.");
-    rc.RegisterKey("nosourcecontrol", "Boolean - if true, disables initialization of source control.  Disabling Source Control in the editor automatically disables it here, too.");
-    rc.RegisterKey("sourceroot", "list of source folders separated by semicolon");
-    rc.RegisterKey("targetroot", "to define the destination folder. note: this folder and its subtrees will be excluded from the source files scanning process");
-    rc.RegisterKey("targetnameformat",
-        "Use it to specify format of the output filenames.\n"
-        "syntax is /targetnameformat=\"<pair[;pair[;pair[...]]]>\" where\n"
-        "<pair> is <mask>,<resultingname>.\n"
-        "<mask> is a name consisting of normal and wildcard chars.\n"
-        "<resultingname> is a name consisting of normal chars and special strings:\n"
-        "{0} filename of a file matching the mask,\n"
-        "{1} part of the filename matching the first wildcard of the mask,\n"
-        "{2} part of the filename matching the second wildcard of the mask,\n"
-        "and so on.\n"
-        "A filename will be processed by first pair that has matching mask.\n"
-        "If no any match for a filename found, then the filename stays\n"
-        "unmodified.\n"
-        "Example: /targetnameformat=\"*alfa*.txt,{1}beta{2}.txt\"");
-    rc.RegisterKey("filesperprocess",
-        "to specify number of files converted by one process in one step\n"
-        "default is 100. this option is unused if /processes is 0.");
-    rc.RegisterKey("threads",
-        "use multiple threads. syntax is /threads=<expression>.\n"
-        "<expression> is an arithmetical expression consisting of numbers,\n"
-        "'cores', 'processors', '+' and '-'. 'cores' is the number of CPU\n"
-        "cores; 'processors' is the number of logical processors.\n"
-        "if expression is omitted, then /threads=cores is assumed.\n"
-        "example: /threads=cores+2");
-    rc.RegisterKey("failonwarnings", "return error code if warnings are encountered");
-    rc.RegisterKey("p4_workspace", "Perforce workspace to use. Enables output of source control information for failed files");
-    rc.RegisterKey("p4_user", "Perforce username to use. Default to current system username");
-    rc.RegisterKey("p4_depotFilenames", "Input filelist is given in the Perforce file format");
-
-    rc.RegisterKey("help", "lists all usable keys of the ResourceCompiler with description");
-    rc.RegisterKey("version", "shows version and exits");
-    rc.RegisterKey("overwriteextension", "ignore existing file extension and use specified convertor");
-    rc.RegisterKey("overwritefilename", "use the filename for output file (folder part is not affected)");
-
-    rc.RegisterKey("listfile", "Specify List file, List file can contain file lists from zip files like: @Levels\\Test\\level.pak|resourcelist.txt");
-    rc.RegisterKey("listformat",
-        "Specify format of the file name read from the list file. You may use special strings:\n"
-        "{0} the file name from the file list,\n"
-        "{1} text matching first wildcard from the input file mask,\n"
-        "{2} text matching second wildcard from the input file mask,\n"
-        "and so on.\n"
-        "Also, you can use multiple format strings, separated by semicolons.\n"
-        "In this case multiple filenames will be generated, one for\n"
-        "each format string.");
-    rc.RegisterKey("copyonly", "copy source files to target root without processing");
-    rc.RegisterKey("copyonlynooverwrite", "copy source files to target root without processing, will not overwrite if target file exists");
-    rc.RegisterKey("name_as_crc32", "When creating Pak File outputs target filename as the CRC32 code without the extension");
-    rc.RegisterKey("exclude", "List of file exclusions for the command, separated by semicolon, may contain wildcard characters");
-    rc.RegisterKey("exclude_listfile", "Specify a file which contains a list of files to be excluded from command input");
-
-    rc.RegisterKey("validate", "When specified RC is running in a resource validation mode");
-    rc.RegisterKey("MailServer", "SMTP Mail server used when RC needs to send an e-mail");
-    rc.RegisterKey("MailErrors", "0=off 1=on When enabled sends an email to the user who checked in asset that failed validation");
-    rc.RegisterKey("cc_email", "When sending mail this address will be added to CC, semicolon separates multiple addresses");
-    rc.RegisterKey("job", "Process a job xml file");
-    rc.RegisterKey("jobtarget", "Run only a job with specific name instead of whole job-file. Used only with /job option");
-    rc.RegisterKey("unittest", "Run the unit tests for resource compiler and nothing else");
-    rc.RegisterKey("gamesubdirectory", "The relative path to game folder from root from @devroot@.  Defines @devassets@ when concatenated with @devroot@.  Used to find files related to the this game.");
-    rc.RegisterKey("unattended", "Prevents RC from opening any dialogs or message boxes");
-    rc.RegisterKey("createjobs", "Instructs RC to read the specified input file (a CreateJobsRequest) and output a CreateJobsResponse");
-    rc.RegisterKey("port", "Specifies the port that should be used to connect to the asset processor.  If not set, the default from the bootstrap cfg will be used instead");
-    rc.RegisterKey("approot", "Specifies a custom directory for the engine root path. This path should contain bootstrap.cfg.");
-    rc.RegisterKey("branchtoken", "Specifies a branchtoken that should be used by the RC to negotiate with the asset processor. if not set it will be set from the bootstrap file.");
+    rc.RegisterDefaultKeys();
 
     string fileSpec;
     bool bUnitTestMode = false;
@@ -2226,13 +1946,11 @@ int __cdecl main_impl(int argc, char** argv, char** envp)
         // initialize rc (also initializes logs)
         rc.Init(mainConfig);
 
+        AZ::Debug::Trace::HandleExceptions(true);
 #if defined(AZ_PLATFORM_WINDOWS)
-        s_crashHandler.SetFiles(
-            rc.GetMainLogFileName(),
-            rc.GetErrorLogFileName(),
-            rc.FormLogFileName(ResourceCompiler::m_filenameCrashDump));
+        s_crashHandler.SetDumpFile(rc.FormLogFileName(ResourceCompiler::m_filenameCrashDump));
 #endif
-        
+
         if (mainConfig.GetAsBool("version", false, true))
         {
             ShowResourceCompilerVersionInfo(rc);
@@ -2348,25 +2066,6 @@ int __cdecl main_impl(int argc, char** argv, char** envp)
                 RCLogError("Unknown platform specified: '%s'", platformStr.c_str());
                 return eRcExitCode_FatalError;
             }
-
-            // Error if the platform specified is not supported by RC
-	    // TODO: this should probably go away, but we need to be sure
-	    // That the platform is not somehow listed as supported
-	    // above, rather than unknown.
-            const char* const unsupportedPlatforms[] =
-            {
-                "XOne", "XboxOne", "Durango",  // ACCEPTED_USE
-                "PS4", "Orbis", // ACCEPTED_USE
-                ""
-            };
-            for (int i = 0; i < sizeof(unsupportedPlatforms) / sizeof(unsupportedPlatforms[0]); ++i)
-            {
-                if (rc.GetPlatformInfo(platform)->HasName(unsupportedPlatforms[i]))
-                {
-                    RCLogError("Platform specified ('%s') is not supported by this RC", platformStr.c_str());
-                    return eRcExitCode_FatalError;
-                }
-            }
         }
 
         // Load configs for every platform
@@ -2395,41 +2094,16 @@ int __cdecl main_impl(int argc, char** argv, char** envp)
             logDir = "@log@/";
         }
         string logFile = logDir + "Log.txt";
-        SSystemInitParams systemInitParams;
 
         const char* configSearchPaths[] =
         {
             ".",
             rc.GetExePath()
         };
-        CEngineConfig cfg(configSearchPaths, sizeof(configSearchPaths) / sizeof(configSearchPaths[0]));
-
-
-        cfg.CopyToStartupParams(systemInitParams);
-
-        systemInitParams.bDedicatedServer = true;
-        systemInitParams.bEditor = false;
-        systemInitParams.bExecuteCommandLine = false;
-        systemInitParams.bMinimal = true;
-        systemInitParams.bSkipPhysics = true;
-        systemInitParams.waitForConnection = false;
-        systemInitParams.bNoRandom = false;
-        systemInitParams.bPreview = true;
-        systemInitParams.bShaderCacheGen = false;
-        systemInitParams.bSkipConsole = false;
-        systemInitParams.bSkipFont = true;
-        systemInitParams.bSkipNetwork = true;
-        systemInitParams.bSkipRenderer = true;
-        systemInitParams.bTesting = false;
-        systemInitParams.bTestMode = false;
-        systemInitParams.bSkipMovie = true;
-        systemInitParams.bSkipAnimation = true;
-        systemInitParams.bSkipScriptSystem = true;
-        systemInitParams.bToolMode = true;
-        systemInitParams.sLogFileName = logFile.c_str();
-        systemInitParams.autoBackupLogs = false;
-        systemInitParams.pSharedEnvironment = AZ::Environment::GetInstance();
-        systemInitParams.bUnattendedMode = config.GetAsBool("unattended", false, false);
+        // If RC is running inside a .app (like it does on macOS inside the AssetProcessor.app bundle)
+        // we need to look a few levels higher than the default of 3
+        const int maxLevelsToSearchUp = 6;
+        CEngineConfig cfg(configSearchPaths, sizeof(configSearchPaths) / sizeof(configSearchPaths[0]), maxLevelsToSearchUp);
 
         //allow override from commandline
         string gameName = config.GetAsString("gamesubdirectory", "", "");
@@ -2438,32 +2112,30 @@ int __cdecl main_impl(int argc, char** argv, char** envp)
             cfg.m_gameFolder = gameName;
         }
 
-        rc.InitSystem(systemInitParams);
-
         // only after installing and setting those up, do we install our handler becuase perforce does this too...
 #if defined(AZ_PLATFORM_WINDOWS)
         SetConsoleCtrlHandler((PHANDLER_ROUTINE)CtrlHandlerRoutine, TRUE);
-#elif defined(AZ_PLATFORM_APPLE) || defined(AZ_PLATFORM_LINUX)
+#elif AZ_TRAIT_OS_PLATFORM_APPLE || defined(AZ_PLATFORM_LINUX)
         signal(SIGINT, CtrlHandlerRoutine);
 #endif
         // and because we're a tool, add the tool folders:
-        if ((gEnv) && (gEnv->pFileIO))
+        if (AZ::IO::FileIOBase* pFileIO = AZ::IO::FileIOBase::GetInstance())
         {
             const char* engineRoot = nullptr;
             AzToolsFramework::ToolsApplicationRequestBus::BroadcastResult(engineRoot, &AzToolsFramework::ToolsApplicationRequests::GetEngineRootPath);
             if (engineRoot != nullptr)
             {
-                gEnv->pFileIO->SetAlias("@engroot@", engineRoot);
+                pFileIO->SetAlias("@engroot@", engineRoot);
             }
             else
             {
-                gEnv->pFileIO->SetAlias("@engroot@", cfg.m_rootFolder.c_str());
+                pFileIO->SetAlias("@engroot@", cfg.m_rootFolder.c_str());
             }
-            gEnv->pFileIO->SetAlias("@devroot@", cfg.m_rootFolder.c_str());
+            pFileIO->SetAlias("@devroot@", cfg.m_rootFolder.c_str());
 
             string gamePath = config.GetAsString("gameroot", "", "");
             string devAssets = (!gamePath.empty()) ? gamePath : string(cfg.m_rootFolder + "/" + cfg.m_gameFolder);
-            gEnv->pFileIO->SetAlias("@devassets@", devAssets.c_str());
+            pFileIO->SetAlias("@devassets@", devAssets.c_str());
 
             string appRootInput = config.GetAsString("approot", "", "");
             string appRoot = (!appRootInput.empty()) ? appRootInput : ResourceCompiler::GetAppRootPathFromGameRoot(devAssets);
@@ -2476,7 +2148,7 @@ int __cdecl main_impl(int argc, char** argv, char** envp)
         // Force the current working directory to be the same as the executable so
         // that we can load any shared libraries that don't have run-time paths in
         // them (I'm looking at you AWS SDK libraries!).
-        QString currentDir =  QDir::currentPath();
+        QString currentDir = QDir::currentPath();
         QDir::setCurrent(QCoreApplication::applicationDirPath());
 
         if (!RegisterConvertors(&rc))
@@ -2533,7 +2205,6 @@ int __cdecl main_impl(int argc, char** argv, char** envp)
         std::vector<RcFile> files;
         if (rc.CollectFilesToCompile(fileSpec, files) && !files.empty())
         {
-            rc.SetupMaxThreads();
             rc.CompileFilesBySingleProcess(files);
         }
         rc.PostBuild();      // e.g. writing statistics files
@@ -2565,7 +2236,7 @@ int __cdecl main_impl(int argc, char** argv, char** envp)
     if (rc.GetNumErrors() || rc.GetNumWarnings())
     {
         RCLog("");
-        RCLog("%d errors, %d warnings.", rc.GetNumErrors(), rc.GetNumWarnings());
+        RCLogSummary("%d errors, %d warnings.", rc.GetNumErrors(), rc.GetNumWarnings());
     }
 
     if (!bExitCodeIsReady)
@@ -2590,6 +2261,42 @@ int __cdecl main_impl(int argc, char** argv, char** envp)
         break;
     }
 
+    return exitCode;
+}
+
+
+//////////////////////////////////////////////////////////////////////////
+int __cdecl main(int argc, char** argv, char** envp)
+{
+#ifdef AZ_TESTS_ENABLED
+    if (argc >= 2 && 0 == azstricmp(argv[1], "--unittest"))
+    {
+        return AzMainUnitTests(argc, argv);
+    }
+#endif // AZ_TESTS_ENABLED
+
+    AZ::Sfmt::Create();
+
+    AZ::AllocatorInstance<AZ::SystemAllocator>::Create();
+    AZ::AllocatorInstance<AZ::LegacyAllocator>::Create();
+    AZ::AllocatorInstance<CryStringAllocator>::Create();
+
+    int exitCode = 1;
+    {
+        AZ::IO::LocalFileIO localFile;
+        AZ::IO::FileIOBase::SetInstance(&localFile);
+        exitCode = rcmain(argc, argv, envp);
+        AZ::IO::FileIOBase::SetInstance(nullptr);
+    }
+
+    AZ::AllocatorInstance<CryStringAllocator>::Destroy();
+    AZ::AllocatorInstance<AZ::LegacyAllocator>::Destroy();
+    AZ::AllocatorInstance<AZ::SystemAllocator>::Destroy();
+
+    AZ::Sfmt::Destroy();
+
+    //////////////////////////////////////////////////////////////////////////
+    AZ::AllocatorManager::Destroy();
     return exitCode;
 }
 
@@ -2676,31 +2383,29 @@ string ResourceCompiler::GetAppRootPathFromGameRoot(const string& gameRootPath)
 //////////////////////////////////////////////////////////////////////////
 void ResourceCompiler::QueryVersionInfo()
 {
-#if defined(AZ_PLATFORM_WINDOWS)
-    wchar_t moduleNameW[MAX_PATH];
+
+    char moduleName[AZ_MAX_PATH_LEN] = {'\0'};
+
+    AZ::Utils::GetExecutablePathReturnType executablePathResult =  AZ::Utils::GetExecutablePath(moduleName,AZ_ARRAY_SIZE(moduleName));
+    switch (executablePathResult.m_pathStored)
     {
-        const int bufferCharCount = sizeof(moduleNameW) / sizeof(moduleNameW[0]);
-        const int charCount = GetModuleFileNameW(NULL, moduleNameW, bufferCharCount);
-        if (charCount <= 0 || charCount >= bufferCharCount)
-        {
+        case AZ::Utils::ExecutablePathResult::BufferSizeNotLargeEnough:
+            printf("RC QueryVersionInfo(): Buffer size not large enough to store module path");
+            exit(eRcExitCode_FatalError);
+
+        case AZ::Utils::ExecutablePathResult::GeneralError:
             printf("RC QueryVersionInfo(): fatal error");
             exit(eRcExitCode_FatalError);
-        }
-        moduleNameW[charCount] = 0;
-    }
-    m_exePath = PathHelpers::GetAbsoluteAsciiPath(moduleNameW);
-#elif defined(AZ_PLATFORM_APPLE)
-    char moduleName[MAX_PATH];
-    uint32_t bufferCharCount = sizeof(moduleName) / sizeof(moduleName[0]);
-    if (_NSGetExecutablePath(moduleName, &bufferCharCount))
-    {
-        printf("RC QueryVersionInfo(): fatal error");
-        exit(eRcExitCode_FatalError);
-    }
-    m_exePath = moduleName;
-#endif
 
-    
+        case AZ::Utils::ExecutablePathResult::Success:
+            m_exePath = moduleName;
+            break;
+
+        default:
+            printf("RC QueryVersionInfo(): unknown error");
+            exit(eRcExitCode_FatalError);
+    }
+
     if (m_exePath.empty())
     {
         printf("RC module name: fatal error");
@@ -2709,12 +2414,14 @@ void ResourceCompiler::QueryVersionInfo()
     m_exePath = PathHelpers::AddSeparator(PathHelpers::GetDirectory(m_exePath));
 
 #if defined(AZ_PLATFORM_WINDOWS)
+
     DWORD handle;
     char ver[1024 * 8];
-    const int verSize = GetFileVersionInfoSizeW(moduleNameW, &handle);
+    const int verSize = GetFileVersionInfoSizeA(moduleName, &handle);
+
     if (verSize > 0 && verSize <= sizeof(ver))
     {
-        GetFileVersionInfoW(moduleNameW, 0, sizeof(ver), ver);
+        GetFileVersionInfoA(moduleName, 0, sizeof(ver), ver);
         VS_FIXEDFILEINFO* vinfo;
         UINT len;
         VerQueryValue(ver, "\\", (void**)&vinfo, &len);
@@ -2755,7 +2462,7 @@ void ResourceCompiler::InitPaths()
         }
         m_tempPath = PathHelpers::AddSeparator(m_tempPath);
     }
-#elif defined(AZ_PLATFORM_APPLE) || defined(AZ_PLATFORM_LINUX)
+#elif AZ_TRAIT_OS_PLATFORM_APPLE || defined(AZ_PLATFORM_LINUX)
     //The path supplied by the first environment variable found in the
     //list TMPDIR, TMP, TEMP, TEMPDIR. If none of these are found, "/tmp".
     //Another possibility is using QTemporaryDir for this work.
@@ -2788,17 +2495,40 @@ void ResourceCompiler::InitPaths()
     }
     m_initialCurrentDir = PathHelpers::AddSeparator(m_initialCurrentDir);
 
-    // Add Bin64 (one level up from rc.exe) to the path, so child dlls
-    // can find engine or dependency dlls.
+    // Prepend Bin64 (one level up from rc.exe) to the path, so child dlls
+    // can find engine or dependency dlls. -> Prepend so that our directory gets searched first!
 #if defined(AZ_PLATFORM_WINDOWS)
     char pathEnv[s_environmentBufferSize] = {'\0'};
     GetEnvironmentVariable("PATH", pathEnv, s_environmentBufferSize);
-    string pathEnvNew = pathEnv;
-    pathEnvNew.append(";");
-    pathEnvNew.append(m_exePath);
-    pathEnvNew.append("..\\");
+
+    string pathEnvNew = m_exePath;
+    pathEnvNew.append("..\\;");
+    pathEnvNew.append(pathEnv);
+
     SetEnvironmentVariable("PATH", pathEnvNew.c_str());
-#elif defined(AZ_PLATFORM_APPLE) || defined(AZ_PLATFORM_LINUX)
+
+    // On Windows, force it to load dlls from the directory that the executable is in
+    // and from the Bin64* directory one up, if it's there.
+    // That way all of the dlls that RC uses don't have to be copied into the RC
+    // sub-directory to work
+    QDir tempDir(m_exePath.c_str());
+    tempDir.cdUp();
+    if (tempDir.dirName().contains("Bin64"))
+    {
+        // Calling this forces default dll loading to only occur from and in the following order:
+        // 1) the directory containing the currently loading dll (in this case, dll dependent)
+        // 2) the host exe's directory (Bin64./rc
+        // 3) Directories registered with AddDllDirectory (Bin64*, added below)
+        // 4) System32 (usually C:\Windows\System32)
+        //
+        // This should make it so that the current working directory no longer matters, and things
+        // referenced on the environment PATH variable won't accidentally get loaded instead of
+        // from our directories.
+        // https://msdn.microsoft.com/en-us/library/windows/desktop/hh310515(v=vs.85).aspx
+        SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
+        AddDllDirectory(tempDir.absolutePath().toStdWString().c_str());
+    }
+#elif AZ_TRAIT_OS_PLATFORM_APPLE || defined(AZ_PLATFORM_LINUX)
     const char * pathEnv = getenv("PATH");
     string pathEnvNew = pathEnv;
     pathEnvNew.append(":");
@@ -2813,10 +2543,22 @@ bool ResourceCompiler::LoadIniFile()
 {
 #if defined(AZ_PLATFORM_WINDOWS)
     const string filename = PathHelpers::ToDosPath(m_exePath) + m_filenameRcIni;
+#elif defined(AZ_PLATFORM_MAC)
+    // Handle the case where RC is inside an App Bundle (for the Editor or AssetProcessor)
+    string filename = PathHelpers::ToUnixPath(m_exePath);
+    string::size_type appBundleDirPosition = filename.rfind(".app");
+    if (appBundleDirPosition != string::npos)
+    {
+        // ini file should be in the Resources directory. Doing the substr cuts
+        // off the .app part so add it back in as well.
+        filename = filename.substr(0, appBundleDirPosition);
+        filename += ".app/Contents/Resources/";
+    }
+    filename = filename + m_filenameRcIni;
 #else
     const string filename = PathHelpers::ToUnixPath(m_exePath) + m_filenameRcIni;
 #endif
-    
+
     RCLog("Loading \"%s\"", filename.c_str());
 
     if (!FileUtil::FileExists(filename.c_str()))
@@ -2838,42 +2580,6 @@ bool ResourceCompiler::LoadIniFile()
 }
 
 
-void ResourceCompiler::InitSystem(SSystemInitParams& startupParams)
-{
-    m_pSystem = std::unique_ptr<ISystem>(startupParams.pSystem);
-
-
-    if (!startupParams.pSystem)
-    {
-#if !defined(AZ_MONOLITHIC_BUILD)
-#if defined(AZ_PLATFORM_APPLE_OSX)
-        m_systemDll = CryLoadLibrary("../libCrySystem.dylib");
-#elif defined(AZ_PLATFORM_LINUX)
-        m_systemDll = CryLoadLibrary("../libCrySystem.so");
-#else.
-        m_systemDll = CryLoadLibrary("../crysystem.dll");
-#endif
-        if (!m_systemDll)
-        {
-            return;
-        }
-        PFNCREATESYSTEMINTERFACE CreateSystemInterface =
-            (PFNCREATESYSTEMINTERFACE)CryGetProcAddress(m_systemDll, "CreateSystemInterface");
-#endif // !AZ_MONOLITHIC_BUILD
-
-        // initialize the system
-        m_pSystem = std::unique_ptr<ISystem>(CreateSystemInterface(startupParams));
-
-        if (!m_pSystem)
-        {
-            return;
-        }
-    }
-
-    ModuleInitISystem(m_pSystem.get(), "ResourceCompiler"); // Needed by GetISystem();
-}
-
-
 //////////////////////////////////////////////////////////////////////////
 void ResourceCompiler::Init(Config& config)
 {
@@ -2885,6 +2591,8 @@ void ResourceCompiler::Init(Config& config)
     m_startTime = clock();
     m_bTimeLogging = false;
 
+    m_bUseFastestDecompressionCodec = config.GetAsBool("use_fastest", false,false);
+
     InitLogs(config);
     SetRCLog(this);
 }
@@ -2893,15 +2601,6 @@ void ResourceCompiler::Init(Config& config)
 void ResourceCompiler::UnregisterConvertors()
 {
     m_extensionManager.UnregisterAll();
-
-    for (HMODULE pluginDll : m_loadedPlugins)
-    {
-        FnBeforeUnloadDLL fnBeforeUnload = (FnBeforeUnloadDLL)CryGetProcAddress(pluginDll, "BeforeUnloadDLL");
-        if (fnBeforeUnload)
-        {
-            (*fnBeforeUnload)();
-        }
-    }
 
     // let the before unload functions for all DLLs complete before you unload any of them
     for (HMODULE pluginDll : m_loadedPlugins)
@@ -2988,65 +2687,6 @@ static int ComputeExpression(
 }
 
 //////////////////////////////////////////////////////////////////////////
-static int GetAParallelOption(
-    const IConfig* a_config,
-    const char* a_optionName,
-    int a_processCpuCoreCount,
-    int a_processLogicalProcessorCount,
-    int a_valueIfNotSpecified,
-    int a_valueIfEmpty,
-    int a_minValue,
-    int a_maxValue,
-    string& message)
-{
-    int result = -1;
-
-    const string optionValue = a_config->GetAsString(a_optionName, "?", "");
-
-    if (optionValue.empty())
-    {
-        message.Format("/%s specified without value.", a_optionName);
-        result = a_valueIfEmpty;
-    }
-    else if (optionValue[0] == '?')
-    {
-        message.Format("/%s was not specified.", a_optionName);
-        result = a_valueIfNotSpecified;
-    }
-    else
-    {
-        const int expressionResult = ComputeExpression(a_optionName, a_processCpuCoreCount, a_processLogicalProcessorCount, optionValue, message);
-        if (!message.empty())
-        {
-            result = a_valueIfNotSpecified;
-        }
-        else if (expressionResult < a_minValue)
-        {
-            message.Format("/%s specified with too small value %d: '%s'.", a_optionName, expressionResult, optionValue.c_str());
-            result = a_minValue;
-        }
-        else if (expressionResult > a_maxValue)
-        {
-            message.Format("/%s specified with too big value %d: '%s'.", a_optionName, expressionResult, optionValue.c_str());
-            result = a_maxValue;
-        }
-        else
-        {
-            message.Format("/%s specified with value %d: '%s'.", a_optionName, expressionResult, optionValue.c_str());
-            result = expressionResult;
-        }
-    }
-
-    if ((result != 1) && a_config->GetAsBool("validate", false, true))
-    {
-        message.Format("/%s forced to 1 because RC is in resource validation mode (see /validate).", a_optionName);
-        result = 1;
-    }
-
-    return result;
-}
-
-//////////////////////////////////////////////////////////////////////////
 static unsigned int CountBitsSetTo1(const DWORD_PTR val)
 {
     unsigned int result = 0;
@@ -3059,91 +2699,9 @@ static unsigned int CountBitsSetTo1(const DWORD_PTR val)
 }
 
 //////////////////////////////////////////////////////////////////////////
-void ResourceCompiler::SetupMaxThreads()
+void ResourceCompiler::SetComplilingFileInfo(RcCompileFileInfo* compileFileInfo)
 {
-    const IConfig* const config = &m_multiConfig.getConfig();
-
-    {
-        unsigned int numCoresInSystem = 0;
-        unsigned int numCoresAvailableToProcess = 0;
-#if defined(AZ_PLATFORM_WINDOWS)
-        GetNumCPUCores(numCoresInSystem, numCoresAvailableToProcess);
-#else
-        //TODO: Needs cross platform support in order to use multithreading properly
-#endif
-        if (numCoresAvailableToProcess <= 0)
-        {
-            numCoresAvailableToProcess = 1;
-        }
-
-        unsigned int numLogicalProcessorsAvailableToProcess = 0;
-        {
-            DWORD_PTR processAffinity = 0;
-            DWORD_PTR systemAffinity = 0;
-#if defined(AZ_PLATFORM_WINDOWS)
-            GetProcessAffinityMask(GetCurrentProcess(), &processAffinity, &systemAffinity);
-#else
-            //TODO: Needs cross platform support
-#endif
-
-            numLogicalProcessorsAvailableToProcess = CountBitsSetTo1(processAffinity);
-
-            if (numLogicalProcessorsAvailableToProcess < numCoresAvailableToProcess)
-            {
-                numLogicalProcessorsAvailableToProcess = numCoresAvailableToProcess;
-            }
-        }
-
-        unsigned int numLogicalProcessorsInSystem = 0;
-        {
-#if defined(AZ_PLATFORM_WINDOWS)
-            SYSTEM_INFO si;
-            GetSystemInfo(&si);
-            numLogicalProcessorsInSystem = si.dwNumberOfProcessors;
-#else
-            //TODO: Needs cross platform support
-#endif
-        }
-
-        m_systemCpuCoreCount = numCoresInSystem;
-        m_processCpuCoreCount = numCoresAvailableToProcess;
-        m_systemLogicalProcessorCount = numLogicalProcessorsInSystem;
-        m_processLogicalProcessorCount = numLogicalProcessorsAvailableToProcess;
-    }
-
-    RCLog("");
-    RCLog("CPU cores: %d available (%d in system).",
-        m_processCpuCoreCount,
-        m_systemCpuCoreCount);
-    RCLog("Logical processors: %d available (%d in system).",
-        m_processLogicalProcessorCount,
-        m_systemLogicalProcessorCount);
-
-    string message;
-
-    m_maxThreads = GetAParallelOption(
-            config,
-            "threads",
-            m_processCpuCoreCount,
-            m_processLogicalProcessorCount,
-            1,
-            m_processCpuCoreCount,
-            1,
-            m_processLogicalProcessorCount,
-            message);
-    RCLog("%s Using up to %d thread%s.", message.c_str(), m_maxThreads, ((m_maxThreads > 1) ? "s" : ""));
-
-    RCLog("");
-
-    assert(m_maxThreads >= 1);
-
-    m_pPakManager->SetMaxThreads(m_maxThreads);
-}
-
-//////////////////////////////////////////////////////////////////////////
-int ResourceCompiler::GetMaxThreads() const
-{
-    return m_maxThreads;
+    m_currentRcCompileFileInfo = compileFileInfo;
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -3291,7 +2849,7 @@ void ResourceCompiler::LogV(const IRCLog::EType eType, const char* szFormat, va_
     char str[s_internalBufferSize];
     azvsnprintf(str, s_internalBufferSize, szFormat, args);
     str[s_internalBufferSize - 1] = 0;
-    
+
     // remove non-printable characters except newlines and tabs
     char* p = str;
     while (*p)
@@ -3342,7 +2900,7 @@ void ResourceCompiler::FilterExcludedFiles(std::vector<RcFile>& files)
 {
     const IConfig* const config = &m_multiConfig.getConfig();
 
-    const bool bVerbose = GetVerbosityLevel() > 0;
+    const bool bVerbose = GetVerbosityLevel() > 1;
 
     std::vector<string> excludes;
     {
@@ -3433,7 +2991,101 @@ void ResourceCompiler::FilterExcludedFiles(std::vector<RcFile>& files)
 }
 
 //////////////////////////////////////////////////////////////////////////
-void ResourceCompiler::CopyFiles(const std::vector<RcFile>& files, bool bNoOverwrite)
+void ResourceCompiler::GetFileListRecursively(const ZipDir::FileEntryTree* directory, const AZStd::string& directoryName, AZStd::vector<AZStd::string>& filenames) const
+{
+    //Get all the files in the current directory.
+    ZipDir::FileEntryTree::FileMap::const_iterator iterFile = directory->GetFileBegin();
+    while (iterFile != directory->GetFileEnd())
+    {
+        AZStd::string fullFileName = directoryName.c_str() + AZStd::string(iterFile->first);
+        filenames.push_back(fullFileName);
+        ++iterFile;
+    }
+
+    //Loop through all the directories and recurse all the way to the end.
+    ZipDir::FileEntryTree::SubdirMap::const_iterator iterDir = directory->GetDirBegin();
+    while (iterDir != directory->GetDirEnd())
+    {
+        const ZipDir::FileEntryTree* subDirectory = iterDir->second;
+        AZStd::string fullDirName;
+        if (directoryName.empty())
+        {
+            fullDirName = iterDir->first;
+        }
+        else
+        {
+            fullDirName = directoryName + AZStd::string(iterDir->first);
+        }
+        AzFramework::StringFunc::Path::AppendSeparator(fullDirName);
+        GetFileListRecursively(subDirectory, fullDirName, filenames);
+        ++iterDir;
+    }
+}
+
+bool ResourceCompiler::RecompressFiles(const string& sourceFileName, const string& destinationFileName)
+{
+    RCLog("Recompressing %s to %s", sourceFileName, destinationFileName);
+
+    AZ::IO::FileIOBase* pFileIO = AZ::IO::FileIOBase::GetInstance();
+    if (pFileIO->Exists(destinationFileName.c_str()))
+    {
+        AZ::IO::Result removeResult = pFileIO->Remove(destinationFileName.c_str());
+        if (removeResult.GetResultCode() != AZ::IO::ResultCode::Success)
+        {
+            RCLog("Recompression failed because Failed to remove %s", destinationFileName.c_str());
+            return false;
+        }
+    }
+
+    IPakSystem* pakSystem = GetPakSystem();
+    AZ_Assert(pakSystem != nullptr, "Invalid IPakSystem in RecompressFiles");
+
+    PakSystemArchive* pSourcePAK = pakSystem->OpenArchive(sourceFileName.c_str());
+    PakSystemArchive* pDestinationPAK = pakSystem->OpenArchive(destinationFileName.c_str());
+
+    AZStd::vector<AZStd::string> filesInPAK;
+    if (pSourcePAK && pDestinationPAK)
+    {
+        RCLog("Opened PAK...");
+
+        GetFileListRecursively(pSourcePAK->zip->GetRoot(), "", filesInPAK);
+        RCLog("Got %d files from PAK for recompression", filesInPAK.size());
+
+        bool success = true;
+        for (AZStd::string& fileInsidePak : filesInPAK)
+        {
+            ZipDir::FileEntry* fileEntry = pSourcePAK->zip->FindFile(fileInsidePak.c_str());
+            unsigned int fileSizeCompressed = fileEntry->desc.lSizeCompressed;
+            unsigned int fileSizeUncompressed = fileEntry->desc.lSizeUncompressed;
+
+            char* bufferCompressed = new char[fileSizeCompressed];
+            char* bufferUncompressed = new char[fileSizeUncompressed];
+            ZipDir::ErrorEnum readResult = pSourcePAK->zip->ReadFile(fileEntry, bufferCompressed, bufferUncompressed);
+            delete[] bufferCompressed; //Not needed anymore.
+            if (readResult != ZipDir::ZD_ERROR_SUCCESS)
+            {
+                success = false;
+                delete[] bufferUncompressed;
+                break;// Exit the for loop.
+            }
+            pDestinationPAK->zip->UpdateFile(fileInsidePak.c_str(), bufferUncompressed, fileSizeUncompressed, ZipFile::METHOD_DEFLATE, 1, fileEntry->GetModificationTime());
+            delete[] bufferUncompressed;
+        }
+
+        pakSystem->CloseArchive(pSourcePAK);
+        pakSystem->CloseArchive(pDestinationPAK);
+
+        RCLog("Recompression completed %s", success ? "successfully" : "unsuccessfully");
+
+        _flushall();
+        return success;
+    }
+    return false;
+}
+
+//////////////////////////////////////////////////////////////////////////
+
+void ResourceCompiler::CopyFiles(const std::vector<RcFile>& files, bool bNoOverwrite, bool recompress)
 {
     const IConfig* const config = &m_multiConfig.getConfig();
 
@@ -3471,7 +3123,7 @@ void ResourceCompiler::CopyFiles(const std::vector<RcFile>& files, bool bNoOverw
 
         ShowProgress(progressString.c_str(), i, numFiles);
 
-        const string srcFilename = PathHelpers::Join(files[i].m_sourceLeftPath, files[i].m_sourceInnerPathAndName);
+        string srcFilename = PathHelpers::Join(files[i].m_sourceLeftPath, files[i].m_sourceInnerPathAndName);
         string trgFilename = PathHelpers::Join(files[i].m_targetLeftPath, files[i].m_sourceInnerPathAndName);
         if (nc.HasRules())
         {
@@ -3491,7 +3143,7 @@ void ResourceCompiler::CopyFiles(const std::vector<RcFile>& files, bool bNoOverw
             }
         }
 
-        if (GetVerbosityLevel() >= 1)
+        if (GetVerbosityLevel() > 1)
         {
             RCLog("Copying %s to %s", srcFilename.c_str(), trgFilename.c_str());
         }
@@ -3520,7 +3172,7 @@ void ResourceCompiler::CopyFiles(const std::vector<RcFile>& files, bool bNoOverw
 
             //////////////////////////////////////////////////////////////////////////
             // Compare source and target files modify timestamps.
-            if (FileUtil::FileTimesAreEqual(srcFilename, trgFilename) && !bRefresh)
+            if (bTargetFileExists && FileUtil::FileTimesAreEqual(srcFilename, trgFilename) && !bRefresh)
             {
                 // Up to date file already exists in target folder
                 ++numFilesUpToDate;
@@ -3542,7 +3194,7 @@ void ResourceCompiler::CopyFiles(const std::vector<RcFile>& files, bool bNoOverw
 
             if (srcMaxSize >= 0)
             {
-                const __int64 fileSize = FileUtil::GetFileSize(srcFilename);
+                const int64 fileSize = FileUtil::GetFileSize(srcFilename);
                 if (fileSize > srcMaxSize)
                 {
                     ++numFilesSkipped;
@@ -3554,8 +3206,33 @@ void ResourceCompiler::CopyFiles(const std::vector<RcFile>& files, bool bNoOverw
 #if defined(AZ_PLATFORM_WINDOWS)
             SetFileAttributes(trgFilename, FILE_ATTRIBUTE_ARCHIVE);
 #endif
-            AZ::IO::LocalFileIO localFileIO;
-            const bool bCopied = (localFileIO.Copy(srcFilename, trgFilename) != 0);
+            bool bCopied = false;
+            bool didAttemptRecompress = false;
+            if (recompress)
+            {
+                //recompressing only makes sense when source is a PAK file.
+                AZStd::string srcExtension;
+                if (AzFramework::StringFunc::Path::GetExtension(srcFilename.c_str(), srcExtension, false))
+                {
+                    //Case Insensitive compare
+                    if (AzFramework::StringFunc::Equal(srcExtension.c_str(), "pak"))
+                    {
+                        didAttemptRecompress = true;
+                        AZ::IO::LocalFileIO localFileIO;
+                        char szFullPathDir[AZ_MAX_PATH_LEN];
+                        if (localFileIO.ConvertToAbsolutePath(trgFilename, szFullPathDir, sizeof(szFullPathDir)))
+                        {
+                            bCopied = RecompressFiles(srcFilename, szFullPathDir);
+                        }
+                    }
+                }
+            }
+
+            if (!didAttemptRecompress)
+            {
+                AZ::IO::LocalFileIO localFileIO;
+                bCopied = (localFileIO.Copy(srcFilename, trgFilename) != 0);
+            }
 
             if (bCopied)
             {
@@ -3656,12 +3333,6 @@ void ResourceCompiler::ScanForAssetReferences(std::vector<string>& outReferences
 {
     const IConfig* const config = &m_multiConfig.getConfig();
 
-    const string targetroot = config->GetAsString("targetroot", "", "");
-    if (targetroot.empty())
-    {
-        return;
-    }
-
     const char* const scanRoot = ".";
 
     RCLog("Scanning for asset references in \"%s\"", scanRoot);
@@ -3740,7 +3411,7 @@ void ResourceCompiler::ScanForAssetReferences(std::vector<string>& outReferences
 #else
             const string dosPath = PathHelpers::ToUnixPath(*it);
 #endif
-            
+
             if (StringHelpers::EqualsIgnoreCase(ext, ddsExt))
             {
                 string fullPath;
@@ -3815,7 +3486,8 @@ void ResourceCompiler::SaveAssetReferences(const std::vector<string>& references
     std::vector<string> excludeMasks;
     StringHelpers::Split(excludeMasksStr, ";", false, excludeMasks);
 
-    FILE* const f = fopen(filename.c_str(), "wt");
+    FILE* f = nullptr;
+    azfopen(&f, filename.c_str(), "wt");
     if (!f)
     {
         RCLogError("Unable to open %s for writing", filename.c_str());
@@ -3843,7 +3515,7 @@ void ResourceCompiler::CleanTargetFolder(bool bUseOnlyInputFiles)
     const IConfig* const config = &m_multiConfig.getConfig();
 
     {
-        const string targetroot = config->GetAsString("targetroot", "", "");
+        const string targetroot = PathHelpers::ToPlatformPath(PathHelpers::CanonicalizePath(config->GetAsString("targetroot", "", "")));
         if (targetroot.empty())
         {
             return;
@@ -3941,7 +3613,7 @@ void ResourceCompiler::CleanTargetFolder(bool bUseOnlyInputFiles)
         {
             RCLog("Deleting file \"%s\"", filename.c_str());
             AZ::IO::LocalFileIO().Remove(filename.c_str());
-            
+
         }
     }
 
@@ -3961,7 +3633,8 @@ void ResourceCompiler::CleanTargetFolder(bool bUseOnlyInputFiles)
         const string filename = FormLogFileName(m_filenameDeletedFileList);
         RCLog("Saving %s", filename.c_str());
 
-        FILE* const f = fopen(filename.c_str(), "wt");
+        FILE* f = nullptr;
+        azfopen(&f, filename.c_str(), "wt");
         if (f)
         {
             for (size_t i = 0; i < deletedTargetFiles.size(); ++i)
@@ -4263,7 +3936,7 @@ int ResourceCompiler::EvaluateJobXmlNode(CPropertyVars& properties, XmlNodeRef& 
 
             string propValue;
             properties.GetProperty(key, propValue);
-            if (_stricmp(value, propValue.c_str()) == 0)
+            if (azstricmp(value, propValue.c_str()) == 0)
             {
                 // match.
                 bIf = true;
@@ -4313,22 +3986,22 @@ int ResourceCompiler::EvaluateJobXmlNode(CPropertyVars& properties, XmlNodeRef& 
             string valueStr = value;
             properties.ExpandProperties(valueStr);
 
-            if (_stricmp(key, "input") == 0)
+            if (azstricmp(key, "input") == 0)
             {
                 jobLog += string("/") + key + "=" + valueStr + " ";
                 continue;
             }
-            else if (_stricmp(key, "clean_targetroot") == 0)
+            else if (azstricmp(key, "clean_targetroot") == 0)
             {
                 bCleanTargetRoot = true;
                 continue;
             }
-            else if (_stricmp(key, "refs_scan") == 0)
+            else if (azstricmp(key, "refs_scan") == 0)
             {
                 RCLogError("refs_scan is not supported anymore");
                 return eRcExitCode_Error;
             }
-            else if (_stricmp(key, "refs_save") == 0)
+            else if (azstricmp(key, "refs_save") == 0)
             {
                 if (valueStr.empty())
                 {
@@ -4338,17 +4011,17 @@ int ResourceCompiler::EvaluateJobXmlNode(CPropertyVars& properties, XmlNodeRef& 
                 refsSaveFilename = valueStr;
                 continue;
             }
-            else if (_stricmp(key, "refs_root") == 0)
+            else if (azstricmp(key, "refs_root") == 0)
             {
                 refsRoot = valueStr;
                 continue;
             }
-            else if (_stricmp(key, "refs_save_include") == 0)
+            else if (azstricmp(key, "refs_save_include") == 0)
             {
                 refsSaveInclude = valueStr;
                 continue;
             }
-            else if (_stricmp(key, "refs_save_exclude") == 0)
+            else if (azstricmp(key, "refs_save_exclude") == 0)
             {
                 refsSaveExclude = valueStr;
                 continue;
@@ -4389,8 +4062,12 @@ int ResourceCompiler::EvaluateJobXmlNode(CPropertyVars& properties, XmlNodeRef& 
             std::vector<RcFile> files;
             if (CollectFilesToCompile(fileSpec, files) && !files.empty())
             {
-                SetupMaxThreads();
-                CompileFilesBySingleProcess(files);
+                bool result = CompileFilesBySingleProcess(files);
+                if (!result)
+                {
+                    RCLogError("Error: Failed to compile files");
+                    return eRcExitCode_Error;
+                }
             }
         }
         else
@@ -4470,7 +4147,7 @@ void ResourceCompiler::LogMemoryUsage(bool bReportProblemsOnly)
         RCLogError("Cannot obtain memory info");
         return;
     }
-    
+
     static const float megabyte = 1024 * 1024;
     const float peakSizeMb = p.PeakWorkingSetSize / megabyte;
 #if defined(WIN64)
@@ -4511,6 +4188,98 @@ void ResourceCompiler::LogMemoryUsage(bool bReportProblemsOnly)
 #endif
 }
 
+void ResourceCompiler::RegisterDefaultKeys()
+{
+    RegisterKey("_debug", "");   // hidden key for debug-related activities. parsing is module-dependent and subject to change without prior notice.
+
+    RegisterKey("wait",
+        "wait for an user action on start and/or finish of RC:\n"
+        "0-don't wait (default),\n"
+        "1 or empty-wait for a key pressed on finish,\n"
+        "2-pop up a message box and wait for the button pressed on finish,\n"
+        "3-pop up a message box and wait for the button pressed on start,\n"
+        "4-pop up a message box and wait for the button pressed on start and on finish\n");
+    RegisterKey("wx", "pause and display message box in case of warning or error");
+    RegisterKey("recursive", "traverse input directory with sub folders");
+    RegisterKey("refresh", "force recompilation of resources with up to date timestamp");
+    RegisterKey("p", "to specify platform (for supported names see [_platform] sections in ini)");
+    RegisterKey("pi", "provides the platform id from the Asset Processor");
+    RegisterKey("statistics", "log statistics to rc_stats_* files");
+    RegisterKey("dependencies",
+        "Use it to specify a file with dependencies to be written.\n"
+        "Each line in the file will contain an input filename\n"
+        "and an output filename for every file written by ");
+    RegisterKey("clean_targetroot", "When 'targetroot' switch specified will clean up this folder after rc runs, to delete all files that were not processed");
+    RegisterKey("verbose", "to control amount of information in logs: 0-default, 1-detailed, 2-very detailed, etc");
+    RegisterKey("quiet", "to suppress all printouts");
+    RegisterKey("skipmissing", "do not produce warnings about missing input files");
+    RegisterKey("logfiles", "to suppress generating log file rc_log.log");
+    RegisterKey("logprefix", "prepends this prefix to every log file name used (by default the prefix is the exe's folder).");
+    RegisterKey("logtime", "logs time passed: 0=off, 1=on (default)");
+    RegisterKey("gameroot", "The root of the current game project.  Used to find files related to the current game.");
+    RegisterKey("watchfolder", "The watched root folder that this file is located in.  Used to produce the relative asset name.");
+    RegisterKey("nosourcecontrol", "Boolean - if true, disables initialization of source control.  Disabling Source Control in the editor automatically disables it here, too.");
+    RegisterKey("sourceroot", "list of source folders separated by semicolon");
+    RegisterKey("targetroot", "to define the destination folder. note: this folder and its subtrees will be excluded from the source files scanning process");
+    RegisterKey("targetnameformat",
+        "Use it to specify format of the output filenames.\n"
+        "syntax is /targetnameformat=\"<pair[;pair[;pair[...]]]>\" where\n"
+        "<pair> is <mask>,<resultingname>.\n"
+        "<mask> is a name consisting of normal and wildcard chars.\n"
+        "<resultingname> is a name consisting of normal chars and special strings:\n"
+        "{0} filename of a file matching the mask,\n"
+        "{1} part of the filename matching the first wildcard of the mask,\n"
+        "{2} part of the filename matching the second wildcard of the mask,\n"
+        "and so on.\n"
+        "A filename will be processed by first pair that has matching mask.\n"
+        "If no any match for a filename found, then the filename stays\n"
+        "unmodified.\n"
+        "Example: /targetnameformat=\"*alfa*.txt,{1}beta{2}.txt\"");
+    RegisterKey("filesperprocess",
+        "to specify number of files converted by one process in one step\n"
+        "default is 100. this option is unused if /processes is 0.");
+    RegisterKey("failonwarnings", "return error code if warnings are encountered");
+
+    RegisterKey("help", "lists all usable keys of the ResourceCompiler with description");
+    RegisterKey("version", "shows version and exits");
+    RegisterKey("overwriteextension", "ignore existing file extension and use specified convertor");
+    RegisterKey("overwritefilename", "use the filename for output file (folder part is not affected)");
+
+    RegisterKey("listfile", "Specify List file, List file can contain file lists from zip files like: @Levels\\Test\\level.pak|resourcelist.txt");
+    RegisterKey("listformat",
+        "Specify format of the file name read from the list file. You may use special strings:\n"
+        "{0} the file name from the file list,\n"
+        "{1} text matching first wildcard from the input file mask,\n"
+        "{2} text matching second wildcard from the input file mask,\n"
+        "and so on.\n"
+        "Also, you can use multiple format strings, separated by semicolons.\n"
+        "In this case multiple filenames will be generated, one for\n"
+        "each format string.");
+    RegisterKey("copyonly", "copy source files to target root without processing");
+    RegisterKey("copyonlynooverwrite", "copy source files to target root without processing, will not overwrite if target file exists");
+    RegisterKey("outputproductdependencies", "output product dependencies");
+    RegisterKey("name_as_crc32", "When creating Pak File outputs target filename as the CRC32 code without the extension");
+    RegisterKey("exclude", "List of file exclusions for the command, separated by semicolon, may contain wildcard characters");
+    RegisterKey("exclude_listfile", "Specify a file which contains a list of files to be excluded from command input");
+
+    RegisterKey("validate", "When specified RC is running in a resource validation mode");
+    RegisterKey("MailServer", "SMTP Mail server used when RC needs to send an e-mail");
+    RegisterKey("MailErrors", "0=off 1=on When enabled sends an email to the user who checked in asset that failed validation");
+    RegisterKey("cc_email", "When sending mail this address will be added to CC, semicolon separates multiple addresses");
+    RegisterKey("job", "Process a job xml file");
+    RegisterKey("jobtarget", "Run only a job with specific name instead of whole job-file. Used only with /job option");
+    RegisterKey("unittest", "Run the unit tests for resource compiler and nothing else");
+    RegisterKey("gamesubdirectory", "The relative path to game folder from root from @devroot@.  Defines @devassets@ when concatenated with @devroot@.  Used to find files related to the this game.");
+    RegisterKey("unattended", "Prevents RC from opening any dialogs or message boxes");
+    RegisterKey("createjobs", "Instructs RC to read the specified input file (a CreateJobsRequest) and output a CreateJobsResponse");
+    RegisterKey("port", "Specifies the port that should be used to connect to the asset processor.  If not set, the default from the bootstrap cfg will be used instead");
+    RegisterKey("approot", "Specifies a custom directory for the engine root path. This path should contain bootstrap.cfg.");
+    RegisterKey("branchtoken", "Specifies a branchtoken that should be used by the RC to negotiate with the asset processor. if not set it will be set from the bootstrap file.");
+    RegisterKey("recompress", "Recompress a pack file during a copy job using the multi-variant process which picks the fastest decompressor");
+    RegisterKey("use_fastest", "Checks every compressor and uses the one that decompresses the data fastest when adding files to a PAK");
+    RegisterKey("skiplevelpaks", "Prevents RC from adding level related pak files to the auxiliary contents during auxiliary content creation step.");
+}
+
 void ResourceCompiler::AddUnitTest(FnRunUnitTests unitTestFunction)
 {
     if (!unitTestFunction)
@@ -4542,29 +4311,3 @@ int ResourceCompiler::RunUnitTests()
     return unitTestHelper.AllUnitTestsPassed() ? eRcExitCode_Success : eRcExitCode_Error;
 }
 
-// here we wrap main(...) so that we can absolutely ensure any objects created on the stack during the actual main are gone by the time
-// we leave it and memory can be freed.
-int __cdecl main(int argc, char** argv, char** envp)
-{
-#ifdef AZ_TESTS_ENABLED
-    if (argc == 2 && 0 == stricmp(argv[1], "--unittest"))
-    {
-        return AzMainUnitTests();
-    }
-#endif // AZ_TESTS_ENABLED
-
-    // here we are wrapping main to handle memory management around it.
-    if (!AZ::AllocatorInstance<AZ::SystemAllocator>::IsReady())
-    {
-        AZ::AllocatorInstance<AZ::SystemAllocator>::Create();
-    }
-
-    int exitCode = main_impl(argc, argv, envp);
-
-    if (AZ::AllocatorInstance<AZ::SystemAllocator>::IsReady())
-    {
-        AZ::AllocatorInstance<AZ::SystemAllocator>::Destroy();
-    }
-
-    return exitCode;
-}

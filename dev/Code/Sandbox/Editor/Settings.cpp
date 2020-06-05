@@ -109,7 +109,9 @@ SEditorSettings::SEditorSettings()
     bSettingsManagerMode = false;
 
     undoLevels = 50;
+    m_undoSliceOverrideSaveValue = false;
     bShowDashboardAtStartup = true;
+    m_showCircularDependencyError = true;
     bAutoloadLastLevelAtStartup = false;
     bMuteAudio = false;
     bEnableGameModeVR = false;
@@ -125,7 +127,7 @@ SEditorSettings::SEditorSettings()
 
     bAutoSaveTagPoints = false;
 
-    bNavigationContinuousUpdate = true;
+    bNavigationContinuousUpdate = false;
     bNavigationShowAreas = true;
     bNavigationDebugDisplay = false;
     bVisualizeNavigationAccessibility = false;
@@ -165,6 +167,7 @@ SEditorSettings::SEditorSettings()
     cameraRotateSpeed = 1;
     cameraFastMoveSpeed = 2;
     stylusMode = false;
+    restoreViewportCamera = true;
     wheelZoomSpeed = 1;
     invertYRotation = false;
     invertPan = false;
@@ -173,11 +176,6 @@ SEditorSettings::SEditorSettings()
     bGeometryBrowserPanel = true;
     bBackupOnSave = true;
     backupOnSaveMaxCount = 3;
-    bFlowGraphMigrationEnabled = true;
-    bFlowGraphShowNodeIDs = false;
-    bFlowGraphShowToolTip = true;
-    bFlowGraphEdgesOnTopOfNodes = false;
-    bFlowGraphHighlightEdges = true;
     bApplyConfigSpecInEditor = true;
     useLowercasePaths = 0;
     showErrorDialogOnLoad = 1;
@@ -187,6 +185,7 @@ SEditorSettings::SEditorSettings()
     bLayerDoubleClicking = false;
 
     enableSceneInspector = false;
+    enableLegacyUI = false;
 
     strStandardTempDirectory = "Temp";
     strEditorEnv = "Editor/Editor.env";
@@ -198,7 +197,7 @@ SEditorSettings::SEditorSettings()
     freezeReadOnly = true;
     frozenSelectable = false;
 
-#if defined(AZ_PLATFORM_APPLE)
+#if AZ_TRAIT_OS_PLATFORM_APPLE
     textEditorForScript = "TextEdit";
     textEditorForShaders = "TextEdit";
     textEditorForBspaces = "TextEdit";
@@ -236,11 +235,6 @@ SEditorSettings::SEditorSettings()
     sAssetBrowserSettings.bAutoFilterFromViewportSelection = false;
 
     //////////////////////////////////////////////////////////////////////////
-    // FlowGraph
-    //////////////////////////////////////////////////////////////////////////
-    showFlowgraphNotification = true;
-
-    //////////////////////////////////////////////////////////////////////////
     // Mannequin settings
     //////////////////////////////////////////////////////////////////////////
     mannequinSettings.trackSize = kMannequinTrackSizeDefault;
@@ -270,6 +264,8 @@ SEditorSettings::SEditorSettings()
     g_TemporaryLevelName = nullptr;
 
     sMetricsSettings.bEnableMetricsTracking = true;
+
+    sliceSettings.dynamicByDefault = false;
 
     bEnableUI2 = false;
 
@@ -500,7 +496,9 @@ void SEditorSettings::Save()
 
     // Save settings to registry.
     SaveValue("Settings", "UndoLevels", undoLevels);
+    SaveValue("Settings", "UndoSliceOverrideSaveValue", m_undoSliceOverrideSaveValue);
     SaveValue("Settings", "ShowDashboardAtStartup", bShowDashboardAtStartup);
+    SaveValue("Settings", "ShowCircularDependencyError", m_showCircularDependencyError);
     SaveValue("Settings", "AutoloadLastLevelAtStartup", bAutoloadLastLevelAtStartup);
     SaveValue("Settings", "MuteAudio", bMuteAudio);
     SaveValue("Settings", "AutoBackup", autoBackupEnabled);
@@ -510,6 +508,7 @@ void SEditorSettings::Save()
     SaveValue("Settings", "CameraMoveSpeed", cameraMoveSpeed);
     SaveValue("Settings", "CameraRotateSpeed", cameraRotateSpeed);
     SaveValue("Settings", "StylusMode", stylusMode);
+    SaveValue("Settings", "RestoreViewportCamera", restoreViewportCamera);
     SaveValue("Settings", "WheelZoomSpeed", wheelZoomSpeed);
     SaveValue("Settings", "InvertYRotation", invertYRotation);
     SaveValue("Settings", "InvertPan", invertPan);
@@ -540,6 +539,8 @@ void SEditorSettings::Save()
     SaveValue("Settings", "LayerDoubleClicking", bLayerDoubleClicking);
 
     SaveValue("Settings", "EnableSceneInspector", enableSceneInspector);
+    SaveValue("Settings", "EnableLegacyUI", enableLegacyUI);
+    SaveValue("Settings", "ViewportInteractionModel", newViewportInteractionModel);
     
     //////////////////////////////////////////////////////////////////////////
     // Viewport settings.
@@ -608,52 +609,6 @@ void SEditorSettings::Save()
     SaveValue("Settings\\Snap", "GridGetFromSelected", snap.bGridGetFromSelected);
     //////////////////////////////////////////////////////////////////////////
 
-    //////////////////////////////////////////////////////////////////////////
-    // HyperGraph Colors
-    //////////////////////////////////////////////////////////////////////////
-    SaveValue("Settings\\HyperGraph", "Opacity", hyperGraphColors.opacity);
-    SaveValue("Settings\\HyperGraph", "ColorArrow", hyperGraphColors.colorArrow);
-    SaveValue("Settings\\HyperGraph", "ColorInArrowHighlighted", hyperGraphColors.colorInArrowHighlighted);
-    SaveValue("Settings\\HyperGraph", "ColorOutArrowHighlighted", hyperGraphColors.colorOutArrowHighlighted);
-    SaveValue("Settings\\HyperGraph", "ColorPortEdgeHighlighted", hyperGraphColors.colorPortEdgeHighlighted);
-    SaveValue("Settings\\HyperGraph", "ColorArrowDisabled", hyperGraphColors.colorArrowDisabled);
-    SaveValue("Settings\\HyperGraph", "ColorNodeOutline", hyperGraphColors.colorNodeOutline);
-    SaveValue("Settings\\HyperGraph", "ColorNodeBkg", hyperGraphColors.colorNodeBkg);
-    SaveValue("Settings\\HyperGraph", "ColorNodeSelected", hyperGraphColors.colorNodeSelected);
-    SaveValue("Settings\\HyperGraph", "ColorTitleText", hyperGraphColors.colorTitleText);
-    SaveValue("Settings\\HyperGraph", "ColorTitleTextSelected", hyperGraphColors.colorTitleTextSelected);
-    SaveValue("Settings\\HyperGraph", "ColorText", hyperGraphColors.colorText);
-    SaveValue("Settings\\HyperGraph", "ColorBackground", hyperGraphColors.colorBackground);
-    SaveValue("Settings\\HyperGraph", "ColorGrid", hyperGraphColors.colorGrid);
-    SaveValue("Settings\\HyperGraph", "BreakPoint", hyperGraphColors.colorBreakPoint);
-    SaveValue("Settings\\HyperGraph", "BreakPointDisabled", hyperGraphColors.colorBreakPointDisabled);
-    SaveValue("Settings\\HyperGraph", "BreakPointArrow", hyperGraphColors.colorBreakPointArrow);
-    SaveValue("Settings\\HyperGraph", "EntityPortNotConnected", hyperGraphColors.colorEntityPortNotConnected);
-    SaveValue("Settings\\HyperGraph", "Port", hyperGraphColors.colorPort);
-    SaveValue("Settings\\HyperGraph", "PortSelected", hyperGraphColors.colorPortSelected);
-    SaveValue("Settings\\HyperGraph", "EntityTextInvalid", hyperGraphColors.colorEntityTextInvalid);
-    SaveValue("Settings\\HyperGraph", "DownArrow", hyperGraphColors.colorDownArrow);
-    SaveValue("Settings\\HyperGraph", "CustomNodeBkg", hyperGraphColors.colorCustomNodeBkg);
-    SaveValue("Settings\\HyperGraph", "CustomSelectedNodeBkg", hyperGraphColors.colorCustomSelectedNodeBkg);
-    SaveValue("Settings\\HyperGraph", "PortDebugging", hyperGraphColors.colorPortDebugging);
-    SaveValue("Settings\\HyperGraph", "PortDebuggingText", hyperGraphColors.colorPortDebuggingText);
-    SaveValue("Settings\\HyperGraph", "QuickSearchBackground", hyperGraphColors.colorQuickSearchBackground);
-    SaveValue("Settings\\HyperGraph", "QuickSearchResultText", hyperGraphColors.colorQuickSearchResultText);
-    SaveValue("Settings\\HyperGraph", "QuickSearchCountText", hyperGraphColors.colorQuickSearchCountText);
-    SaveValue("Settings\\HyperGraph", "QuickSearchBorder", hyperGraphColors.colorQuickSearchBorder);
-    SaveValue("Settings\\HyperGraph", "ColorDebugNodeTitle", hyperGraphColors.colorDebugNodeTitle);
-    SaveValue("Settings\\HyperGraph", "ColorDebugNode", hyperGraphColors.colorDebugNode);
-
-    //////////////////////////////////////////////////////////////////////////
-    // HyperGraph Expert
-    //////////////////////////////////////////////////////////////////////////
-    SaveValue("Settings\\HyperGraph", "EnableMigration", bFlowGraphMigrationEnabled);
-    SaveValue("Settings\\HyperGraph", "ShowNodeIDs", bFlowGraphShowNodeIDs);
-    SaveValue("Settings\\HyperGraph", "ShowToolTip", bFlowGraphShowToolTip);
-    SaveValue("Settings\\HyperGraph", "EdgesOnTopOfNodes", bFlowGraphEdgesOnTopOfNodes);
-    SaveValue("Settings\\HyperGraph", "HighlightEdges", bFlowGraphHighlightEdges);
-    //////////////////////////////////////////////////////////////////////////
-
     SaveValue("Settings", "TerrainTextureExport", terrainTextureExport);
 
     //////////////////////////////////////////////////////////////////////////
@@ -686,16 +641,12 @@ void SEditorSettings::Save()
     SaveValue("Settings\\AssetBrowser", "AutoFilterFromViewportSelection", sAssetBrowserSettings.bAutoFilterFromViewportSelection);
     SaveValue("Settings\\AssetBrowser", "VisibleColumnNames", sAssetBrowserSettings.sVisibleColumnNames);
     SaveValue("Settings\\AssetBrowser", "ColumnNames", sAssetBrowserSettings.sColumnNames);
-    
-    //////////////////////////////////////////////////////////////////////////
-    // FlowGraph
-    //////////////////////////////////////////////////////////////////////////
-    SaveValue("Settings\\FlowGraph", "ShowFlowGraphNotification", showFlowgraphNotification);
-    
+      
     //////////////////////////////////////////////////////////////////////////
     // Deep Selection Settings
     //////////////////////////////////////////////////////////////////////////
     SaveValue("Settings", "DeepSelectionNearness", deepSelectionSettings.fRange);
+    SaveValue("Settings", "StickDuplicate", deepSelectionSettings.bStickDuplicate);
 
 
     //////////////////////////////////////////////////////////////////////////
@@ -739,6 +690,10 @@ void SEditorSettings::Save()
     //////////////////////////////////////////////////////////////////////////
     SaveValue("Settings\\Metrics", "EnableMetricsTracking",    sMetricsSettings.bEnableMetricsTracking);
 
+    //////////////////////////////////////////////////////////////////////////
+    // Slice settings
+    //////////////////////////////////////////////////////////////////////////
+    SaveValue("Settings\\Slices", "DynamicByDefault", sliceSettings.dynamicByDefault);
 
     //////////////////////////////////////////////////////////////////////////
     // UI 2.0 Settings
@@ -779,7 +734,9 @@ void SEditorSettings::Load()
     QString     strPlaceholderString;
     // Load settings from registry.
     LoadValue("Settings", "UndoLevels", undoLevels);
+    LoadValue("Settings", "UndoSliceOverrideSaveValue", m_undoSliceOverrideSaveValue);  
     LoadValue("Settings", "ShowDashboardAtStartup", bShowDashboardAtStartup);
+    LoadValue("Settings", "ShowCircularDependencyError", m_showCircularDependencyError);
     LoadValue("Settings", "AutoloadLastLevelAtStartup", bAutoloadLastLevelAtStartup);
     LoadValue("Settings", "MuteAudio", bMuteAudio);
     LoadValue("Settings", "AutoBackup", autoBackupEnabled);
@@ -789,6 +746,7 @@ void SEditorSettings::Load()
     LoadValue("Settings", "CameraMoveSpeed", cameraMoveSpeed);
     LoadValue("Settings", "CameraRotateSpeed", cameraRotateSpeed);
     LoadValue("Settings", "StylusMode", stylusMode);
+    LoadValue("Settings", "RestoreViewportCamera", restoreViewportCamera);
     LoadValue("Settings", "WheelZoomSpeed", wheelZoomSpeed);
     LoadValue("Settings", "InvertYRotation", invertYRotation);
     LoadValue("Settings", "InvertPan", invertPan);
@@ -813,7 +771,7 @@ void SEditorSettings::Load()
     LoadValue("Settings", "TemporaryDirectory", strStandardTempDirectory);
     LoadValue("Settings", "EditorEnv", strEditorEnv);
 
-    int consoleBackgroundColorThemeInt;
+    int consoleBackgroundColorThemeInt = (int)consoleBackgroundColorTheme;
     LoadValue("Settings", "ConsoleBackgroundColorTheme", consoleBackgroundColorThemeInt);
     consoleBackgroundColorTheme = (ConsoleColorTheme)consoleBackgroundColorThemeInt;
     if (consoleBackgroundColorTheme != ConsoleColorTheme::Dark && consoleBackgroundColorTheme != ConsoleColorTheme::Light)
@@ -825,6 +783,8 @@ void SEditorSettings::Load()
     LoadValue("Settings", "LayerDoubleClicking", bLayerDoubleClicking);
 
     LoadValue("Settings", "EnableSceneInspector", enableSceneInspector);
+    LoadValue("Settings", "EnableLegacyUI", enableLegacyUI);
+    LoadValue("Settings", "ViewportInteractionModel", newViewportInteractionModel);
     
     //////////////////////////////////////////////////////////////////////////
     // Viewport Settings.
@@ -892,54 +852,6 @@ void SEditorSettings::Load()
     LoadValue("Settings\\Snap", "GridGetFromSelected", snap.bGridGetFromSelected);
     //////////////////////////////////////////////////////////////////////////
 
-    //////////////////////////////////////////////////////////////////////////
-    // HyperGraph
-    //////////////////////////////////////////////////////////////////////////
-    LoadValue("Settings\\HyperGraph", "Opacity", hyperGraphColors.opacity);
-    LoadValue("Settings\\HyperGraph", "ColorArrow", hyperGraphColors.colorArrow);
-    LoadValue("Settings\\HyperGraph", "ColorInArrowHighlighted", hyperGraphColors.colorInArrowHighlighted);
-    LoadValue("Settings\\HyperGraph", "ColorOutArrowHighlighted", hyperGraphColors.colorOutArrowHighlighted);
-    LoadValue("Settings\\HyperGraph", "ColorPortEdgeHighlighted", hyperGraphColors.colorPortEdgeHighlighted);
-    LoadValue("Settings\\HyperGraph", "ColorArrowDisabled", hyperGraphColors.colorArrowDisabled);
-    LoadValue("Settings\\HyperGraph", "ColorNodeOutline", hyperGraphColors.colorNodeOutline);
-    LoadValue("Settings\\HyperGraph", "ColorNodeBkg", hyperGraphColors.colorNodeBkg);
-    LoadValue("Settings\\HyperGraph", "ColorNodeSelected", hyperGraphColors.colorNodeSelected);
-    LoadValue("Settings\\HyperGraph", "ColorTitleText", hyperGraphColors.colorTitleText);
-    LoadValue("Settings\\HyperGraph", "ColorTitleTextSelected", hyperGraphColors.colorTitleTextSelected);
-    LoadValue("Settings\\HyperGraph", "ColorText", hyperGraphColors.colorText);
-    LoadValue("Settings\\HyperGraph", "ColorBackground", hyperGraphColors.colorBackground);
-    LoadValue("Settings\\HyperGraph", "ColorGrid", hyperGraphColors.colorGrid);
-    LoadValue("Settings\\HyperGraph", "BreakPoint", hyperGraphColors.colorBreakPoint);
-    LoadValue("Settings\\HyperGraph", "BreakPointDisabled", hyperGraphColors.colorBreakPointDisabled);
-    LoadValue("Settings\\HyperGraph", "BreakPointArrow", hyperGraphColors.colorBreakPointArrow);
-    LoadValue("Settings\\HyperGraph", "EntityPortNotConnected", hyperGraphColors.colorEntityPortNotConnected);
-    LoadValue("Settings\\HyperGraph", "Port", hyperGraphColors.colorPort);
-    LoadValue("Settings\\HyperGraph", "PortSelected", hyperGraphColors.colorPortSelected);
-    LoadValue("Settings\\HyperGraph", "EntityTextInvalid", hyperGraphColors.colorEntityTextInvalid);
-    LoadValue("Settings\\HyperGraph", "DownArrow", hyperGraphColors.colorDownArrow);
-    LoadValue("Settings\\HyperGraph", "CustomNodeBkg", hyperGraphColors.colorCustomNodeBkg);
-    LoadValue("Settings\\HyperGraph", "CustomSelectedNodeBkg", hyperGraphColors.colorCustomSelectedNodeBkg);
-    LoadValue("Settings\\HyperGraph", "PortDebugging", hyperGraphColors.colorPortDebugging);
-    LoadValue("Settings\\HyperGraph", "PortDebuggingText", hyperGraphColors.colorPortDebuggingText);
-    LoadValue("Settings\\HyperGraph", "QuickSearchBackground", hyperGraphColors.colorQuickSearchBackground);
-    LoadValue("Settings\\HyperGraph", "QuickSearchResultText", hyperGraphColors.colorQuickSearchResultText);
-    LoadValue("Settings\\HyperGraph", "QuickSearchCountText", hyperGraphColors.colorQuickSearchCountText);
-    LoadValue("Settings\\HyperGraph", "QuickSearchBorder", hyperGraphColors.colorQuickSearchBorder);
-    LoadValue("Settings\\HyperGraph", "ColorDebugNodeTitle", hyperGraphColors.colorDebugNodeTitle);
-    LoadValue("Settings\\HyperGraph", "ColorDebugNode", hyperGraphColors.colorDebugNode);
-    //////////////////////////////////////////////////////////////////////////
-
-    //////////////////////////////////////////////////////////////////////////
-    // HyperGraph Expert
-    //////////////////////////////////////////////////////////////////////////
-    LoadValue("Settings\\HyperGraph", "EnableMigration", bFlowGraphMigrationEnabled);
-    LoadValue("Settings\\HyperGraph", "ShowNodeIDs", bFlowGraphShowNodeIDs);
-    LoadValue("Settings\\HyperGraph", "ShowToolTip", bFlowGraphShowToolTip);
-    LoadValue("Settings\\HyperGraph", "EdgesOnTopOfNodes", bFlowGraphEdgesOnTopOfNodes);
-    LoadValue("Settings\\HyperGraph", "HighlightEdges", bFlowGraphHighlightEdges);
-
-    //////////////////////////////////////////////////////////////////////////
-
     LoadValue("Settings", "TerrainTextureExport", terrainTextureExport);
 
     //////////////////////////////////////////////////////////////////////////
@@ -981,14 +893,10 @@ void SEditorSettings::Load()
     }
 
     //////////////////////////////////////////////////////////////////////////
-    // FlowGraph
-    //////////////////////////////////////////////////////////////////////////
-    LoadValue("Settings\\FlowGraph", "ShowFlowGraphNotification", showFlowgraphNotification);
-
-    //////////////////////////////////////////////////////////////////////////
     // Deep Selection Settings
     //////////////////////////////////////////////////////////////////////////
     LoadValue("Settings", "DeepSelectionNearness", deepSelectionSettings.fRange);
+    LoadValue("Settings", "StickDuplicate", deepSelectionSettings.bStickDuplicate);
 
     //////////////////////////////////////////////////////////////////////////
     // Object Highlight Colors
@@ -1047,6 +955,11 @@ void SEditorSettings::Load()
     // Metrics settings
     //////////////////////////////////////////////////////////////////////////
     LoadValue("Settings\\Metrics", "EnableMetricsTracking",    sMetricsSettings.bEnableMetricsTracking);
+
+    //////////////////////////////////////////////////////////////////////////
+    // Slice settings
+    //////////////////////////////////////////////////////////////////////////
+    LoadValue("Settings\\Slices", "DynamicByDefault", sliceSettings.dynamicByDefault);
 
     //////////////////////////////////////////////////////////////////////////
     // UI 2.0 Settings
@@ -1135,33 +1048,25 @@ void SEditorSettings::LoadDefaultGamePaths()
 //////////////////////////////////////////////////////////////////////////
 bool SEditorSettings::BrowseTerrainTexture(bool bIsSave)
 {
-    char path[MAX_PATH] = "";
-    QString fileName;
+    QString path;
+
     if (!terrainTextureExport.isEmpty())
     {
-        fileName = terrainTextureExport;
+        path = Path::GetPath(terrainTextureExport);
     }
     else
     {
-        fileName = "terraintex.bmp";
-        strcpy(path, Path::GamePathToFullPath("").toUtf8().data());
+        path = Path::GetEditingGameDataFolder().c_str();
     }
 
     if (bIsSave)
     {
-        if (CFileUtil::SelectSaveFile("Bitmap Image File (*.bmp)", "bmp", path, fileName))
-        {
-            terrainTextureExport = fileName;
-            return true;
-        }
+        return CFileUtil::SelectSaveFile("Bitmap Image File (*.bmp)", "bmp", path, terrainTextureExport);
     }
     else
-    if (CFileUtil::SelectFile("Bitmap Image File (*.bmp)", path, fileName))
     {
-        terrainTextureExport = fileName;
-        return true;
+        return CFileUtil::SelectFile("Bitmap Image File (*.bmp)", path, terrainTextureExport);
     }
-    return false;
 }
 
 void EnableSourceControl(bool enable)

@@ -17,6 +17,7 @@
 #include <EMotionFX/Source/Attachment.h>
 #include <EMotionFX/Source/ActorManager.h>
 #include <EMotionFX/Source/AnimGraphManager.h>
+#include <EMotionFX/Source/EMotionFXManager.h>
 #include <EMotionFX/Exporters/ExporterLib/Exporter/Exporter.h>
 #include "CommandManager.h"
 #include <AzFramework/API/ApplicationAPI.h>
@@ -43,7 +44,7 @@ namespace CommandSystem
 
 
     // execute
-    bool CommandImportActor::Execute(const MCore::CommandLine& parameters, MCore::String& outResult)
+    bool CommandImportActor::Execute(const MCore::CommandLine& parameters, AZStd::string& outResult)
     {
         // get the actor id from the parameters
         uint32 actorID = MCORE_INVALIDINDEX32;
@@ -52,23 +53,22 @@ namespace CommandSystem
             actorID = parameters.GetValueAsInt("actorID", MCORE_INVALIDINDEX32);
             if (EMotionFX::GetActorManager().FindActorByID(actorID))
             {
-                outResult.Format("Cannot import actor. Actor ID %i is already in use.", actorID);
+                outResult = AZStd::string::format("Cannot import actor. Actor ID %i is already in use.", actorID);
                 return false;
             }
         }
 
         // get the filename of the actor
-        MCore::String filenameValue;
-        parameters.GetValue("filename", "", &filenameValue);
+        AZStd::string filename;
+        parameters.GetValue("filename", "", filename);
         
-        AZStd::string filename = filenameValue.AsChar();
         EBUS_EVENT(AzFramework::ApplicationRequests::Bus, NormalizePathKeepCase, filename);
 
         // check if we have already loaded the actor
         EMotionFX::Actor* actorFromManager = EMotionFX::GetActorManager().FindActorByFileName(filename.c_str());
         if (actorFromManager)
         {
-            outResult = MCore::String(actorFromManager->GetID());
+            AZStd::to_string(outResult, actorFromManager->GetID());
             return true;
         }
 
@@ -89,10 +89,10 @@ namespace CommandSystem
         settings.mDualQuatSkinning              = parameters.GetValueAsBool("dualQuatSkinning",     this);
 
         // try to load the actor
-        EMotionFX::Actor* actor = EMotionFX::GetImporter().LoadActor(filename.c_str(), &settings);
-        if (actor == nullptr)
+        AZStd::shared_ptr<EMotionFX::Actor> actor {EMotionFX::GetImporter().LoadActor(filename.c_str(), &settings)};
+        if (!actor)
         {
-            outResult.Format("Failed to load actor from '%s'. File may not exist at this path or may have incorrect permissions", filename.c_str());
+            outResult = AZStd::string::format("Failed to load actor from '%s'. File may not exist at this path or may have incorrect permissions", filename.c_str());
             return false;
         }
 
@@ -112,7 +112,7 @@ namespace CommandSystem
         // select the actor automatically
         if (parameters.GetValueAsBool("autoSelect", this))
         {
-            GetCommandManager()->ExecuteCommandInsideCommand(MCore::String().Format("Select -actorID %i", actor->GetID()).AsChar(), outResult);
+            GetCommandManager()->ExecuteCommandInsideCommand(AZStd::string::format("Select -actorID %i", actor->GetID()).c_str(), outResult);
         }
 
         // update our render actors
@@ -123,13 +123,16 @@ namespace CommandSystem
         GetCommandManager()->SetWorkspaceDirtyFlag(true);
 
         // return the id of the newly created actor
-        outResult = MCore::String(actor->GetID());
+        AZStd::to_string(outResult, actor->GetID());
+
+        EMotionFX::GetActorManager().RegisterActor(AZStd::move(actor));
+
         return true;
     }
 
 
     // undo the command
-    bool CommandImportActor::Undo(const MCore::CommandLine& parameters, MCore::String& outResult)
+    bool CommandImportActor::Undo(const MCore::CommandLine& parameters, AZStd::string& outResult)
     {
         // get the actor ID
         uint32 actorID = parameters.GetValueAsInt("actorID", MCORE_INVALIDINDEX32);
@@ -142,21 +145,21 @@ namespace CommandSystem
         const bool unselect = parameters.GetValueAsBool("autoSelect", this);
         if (unselect)
         {
-            GetCommandManager()->ExecuteCommandInsideCommand(MCore::String().Format("Unselect -actorID %i", actorID).AsChar(), outResult);
+            GetCommandManager()->ExecuteCommandInsideCommand(AZStd::string::format("Unselect -actorID %i", actorID).c_str(), outResult);
         }
 
         // find the actor based on the given id
-        EMotionFX::Actor* actor = EMotionFX::GetActorManager().FindActorByID(actorID);
+        AZStd::shared_ptr<EMotionFX::Actor> actor = EMotionFX::GetActorManager().FindSharedActorByID(actorID);
         if (actor == nullptr)
         {
-            outResult.Format("Cannot remove actor. Actor ID %i is not valid.", actorID);
+            outResult = AZStd::string::format("Cannot remove actor. Actor ID %i is not valid.", actorID);
             return false;
         }
 
-        actor->Destroy();
+        EMotionFX::GetActorManager().UnregisterActor(actor);
 
         // update our render actors
-        MCore::String updateRenderActorsResult;
+        AZStd::string updateRenderActorsResult;
         GetCommandManager()->ExecuteCommandInsideCommand("UpdateRenderActors", updateRenderActorsResult);
 
         // restore the workspace dirty flag
@@ -175,18 +178,18 @@ namespace CommandSystem
 
         // optional parameters
         GetSyntax().AddParameter("actorID",             "The identification number to give the actor. In case this parameter is not specified the actor manager will automatically set a unique id to the actor.", MCore::CommandSyntax::PARAMTYPE_INT, "-1");
-        GetSyntax().AddParameter("loadMeshes",          "Load 3D mesh geometry or not.",                                        MCore::CommandSyntax::PARAMTYPE_BOOLEAN, "Yes");
-        GetSyntax().AddParameter("loadTangents",        "Load vertex tangents or not.",                                         MCore::CommandSyntax::PARAMTYPE_BOOLEAN, "Yes");
-        GetSyntax().AddParameter("loadLimits",          "Load node limits or not.",                                             MCore::CommandSyntax::PARAMTYPE_BOOLEAN, "Yes");
-        GetSyntax().AddParameter("loadGeomLods",        "Load geometry LOD levels or not.",                                     MCore::CommandSyntax::PARAMTYPE_BOOLEAN, "Yes");
-        GetSyntax().AddParameter("loadMorphTargets",    "Load morph targets or not.",                                           MCore::CommandSyntax::PARAMTYPE_BOOLEAN, "Yes");
-        GetSyntax().AddParameter("loadCollisionMeshes", "Load collision meshes or not.",                                        MCore::CommandSyntax::PARAMTYPE_BOOLEAN, "Yes");
-        GetSyntax().AddParameter("loadSkeletalLODs",    "Load skeletal LOD levels.",                                            MCore::CommandSyntax::PARAMTYPE_BOOLEAN, "Yes");
-        GetSyntax().AddParameter("dualQuatSkinning",    "Enable software skinning using dual quaternions.",                     MCore::CommandSyntax::PARAMTYPE_BOOLEAN, "No");
-        GetSyntax().AddParameter("loadSkinningInfo",    "Load skinning information (bone influences) or not.",                  MCore::CommandSyntax::PARAMTYPE_BOOLEAN, "Yes");
-        GetSyntax().AddParameter("loadMaterialLayers",  "Load standard material layers (textures) or not.",                     MCore::CommandSyntax::PARAMTYPE_BOOLEAN, "Yes");
-        GetSyntax().AddParameter("autoGenTangents",     "Automatically generate tangents when they are not present or not.",    MCore::CommandSyntax::PARAMTYPE_BOOLEAN, "Yes");
-        GetSyntax().AddParameter("autoSelect",          "Set the current selected actor to the newly loaded actor or leave selection as it was before.",        MCore::CommandSyntax::PARAMTYPE_BOOLEAN, "Yes");
+        GetSyntax().AddParameter("loadMeshes",          "Load 3D mesh geometry or not.",                                        MCore::CommandSyntax::PARAMTYPE_BOOLEAN, "true");
+        GetSyntax().AddParameter("loadTangents",        "Load vertex tangents or not.",                                         MCore::CommandSyntax::PARAMTYPE_BOOLEAN, "true");
+        GetSyntax().AddParameter("loadLimits",          "Load node limits or not.",                                             MCore::CommandSyntax::PARAMTYPE_BOOLEAN, "true");
+        GetSyntax().AddParameter("loadGeomLods",        "Load geometry LOD levels or not.",                                     MCore::CommandSyntax::PARAMTYPE_BOOLEAN, "true");
+        GetSyntax().AddParameter("loadMorphTargets",    "Load morph targets or not.",                                           MCore::CommandSyntax::PARAMTYPE_BOOLEAN, "true");
+        GetSyntax().AddParameter("loadCollisionMeshes", "Load collision meshes or not.",                                        MCore::CommandSyntax::PARAMTYPE_BOOLEAN, "true");
+        GetSyntax().AddParameter("loadSkeletalLODs",    "Load skeletal LOD levels.",                                            MCore::CommandSyntax::PARAMTYPE_BOOLEAN, "true");
+        GetSyntax().AddParameter("dualQuatSkinning",    "Enable software skinning using dual quaternions.",                     MCore::CommandSyntax::PARAMTYPE_BOOLEAN, "false");
+        GetSyntax().AddParameter("loadSkinningInfo",    "Load skinning information (bone influences) or not.",                  MCore::CommandSyntax::PARAMTYPE_BOOLEAN, "true");
+        GetSyntax().AddParameter("loadMaterialLayers",  "Load standard material layers (textures) or not.",                     MCore::CommandSyntax::PARAMTYPE_BOOLEAN, "true");
+        GetSyntax().AddParameter("autoGenTangents",     "Automatically generate tangents when they are not present or not.",    MCore::CommandSyntax::PARAMTYPE_BOOLEAN, "true");
+        GetSyntax().AddParameter("autoSelect",          "Set the current selected actor to the newly loaded actor or leave selection as it was before.",        MCore::CommandSyntax::PARAMTYPE_BOOLEAN, "true");
     }
 
 
@@ -215,7 +218,7 @@ namespace CommandSystem
 
 
     // execute
-    bool CommandImportMotion::Execute(const MCore::CommandLine& parameters, MCore::String& outResult)
+    bool CommandImportMotion::Execute(const MCore::CommandLine& parameters, AZStd::string& outResult)
     {
         // get the motion id from the parameters
         uint32 motionID = MCORE_INVALIDINDEX32;
@@ -224,25 +227,26 @@ namespace CommandSystem
             motionID = parameters.GetValueAsInt("motionID", MCORE_INVALIDINDEX32);
             if (EMotionFX::GetMotionManager().FindMotionByID(motionID))
             {
-                outResult.Format("Cannot import motion. Motion ID %i is already in use.", motionID);
+                outResult = AZStd::string::format("Cannot import motion. Motion ID %i is already in use.", motionID);
                 return false;
             }
         }
 
         // get the filename
-        MCore::String filename;
+        AZStd::string filename;
         parameters.GetValue("filename", "", &filename);
         
-        AZStd::string normalizedFilename = filename.AsChar();
+        AZStd::string normalizedFilename = filename.c_str();
         EBUS_EVENT(AzFramework::ApplicationRequests::Bus, NormalizePathKeepCase, normalizedFilename);
         filename = normalizedFilename.c_str();
 
-        const MCore::String extension = filename.ExtractFileExtension();
+        AZStd::string extension;
+        AzFramework::StringFunc::Path::GetExtension(filename.c_str(), extension, false /* include dot */);
 
         // check if we have already loaded the motion
-        if (EMotionFX::GetMotionManager().FindMotionByFileName(filename))
+        if (EMotionFX::GetMotionManager().FindMotionByFileName(filename.c_str()))
         {
-            outResult.Format("Motion '%s' has already been loaded. Skipping.", filename.AsChar());
+            outResult = AZStd::string::format("Motion '%s' has already been loaded. Skipping.", filename.c_str());
             return true;
         }
 
@@ -250,23 +254,22 @@ namespace CommandSystem
         EMotionFX::Motion* motion = nullptr;
 
         // check if we are dealing with a skeletal motion
-        if (extension.CheckIfIsEqualNoCase("motion"))
+        if (AzFramework::StringFunc::Equal(extension.c_str(), "motion", false /* no case */))
         {
             // init the settings
             EMotionFX::Importer::SkeletalMotionSettings settings;
 
             // extract default values from the command syntax automatically, if they aren't specified explicitly
-            settings.mLoadMotionEvents          = parameters.GetValueAsBool("loadMotionEvents",     this);
-            settings.mAutoRegisterEvents        = parameters.GetValueAsBool("autoRegisterEvents",   this);
+            settings.mLoadMotionEvents = parameters.GetValueAsBool("loadMotionEvents",     this);
 
             // try to load the actor
-            motion = EMotionFX::GetImporter().LoadSkeletalMotion(filename.AsChar(), &settings);
+            motion = EMotionFX::GetImporter().LoadSkeletalMotion(filename.c_str(), &settings);
         }
 
         // check if the motion is invalid
         if (motion == nullptr)
         {
-            outResult.Format("Failed to load motion from file '%s'.", filename.AsChar());
+            outResult = AZStd::string::format("Failed to load motion from file '%s'.", filename.c_str());
             return false;
         }
 
@@ -285,12 +288,9 @@ namespace CommandSystem
         mOldFileName = motion->GetFileName();
 
         // set the motion name
-        MCore::String motionName = filename.ExtractFileName();
-        motionName.RemoveFileExtension();
-        motion->SetName(motionName.AsChar());
-
-        // create the default playback info in case there is none yet
-        motion->CreateDefaultPlayBackInfo();
+        AZStd::string motionName;
+        AzFramework::StringFunc::Path::GetFileName(filename.c_str(), motionName);
+        motion->SetName(motionName.c_str());
 
         // select the motion automatically
         if (parameters.GetValueAsBool("autoSelect", this))
@@ -309,14 +309,14 @@ namespace CommandSystem
 
 
     // undo the command
-    bool CommandImportMotion::Undo(const MCore::CommandLine& parameters, MCore::String& outResult)
+    bool CommandImportMotion::Undo(const MCore::CommandLine& parameters, AZStd::string& outResult)
     {
         MCORE_UNUSED(parameters);
 
         // execute the group command
-        MCore::String commandString;
-        commandString.Format("RemoveMotion -filename \"%s\"", mOldFileName.AsChar());
-        bool result = GetCommandManager()->ExecuteCommandInsideCommand(commandString.AsChar(), outResult);
+        AZStd::string commandString;
+        commandString = AZStd::string::format("RemoveMotion -filename \"%s\"", mOldFileName.c_str());
+        bool result = GetCommandManager()->ExecuteCommandInsideCommand(commandString.c_str(), outResult);
 
         // restore the workspace dirty flag
         GetCommandManager()->SetWorkspaceDirtyFlag(mOldWorkspaceDirtyFlag);
@@ -334,9 +334,9 @@ namespace CommandSystem
 
         // optional parameters
         GetSyntax().AddParameter("motionID",            "The identification number to give the motion. In case this parameter is not specified the motion will automatically get a unique id.",                 MCore::CommandSyntax::PARAMTYPE_INT, "-1");
-        GetSyntax().AddParameter("loadMotionEvents",    "Set to false if you wish to disable loading of motion events.",                                                                                        MCore::CommandSyntax::PARAMTYPE_BOOLEAN, "Yes");
-        GetSyntax().AddParameter("autoRegisterEvents",  "Set to true if you want to automatically register new motion event types.",                                                                            MCore::CommandSyntax::PARAMTYPE_BOOLEAN, "Yes");
-        GetSyntax().AddParameter("autoSelect",          "Set the current selected actor to the newly loaded actor or leave selection as it was before.",                                                        MCore::CommandSyntax::PARAMTYPE_BOOLEAN, "No");
+        GetSyntax().AddParameter("loadMotionEvents",    "Set to false if you wish to disable loading of motion events.",                                                                                        MCore::CommandSyntax::PARAMTYPE_BOOLEAN, "true");
+        GetSyntax().AddParameter("autoRegisterEvents",  "Set to true if you want to automatically register new motion event types.",                                                                            MCore::CommandSyntax::PARAMTYPE_BOOLEAN, "true");
+        GetSyntax().AddParameter("autoSelect",          "Set the current selected actor to the newly loaded actor or leave selection as it was before.",                                                        MCore::CommandSyntax::PARAMTYPE_BOOLEAN, "false");
     }
 
 

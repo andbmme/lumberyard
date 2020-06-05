@@ -3,9 +3,9 @@
 * its licensors.
 *
 * For complete copyright and license terms please see the LICENSE at the root of this
-* distribution(the "License").All use of this software is governed by the License,
-* or, if provided, by the license below or the license accompanying this file.Do not
-* remove or modify any license notices.This file is distributed on an "AS IS" BASIS,
+* distribution (the "License"). All use of this software is governed by the License,
+* or, if provided, by the license below or the license accompanying this file. Do not
+* remove or modify any license notices. This file is distributed on an "AS IS" BASIS,
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 */
 
@@ -17,11 +17,21 @@
 #if defined(PLATFORM_SUPPORTS_AWS_NATIVE_SDK)
 #include <AWSNativeSDKInit/AWSLogSystemInterface.h>
 #include <aws/core/Aws.h>
+#include <aws/core/utils/logging/AWSLogging.h>
+#include <aws/core/utils/logging/DefaultLogSystem.h>
+#include <aws/core/utils/logging/ConsoleLogSystem.h>
 #endif
-
 
 namespace AWSNativeSDKInit
 {
+    namespace Platform
+    {
+#if defined(PLATFORM_SUPPORTS_AWS_NATIVE_SDK)
+        void CustomizeSDKOptions(Aws::SDKOptions& options);
+        void CustomizeShutdown();
+#endif
+    }
+
     const char* const InitializationManager::initializationManagerTag = "AWSNativeSDKInitializer";
     AZ::EnvironmentVariable<InitializationManager> InitializationManager::s_initManager = nullptr;
 
@@ -65,8 +75,7 @@ namespace AWSNativeSDKInit
         };
 
         m_awsSDKOptions.memoryManagementOptions.memoryManager = &m_memoryManager;
-
-
+        Platform::CustomizeSDKOptions(m_awsSDKOptions);
         Aws::InitAPI(m_awsSDKOptions);
 
 #endif // #if defined(PLATFORM_SUPPORTS_AWS_NATIVE_SDK)
@@ -76,7 +85,7 @@ namespace AWSNativeSDKInit
     {
 #if defined(PLATFORM_SUPPORTS_AWS_NATIVE_SDK)
         Aws::ShutdownAPI(m_awsSDKOptions);
-
+        Platform::CustomizeShutdown();
 #endif // #if defined(PLATFORM_SUPPORTS_AWS_NATIVE_SDK)
     }
 

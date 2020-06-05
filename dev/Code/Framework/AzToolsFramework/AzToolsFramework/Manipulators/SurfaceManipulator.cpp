@@ -12,7 +12,6 @@
 
 #include "SurfaceManipulator.h"
 
-#include <AzCore/Component/TransformBus.h>
 #include <AzToolsFramework/Manipulators/ManipulatorSnapping.h>
 #include <AzToolsFramework/Manipulators/ManipulatorView.h>
 
@@ -20,18 +19,18 @@ namespace AzToolsFramework
 {
     SurfaceManipulator::StartInternal SurfaceManipulator::CalculateManipulationDataStart(
         const AZ::Transform& worldFromLocal, const AZ::Vector3& worldSurfacePosition,
-        const AZ::Vector3& localStartPosition, bool snapping, float gridSize, int viewportId)
+        const AZ::Vector3& localStartPosition, const bool snapping, const float gridSize, const int viewportId)
     {
         AZ::Transform worldFromLocalNormalized = worldFromLocal;
-        const AZ::Vector3 scale = worldFromLocalNormalized.ExtractScale();
+        const AZ::VectorFloat scale = worldFromLocalNormalized.ExtractScale().GetMaxElement();
+        const AZ::VectorFloat scaleRecip = Round3(scale.GetReciprocal());
 
         const AZ::Transform localFromWorldNormalized = worldFromLocalNormalized.GetInverseFast();
         const AZ::Vector3 localSurfacePosition = localFromWorldNormalized * worldSurfacePosition;
 
-        const AZ::Vector3 scaleRecip = scale.GetReciprocal();
         const AZ::Vector3 localFinalSurfacePosition = snapping
-            ? CalculateSnappedSurfacePosition(
-                worldSurfacePosition, worldFromLocalNormalized, viewportId, gridSize)
+            ? CalculateSnappedTerrainPosition(
+                worldSurfacePosition, worldFromLocalNormalized, viewportId, gridSize * scaleRecip)
             : localFromWorldNormalized * worldSurfacePosition;
 
         // delta/offset between initial vertex position and terrain pick position
@@ -46,73 +45,79 @@ namespace AzToolsFramework
 
     SurfaceManipulator::Action SurfaceManipulator::CalculateManipulationDataAction(
         const StartInternal& startInternal, const AZ::Transform& worldFromLocal,
-        const AZ::Vector3& worldSurfacePosition, bool snapping, float gridSize, int viewportId)
+        const AZ::Vector3& worldSurfacePosition, const bool snapping, const float gridSize,
+        const ViewportInteraction::KeyboardModifiers keyboardModifiers, const int viewportId)
     {
         AZ::Transform worldFromLocalNormalized = worldFromLocal;
-        const AZ::Vector3 scale = worldFromLocalNormalized.ExtractScale();
+        const AZ::VectorFloat scale = worldFromLocalNormalized.ExtractScale().GetMaxElement();
+        const AZ::VectorFloat scaleRecip = Round3(scale.GetReciprocal());
 
         const AZ::Transform localFromWorldNormalized = worldFromLocalNormalized.GetInverseFast();
         const AZ::Vector3 localFinalSurfacePosition = snapping
-            ? CalculateSnappedSurfacePosition(
-                worldSurfacePosition, worldFromLocalNormalized,viewportId, gridSize)
+            ? CalculateSnappedTerrainPosition(
+                worldSurfacePosition, worldFromLocalNormalized, viewportId, gridSize * scaleRecip)
             : localFromWorldNormalized * worldSurfacePosition;
 
         Action action;
         action.m_start.m_localPosition = startInternal.m_localPosition;
         action.m_start.m_snapOffset = startInternal.m_snapOffset;
-        action.m_current.m_localOffset = localFinalSurfacePosition * scale.GetReciprocal() - startInternal.m_localPosition;
+        action.m_current.m_localOffset = localFinalSurfacePosition * scaleRecip - startInternal.m_localPosition;
+        // record what modifier keys are held during this action
+        action.m_modifiers = keyboardModifiers;
         return action;
     }
 
-    SurfaceManipulator::SurfaceManipulator(AZ::EntityId entityId)
-        : BaseManipulator(entityId)
+    AZStd::shared_ptr<SurfaceManipulator> SurfaceManipulator::MakeShared(const AZ::Transform& worldFromLocal)
+    {
+        return AZStd::shared_ptr<SurfaceManipulator>(aznew SurfaceManipulator(worldFromLocal));
+    }
+
+    SurfaceManipulator::SurfaceManipulator(const AZ::Transform& worldFromLocal)
+        : m_worldFromLocal(worldFromLocal)
     {
         AttachLeftMouseDownImpl();
     }
 
-    SurfaceManipulator::~SurfaceManipulator() {}
-
-    void SurfaceManipulator::InstallLeftMouseDownCallback(MouseActionCallback onMouseDownCallback)
+    void SurfaceManipulator::InstallLeftMouseDownCallback(const MouseActionCallback& onMouseDownCallback)
     {
         m_onLeftMouseDownCallback = onMouseDownCallback;
     }
-    void SurfaceManipulator::InstallLeftMouseUpCallback(MouseActionCallback onMouseUpCallback)
+    void SurfaceManipulator::InstallLeftMouseUpCallback(const MouseActionCallback& onMouseUpCallback)
     {
         m_onLeftMouseUpCallback = onMouseUpCallback;
     }
 
-    void SurfaceManipulator::InstallMouseMoveCallback(MouseActionCallback onMouseMoveCallback)
+    void SurfaceManipulator::InstallMouseMoveCallback(const MouseActionCallback& onMouseMoveCallback)
     {
         m_onMouseMoveCallback = onMouseMoveCallback;
     }
 
     void SurfaceManipulator::OnLeftMouseDownImpl(
-        const ViewportInteraction::MouseInteraction& interaction,
-        float /*rayIntersectionDistance*/)
+        const ViewportInteraction::MouseInteraction& interaction, float /*rayIntersectionDistance*/)
     {
-        AZ::Transform worldFromLocal;
-        AZ::TransformBus::EventResult(
-            worldFromLocal, GetEntityId(), &AZ::TransformBus::Events::GetWorldTM);
+        const AZ::Transform worldFromLocalUniformScale = TransformUniformScale(m_worldFromLocal);
 
-        const bool snapping =
-            GridSnapping(interaction.m_interactionId.m_viewportId);
-        const float gridSize =
-            GridSize(interaction.m_interactionId.m_viewportId);
+        const GridSnapParameters gridSnapParams = GridSnapSettings(interaction.m_interactionId.m_viewportId);
 
         AZ::Vector3 worldSurfacePosition;
-        ViewportInteractionRequestBus::EventResult(
+        ViewportInteraction::MainEditorViewportInteractionRequestBus::EventResult(
             worldSurfacePosition, interaction.m_interactionId.m_viewportId,
-            &ViewportInteractionRequestBus::Events::PickSurface, interaction.m_mousePick.m_screenCoordinates);
+            &ViewportInteraction::MainEditorViewportInteractionRequestBus::Events::PickTerrain,
+            ViewportInteraction::QPointFromScreenPoint(
+                interaction.m_mousePick.m_screenCoordinates));
 
         m_startInternal = CalculateManipulationDataStart(
-            worldFromLocal, worldSurfacePosition, m_position,
-            snapping, gridSize, interaction.m_interactionId.m_viewportId);
+            worldFromLocalUniformScale, worldSurfacePosition, m_position,
+            gridSnapParams.m_gridSnap, gridSnapParams.m_gridSize,
+            interaction.m_interactionId.m_viewportId);
 
         if (m_onLeftMouseDownCallback)
         {
             m_onLeftMouseDownCallback(CalculateManipulationDataAction(
-                m_startInternal, worldFromLocal, worldSurfacePosition, snapping,
-                gridSize, interaction.m_interactionId.m_viewportId));
+                m_startInternal, worldFromLocalUniformScale, worldSurfacePosition,
+                gridSnapParams.m_gridSnap, gridSnapParams.m_gridSize,
+                interaction.m_keyboardModifiers,
+                interaction.m_interactionId.m_viewportId));
         }
     }
 
@@ -120,19 +125,20 @@ namespace AzToolsFramework
     {
         if (m_onLeftMouseUpCallback)
         {
-            AZ::Transform worldFromLocal;
-            AZ::TransformBus::EventResult(
-                worldFromLocal, GetEntityId(), &AZ::TransformBus::Events::GetWorldTM);
-
-            AZ::Vector3 worldSurfacePosition;
-            ViewportInteractionRequestBus::EventResult(
+            AZ::Vector3 worldSurfacePosition = AZ::Vector3::CreateZero();
+            ViewportInteraction::MainEditorViewportInteractionRequestBus::EventResult(
                 worldSurfacePosition, interaction.m_interactionId.m_viewportId,
-                &ViewportInteractionRequestBus::Events::PickSurface, interaction.m_mousePick.m_screenCoordinates);
+                &ViewportInteraction::MainEditorViewportInteractionRequestBus::Events::PickTerrain,
+                ViewportInteraction::QPointFromScreenPoint(
+                    interaction.m_mousePick.m_screenCoordinates));
+
+            const GridSnapParameters gridSnapParams = GridSnapSettings(interaction.m_interactionId.m_viewportId);
 
             m_onLeftMouseUpCallback(CalculateManipulationDataAction(
-                m_startInternal, worldFromLocal, worldSurfacePosition,
-                GridSnapping(interaction.m_interactionId.m_viewportId),
-                GridSize(interaction.m_interactionId.m_viewportId), interaction.m_interactionId.m_viewportId));
+                m_startInternal, TransformUniformScale(m_worldFromLocal), worldSurfacePosition,
+                gridSnapParams.m_gridSnap,
+                gridSnapParams.m_gridSize,
+                interaction.m_keyboardModifiers, interaction.m_interactionId.m_viewportId));
         }
     }
 
@@ -140,19 +146,20 @@ namespace AzToolsFramework
     {
         if (m_onMouseMoveCallback)
         {
-            AZ::Transform worldFromLocal;
-            AZ::TransformBus::EventResult(
-                worldFromLocal, GetEntityId(), &AZ::TransformBus::Events::GetWorldTM);
-
-            AZ::Vector3 worldSurfacePosition;
-            ViewportInteractionRequestBus::EventResult(
+            AZ::Vector3 worldSurfacePosition = AZ::Vector3::CreateZero();
+            ViewportInteraction::MainEditorViewportInteractionRequestBus::EventResult(
                 worldSurfacePosition, interaction.m_interactionId.m_viewportId,
-                &ViewportInteractionRequestBus::Events::PickSurface, interaction.m_mousePick.m_screenCoordinates);
+                &ViewportInteraction::MainEditorViewportInteractionRequestBus::Events::PickTerrain,
+                ViewportInteraction::QPointFromScreenPoint(
+                    interaction.m_mousePick.m_screenCoordinates));
+
+            const GridSnapParameters gridSnapParams = GridSnapSettings(interaction.m_interactionId.m_viewportId);
 
             m_onMouseMoveCallback(CalculateManipulationDataAction(
-                m_startInternal, worldFromLocal, worldSurfacePosition,
-                GridSnapping(interaction.m_interactionId.m_viewportId),
-                GridSize(interaction.m_interactionId.m_viewportId), interaction.m_interactionId.m_viewportId));
+                m_startInternal, TransformUniformScale(m_worldFromLocal), worldSurfacePosition,
+                gridSnapParams.m_gridSnap,
+                gridSnapParams.m_gridSize,
+                interaction.m_keyboardModifiers, interaction.m_interactionId.m_viewportId));
         }
     }
 
@@ -162,18 +169,18 @@ namespace AzToolsFramework
     }
 
     void SurfaceManipulator::Draw(
-        AzFramework::EntityDebugDisplayRequests& display,
-        const ViewportInteraction::CameraState& cameraState,
+        const ManipulatorManagerState& managerState,
+        AzFramework::DebugDisplayRequests& debugDisplay,
+        const AzFramework::CameraState& cameraState,
         const ViewportInteraction::MouseInteraction& mouseInteraction)
     {
-        AZ::Transform worldFromLocal;
-        AZ::TransformBus::EventResult(
-            worldFromLocal, GetEntityId(), &AZ::TransformBus::Events::GetWorldTM);
-
         m_manipulatorView->Draw(
-            GetManipulatorManagerId(), GetManipulatorId(),
-            MouseOver(), m_position, worldFromLocal,
-            display, cameraState, mouseInteraction, GetManipulatorSpace(GetManipulatorManagerId()));
+            GetManipulatorManagerId(), managerState,
+            GetManipulatorId(), {
+                TransformUniformScale(m_worldFromLocal),
+                m_position, MouseOver()
+            },
+            debugDisplay, cameraState, mouseInteraction);
     }
 
     void SurfaceManipulator::InvalidateImpl()

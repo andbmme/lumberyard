@@ -1,3 +1,16 @@
+/*
+* All or portions of this file Copyright (c) Amazon.com, Inc. or its affiliates, or 
+* a third party where indicated.
+*
+* For complete copyright and license terms please see the LICENSE at the root of this
+* distribution (the "License"). All use of this software is governed by the License,  
+* or, if provided, by the license below or the license accompanying this file. Do not
+* remove or modify any license notices. This file is distributed on an "AS IS" BASIS,
+* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.  
+*
+*/
+
+// Original file Copyright Crytek GMBH or its affiliates, used under license.
 #include "StdAfx.h"
 #include "PerInstanceConstantBufferPool.h"
 #include "DevBuffer.h"
@@ -138,7 +151,23 @@ void PerInstanceConstantBufferPool::Update(CRenderView& renderView, float realTi
 
     AZ::u32 nextBufferIdx = 0;
     AZ::u32 nextInstanceIdx = 0;
+    AZ::u32 constantBufferIdxLimit = SPI_NUM_STATIC_INST_CB;
     void* mappedData = nullptr;
+        
+    // Assign half of the constant buffer budget per eye when in VR mode
+    if (gcpRendD3D->GetIStereoRenderer()->IsRenderingToHMD())
+    {
+        // For the right eye (rendered second), begin indexing half way into the array
+        if (gRenDev->m_CurRenderEye == STEREO_EYE_RIGHT)
+        {
+            nextBufferIdx = constantBufferIdxLimit / 2;
+        }
+        else
+        {
+            // For the left eye, just reduce the limit by half
+            constantBufferIdxLimit /= 2;
+        }
+    }
 
     float realTimePrev = realTime - CRenderer::GetElapsedTime();
 
@@ -153,12 +182,18 @@ void PerInstanceConstantBufferPool::Update(CRenderView& renderView, float realTi
                 SRendItem* renderItem = &renderItems[itemIndex];
                 CRenderObject* renderObject = renderItem->pObj;
 
+                if (!renderObject)
+                {
+                    AZ_Assert(false, "Failed to update static inst buffer pool, index %u - the render object is null", nextBufferIdx);
+                    continue;
+                }
+
                 if (renderObject->m_PerInstanceConstantBufferKey.IsValid())
                 {
                     continue;
                 }
 
-                if (nextBufferIdx >= SPI_NUM_STATIC_INST_CB)
+                if (nextBufferIdx >= constantBufferIdxLimit)
                 {
                     auto* renderer = gEnv->pRenderer;
 
@@ -174,6 +209,11 @@ void PerInstanceConstantBufferPool::Update(CRenderView& renderView, float realTi
                 if (nextInstanceIdx == 0)
                 {
                     mappedData = constantBuffer->BeginWrite();
+                    if (!mappedData)
+                    {
+                        AZ_Error("Renderer", false, "Failed to update static inst buffer pool, index %u", nextBufferIdx);
+                        return;
+                    }
                 }
 
                 HLSL_PerInstanceConstantBuffer* outputData = reinterpret_cast<HLSL_PerInstanceConstantBuffer*>(mappedData) + nextInstanceIdx;
@@ -248,10 +288,21 @@ void PerInstanceConstantBufferPool::UpdateConstantBuffer(ConstantUpdateCB consta
     AZ_Assert(m_CurrentRenderItem, "current render item is null");
 
     CRenderObject* renderObject = m_CurrentRenderItem->pObj;
+    if (!renderObject)
+    {
+        AZ_Assert(false, "Failed to update static inst buffer - the current render object is null");
+        return;
+    }
 
     float realTimePrev = realTime - CRenderer::GetElapsedTime();
 
-    void* mappedData = m_UpdateConstantBuffer->BeginWrite();
+    void* mappedData = m_UpdateConstantBuffer->BeginWrite();    
+    if (!mappedData)
+    {
+        AZ_Error("Renderer", false, "Failed to update static inst buffer");
+        return;
+    }
+
     BuildPerInstanceConstantBuffer(reinterpret_cast<HLSL_PerInstanceConstantBuffer*>(mappedData), renderObject, realTime, realTimePrev);
 
     constantUpdateCallback(mappedData);

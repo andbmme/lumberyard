@@ -18,14 +18,24 @@
 #include <QDialog>
 #include <QAtomicInteger>
 #include <QAbstractTableModel>
+#include <AzToolsFramework/UI/PropertyEditor/ReflectedPropertyEditor.hxx>
+#include <AzToolsFramework/Physics/EditorTerrainComponentBus.h>
+#include <AzCore/Component/Component.h>
+#include <IEditor.h>
 
 #include "IDataBaseManager.h"
 
 // forward declarations.
 class CLayer;
 
-namespace Ui {
+namespace Ui 
+{
     class TerrainTextureDialog;
+}
+
+namespace Physics
+{
+    class MaterialSelection;
 }
 
 class QItemSelection;
@@ -57,8 +67,13 @@ class CTerrainTextureDialog
     : public QDialog
     , public IEditorNotifyListener
     , public IDataBaseManagerListener
+    , public Physics::EditorTerrainComponentNotificationBus::Handler
+    , private AzToolsFramework::IPropertyEditorNotify
 {
     Q_OBJECT
+
+private:
+    friend class TextureScriptBindings;
 
 public:
     CTerrainTextureDialog(QWidget* parent = nullptr);   // standard constructor
@@ -77,8 +92,11 @@ public:
     //////////////////////////////////////////////////////////////////////////
 
     // IDataBaseManagerListener
-    virtual void OnDataBaseItemEvent(IDataBaseItem* pItem, EDataBaseItemEvent event);
+    virtual void OnDataBaseItemEvent(IDataBaseItem* item, EDataBaseItemEvent event);
     // ~IDataBaseManagerListener
+
+    // EditorTerrainComponentNotificationBus
+    void OnTerrainComponentActive();
 
 protected:
     typedef std::vector<CLayer*> Layers;
@@ -91,7 +109,7 @@ protected:
     void UpdateControlData();
     void EnableControls();
 
-    void SelectLayer(CLayer* pLayer);
+    void SelectLayer(CLayer* layer);
 
     // Assign selected material to the selected layers.
     void OnAssignMaterial();
@@ -102,7 +120,16 @@ protected:
     void UpdateAssignSplatMapItem();
 
     void OnImportSplatMaps();
-    void ImportSplatMaps();
+
+    // Assign a mask to the selected layers.
+    void OnExportSplatMap();
+    void UpdateExportSplatMapItem();
+
+
+    // Actual import/export logic, shared with the script bindings.
+    static bool ImportSplatMaps();
+    static bool ExportSplatMap(uint32 layerId, const QString& imagePath);
+
 
     Layers GetSelectedLayers();
 
@@ -128,14 +155,43 @@ protected:
     void OnReportSelChange(const QItemSelection& selected, const QItemSelection& deselected);
     void OnReportHyperlink(CLayer* layer);
 
+    void BeforePropertyModified(AzToolsFramework::InstanceDataNode* /*node*/) override;
+    void AfterPropertyModified(AzToolsFramework::InstanceDataNode* /*node*/) override;
+    void SetPropertyEditingActive(AzToolsFramework::InstanceDataNode* /*node*/) override;
+    void SetPropertyEditingComplete(AzToolsFramework::InstanceDataNode* /*node*/) override;
+    void SealUndoStack() override;
+
+    void DeleteLayerItem(CLayer* layer);
+
 private:
 
     QScopedPointer<Ui::TerrainTextureDialog> m_ui;
+    AzToolsFramework::ReflectedPropertyEditor* m_propertyEditor;
+    AZStd::unique_ptr<Physics::MaterialSelection> m_physicsMaterialSelection;
 
     bool m_alive = 1;
 
     TerrainTextureLayerEditModel* m_model;
 
-    bool m_bIgnoreNotify;
+    bool m_ignoreNotify;
 };
+
+//////////////////////////////////////////////////////////////////////////
+namespace AzToolsFramework
+{
+    //! A component to reflect scriptable commands for the Editor
+    class TerrainTexturePythonFuncsHandler
+        : public AZ::Component
+    {
+    public:
+        AZ_COMPONENT(TerrainTexturePythonFuncsHandler, "{7752CF58-4090-4392-8E9C-FDDD1A86D28E}")
+
+        static void Reflect(AZ::ReflectContext* context);
+
+        // AZ::Component ...
+        void Activate() override {}
+        void Deactivate() override {}
+    };
+} // namespace AzToolsFramework
+
 #endif // CRYINCLUDE_EDITOR_TERRAINTEXTURE_H

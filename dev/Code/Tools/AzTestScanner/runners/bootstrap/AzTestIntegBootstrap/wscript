@@ -21,10 +21,9 @@ def build(bld):
         vs_filter           = 'Tools/AzTestRunner',
         file_list           = 'aztestintegbootstrap.waf_files',
         platforms           = ['win'],
-        configurations      = ['test_all'],
-
-        includes            = [bld.Path('Code/CryEngine/CryCommon'),
-                               bld.Path('Code/SDKs/boost')],
+        configurations      = ['all'],
+        test_only           = True,
+        includes            = [bld.Path('Code/CryEngine/CryCommon')],
         use                 = ['AzGameFramework', 'AzTest'],
         
         #==============================

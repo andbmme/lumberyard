@@ -1013,7 +1013,7 @@ namespace CD
         edgeAABB.Reset();
         edgeAABB.Add(ToVec3(edge.m_v[0]));
         edgeAABB.Add(ToVec3(edge.m_v[1]));
-        edgeAABB.Expand(Vec3(0.001, 0.001f, 0.001f));
+        edgeAABB.Expand(Vec3(0.001f, 0.001f, 0.001f));
 
         for (int i = 0, iPolygonSize(m_Polygons[m_ShelfID].size()); i < iPolygonSize; ++i)
         {
@@ -1406,7 +1406,7 @@ namespace CD
             }
             else if (fDistance < fShorestDist)
             {
-                fShorestDist = fDistance;
+                fShorestDist = aznumeric_cast<float>(fDistance);
                 outPosOnEdge = posOnEdge;
                 outEdges.clear();
                 outEdges.push_back(SQueryEdgeResult(pPolygon, edge));
@@ -1446,7 +1446,7 @@ namespace CD
             }
             else if (fDistance < fShorestDist)
             {
-                fShorestDist = fDistance;
+                fShorestDist = aznumeric_cast<float>(fDistance);
                 outPosOnEdge = posOnEdge;
                 outEdges.clear();
                 outEdges.push_back(SQueryEdgeResult(pPolygon, edge));
@@ -1604,8 +1604,8 @@ namespace CD
         DESIGNER_ASSERT(m_ShelfID >= 0 && m_ShelfID < kMaxShelfCount);
         MODEL_SHELF_RECONSTRUCTOR(this);
 
-        int oldThickness = dc.GetLineWidth();
-        dc.SetLineWidth(nLineThickness);
+        float oldThickness = dc.GetLineWidth();
+        dc.SetLineWidth(aznumeric_cast<float>(nLineThickness));
         dc.SetColor(lineColor);
 
         for (ShelfID shelfID = 0; shelfID < kMaxShelfCount; ++shelfID)

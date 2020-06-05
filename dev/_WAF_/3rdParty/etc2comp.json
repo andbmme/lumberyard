@@ -1,0 +1,12 @@
+{
+    "name": "etc2comp",
+    "source": "@3P:etc2comp@",
+    "description": "Etc2comp Libraries",
+    "defines": [],
+    "lib_required": "False",
+    "system_includes": [
+        "EtcLib/Etc",
+        "EtcLib/EtcCodec"
+    ]
+}
+

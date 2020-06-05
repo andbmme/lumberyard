@@ -10,18 +10,16 @@
 *
 */
 
-#ifndef __EMSTUDIO_GRAPHNODE_H
-#define __EMSTUDIO_GRAPHNODE_H
+#pragma once
 
-// include required headers
 #include <MCore/Source/StandardHeaders.h>
 #include <MCore/Source/Array.h>
-#include <MCore/Source/UnicodeString.h>
 #include <MCore/Source/Color.h>
-#include <MCore/Source/StringIDGenerator.h>
+#include <MCore/Source/StringIdPool.h>
 #include "../StandardPluginsConfig.h"
+#include <QItemSelectionModel>
 #include <QPainter>
-#include <QIcon>
+#include <QModelIndex>
 #include <QPixmap>
 #include <QStaticText>
 
@@ -29,6 +27,11 @@
 // specify the maximum node with here, if the node headers or info text gets longer than this they will get elided
 #define MAX_NODEWIDTH 180
 #define BORDER_RADIUS 7.0
+
+namespace EMotionFX
+{
+    class AnimGraphInstance;
+}
 
 namespace EMStudio
 {
@@ -47,8 +50,8 @@ namespace EMStudio
             : mIsHighlighted(false)  { mNode = nullptr; mNameID = MCORE_INVALIDINDEX32; mColor.setRgb(50, 150, 250); }
         ~NodePort() {}
 
-        MCORE_INLINE void SetName(const char* name)         { mNameID = MCore::GetStringIDGenerator().GenerateIDForString(name); OnNameChanged(); }
-        MCORE_INLINE const char* GetName() const            { return MCore::GetStringIDGenerator().GetName(mNameID).AsChar(); }
+        MCORE_INLINE void SetName(const char* name)         { mNameID = MCore::GetStringIdPool().GenerateIdForString(name); OnNameChanged(); }
+        MCORE_INLINE const char* GetName() const            { return MCore::GetStringIdPool().GetName(mNameID).c_str(); }
         MCORE_INLINE void SetNameID(uint32 id)              { mNameID = id; }
         MCORE_INLINE uint32 GetNameID() const               { return mNameID; }
         MCORE_INLINE void SetRect(const QRect& rect)        { mRect = rect; }
@@ -80,8 +83,10 @@ namespace EMStudio
             TYPE_ID = 0x00000001
         };
 
-        GraphNode(const char* name, uint32 numInputs = 0, uint32 numOutputs = 1);
+        GraphNode(const QModelIndex& modelIndex, const char* name, uint32 numInputs = 0, uint32 numOutputs = 0);
         virtual ~GraphNode();
+
+        const QModelIndex& GetModelIndex() const                            { return m_modelIndex; }
 
         MCORE_INLINE void UpdateNameAndPorts()                              { mNameAndPortsUpdated = false; }
         MCORE_INLINE MCore::Array<NodeConnection*>& GetConnections()        { return mConnections; }
@@ -98,10 +103,9 @@ namespace EMStudio
         MCORE_INLINE void SetBaseColor(const QColor& color)                 { mBaseColor = color; }
         MCORE_INLINE QColor GetBaseColor() const                            { return mBaseColor; }
         MCORE_INLINE bool GetIsVisible() const                              { return mIsVisible; }
-        MCORE_INLINE const char* GetName() const                            { return mName.AsChar(); }
-        MCORE_INLINE const MCore::String& GetNameString() const             { return mName; }
-        MCORE_INLINE uint32 GetID() const                                   { return mID; }
-        MCORE_INLINE void SetID(uint32 id)                                  { mID = id; }
+        MCORE_INLINE const char* GetName() const                            { return mName.c_str(); }
+        MCORE_INLINE const AZStd::string& GetNameString() const             { return mName; }
+
         MCORE_INLINE bool GetCreateConFromOutputOnly() const                { return mConFromOutputOnly; }
         MCORE_INLINE void SetCreateConFromOutputOnly(bool enable)           { mConFromOutputOnly = enable; }
         MCORE_INLINE bool GetIsDeletable() const                            { return mIsDeletable; }
@@ -109,8 +113,8 @@ namespace EMStudio
         void SetIsCollapsed(bool collapsed);
         MCORE_INLINE void SetDeletable(bool deletable)                      { mIsDeletable = deletable; }
         void SetSubTitle(const char* subTitle, bool updatePixmap = true);
-        MCORE_INLINE const char* GetSubTitle() const                        { return mSubTitle.AsChar(); }
-        //MCORE_INLINE const MCore::String& GetSubTitleString() const           { return mSubTitle; }
+        MCORE_INLINE const char* GetSubTitle() const                        { return mSubTitle.c_str(); }
+        //MCORE_INLINE const AZStd::string& GetSubTitleString() const           { return mSubTitle; }
         MCORE_INLINE bool GetIsInsideArrowRect(const QPoint& point) const   { return mArrowRect.contains(point, true); }
 
         MCORE_INLINE void SetVisualizeColor(const QColor& color)            { mVisualizeColor = color; }
@@ -145,11 +149,8 @@ namespace EMStudio
         void RemoveAllOutputPorts();
         void RemoveAllConnections();
 
-        NodeConnection* FindConnection(uint32 targetPortNr, GraphNode* sourceNode, uint32 sourcePortNr);
-        //NodeConnection* FindConnection(GraphNode* sourceNode);
-        NodeConnection* FindConnectionByID(uint32 connectionID);
-        virtual bool RemoveConnection(uint32 targetPortNr, GraphNode* sourceNode, uint32 sourcePortNr, uint32 connectionID);
-        bool RemoveConnection(NodeConnection* connection, bool delFromMem = true);
+        bool RemoveConnection(const QModelIndex& modelIndex, bool removeFromMemory = true);
+        bool RemoveConnection(const void* connection, bool removeFromMemory = true);
 
         virtual int32 CalcRequiredHeight() const;
         virtual int32 CalcRequiredWidth();
@@ -158,22 +159,18 @@ namespace EMStudio
         virtual uint32 CalcMaxOutputPortWidth() const;
 
         bool GetIsInside(const QPoint& globalPoint) const;
-        void SetIsSelected(bool selected);
         bool GetIsSelected() const;
-        bool ToggleSelected();
-
+        
         void MoveRelative(const QPoint& deltaMove);
         void MoveAbsolute(const QPoint& newUpperLeft);
         virtual void Update(const QRect& visibleRect, const QPoint& mousePos);
         void UpdateRects();
 
-        static void RenderConnections(GraphNode* node, QPainter& painter, QPen* pen, QBrush* brush, const QRect& invMappedVisibleRect, int32 stepSize);
+        void RenderConnections(const QItemSelectionModel& selectionModel, QPainter& painter, QPen* pen, QBrush* brush, const QRect& invMappedVisibleRect, int32 stepSize);
 
         virtual void SetName(const char* name, bool updatePixmap = true);
 
-        void SetNodeInfo(const char* info);
-        MCORE_INLINE const char* GetNodeInfo() const                        { return mNodeInfo.AsChar(); }
-        MCORE_INLINE const MCore::String& GetNodeInfoString() const         { return mNodeInfo; }
+        void SetNodeInfo(const AZStd::string& info);
 
         virtual uint32 GetType() const      { return GraphNode::TYPE_ID; }
 
@@ -213,23 +210,19 @@ namespace EMStudio
     protected:
         void RenderShadow(QPainter& painter);
 
-        // render connections
-        void RenderConnections(QPainter& painter, QPen* pen, QBrush* brush, const QRect& invMappedVisibleRect, int32 stepSize);
-        void RenderConnectionsCollapsed(QPainter& painter, QPen* pen, QBrush* brush, const QRect& invMappedVisibleRect, int32 stepSize);
-
         void GetNodePortColors(NodePort* nodePort, const QColor& borderColor, const QColor& headerBgColor, QColor* outBrushColor, QColor* outPenColor);
 
-        MCore::String                   mName;
+        QPersistentModelIndex           m_modelIndex;
+        AZStd::string                   mName;
         QString                         mElidedName;
 
         QPainter                        mTextPainter;
         //QPixmap                           mTextPixmap;
-        MCore::String                   mSubTitle;
+        AZStd::string                   mSubTitle;
         QString                         mElidedSubTitle;
-        MCore::String                   mNodeInfo;
+        AZStd::string                   mNodeInfo;
         QString                         mElidedNodeInfo;
         QBrush                          mBrush;
-        uint32                          mID;
         QColor                          mBaseColor;
         QRect                           mRect;
         QRect                           mFinalRect;
@@ -240,7 +233,6 @@ namespace EMStudio
         QColor                          mHasChildIndicatorColor;
         MCore::Array<NodeConnection*>   mConnections;
         float                           mOpacity;
-        bool                            mIsSelected;
         bool                            mIsVisible;
         static QColor                   mPortHighlightColor;
         static QColor                   mPortHighlightBGColor;
@@ -293,5 +285,3 @@ namespace EMStudio
         QPolygonF                       mSubstPoly;
     };
 }   // namespace EMStudio
-
-#endif

@@ -34,14 +34,14 @@ namespace ScriptCanvas
                     ScriptCanvas_Node::Uuid("{F200B22A-5903-483A-BF63-5241BC03632B}")
                     ScriptCanvas_Node::Icon("Editor/Icons/ScriptCanvas/Start.png")
                     ScriptCanvas_Node::Version(2)
-                    ScriptCanvas_Node::Category("Utilities")
+                    ScriptCanvas_Node::Category("Timing")
                     ScriptCanvas_Node::GraphEntryPoint(true)
                 );
 
                 void OnInputSignal(const SlotId&) override;
                 
                 // Outputs
-                ScriptCanvas_Out(ScriptCanvas_Out::Name("Out", "Signalled when the entity that owns this graph is fully activated."));
+                ScriptCanvas_Out(ScriptCanvas_Out::Name("Out", "Signaled when the entity that owns this graph is fully activated."));
 
             };
         }

@@ -11,7 +11,7 @@
 */
 #pragma once
 
-#include "NodePaletteTreeItem.h"
+#include <GraphCanvas/Widgets/NodePalette/TreeItems/DraggableNodePaletteTreeItem.h>
 #include "CreateNodeMimeEvent.h"
 
 namespace ScriptCanvasEditor
@@ -31,18 +31,18 @@ namespace ScriptCanvasEditor
         ~CreateEntityRefNodeMimeEvent() = default;
 
     protected:
-        ScriptCanvasEditor::NodeIdPair CreateNode(const AZ::EntityId& graphId) const override;
+        ScriptCanvasEditor::NodeIdPair CreateNode(const ScriptCanvas::ScriptCanvasId& scriptCanvasId) const override;
 
     private:
         AZ::EntityId m_entityId;
     };
 
     class EntityRefNodePaletteTreeItem
-        : public DraggableNodePaletteTreeItem
+        : public GraphCanvas::DraggableNodePaletteTreeItem
     {
     public:
         AZ_CLASS_ALLOCATOR(EntityRefNodePaletteTreeItem, AZ::SystemAllocator, 0);
-        EntityRefNodePaletteTreeItem(const QString& nodeName, const QString& iconPath);
+        EntityRefNodePaletteTreeItem(AZStd::string_view nodeName, const QString& iconPath);
         ~EntityRefNodePaletteTreeItem() = default;
 
         GraphCanvas::GraphCanvasMimeEvent* CreateMimeEvent() const override;
@@ -67,43 +67,43 @@ namespace ScriptCanvasEditor
     };
 
     class CommentNodePaletteTreeItem
-        : public DraggableNodePaletteTreeItem
+        : public GraphCanvas::DraggableNodePaletteTreeItem
     {
     public:
         AZ_CLASS_ALLOCATOR(CommentNodePaletteTreeItem, AZ::SystemAllocator, 0);
-        CommentNodePaletteTreeItem(const QString& nodeName, const QString& iconPath);
+        CommentNodePaletteTreeItem(AZStd::string_view nodeName, const QString& iconPath);
         ~CommentNodePaletteTreeItem() = default;
 
         GraphCanvas::GraphCanvasMimeEvent* CreateMimeEvent() const override;
     };    
     // </CommentNode>
 
-    // <BlockCommentNode>
-    class CreateBlockCommentNodeMimeEvent
+    // <NodeGroup>
+    class CreateNodeGroupMimeEvent
         : public SpecializedCreateNodeMimeEvent
     {
     public:
-        AZ_RTTI(CreateBlockCommentNodeMimeEvent, "{FD969A58-404E-4B97-8A62-57C2B5EAC686}", SpecializedCreateNodeMimeEvent);
-        AZ_CLASS_ALLOCATOR(CreateBlockCommentNodeMimeEvent, AZ::SystemAllocator, 0);
+        AZ_RTTI(CreateNodeGroupMimeEvent, "{FD969A58-404E-4B97-8A62-57C2B5EAC686}", SpecializedCreateNodeMimeEvent);
+        AZ_CLASS_ALLOCATOR(CreateNodeGroupMimeEvent, AZ::SystemAllocator, 0);
 
         static void Reflect(AZ::ReflectContext* reflectContext);
 
-        CreateBlockCommentNodeMimeEvent() = default;
-        ~CreateBlockCommentNodeMimeEvent() = default;
+        CreateNodeGroupMimeEvent() = default;
+        ~CreateNodeGroupMimeEvent() = default;
 
-        NodeIdPair ConstructNode(const AZ::EntityId& sceneId, const AZ::Vector2& scenePosition);
-        bool ExecuteEvent(const AZ::Vector2& mousePosition, AZ::Vector2& sceneDropPosition, const AZ::EntityId& sceneId) override;
+        NodeIdPair ConstructNode(const GraphCanvas::GraphId& sceneId, const AZ::Vector2& scenePosition);
+        bool ExecuteEvent(const AZ::Vector2& mousePosition, AZ::Vector2& sceneDropPosition, const GraphCanvas::GraphId& sceneId) override;
     };
 
-    class BlockCommentNodePaletteTreeItem
-        : public DraggableNodePaletteTreeItem
+    class NodeGroupNodePaletteTreeItem
+        : public GraphCanvas::DraggableNodePaletteTreeItem
     {
     public:
-        AZ_CLASS_ALLOCATOR(BlockCommentNodePaletteTreeItem, AZ::SystemAllocator, 0);
-        BlockCommentNodePaletteTreeItem(const QString& nodeName, const QString& iconPath);
-        ~BlockCommentNodePaletteTreeItem() = default;
+        AZ_CLASS_ALLOCATOR(NodeGroupNodePaletteTreeItem, AZ::SystemAllocator, 0);
+        NodeGroupNodePaletteTreeItem(AZStd::string_view nodeName, const QString& iconPath);
+        ~NodeGroupNodePaletteTreeItem() = default;
 
         GraphCanvas::GraphCanvasMimeEvent* CreateMimeEvent() const override;
     };
-    // </BlockCommentNode>
+    // </NodeGroup>
 }

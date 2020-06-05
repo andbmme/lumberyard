@@ -11,7 +11,8 @@
 */
 #pragma once
 
-#include "NodePaletteTreeItem.h"
+#include <GraphCanvas/Widgets/NodePalette/TreeItems/DraggableNodePaletteTreeItem.h>
+
 #include "CreateNodeMimeEvent.h"
 
 namespace ScriptCanvasEditor
@@ -28,10 +29,10 @@ namespace ScriptCanvasEditor
         
         CreateClassMethodMimeEvent() = default;
         CreateClassMethodMimeEvent(const QString& className, const QString& methodName);
-        ~CreateClassMethodMimeEvent() = default;
+        ~CreateClassMethodMimeEvent() = default;        
 
     protected:
-        ScriptCanvasEditor::NodeIdPair CreateNode(const AZ::EntityId& graphId) const override;
+        ScriptCanvasEditor::NodeIdPair CreateNode(const ScriptCanvas::ScriptCanvasId& scriptCanvasId) const override;
 
     private:
         AZStd::string m_className;
@@ -39,18 +40,22 @@ namespace ScriptCanvasEditor
     };
     
     class ClassMethodEventPaletteTreeItem
-        : public DraggableNodePaletteTreeItem
+        : public GraphCanvas::DraggableNodePaletteTreeItem
     {
     private:
         static const QString& GetDefaultIcon();
         
     public:
         AZ_CLASS_ALLOCATOR(ClassMethodEventPaletteTreeItem, AZ::SystemAllocator, 0);
+        AZ_RTTI(ClassMethodEventPaletteTreeItem, "{96F93970-F38A-4F08-8DC5-D52FCCE34E25}", GraphCanvas::DraggableNodePaletteTreeItem);
 
-        ClassMethodEventPaletteTreeItem(const QString& className, const QString& methodName);
-        ~ClassMethodEventPaletteTreeItem() = default;
-        
+        ClassMethodEventPaletteTreeItem(AZStd::string_view className, AZStd::string_view methodName);
+        ~ClassMethodEventPaletteTreeItem() = default;        
+
         GraphCanvas::GraphCanvasMimeEvent* CreateMimeEvent() const override;
+
+        AZStd::string GetClassMethodName() const;
+        AZStd::string GetMethodName() const;
 
     private:
         QString m_className;
@@ -70,26 +75,31 @@ namespace ScriptCanvasEditor
         
         CreateCustomNodeMimeEvent() = default;
         CreateCustomNodeMimeEvent(const AZ::Uuid& typeId);
-        CreateCustomNodeMimeEvent(const AZ::Uuid& typeId, const AZStd::string& styleOverride);
+        CreateCustomNodeMimeEvent(const AZ::Uuid& typeId, const AZStd::string& styleOverride, const AZStd::string& titlePalette);
         ~CreateCustomNodeMimeEvent() = default;
 
     protected:
-        ScriptCanvasEditor::NodeIdPair CreateNode(const AZ::EntityId& graphId) const override;
+        ScriptCanvasEditor::NodeIdPair CreateNode(const ScriptCanvas::ScriptCanvasId& scriptCanvasId) const override;
 
     private:
         AZ::Uuid m_typeId;
         AZStd::string m_styleOverride;
+        AZStd::string m_titlePalette;
     };
     
     class CustomNodePaletteTreeItem
-        : public DraggableNodePaletteTreeItem
+        : public GraphCanvas::DraggableNodePaletteTreeItem
     {
     public:
         AZ_CLASS_ALLOCATOR(CustomNodePaletteTreeItem, AZ::SystemAllocator, 0);
-        CustomNodePaletteTreeItem(const AZ::Uuid& typeId, const QString& nodeName, const QString& iconPath);
+        AZ_RTTI(CustomNodePaletteTreeItem, "{50E75C4D-F59C-4AF6-A6A3-5BAD557E335C}", GraphCanvas::DraggableNodePaletteTreeItem);
+
+        CustomNodePaletteTreeItem(const AZ::Uuid& typeId, AZStd::string_view nodeName);
         ~CustomNodePaletteTreeItem() = default;
         
         GraphCanvas::GraphCanvasMimeEvent* CreateMimeEvent() const override;
+
+        AZ::Uuid GetTypeId() const;
         
     private:
         AZ::Uuid m_typeId;

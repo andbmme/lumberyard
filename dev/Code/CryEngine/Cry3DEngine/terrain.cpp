@@ -18,92 +18,66 @@
 
 #include "terrain.h"
 #include "terrain_sector.h"
-#include "StatObj.h"
-#include "ObjMan.h"
-#include "CullBuffer.h"
-#include "terrain_water.h"
-#include "VisAreas.h"
-#include "Vegetation.h"
-#include "RoadRenderNode.h"
-#include <AzCore/std/functional.h>
-#include "Environment/OceanEnvironmentBus.h"
-#include <Terrain/Bus/LegacyTerrainBus.h>
 
+#include <AzCore/std/functional.h>
+#include <Terrain/Bus/LegacyTerrainBus.h>
+#include <IVegetationPoolManager.h>
+#include <MathConversion.h>
+#include <OceanConstants.h>
+
+CTerrain* CTerrain::m_pTerrain = nullptr;
 int CTerrain::m_nUnitSize = 2;
 float CTerrain::m_fInvUnitSize = 1.0f / 2.0f;
 int CTerrain::m_nTerrainSize = 1024;
 int CTerrain::m_nSectorSize = 64;
 int CTerrain::m_nSectorsTableSize = 16;
 
-
-CTerrain::CTerrain(const STerrainInfo& TerrainInfo)
+CTerrain::CTerrain(const STerrainInfo& terrainInfo)
     : m_RootNode(nullptr)
     , m_nLoadedSectors(0)
     , m_bOceanIsVisible(false)
     , m_fDistanceToSectorWithWater(0)
     , m_pTerrainEf(nullptr)
-    , m_pOcean(nullptr)
     , m_UnitToSectorBitShift(0)
     , m_MeterToUnitBitShift(0)
 {
+    // set params
+    terrainInfo.LoadTerrainSettings(m_nUnitSize, m_fInvUnitSize, m_nTerrainSize, m_MeterToUnitBitShift, m_nTerrainSizeDiv, m_nSectorSize, m_nSectorsTableSize, m_UnitToSectorBitShift);
+
+    const float terrainSize = static_cast<float>(m_nTerrainSize);
+    m_aabb = AZ::Aabb::CreateFromMinMax(AZ::Vector3(0.0f, 0.0f, -FLT_MAX), AZ::Vector3(terrainSize, terrainSize, FLT_MAX));
+
     ResetHeightMapCache();
 
     // load default textures
     m_nWhiteTexId = GetRenderer()->EF_LoadTexture("EngineAssets/Textures/white.dds", FT_DONT_STREAM)->GetTextureID();
     m_nBlackTexId = GetRenderer()->EF_LoadTexture("EngineAssets/Textures/black.dds", FT_DONT_STREAM)->GetTextureID();
 
-    // set params
-    m_nUnitSize = TerrainInfo.nUnitSize_InMeters;
-    m_fInvUnitSize = 1.f / TerrainInfo.nUnitSize_InMeters;
-    m_nTerrainSize = TerrainInfo.nHeightMapSize_InUnits * TerrainInfo.nUnitSize_InMeters;
-    m_nSectorSize = TerrainInfo.nSectorSize_InMeters;
-    m_nSectorsTableSize = TerrainInfo.nSectorsTableSize_InSectors;
-    m_fOceanWaterLevel = TerrainInfo.fOceanWaterLevel;
-
-    m_UnitToSectorBitShift = 0;
-    while (m_nSectorSize >> m_UnitToSectorBitShift > m_nUnitSize)
-    {
-        m_UnitToSectorBitShift++;
-    }
-
-    assert(m_nSectorsTableSize == m_nTerrainSize / m_nSectorSize);
-
-    {
-        int shift = 0;
-        while ((1 << shift) != CTerrain::GetHeightMapUnitSize())
-        {
-            shift++;
-        }
-        m_MeterToUnitBitShift = shift;
-    }
-
-    m_nTerrainSizeDiv = (m_nTerrainSize >> m_MeterToUnitBitShift) - 1;
-
     m_lstSectors.reserve(512); // based on inspection in MemReplay
 
-    m_SurfaceTypes.PreAllocate(SurfaceTile::MaxSurfaceCount, SurfaceTile::MaxSurfaceCount);
-
-    Get3DEngine()->SetObjectTree(COctreeNode::Create(DEFAULT_SID, AABB(Vec3(0), Vec3((float)GetTerrainSize())), NULL));
-
-    GetObjManager()->GetListStaticTypes().PreAllocate(1, 1);
-    GetObjManager()->GetListStaticTypes()[DEFAULT_SID].Reset();
-
-    InitHeightfieldPhysics();
+    m_SurfaceTypes.PreAllocate(LegacyTerrain::TerrainNodeSurface::MaxSurfaceCount, LegacyTerrain::TerrainNodeSurface::MaxSurfaceCount);
 
     {
         SInputShaderResources Res;
         Res.m_LMaterial.m_Opacity = 1.0f;
-        m_pTerrainEf = MakeSystemMaterialFromShader("Terrain", &Res);
+        m_pTerrainEf = Get3DEngine()->MakeSystemMaterialFromShaderHelper("Terrain", &Res);
     }
 
     m_pTerrainUpdateDispatcher = new CTerrainUpdateDispatcher();
+
+    LegacyTerrain::CryTerrainRequestBus::Handler::BusConnect();
+    AzFramework::Terrain::TerrainDataRequestBus::Handler::BusConnect();
+    LegacyTerrain::LegacyTerrainDataRequestBus::Handler::BusConnect();
 }
 
 CTerrain::~CTerrain()
 {
     INDENT_LOG_DURING_SCOPE(true, "Destroying terrain");
 
-    SAFE_DELETE(m_pOcean);
+    LegacyTerrain::LegacyTerrainDataRequestBus::Handler::BusDisconnect();
+    AzFramework::Terrain::TerrainDataRequestBus::Handler::BusDisconnect();
+    LegacyTerrain::CryTerrainRequestBus::Handler::BusDisconnect();
+
     SAFE_DELETE(m_pTerrainUpdateDispatcher);
 
     CloseTerrainTextureFile();
@@ -115,6 +89,8 @@ CTerrain::~CTerrain()
     }
     m_SurfaceTypes.Reset();
 
+    MarkAllSectorsAsUncompiled();
+
     SAFE_DELETE(m_RootNode);
 
     for (int i = 0; i < m_NodePyramid.Count(); i++)
@@ -123,14 +99,159 @@ CTerrain::~CTerrain()
     }
     m_NodePyramid.Reset();
 
-    if (Cry3DEngineBase::Get3DEngine()->GetObjectTree())
-    {
-        delete Cry3DEngineBase::Get3DEngine()->GetObjectTree();
-        Cry3DEngineBase::Get3DEngine()->SetObjectTree(nullptr);
-    }
-
     CTerrainNode::ResetStaticData();
 }
+
+bool CTerrain::CreateTerrain(const STerrainInfo& terrainInfo)
+{
+    if (m_pTerrain)
+    {
+        AZ_Warning("LegacyTerrain", false, "CTerrain already exists.");
+        return false;
+    }
+
+    m_pTerrain = new CTerrain(terrainInfo);
+    if (!m_pTerrain)
+    {
+        AZ_Warning("LegacyTerrain", false, "Failed to allocated new CTerrain.");
+        return false;
+    }
+
+    return true;
+}
+
+void CTerrain::DestroyTerrain()
+{
+    if (!m_pTerrain)
+    {
+        return;
+    }
+    m_pTerrain->ClearHeightfieldPhysics();
+    SAFE_DELETE(m_pTerrain);
+}
+
+///////////////////////////////////////////////////////////////////////////
+// LegacyTerrain::LegacyTerrainDataRequestBus START
+void CTerrain::LoadTerrainSurfacesFromXML(XmlNodeRef pDoc)
+{
+    LoadSurfaceTypesFromXML(pDoc);
+    UpdateSurfaceTypes();
+}
+
+void CTerrain::ClearTextureSetsAndDrawVisibleSectors(bool clearTextureSets, const SRenderingPassInfo& passInfo)
+{
+    if (clearTextureSets)
+    {
+        ClearTextureSets();
+    }
+    DrawVisibleSectors(passInfo);
+}
+// LegacyTerrain::LegacyTerrainDataRequestBus END
+///////////////////////////////////////////////////////////////////////////
+
+
+
+///////////////////////////////////////////////////////////////////////////
+// AzFramework::Terrain::TerrainDataRequestBus START
+
+AZ::Vector2 CTerrain::GetTerrainGridResolution() const
+{
+    const float heightMapUnitSize = static_cast<float>(GetHeightMapUnitSize());
+    return AZ::Vector2(heightMapUnitSize);
+}
+
+AZ::Aabb CTerrain::GetTerrainAabb() const
+{
+    if (m_RootNode)
+    {
+        return LyAABBToAZAabb(m_RootNode->GetBBox());
+    }
+    return m_aabb;
+}
+
+float CTerrain::GetHeight(AZ::Vector3 position, Sampler sampler, bool* terrainExistsPtr) const
+{
+    return GetHeightFromFloats(position.GetX(), position.GetY(), sampler, terrainExistsPtr);
+}
+
+float CTerrain::GetHeightFromFloats(float x, float y, AzFramework::Terrain::TerrainDataRequests::Sampler sampler, bool* terrainExistsPtr) const
+{
+    const int nX = aznumeric_caster(x);
+    const int nY = aznumeric_caster(y);
+
+    if (terrainExistsPtr)
+    {
+        *terrainExistsPtr = !IsHole(nX, nY);
+    }
+
+    if (sampler == AzFramework::Terrain::TerrainDataRequests::Sampler::BILINEAR)
+    {
+        return GetBilinearZ(x, y);
+    }
+    return GetZ(nX, nY);
+}
+
+AzFramework::SurfaceData::SurfaceTagWeight CTerrain::GetMaxSurfaceWeight(AZ::Vector3 position
+    ,Sampler sampleFilter, bool* terrainExistsPtr) const
+{
+    return GetMaxSurfaceWeightFromFloats(position.GetX(), position.GetY(), sampleFilter, terrainExistsPtr);
+}
+
+AzFramework::SurfaceData::SurfaceTagWeight CTerrain::GetMaxSurfaceWeightFromFloats(float x
+    , float y
+    , AzFramework::Terrain::TerrainDataRequests::Sampler sampleFilter
+    , bool* terrainExistsPtr) const
+{
+    const int nX = aznumeric_caster(x);
+    const int nY = aznumeric_caster(y);
+
+    ITerrain::SurfaceWeight surfaceWeight = GetSurfaceWeight(nX, nY);
+    if (terrainExistsPtr)
+    {
+        *terrainExistsPtr = surfaceWeight.PrimaryId() != ITerrain::SurfaceWeight::Hole;
+    }
+
+    AzFramework::SurfaceData::SurfaceTagWeight retWeight;
+    retWeight.m_surfaceType = m_SurfaceTypes[surfaceWeight.PrimaryId()].nameTag;
+    retWeight.m_weight = aznumeric_cast<float>(surfaceWeight.PrimaryWeight()) / 255.0f;
+    return retWeight;
+}
+
+bool CTerrain::GetIsHoleFromFloats(float x, float y, Sampler sampleFilter) const
+{
+    return IsHole(aznumeric_cast<int>(x), aznumeric_cast<int>(y));
+}
+
+AZ::Vector3 CTerrain::GetNormal(AZ::Vector3 position, Sampler sampleFilter, bool* terrainExistsPtr) const
+{
+    return GetNormalFromFloats(position.GetX(), position.GetY(), sampleFilter, terrainExistsPtr);
+}
+
+AZ::Vector3 CTerrain::GetNormalFromFloats(float x, float y, Sampler sampleFilter , bool* terrainExistsPtr) const
+{
+    const int nX = aznumeric_caster(x);
+    const int nY = aznumeric_caster(y);
+
+    if (terrainExistsPtr)
+    {
+        ITerrain::SurfaceWeight surfaceWeight = GetSurfaceWeight(nX, nY);
+        *terrainExistsPtr = surfaceWeight.PrimaryId() != ITerrain::SurfaceWeight::Hole;
+    }
+
+    if (sampleFilter == Sampler::CLAMP)
+    {
+        const Vec3 vNormal = GetTerrainNormal(nX, nY);
+        return LYVec3ToAZVec3(vNormal);
+    }
+
+    Vec3 vPos(x, y, 0.0f);
+    float unitSize = aznumeric_cast<float>(GetHeightMapUnitSize());
+    const Vec3 vNormal = GetTerrainSurfaceNormal(vPos, unitSize);
+    return LYVec3ToAZVec3(vNormal);
+}
+
+// AzFramework::Terrain::TerrainDataRequestBus END
+///////////////////////////////////////////////////////////////////////////
 
 void CTerrain::InitHeightfieldPhysics()
 {
@@ -145,12 +266,12 @@ void CTerrain::InitHeightfieldPhysics()
     hf.typemask = SurfaceWeight::Hole | SurfaceWeight::Undefined;
     hf.typehole = SurfaceWeight::Hole;
 
-    hf.fpGetHeightCallback = GetHeightFromUnits_Callback;
-    hf.fpGetSurfTypeCallback = GetSurfaceTypeFromUnits_Callback;
+    hf.fpGetHeightCallback = GetHeightFromTerrain_Callback;
+    hf.fpGetSurfTypeCallback = GetSurfaceTypeFromTerrain_Callback;
 
-    int arrMatMapping[SurfaceTile::MaxSurfaceCount];
+    int arrMatMapping[LegacyTerrain::TerrainNodeSurface::MaxSurfaceCount];
     memset(arrMatMapping, 0, sizeof(arrMatMapping));
-    for (int i = 0; i < SurfaceTile::MaxSurfaceCount; i++)
+    for (int i = 0; i < LegacyTerrain::TerrainNodeSurface::MaxSurfaceCount; i++)
     {
         if (_smart_ptr<IMaterial> pMat = m_SurfaceTypes[i].pLayerMat)
         {
@@ -167,6 +288,16 @@ void CTerrain::InitHeightfieldPhysics()
     pe_params_foreign_data pfd;
     pfd.iForeignData = PHYS_FOREIGN_ID_TERRAIN;
     pPhysTerrain->SetParams(&pfd);
+}
+
+void CTerrain::ClearHeightfieldPhysics()
+{
+    IPhysicalWorld* physWorld = GetPhysicalWorld();
+
+    if (physWorld)
+    {
+        IPhysicalEntity* pPhysTerrain = physWorld->SetHeightfieldData(nullptr);
+    }
 }
 
 void CTerrain::SendLegacyTerrainUpdateNotifications(int tileMinX, int tileMinY, int tileMaxX, int tileMaxY)
@@ -218,12 +349,12 @@ void CTerrain::BuildSectorsTree(bool bBuildErrorsTable)
         nCount += nSectors * nSectors;
     }
 
-    m_SurfaceTypes.PreAllocate(SurfaceTile::MaxSurfaceCount, SurfaceTile::MaxSurfaceCount);
+    m_SurfaceTypes.PreAllocate(LegacyTerrain::TerrainNodeSurface::MaxSurfaceCount, LegacyTerrain::TerrainNodeSurface::MaxSurfaceCount);
 
     float fStartTime = GetCurAsyncTimeSec();
 
     // Log() to use LogPlus() later
-    PrintMessage(
+    AZ_Printf("LegacyTerrain",
         bBuildErrorsTable ?
         "Compiling %d terrain nodes (%.1f MB) " :
         "Constructing %d terrain nodes (%.1f MB) ",
@@ -235,32 +366,15 @@ void CTerrain::BuildSectorsTree(bool bBuildErrorsTable)
 
     if (Get3DEngine()->IsObjectTreeReady())
     {
-        Get3DEngine()->GetObjectTree()->UpdateTerrainNodes();
+        MarkAllSectorsAsUncompiled();
+        Get3DEngine()->GetIObjectTree()->UpdateTerrainNodes();
     }
 
-    PrintMessagePlus(" done in %.2f sec", GetCurAsyncTimeSec() - fStartTime);
+    AZ_Printf("LegacyTerrain", " done in %.2f sec", GetCurAsyncTimeSec() - fStartTime);
+    GetLog()->UpdateLoadingScreen(0);
 }
 
-void CTerrain::ChangeOceanMaterial(_smart_ptr<IMaterial> pMat)
-{
-    if (m_pOcean)
-    {
-        m_pOcean->SetMaterial(pMat);
-    }
-}
-
-void CTerrain::InitTerrainWater(_smart_ptr<IMaterial> pTerrainWaterShader)
-{
-    // make ocean surface
-    SAFE_DELETE(m_pOcean);
-    if (OceanToggle::IsActive() ? OceanRequest::OceanIsEnabled() : (GetWaterLevel() > 0))
-    {
-        m_pOcean = new COcean(pTerrainWaterShader);
-    }
-}
-
-
-void CTerrain::AddVisSector(CTerrainNode* newsec)
+void CTerrain::AddVisSector(ITerrainNode* newsec)
 {
     assert(newsec->m_QueuedLOD < m_UnitToSectorBitShift);
     m_lstVisSectors.Add((CTerrainNode*)newsec);
@@ -269,27 +383,29 @@ void CTerrain::AddVisSector(CTerrainNode* newsec)
 void CTerrain::CheckVis(const SRenderingPassInfo& passInfo)
 {
     FUNCTION_PROFILER_3DENGINE_LEGACYONLY;
-    AZ_TRACE_METHOD();
+    AZ_TRACE_METHOD(); 
+    TERRAIN_SCOPE_PROFILE(AZ::Debug::ProfileCategory::LegacyTerrain, LegacyTerrain::Debug::StatisticCheckVisibility);
 
     if (passInfo.IsGeneralPass())
     {
-        m_fDistanceToSectorWithWater = OCEAN_IS_VERY_FAR_AWAY;
+        //Eventually the value if this variable will change once m_RootNode->CheckVis() is called.
+        m_fDistanceToSectorWithWater = AZ::OceanConstants::s_oceanIsVeryFarAway;
     }
 
     if (m_RootNode)
     {
         // reopen texture file if needed, texture pack may be randomly closed by editor so automatic reopening used
-        if (!m_MacroTexture && m_bEditor)
+        if (!m_MacroTexture && IsEditor())
         {
             OpenTerrainTextureFile(COMPILED_TERRAIN_TEXTURE_FILE_NAME);
         }
 
-        m_RootNode->CheckVis(false, (GetCVars()->e_CoverageBufferTerrain != 0) && (GetCVars()->e_CoverageBuffer != 0), passInfo);
+        m_RootNode->CheckVis(false, (GetCVars()->e_CoverageBufferTerrain != 0) && (GetCVarAsInteger("e_CoverageBuffer") != 0), passInfo);
     }
 
     if (passInfo.IsGeneralPass())
     {
-        m_bOceanIsVisible = (int)((m_fDistanceToSectorWithWater != OCEAN_IS_VERY_FAR_AWAY) || !m_lstVisSectors.Count());
+        m_bOceanIsVisible = (int)((m_fDistanceToSectorWithWater != AZ::OceanConstants::s_oceanIsVeryFarAway) || !m_lstVisSectors.Count());
 
         if (m_fDistanceToSectorWithWater < 0)
         {
@@ -301,7 +417,8 @@ void CTerrain::CheckVis(const SRenderingPassInfo& passInfo)
             m_fDistanceToSectorWithWater = 0;
         }
 
-        m_fDistanceToSectorWithWater = max(m_fDistanceToSectorWithWater, (passInfo.GetCamera().GetPosition().z - m_fOceanWaterLevel));
+        const float fOceanWaterLevel = Get3DEngine()->GetWaterLevel();
+        m_fDistanceToSectorWithWater = max(m_fDistanceToSectorWithWater, (passInfo.GetCamera().GetPosition().z - fOceanWaterLevel));
     }
 }
 
@@ -312,6 +429,8 @@ void CTerrain::ClearVisSectors()
 
 void CTerrain::ClearTextureSets()
 {
+    AZ_PROFILE_FUNCTION(AZ::Debug::ProfileCategory::Renderer);
+
     TraverseTree([](CTerrainNode* node)
         {
             node->m_TextureSet = SSectorTextureSet(0);
@@ -345,11 +464,20 @@ void CTerrain::ActivateNodeProcObj(CTerrainNode* pNode)
     }
 }
 
+
+void CTerrain::RequestTerrainUpdate()
+{
+    if (m_NodePyramid.Size() > 0)
+    {
+        SendLegacyTerrainUpdateNotifications(0, 0, m_NodePyramid[0].GetSize(), m_NodePyramid[0].GetSize());
+    }
+}
+
 void CTerrain::CheckNodesGeomUnload(const SRenderingPassInfo& passInfo)
 {
-    FUNCTION_PROFILER_3DENGINE;
+    AZ_PROFILE_FUNCTION(AZ::Debug::ProfileCategory::Renderer);
 
-    if (!Get3DEngine()->m_bShowTerrainSurface || !m_RootNode)
+    if (!m_RootNode)
     {
         return;
     }
@@ -394,21 +522,18 @@ void CTerrain::CheckNodesGeomUnload(const SRenderingPassInfo& passInfo)
     }
 }
 
-void CTerrain::UpdateNodesIncrementaly(const SRenderingPassInfo& passInfo)
+void CTerrain::UpdateNodesIncrementally(const SRenderingPassInfo& passInfo)
 {
     FUNCTION_PROFILER_3DENGINE_LEGACYONLY;
     AZ_TRACE_METHOD();
+    TERRAIN_SCOPE_PROFILE(AZ::Debug::ProfileCategory::LegacyTerrain, LegacyTerrain::Debug::StatisticUpdateNodes);
 
     ProcessTextureStreamingRequests(passInfo);
 
     // process procedural objects
     if (m_lstActiveProcObjNodes.Count())
     {
-        if (!CTerrainNode::GetProcObjChunkPool())
-        {
-            CTerrainNode::SetProcObjChunkPool(new SProcObjChunkPool(MAX_PROC_OBJ_CHUNKS_NUM));
-            CTerrainNode::SetProcObjPoolMan(new CProcVegetPoolMan(GetCVars()->e_ProcVegetationMaxSectorsInCache));
-        }
+        LegacyProceduralVegetation::IVegetationPoolManager& vegPoolManager = Get3DEngine()->GetIVegetationPoolManager();
 
         // make sure distances are correct
         for (int i = 0; i < m_lstActiveProcObjNodes.Count(); i++)
@@ -421,21 +546,22 @@ void CTerrain::UpdateNodesIncrementaly(const SRenderingPassInfo& passInfo)
             sizeof(m_lstActiveProcObjNodes[0]), CmpTerrainNodesDistance);
 
         // release unimportant sectors
-        static int nMaxSectors = GetCVars()->e_ProcVegetationMaxSectorsInCache;
-        while (m_lstActiveProcObjNodes.Count() > (GetCVars()->e_ProcVegetation ? nMaxSectors : 0))
+        static int nMaxSectors = vegPoolManager.GetMaxSectors();
+        while (m_lstActiveProcObjNodes.Count() > (vegPoolManager.IsProceduralVegetationEnabled() ? nMaxSectors : 0))
         {
             m_lstActiveProcObjNodes.Last()->RemoveProcObjects(false);
             m_lstActiveProcObjNodes.DeleteLast();
         }
 
+        const int maxChunksPerSector = vegPoolManager.GetMaxVegetationChunksPerSector();
         while (1)
         {
             // release even more if we are running out of memory
             while (m_lstActiveProcObjNodes.Count())
             {
                 int nAll = 0;
-                int nUsed = CTerrainNode::GetProcObjChunkPool()->GetUsedInstancesCount(nAll);
-                if (nAll - nUsed > (MAX_PROC_OBJ_CHUNKS_NUM / (GetCVars()->e_ProcVegetationMaxSectorsInCache))) // make sure at least X chunks are free and ready to be used in this frame
+                int nUsed = vegPoolManager.GetUsedVegetationChunksCount(nAll);
+                if (nAll - nUsed > maxChunksPerSector)// make sure at least X chunks are free and ready to be used in this frame
                 {
                     break;
                 }
@@ -463,48 +589,18 @@ void CTerrain::UpdateNodesIncrementaly(const SRenderingPassInfo& passInfo)
             }
         }
 
-        IF (GetCVars()->e_ProcVegetation == 2, 0)
+        IF (GetCVarAsInteger("e_ProcVegetation") == 2, 0)
         {
             for (int i = 0; i < m_lstActiveProcObjNodes.Count(); i++)
             {
-                DrawBBox(m_lstActiveProcObjNodes[i]->GetBBoxVirtual(),
+                Get3DEngine()->DrawBBoxHelper(m_lstActiveProcObjNodes[i]->GetBBoxVirtual(),
                     m_lstActiveProcObjNodes[i]->IsProcObjectsReady() ? Col_Green : Col_Red);
             }
         }
     }
 }
 
-int CTerrain::UpdateOcean(const SRenderingPassInfo& passInfo)
-{
-    FUNCTION_PROFILER_3DENGINE;
-
-    if (!m_pOcean || !passInfo.RenderWaterOcean())
-    {
-        return 0;
-    }
-
-    m_pOcean->Update(passInfo);
-
-    return 0;
-}
-
-int CTerrain::RenderOcean(const SRenderingPassInfo& passInfo)
-{
-    FUNCTION_PROFILER_3DENGINE;
-
-    if (!m_pOcean || !passInfo.RenderWaterOcean())
-    {
-        return 0;
-    }
-
-    m_pOcean->Render(passInfo);
-
-    m_pOcean->SetLastFov(passInfo.GetCamera().GetFov());
-
-    return 0;
-}
-
-void CTerrain::GetTerrainAlignmentMatrix(const Vec3& vPos, const float amount, Matrix33& matrix33)
+void CTerrain::GetTerrainAlignmentMatrix(const Vec3& vPos, const float amount, Matrix33& matrix33) const
 {
     //All paths from GetTerrainSurfaceNormal() return a normalized vector
     Vec3 vTerrainNormal = GetTerrainSurfaceNormal(vPos, 0.5f);
@@ -513,6 +609,14 @@ void CTerrain::GetTerrainAlignmentMatrix(const Vec3& vPos, const float amount, M
     Vec3 vDir = Vec3(-1, 0, 0).Cross(vTerrainNormal);
 
     matrix33 = matrix33.CreateOrientation(vDir, -vTerrainNormal, 0);
+}
+
+void CTerrain::GetMaterials(AZStd::vector<_smart_ptr<IMaterial>>& materials)
+{
+    TraverseTree([&materials](CTerrainNode* node)
+        {
+            node->GetMaterials(materials);
+        });
 }
 
 void CTerrain::GetMemoryUsage(class ICrySizer* pSizer) const
@@ -532,16 +636,11 @@ void CTerrain::GetMemoryUsage(class ICrySizer* pSizer) const
         pSizer->AddObject(m_NodePyramid);
     }
 
-    {
-        SIZER_COMPONENT_NAME(pSizer, "ProcVeget");
-        pSizer->AddObject(CTerrainNode::GetProcObjPoolMan());
-    }
-
     pSizer->AddObject(m_lstVisSectors);
     pSizer->AddObject(m_lstActiveTextureNodes);
     pSizer->AddObject(m_lstActiveProcObjNodes);
-    pSizer->AddObject(m_pOcean);
-    pSizer->AddObject(m_MacroTexture);
+
+    m_MacroTexture->GetMemoryUsage(pSizer);
 
     {
         SIZER_COMPONENT_NAME(pSizer, "TerrainSectorRenderTemp Data");
@@ -554,21 +653,21 @@ void CTerrain::GetMemoryUsage(class ICrySizer* pSizer) const
     CTerrainNode::GetStaticMemoryUsage(pSizer);
 }
 
-void CTerrain::IntersectWithShadowFrustum(PodArray<CTerrainNode*>* plstResult, ShadowMapFrustum* pFrustum, const SRenderingPassInfo& passInfo)
+void CTerrain::IntersectWithShadowFrustum(PodArray<ITerrainNode*>* plstResult, ShadowMapFrustum* pFrustum, const SRenderingPassInfo& passInfo)
 {
     if (m_RootNode)
     {
-        float fHalfGSMBoxSize = 0.5f / (pFrustum->fFrustrumSize * Get3DEngine()->m_fGsmRange);
+        float fHalfGSMBoxSize = 0.5f / (pFrustum->fFrustrumSize * Get3DEngine()->GetGSMRange());
 
         m_RootNode->IntersectWithShadowFrustum(false, plstResult, pFrustum, fHalfGSMBoxSize, passInfo);
     }
 }
 
-void CTerrain::IntersectWithBox(const AABB& aabbBox, PodArray<CTerrainNode*>* plstResult)
+void CTerrain::IntersectWithBox(const AABB& aabbBox, PodArray<ITerrainNode*>* plstResult)
 {
     if (m_RootNode)
     {
-        m_RootNode->IntersectWithBox(aabbBox, plstResult);
+        m_RootNode->IntersectWithBox(aabbBox, (PodArray<CTerrainNode*>*)plstResult);
     }
 }
 
@@ -577,13 +676,16 @@ void CTerrain::MarkAllSectorsAsUncompiled()
     if (m_RootNode)
     {
         m_RootNode->RemoveProcObjects(true);
-        Get3DEngine()->GetObjectTree()->MarkAsUncompiled();
+        if (Get3DEngine()->IsObjectTreeReady())
+        {
+            Get3DEngine()->GetIObjectTree()->MarkAsUncompiled();
+        }
     }
 }
 
 void CTerrain::GetResourceMemoryUsage(ICrySizer* pSizer, const AABB& crstAABB)
 {
-    CTerrainNode*   poTerrainNode = FindMinNodeContainingBox(crstAABB);
+    CTerrainNode*   poTerrainNode = (CTerrainNode*)FindMinNodeContainingBox(crstAABB);
 
     if (poTerrainNode)
     {
@@ -608,24 +710,6 @@ void CTerrain::TraverseTree(AZStd::function<void(CTerrainNode*)> callback)
             }
         }
     }
-}
-
-bool CTerrain::Recompile_Modified_Incrementaly_RoadRenderNodes()
-{
-    PodArray<CRoadRenderNode*>& rList = Get3DEngine()->m_lstRoadRenderNodesForUpdate;
-
-    while (rList.Count())
-    {
-        rList[0]->Compile();
-        rList.Delete(0);
-
-        if (!gEnv->IsEditor())
-        {
-            break;
-        }
-    }
-
-    return rList.Count() > 0;
 }
 
 struct CTerrain__Cmp_Sectors
@@ -657,19 +741,26 @@ void CTerrain::DrawVisibleSectors(const SRenderingPassInfo& passInfo)
 {
     FUNCTION_PROFILER_3DENGINE_LEGACYONLY;
     AZ_TRACE_METHOD();
+    TERRAIN_SCOPE_PROFILE(AZ::Debug::ProfileCategory::LegacyTerrain, LegacyTerrain::Debug::StatisticDrawVisibleSectors);
 
-    if (!passInfo.RenderTerrain() || !Get3DEngine()->m_bShowTerrainSurface)
+    if (!passInfo.RenderTerrain())
     {
         return;
     }
 
+    const int visibleSectorsCount = m_lstVisSectors.Count();
+
+#if !defined(_RELEASE) && defined(AZ_STATISTICAL_PROFILING_ENABLED)
+    m_terrainProfiler.SetVisibleTilesCount(visibleSectorsCount);
+#endif
+
     // sort to get good texture streaming priority
-    if (m_lstVisSectors.Count())
+    if (visibleSectorsCount)
     {
-        std::sort(m_lstVisSectors.GetElements(), m_lstVisSectors.GetElements() + m_lstVisSectors.Count(), CTerrain__Cmp_Sectors(passInfo));
+        std::sort(m_lstVisSectors.GetElements(), m_lstVisSectors.GetElements() + visibleSectorsCount, CTerrain__Cmp_Sectors(passInfo));
     }
 
-    for (int i = 0; i < m_lstVisSectors.Count(); i++)
+    for (int i = 0; i < visibleSectorsCount; i++)
     {
         CTerrainNode* pNode = (CTerrainNode*)m_lstVisSectors[i];
 
@@ -683,19 +774,21 @@ void CTerrain::DrawVisibleSectors(const SRenderingPassInfo& passInfo)
 void CTerrain::UpdateSectorMeshes(const SRenderingPassInfo& passInfo)
 {
     AZ_TRACE_METHOD();
+    TERRAIN_SCOPE_PROFILE(AZ::Debug::ProfileCategory::LegacyTerrain, LegacyTerrain::Debug::StatisticUpdateSectorMeshes);
+
     m_pTerrainUpdateDispatcher->SyncAllJobs(false, passInfo);
 }
 
 
-static Vec3 GetTerrainNormal(CTerrain& terrain, int x, int y)
+Vec3 CTerrain::GetTerrainNormal(int x, int y) const
 {
     const int   nTerrainSize = CTerrain::GetTerrainSize();
-    const int nRange = terrain.GetHeightMapUnitSize();
+    const int nRange = GetHeightMapUnitSize();
 
     float sx;
     if ((x + nRange) < nTerrainSize && x >= nRange)
     {
-        sx = terrain.GetZ(x + nRange, y) - terrain.GetZ(x - nRange, y);
+        sx = GetZ(x + nRange, y) - GetZ(x - nRange, y);
     }
     else
     {
@@ -705,7 +798,7 @@ static Vec3 GetTerrainNormal(CTerrain& terrain, int x, int y)
     float sy;
     if ((y + nRange) < nTerrainSize && y >= nRange)
     {
-        sy = terrain.GetZ(x, y + nRange) - terrain.GetZ(x, y - nRange);
+        sy = GetZ(x, y + nRange) - GetZ(x, y - nRange);
     }
     else
     {
@@ -722,6 +815,8 @@ _smart_ptr<IRenderMesh> CTerrain::MakeAreaRenderMesh(const Vec3& vPos, float fRa
 {
     PodArray<vtx_idx> lstIndices;
     lstIndices.Clear();
+    PodArray<vtx_idx> lstClippedIndices;
+    lstClippedIndices.Clear();
     PodArray<Vec3> posBuffer;
     posBuffer.Clear();
     PodArray<SVF_P3S_C4B_T2S> vertBuffer;
@@ -750,6 +845,7 @@ _smart_ptr<IRenderMesh> CTerrain::MakeAreaRenderMesh(const Vec3& vPos, float fRa
     nEstimateVerts = clamp_tpl(nEstimateVerts, 100, 10000);
     posBuffer.reserve(nEstimateVerts);
     lstIndices.reserve(nEstimateVerts * 6);
+    lstClippedIndices.reserve(nEstimateVerts * 6);
 
     const CTerrain* pTerrain = GetTerrain();
     for (int x = vBoxMin.x; x <= vBoxMax.x; x += nUnitSize)
@@ -804,22 +900,14 @@ _smart_ptr<IRenderMesh> CTerrain::MakeAreaRenderMesh(const Vec3& vPos, float fRa
     // clip triangles
     if (planes)
     {
-        int nOrigCount = lstIndices.Count();
-        for (int i = 0; i < nOrigCount; i += 3)
-        {
-            if (CRoadRenderNode::ClipTriangle(posBuffer, lstIndices, i, planes))
-            {
-                i -= 3;
-                nOrigCount -= 3;
-            }
-        }
+        Get3DEngine()->ClipTriangleHelper(lstIndices, planes, posBuffer, lstClippedIndices);
     }
 
     AABB bbox;
     bbox.Reset();
-    for (int i = 0, nIndexCount = lstIndices.size(); i < nIndexCount; i++)
+    for (int i = 0, nIndexCount = lstClippedIndices.size(); i < nIndexCount; i++)
     {
-        bbox.Add(posBuffer[lstIndices[i]]);
+        bbox.Add(posBuffer[lstClippedIndices[i]]);
     }
 
     tangBasises.reserve(posBuffer.size());
@@ -837,7 +925,7 @@ _smart_ptr<IRenderMesh> CTerrain::MakeAreaRenderMesh(const Vec3& vPos, float fRa
 
         Vec3 vTang = Vec3(0, 1, 0);
         Vec3 vBitang = Vec3(-1, 0, 0);
-        Vec3 vNormal = GetTerrainNormal(*this, fastround_positive(posBuffer[i].x), fastround_positive(posBuffer[i].y));
+        Vec3 vNormal = GetTerrainNormal(fastround_positive(posBuffer[i].x), fastround_positive(posBuffer[i].y));
 
         // Orthonormalize Tangent Frame
         vBitang = -vNormal.Cross(vTang);
@@ -850,12 +938,12 @@ _smart_ptr<IRenderMesh> CTerrain::MakeAreaRenderMesh(const Vec3& vPos, float fRa
 
     _smart_ptr<IRenderMesh> pMesh = GetRenderer()->CreateRenderMeshInitialized(
             vertBuffer.GetElements(), vertBuffer.Count(), eVF_P3S_C4B_T2S,
-            lstIndices.GetElements(), lstIndices.Count(), prtTriangleList,
+            lstClippedIndices.GetElements(), lstClippedIndices.Count(), prtTriangleList,
             szLSourceName, szLSourceName, eRMT_Static, 1, 0, NULL, NULL, false, true, tangBasises.GetElements());
 
     float texelAreaDensity = 1.0f;
 
-    pMesh->SetChunk(pMat, 0, vertBuffer.Count(), 0, lstIndices.Count(), texelAreaDensity, eVF_P3S_C4B_T2S);
+    pMesh->SetChunk(pMat, 0, vertBuffer.Count(), 0, lstClippedIndices.Count(), texelAreaDensity, eVF_P3S_C4B_T2S);
     pMesh->SetBBox(bbox.min - vPos, bbox.max - vPos);
     if (pMesh->GetChunks()[0].pRE)
     {
@@ -893,78 +981,22 @@ bool CTerrain::RenderArea(Vec3 vPos, float fRadius, _smart_ptr<IRenderMesh>& pRe
     return bREAdded;
 }
 
-bool CTerrain::RemoveObjectsInArea(Vec3 vExploPos, float fExploRadius)
+int CTerrain::GetNodesData(byte*& pData, int& nDataSize, EEndian eEndian, SHotUpdateInfo* pExportInfo)
 {
-    bool bEverythingDeleted = true;
-
-    Vec3 vRadius(fExploRadius, fExploRadius, fExploRadius);
-
-    PodArray<SRNInfo> lstEntities;
-    const AABB cExplosionBox(vExploPos - vRadius, vExploPos + vRadius);
-    Get3DEngine()->MoveObjectsIntoListGlobal(&lstEntities, &cExplosionBox, false, true, true, true);
-
-    // remove small objects around
+    if (m_RootNode)
     {
-        for (int i = 0; i < lstEntities.Count(); i++)
-        {
-            IRenderNode* pRenderNode = lstEntities[i].pNode;
-            AABB entBox = pRenderNode->GetBBox();
-            float fEntRadius = entBox.GetRadius();
-            Vec3 vEntCenter = pRenderNode->GetBBox().GetCenter();
-            float fDist = vExploPos.GetDistance(vEntCenter);
-            if (fDist < fExploRadius + fEntRadius &&
-                Overlap::Sphere_AABB(Sphere(vExploPos, fExploRadius), entBox))
-            {
-                if (fDist >= fExploRadius)
-                { //
-                    Matrix34A objMat;
-                    CStatObj* pStatObj = (CStatObj*)pRenderNode->GetEntityStatObj(0, 0, &objMat);
-                    if (!pStatObj)
-                    {
-                        continue;
-                    }
-                    objMat.Invert();
-                    //assert(0);
-                    Vec3 vOSExploPos = objMat.TransformPoint(vExploPos);
-
-                    Vec3 vScaleTest(0, 0, 1.f);
-                    vScaleTest = objMat.TransformVector(vScaleTest);
-                    float fObjScaleInv = vScaleTest.len();
-
-                    if (!pStatObj->IsSphereOverlap(Sphere(vOSExploPos, fExploRadius * fObjScaleInv)))
-                    {
-                        continue;
-                    }
-                }
-
-                if (pRenderNode->GetRenderNodeType() == eERType_Vegetation && (fEntRadius < (fExploRadius - fDist * .5f)) &&
-                    !((CVegetation*)pRenderNode)->IsBreakable())
-                { // remove this object
-                    Get3DEngine()->UnRegisterEntityAsJob(pRenderNode);
-                    pRenderNode->Dephysicalize();
-
-                    if (!(pRenderNode->m_dwRndFlags & ERF_PROCEDURAL))
-                    {
-                        Get3DEngine()->m_lstKilledVegetations.Add(pRenderNode);
-                    }
-                }
-                else
-                { // if something was impossible to destroy - disable deformation
-                    bEverythingDeleted = false;
-                }
-            }
-        }
+        return m_RootNode->GetData(pData, nDataSize, eEndian, pExportInfo);
     }
-
-    return bEverythingDeleted;
+    return 0;
 }
 
-void CTerrain::GetObjectsAround(Vec3 vExploPos, float fExploRadius, PodArray<SRNInfo>* pEntList, bool bSkip_ERF_NO_DECALNODE_DECALS, bool bSkipDynamicObjects)
+Vec3 CTerrain::GetTerrainSurfaceNormal(Vec3 vPos, float fRange) const
 {
-    assert(pEntList);
-
-    // get intersected outdoor sectors
-    AABB aabbBox(vExploPos - Vec3(fExploRadius, fExploRadius, fExploRadius), vExploPos + Vec3(fExploRadius, fExploRadius, fExploRadius));
-
-    Get3DEngine()->MoveObjectsIntoListGlobal(pEntList, &aabbBox, false, true, bSkip_ERF_NO_DECALNODE_DECALS, bSkipDynamicObjects);
+    fRange += 0.05f;
+    Vec3 v1 = Vec3(vPos.x - fRange, vPos.y - fRange, GetBilinearZ(vPos.x - fRange, vPos.y - fRange));
+    Vec3 v2 = Vec3(vPos.x - fRange, vPos.y + fRange, GetBilinearZ(vPos.x - fRange, vPos.y + fRange));
+    Vec3 v3 = Vec3(vPos.x + fRange, vPos.y - fRange, GetBilinearZ(vPos.x + fRange, vPos.y - fRange));
+    Vec3 v4 = Vec3(vPos.x + fRange, vPos.y + fRange, GetBilinearZ(vPos.x + fRange, vPos.y + fRange));
+    return (v3 - v2).Cross(v4 - v1).GetNormalized();
 }
+

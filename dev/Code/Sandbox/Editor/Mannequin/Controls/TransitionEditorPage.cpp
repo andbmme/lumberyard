@@ -398,7 +398,7 @@ void CTransitionEditorPage::OnPlayMenu()
             action->setData(Scales[i].fScale);
         }
 
-        connect(menu, &QMenu::triggered, [&](QAction* action){ m_playSpeed = action->data().toDouble(); });
+        connect(menu, &QMenu::triggered, this, [&](QAction* action){ m_playSpeed = action->data().toDouble(); });
     }
 
     for (QAction* action : menu->actions())
@@ -474,6 +474,7 @@ void CTransitionEditorPage::OnToggleTimelineUnits()
 //////////////////////////////////////////////////////////////////////////
 void CTransitionEditorPage::OnReloadAnimations()
 {
+#ifdef EDITOR_PCDEBUGCODE
     if (m_modelViewport == NULL)
     {
         return;
@@ -501,6 +502,7 @@ void CTransitionEditorPage::OnReloadAnimations()
 
     OnSequenceRestart(0.0f);
     SetTime(0.0f);
+#endif // EDITOR_PCDEBUGCODE
 }
 
 //////////////////////////////////////////////////////////////////////////

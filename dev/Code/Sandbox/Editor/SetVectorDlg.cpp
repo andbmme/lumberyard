@@ -11,7 +11,7 @@
 */
 // Original file Copyright Crytek GMBH or its affiliates, used under license.
 
-#include "stdafx.h"
+#include "StdAfx.h"
 #include "ViewManager.h"
 #include "SetVectorDlg.h"
 #include "ui_SetVectorDlg.h"
@@ -20,7 +20,9 @@
 #include "MainWindow.h"
 
 #include "MathConversion.h"
-#include <AzFramework/Math/MathUtils.h>
+
+#include <SetVectorDlg.h>
+#include "ActionManager.h"
 
 /////////////////////////////////////////////////////////////////////////////
 // CSetVectorDlg dialog
@@ -113,19 +115,19 @@ Vec3 CSetVectorDlg::GetVectorFromEditor()
     {
         if (obj)
         {
-			Quat qrot;
-			if (bWorldSpace)
-			{
-				AffineParts ap;
-				ap.SpectralDecompose(obj->GetWorldTM());
-				qrot = ap.rot;
-			}
-			else
-			{
-				qrot = obj->GetRotation();
-			}
+            Quat qrot;
+            if (bWorldSpace)
+            {
+                AffineParts ap;
+                ap.SpectralDecompose(obj->GetWorldTM());
+                qrot = ap.rot;
+            }
+            else
+            {
+                qrot = obj->GetRotation();
+            }
 
-			v = AZVec3ToLYVec3(AzFramework::ConvertQuaternionToEulerDegrees(LYQuaternionToAZQuaternion(qrot)));
+            v = AZVec3ToLYVec3(AZ::ConvertQuaternionToEulerDegrees(LYQuaternionToAZQuaternion(qrot)));
         }
     }
     if (emode == eEditModeScale)
@@ -149,11 +151,17 @@ Vec3 CSetVectorDlg::GetVectorFromEditor()
 
 Vec3 CSetVectorDlg::GetVectorFromText()
 {
-    float vec[3] = {0, 0, 0};
+    return GetVectorFromString(m_ui->edit->text());
+}
 
-    QString m_sPos = m_ui->edit->text();
-    const QStringList parts = m_sPos.split(QRegularExpression("[\\s,;\\t]"), QString::SkipEmptyParts);
-    for (int k = 0; k < parts.count(); ++k)
+Vec3 CSetVectorDlg::GetVectorFromString(const QString& vecString)
+{
+    const int maxCoordinates = 3;
+    float vec[maxCoordinates] = { 0, 0, 0 };
+
+    const QStringList parts = vecString.split(QRegularExpression("[\\s,;\\t]"), QString::SkipEmptyParts);
+    const int checkCoords = AZStd::GetMin(parts.count(), maxCoordinates);
+    for (int k = 0; k < checkCoords; ++k)
     {
         vec[k] = parts[k].toDouble();
     }
@@ -185,30 +193,32 @@ void CSetVectorDlg::SetVector(const Vec3& v)
     {
         if (obj)
         {
+            CUndo undo("Set Position");
             if (referenceCoordSys == COORDS_WORLD)
             {
                 tm.SetTranslation(v);
-                obj->SetWorldTM(tm);
+                obj->SetWorldTM(tm, eObjectUpdateFlags_UserInput);
             }
             else
             {
-                obj->SetPos(v);
+                obj->SetPos(v, eObjectUpdateFlags_UserInput);
             }
         }
     }
     if (emode == eEditModeRotate)
     {
+        CUndo undo("Set Rotation");
         if (obj)
         {
-			Quat qrot = AZQuaternionToLYQuaternion(AzFramework::ConvertEulerDegreesToQuaternion(LYVec3ToAZVec3(v)));
+            Quat qrot = AZQuaternionToLYQuaternion(AZ::ConvertEulerDegreesToQuaternion(LYVec3ToAZVec3(v)));
             if (referenceCoordSys == COORDS_WORLD)
             {
                 tm = Matrix34::Create(ap.scale, qrot, ap.pos);
-                obj->SetWorldTM(tm);
+                obj->SetWorldTM(tm, eObjectUpdateFlags_UserInput);
             }
             else
             {
-                obj->SetRotation(qrot);
+                obj->SetRotation(qrot, eObjectUpdateFlags_UserInput);
             }
         }
         else
@@ -220,19 +230,20 @@ void CSetVectorDlg::SetVector(const Vec3& v)
     {
         if (v.x == 0 || v.y == 0 || v.z == 0)
         {
-            return;
+            return; 
         }
 
+        CUndo undo("Set Scale");
         if (obj)
         {
             if (referenceCoordSys == COORDS_WORLD)
             {
                 tm = Matrix34::Create(v, ap.rot, ap.pos);
-                obj->SetWorldTM(tm);
+                obj->SetWorldTM(tm, eObjectUpdateFlags_UserInput);
             }
             else
             {
-                obj->SetScale(v);
+                obj->SetScale(v, eObjectUpdateFlags_UserInput);
             }
         }
         else

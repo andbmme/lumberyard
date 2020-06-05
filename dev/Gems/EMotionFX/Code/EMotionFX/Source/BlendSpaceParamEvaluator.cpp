@@ -10,14 +10,27 @@
 *
 */
 
+#include <EMotionFX/Source/Allocators.h>
 #include "BlendSpaceParamEvaluator.h"
 #include "MotionInstance.h"
 #include "ActorInstance.h"
 #include "Node.h"
+#include <MCore/Source/AzCoreConversions.h>
 
 
 namespace EMotionFX
 {
+    AZ_CLASS_ALLOCATOR_IMPL(BlendSpaceParamEvaluator, AnimGraphAllocator, 0)
+    AZ_CLASS_ALLOCATOR_IMPL(BlendSpaceParamEvaluatorNone, AnimGraphAllocator, 0)
+    AZ_CLASS_ALLOCATOR_IMPL(BlendSpaceMoveSpeedParamEvaluator, AnimGraphAllocator, 0)
+    AZ_CLASS_ALLOCATOR_IMPL(BlendSpaceTurnSpeedParamEvaluator, AnimGraphAllocator, 0)
+    AZ_CLASS_ALLOCATOR_IMPL(BlendSpaceTravelDirectionParamEvaluator, AnimGraphAllocator, 0)
+    AZ_CLASS_ALLOCATOR_IMPL(BlendSpaceTravelSlopeParamEvaluator, AnimGraphAllocator, 0)
+    AZ_CLASS_ALLOCATOR_IMPL(BlendSpaceTurnAngleParamEvaluator, AnimGraphAllocator, 0)
+    AZ_CLASS_ALLOCATOR_IMPL(BlendSpaceTravelDistanceParamEvaluator, AnimGraphAllocator, 0)
+    AZ_CLASS_ALLOCATOR_IMPL(BlendSpaceLeftRightVelocityParamEvaluator, AnimGraphAllocator, 0)
+    AZ_CLASS_ALLOCATOR_IMPL(BlendSpaceFrontBackVelocityParamEvaluator, AnimGraphAllocator, 0)
+
     MCORE_INLINE bool GetMotionActorAndNode(const MotionInstance& motionInstance,
         Motion*& motion, Actor*& actor, Node*& node)
     {
@@ -133,14 +146,14 @@ namespace EMotionFX
 
         Transform transform;
         motion->CalcNodeTransform(&motionInstance, &transform, actor, node, 0, retargeting);
-        MCore::Quaternion rotation(transform.mRotation);
+        AZ::Quaternion rotation(transform.mRotation);
         float totalAngle = 0.0f;
         float time = sampleTimeStep;
         for (uint32 i = 1; i < numSamples; ++i, time += sampleTimeStep)
         {
             motion->CalcNodeTransform(&motionInstance, &transform, actor, node, time, retargeting);
-            MCore::Quaternion deltaRotation = transform.mRotation * rotation.Conjugated();
-            const float angle = -deltaRotation.GetEulerZ();// negating because we prefer the convention of clockwise being +ve
+            AZ::Quaternion deltaRotation = transform.mRotation * rotation.GetConjugate();
+            const float angle = -MCore::GetEulerZ(deltaRotation);// negating because we prefer the convention of clockwise being +ve
             totalAngle += angle;
             rotation = transform.mRotation;
         }
@@ -259,14 +272,14 @@ namespace EMotionFX
 
         Transform transform;
         motion->CalcNodeTransform(&motionInstance, &transform, actor, node, 0, retargeting);
-        MCore::Quaternion rotation(transform.mRotation);
+        AZ::Quaternion rotation(transform.mRotation);
         float totalTurnAngle = 0.0f;
         float time = sampleTimeStep;
         for (uint32 i = 1; i < numSamples; ++i, time += sampleTimeStep)
         {
             motion->CalcNodeTransform(&motionInstance, &transform, actor, node, time, retargeting);
-            MCore::Quaternion deltaRotation = transform.mRotation * rotation.Conjugated();
-            const float angle = -deltaRotation.GetEulerZ();// negating because we prefer the convention of clockwise being +ve
+            AZ::Quaternion deltaRotation = transform.mRotation * rotation.GetConjugate();
+            const float angle = -MCore::GetEulerZ(deltaRotation);// negating because we prefer the convention of clockwise being +ve
             totalTurnAngle += angle;
             rotation = transform.mRotation;
         }

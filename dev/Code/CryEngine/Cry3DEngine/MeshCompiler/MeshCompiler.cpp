@@ -120,6 +120,11 @@ namespace mesh_compiler
             {
                 newMesh.m_pTangents[newVertex] = oldMesh.m_pTangents[oldVertex];
             }
+            //New since Touch Bending Gem. A Mesh can have boneMappings.
+            if (oldMesh.m_pBoneMapping)
+            {
+                newMesh.m_pBoneMapping[newVertex] = oldMesh.m_pBoneMapping[oldVertex];
+            }
         }
 
         // Modified version of MeshUtils::Mesh::ComputeVertexRemapping()
@@ -534,8 +539,8 @@ namespace mesh_compiler
 
     static void debugDumpMesh(CMesh& mesh, const char* filename)
     {
-        FILE* f;
-        f = fopen(filename, "wb");
+        FILE* f = nullptr;
+        azfopen(&f, filename, "wb");
         if (!f)
         {
             return;
@@ -653,15 +658,24 @@ namespace mesh_compiler
 
             const int vertexCount = mesh.GetVertexCount();
             const int faceCount = mesh.GetFaceCount();
+            const int subSetCount = mesh.GetSubSetCount();
+
+            if (subSetCount >= MAX_SUB_MATERIALS)
+            {
+                m_LastError.Format(
+                    "Mesh compilation failed - Number of subsets (%d) exceeds the maximum amount of sub-materials (%d).",
+                    subSetCount, MAX_SUB_MATERIALS);
+                return false;
+            }
 
             for (int i = 0; i < faceCount; ++i)
             {
                 const SMeshFace& face = mesh.m_pFaces[i];
-                if (face.nSubset < 0 || face.nSubset >= MAX_SUB_MATERIALS)
+                if (face.nSubset < 0 || face.nSubset >= subSetCount)
                 {
                     m_LastError.Format(
                         "Mesh compilation failed - face %d has bad subset index %d (allowed range is [0;%d]). Contact an RC programmer.",
-                        i, (int)face.nSubset, MAX_SUB_MATERIALS - 1);
+                        i, (int)face.nSubset, subSetCount - 1);
                     return false;
                 }
                 for (int j = 0; j < 3; ++j)
@@ -820,6 +834,11 @@ namespace mesh_compiler
         {
             outMesh.ReallocStream(CMesh::COLORS, 1, max_vert_num);
         }
+        //New Since Touch Bending Gem. A Touch Bendable Mesh has bone mappings.
+        if (mesh.m_pBoneMapping)
+        {
+            outMesh.ReallocStream(CMesh::BONEMAPPING, 0, max_vert_num);
+        }
 
         // temporarily store original subset index in subset's nNumVerts
         {
@@ -920,10 +939,13 @@ namespace mesh_compiler
             return false;
         }
 
-        bool bFoundDegenerateFaces = false;
-        if (flags & MESH_COMPILE_VALIDATE)
+        if (flags & MESH_COMPILE_VALIDATE_FAIL_ON_DEGENERATE_FACES)
         {
-            bFoundDegenerateFaces = CheckForDegenerateFaces(outMesh);
+            if(CheckForDegenerateFaces(outMesh))
+            {
+                m_LastError.Format("Mesh contains degenerate faces.");
+                return false;
+            }
         }
 
         if (flags & MESH_COMPILE_OPTIMIZE)
@@ -958,12 +980,6 @@ namespace mesh_compiler
 
         if (flags & MESH_COMPILE_VALIDATE)
         {
-            if (bFoundDegenerateFaces)
-            {
-                m_LastError.Format("Mesh contains degenerate faces.");
-                return false;
-            }
-
             const char* pErrorDescription = 0;
             if (!mesh.Validate(&pErrorDescription))
             {
@@ -1429,6 +1445,11 @@ namespace mesh_compiler
         if (mesh.m_pTangents)
         {
             mesh.ReallocStream(CMesh::TANGENTS, 0, newVertexCount);
+        }
+        //New since Touch Bending Gem. a Tocuh Bendable Mesh has bone mappings. 
+        if (mesh.m_pBoneMapping)
+        {
+            mesh.ReallocStream(CMesh::BONEMAPPING, 0, newVertexCount);
         }
         mesh.ReallocStream(CMesh::TOPOLOGY_IDS, 0, 0);
         mesh.ReallocStream(CMesh::VERT_MATS, 0, 0);

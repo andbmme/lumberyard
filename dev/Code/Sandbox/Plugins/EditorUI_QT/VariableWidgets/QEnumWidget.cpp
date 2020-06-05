@@ -10,7 +10,7 @@
 *
 */
 
-#include "StdAfx.h"
+#include "EditorUI_QT_Precompiled.h"
 #include "QEnumWidget.h"
 #include "BaseVariableWidget.h"
 #include "Utils.h"

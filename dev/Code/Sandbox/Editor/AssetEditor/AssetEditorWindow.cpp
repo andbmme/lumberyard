@@ -39,9 +39,14 @@ AssetEditorWindow::~AssetEditorWindow()
     BusDisconnect();
 }
 
-void AssetEditorWindow::SetAsset(const AZ::Data::Asset<AZ::Data::AssetData>& asset) const
+void AssetEditorWindow::CreateAsset(const AZ::Data::AssetType& assetType)
 {
-    m_ui->m_assetEditorWidget->SetAsset(asset);
+    m_ui->m_assetEditorWidget->CreateAsset(assetType);
+}
+
+void AssetEditorWindow::OpenAsset(const AZ::Data::Asset<AZ::Data::AssetData>& asset)
+{
+    m_ui->m_assetEditorWidget->OpenAsset(asset);
 }
 
 void AssetEditorWindow::RegisterViewClass()
@@ -72,15 +77,23 @@ void AssetEditorWindow::OnAssetOpened(const AZ::Data::Asset<AZ::Data::AssetData>
 
 void AssetEditorWindow::closeEvent(QCloseEvent* event)
 {
+    if (m_ui->m_assetEditorWidget->WaitingToSave())
+    {
+        // Don't need to ask to save, as a save is already queued.
+        m_ui->m_assetEditorWidget->SetCloseAfterSave();
+        event->ignore();
+        return;
+    }
+
     if (m_ui->m_assetEditorWidget->TrySave([this]() {  qobject_cast<QWidget*>(parent())->close(); }))
     {
         event->ignore();
     }
 }
 
-void AssetEditorWindow::OnAssetSaveFailed(const AZStd::string& error) const
+void AssetEditorWindow::OnAssetSaveFailed(const AZStd::string& error)
 {
-    QMessageBox::warning(nullptr, tr("Unable to Save Asset"),
+    QMessageBox::warning(this, tr("Unable to Save Asset"),
         tr(error.c_str()), QMessageBox::Ok, QMessageBox::Ok);
 }
 

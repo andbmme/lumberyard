@@ -10,49 +10,21 @@
 *
 */
 
-// include required headers
+#include <AzCore/Serialization/SerializeContext.h>
+#include <AzCore/Serialization/EditContext.h>
 #include "BlendTreeVector4DecomposeNode.h"
 
 
 namespace EMotionFX
 {
-    // constructor
-    BlendTreeVector4DecomposeNode::BlendTreeVector4DecomposeNode(AnimGraph* animGraph)
-        : AnimGraphNode(animGraph, nullptr, TYPE_ID)
-    {
-        // allocate space for the variables
-        CreateAttributeValues();
-        RegisterPorts();
-        InitInternalAttributesForAllInstances();
-    }
+    AZ_CLASS_ALLOCATOR_IMPL(BlendTreeVector4DecomposeNode, AnimGraphAllocator, 0)
 
-
-    // destructor
-    BlendTreeVector4DecomposeNode::~BlendTreeVector4DecomposeNode()
-    {
-    }
-
-
-    // create
-    BlendTreeVector4DecomposeNode* BlendTreeVector4DecomposeNode::Create(AnimGraph* animGraph)
-    {
-        return new BlendTreeVector4DecomposeNode(animGraph);
-    }
-
-
-    // create unique data
-    AnimGraphObjectData* BlendTreeVector4DecomposeNode::CreateObjectData()
-    {
-        return AnimGraphNodeData::Create(this, nullptr);
-    }
-
-
-    // register the ports
-    void BlendTreeVector4DecomposeNode::RegisterPorts()
+    BlendTreeVector4DecomposeNode::BlendTreeVector4DecomposeNode()
+        : AnimGraphNode()
     {
         // setup the input ports
         InitInputPorts(1);
-        SetupInputPort("Vector", INPUTPORT_VECTOR, MCore::AttributeVector4::TYPE_ID, PORTID_INPUT_VECTOR);
+        SetupInputPortAsVector4("Vector", INPUTPORT_VECTOR, PORTID_INPUT_VECTOR);
 
         // setup the output ports
         InitOutputPorts(4);
@@ -62,64 +34,83 @@ namespace EMotionFX
         SetupOutputPort("w", OUTPUTPORT_W, MCore::AttributeFloat::TYPE_ID, PORTID_OUTPUT_W);
     }
 
-
-    // register the parameters
-    void BlendTreeVector4DecomposeNode::RegisterAttributes()
+    BlendTreeVector4DecomposeNode::~BlendTreeVector4DecomposeNode()
     {
     }
 
+    bool BlendTreeVector4DecomposeNode::InitAfterLoading(AnimGraph* animGraph)
+    {
+        if (!AnimGraphNode::InitAfterLoading(animGraph))
+        {
+            return false;
+        }
 
-    // get the palette name
+        InitInternalAttributesForAllInstances();
+
+        Reinit();
+        return true;
+    }
+
     const char* BlendTreeVector4DecomposeNode::GetPaletteName() const
     {
         return "Vector4 Decompose";
     }
 
-
-    // get the category
     AnimGraphObject::ECategory BlendTreeVector4DecomposeNode::GetPaletteCategory() const
     {
         return AnimGraphObject::CATEGORY_MATH;
     }
 
-
-    // create a clone of this node
-    AnimGraphObject* BlendTreeVector4DecomposeNode::Clone(AnimGraph* animGraph)
-    {
-        // create the clone
-        BlendTreeVector4DecomposeNode* clone = new BlendTreeVector4DecomposeNode(animGraph);
-
-        // copy base class settings such as parameter values to the new clone
-        CopyBaseObjectTo(clone);
-
-        // return a pointer to the clone
-        return clone;
-    }
-
-
-    // the update function
     void BlendTreeVector4DecomposeNode::Update(AnimGraphInstance* animGraphInstance, float timePassedInSeconds)
     {
-        // update all inputs
         UpdateAllIncomingNodes(animGraphInstance, timePassedInSeconds);
+        UpdateOutputPortValues(animGraphInstance);
+    }
 
-        // if there are no incoming connections, there is nothing to do
-        if (mConnections.GetLength() == 0)
+    void BlendTreeVector4DecomposeNode::Output(AnimGraphInstance* animGraphInstance)
+    {
+        OutputAllIncomingNodes(animGraphInstance);
+        UpdateOutputPortValues(animGraphInstance);
+    }
+
+    void BlendTreeVector4DecomposeNode::UpdateOutputPortValues(AnimGraphInstance* animGraphInstance)
+    {
+        // If there are no incoming connections, there is nothing to do.
+        if (mConnections.size() == 0)
         {
             return;
         }
 
-        AZ::Vector4 value = GetInputVector4(animGraphInstance, INPUTPORT_VECTOR)->GetValue();
+        AZ::Vector4 value = AZ::Vector4::CreateZero();
+        TryGetInputVector4(animGraphInstance, INPUTPORT_VECTOR, value);
         GetOutputFloat(animGraphInstance, OUTPUTPORT_X)->SetValue(value.GetX());
         GetOutputFloat(animGraphInstance, OUTPUTPORT_Y)->SetValue(value.GetY());
         GetOutputFloat(animGraphInstance, OUTPUTPORT_Z)->SetValue(value.GetZ());
         GetOutputFloat(animGraphInstance, OUTPUTPORT_W)->SetValue(value.GetW());
     }
 
-
-    // get the type string
-    const char* BlendTreeVector4DecomposeNode::GetTypeString() const
+    void BlendTreeVector4DecomposeNode::Reflect(AZ::ReflectContext* context)
     {
-        return "BlendTreeVector4DecomposeNode";
+        AZ::SerializeContext* serializeContext = azrtti_cast<AZ::SerializeContext*>(context);
+        if (!serializeContext)
+        {
+            return;
+        }
+
+        serializeContext->Class<BlendTreeVector4DecomposeNode, AnimGraphNode>()
+            ->Version(1);
+
+
+        AZ::EditContext* editContext = serializeContext->GetEditContext();
+        if (!editContext)
+        {
+            return;
+        }
+
+        editContext->Class<BlendTreeVector4DecomposeNode>("Vector4 Decompose", "Vector4 decompose attributes")
+            ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
+            ->Attribute(AZ::Edit::Attributes::AutoExpand, "")
+            ->Attribute(AZ::Edit::Attributes::Visibility, AZ::Edit::PropertyVisibility::ShowChildrenOnly)
+            ;
     }
-}   // namespace EMotionFX
+} // namespace EMotionFX

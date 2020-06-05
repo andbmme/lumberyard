@@ -13,7 +13,7 @@
 
 #include "pch.h"
 #include "stdafx.h"
-#include "Platform.h"
+#include "platform.h"
 #include "CafCompressionHelper.h"
 #include "Shared/AnimSettings.h"
 
@@ -211,7 +211,7 @@ bool CafCompressionHelper::CompressAnimationForPreview(string* outputCafPath, st
     }
 }
 
-static bool GetFileTime(__time64_t* filetime, const char* filename)
+static bool GetFileTime(int64* filetime, const char* filename)
 {
     _finddata_t FindFileData;
     const intptr_t hFind = gEnv->pCryPak->FindFirst(filename, &FindFileData, 0);
@@ -232,13 +232,13 @@ static bool GetFileTime(__time64_t* filetime, const char* filename)
 
 static bool ModificationTimeEqual(const char* filename1, const char* filename2)
 {
-    __time64_t time1;
+    int64 time1;
     if (!GetFileTime(&time1, filename1))
     {
         return false;
     }
 
-    __time64_t time2;
+    int64 time2;
     if (!GetFileTime(&time2, filename2))
     {
         return false;
@@ -349,7 +349,7 @@ void CafCompressionHelper::CleanUpCompressionResult(const char* createdFile)
 
     // remove all empty folders inside ANIMATION_COMPRESSION_TEMP_ROOT
     string path = createdFolder;
-    while (!path.empty() && stricmp(path.c_str(), ANIMATION_COMPRESSION_TEMP_ROOT) != 0)
+    while (!path.empty() && azstricmp(path.c_str(), ANIMATION_COMPRESSION_TEMP_ROOT) != 0)
     {
         path.TrimRight("\\/");
         if (!QDir().rmdir(path.c_str()))

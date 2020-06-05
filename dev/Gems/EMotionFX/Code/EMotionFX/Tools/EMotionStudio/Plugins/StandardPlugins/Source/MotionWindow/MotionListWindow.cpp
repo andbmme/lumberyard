@@ -10,7 +10,7 @@
 *
 */
 
-#include <AzCore/std/string/string.h>
+#include <AzQtComponents/Components/FilteredSearchWidget.h>
 #include "MotionListWindow.h"
 #include "MotionWindowPlugin.h"
 #include <QMenu>
@@ -18,6 +18,7 @@
 #include <QContextMenuEvent>
 #include <QAction>
 #include <QPushButton>
+#include <QApplication>
 #include <QApplication>
 #include <QVBoxLayout>
 #include <QFileDialog>
@@ -82,7 +83,7 @@ namespace EMStudio
         tableWidget->setRowCount(numMotions);
 
         // add each motion in the table
-        for (int i=0; i<numMotions; ++i)
+        for (int i = 0; i < numMotions; ++i)
         {
             // get the motion
             EMotionFX::Motion* motion = motions[i];
@@ -111,7 +112,7 @@ namespace EMStudio
 
         // add the button to close the window
         QPushButton* okButton = new QPushButton("OK");
-        connect(okButton, SIGNAL(clicked()), this, SLOT(accept()));
+        connect(okButton, &QPushButton::clicked, this, &MotionListRemoveMotionsFailedWindow::accept);
         QHBoxLayout* buttonLayout = new QHBoxLayout();
         buttonLayout->setAlignment(Qt::AlignRight);
         buttonLayout->addWidget(okButton);
@@ -148,8 +149,8 @@ namespace EMStudio
         mVLayout->setSpacing(2);
         mMotionTable = new MotionTableWidget(mMotionWindowPlugin, this);
         mMotionTable->setAlternatingRowColors(true);
-        connect(mMotionTable, SIGNAL(cellDoubleClicked(int, int)), this, SLOT(cellDoubleClicked(int, int)));
-        connect(mMotionTable, SIGNAL(itemSelectionChanged()), this, SLOT(itemSelectionChanged()));
+        connect(mMotionTable, &MotionTableWidget::cellDoubleClicked, this, &MotionListWindow::cellDoubleClicked);
+        connect(mMotionTable, &MotionTableWidget::itemSelectionChanged, this, &MotionListWindow::itemSelectionChanged);
 
         // set the table to row single selection
         mMotionTable->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -246,22 +247,16 @@ namespace EMStudio
         spacerWidget->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Fixed);
         buttonLayout->addWidget(spacerWidget);
 
-        mFindWidget = new MysticQt::SearchButton(this, MysticQt::GetMysticQt()->FindIcon("Images/Icons/SearchClearButton.png"));
-        connect(mFindWidget->GetSearchEdit(), SIGNAL(textChanged(const QString&)), this, SLOT(SearchStringChanged(const QString&)));
+        m_searchWidget = new AzQtComponents::FilteredSearchWidget(this);
+        connect(m_searchWidget, &AzQtComponents::FilteredSearchWidget::TextFilterChanged, this, &MotionListWindow::OnTextFilterChanged);
+        buttonLayout->addWidget(m_searchWidget);
 
-        QHBoxLayout* searchLayout = new QHBoxLayout();
-        searchLayout->addWidget(new QLabel("Find:"), 0, Qt::AlignRight);
-        searchLayout->addWidget(mFindWidget);
-        searchLayout->setSpacing(6);
-
-        buttonLayout->addLayout(searchLayout);
-
-        connect(mClearMotionsButton, SIGNAL(clicked()), this, SLOT(OnClearMotionsButtonPressed()));
-        connect(mRemoveMotionsButton, SIGNAL(clicked()), this, SLOT(OnRemoveMotionsButtonPressed()));
-        connect(mAddMotionsButton, SIGNAL(clicked()), this, SLOT(OnAddMotionsButtonPressed()));
-        connect(mSaveButton, SIGNAL(clicked()), this, SLOT(OnSave()));
-        connect(stopAll, SIGNAL(clicked()), this, SLOT(OnStopAllMotionsButton()));
-        connect(stopSelected, SIGNAL(clicked()), this, SLOT(OnStopSelectedMotionsButton()));
+        connect(mClearMotionsButton, &QPushButton::clicked, this, &MotionListWindow::OnClearMotionsButtonPressed);
+        connect(mRemoveMotionsButton, &QPushButton::clicked, this, &MotionListWindow::OnRemoveMotionsButtonPressed);
+        connect(mAddMotionsButton, &QPushButton::clicked, this, &MotionListWindow::OnAddMotionsButtonPressed);
+        connect(mSaveButton, &QPushButton::clicked, this, &MotionListWindow::OnSave);
+        connect(stopAll, &QPushButton::clicked, this, &MotionListWindow::OnStopAllMotionsButton);
+        connect(stopSelected, &QPushButton::clicked, this, &MotionListWindow::OnStopSelectedMotionsButton);
 
         mVLayout->addLayout(buttonLayout);
         mVLayout->addWidget(mMotionTable);
@@ -272,9 +267,9 @@ namespace EMStudio
 
 
     // called when the filter string changed
-    void MotionListWindow::SearchStringChanged(const QString& text)
+    void MotionListWindow::OnTextFilterChanged(const QString& text)
     {
-        mFindString = text.toLower().toUtf8().data();
+        m_searchWidgetText = text.toLower().toUtf8().data();
         ReInit();
     }
 
@@ -315,15 +310,15 @@ namespace EMStudio
         mMotionTable->setItem(rowIndex, 0, nameTableItem);
 
         // create the length item
-        MCore::String length;
-        length.Format("%.2f sec", motion->GetMaxTime());
-        QTableWidgetItem* lengthTableItem = new QTableWidgetItem(length.AsChar());
+        AZStd::string length;
+        length = AZStd::string::format("%.2f sec", motion->GetMaxTime());
+        QTableWidgetItem* lengthTableItem = new QTableWidgetItem(length.c_str());
 
         // set the item in the motion table
         mMotionTable->setItem(rowIndex, 1, lengthTableItem);
 
         // set the sub and msub text
-        MCore::String sub, msub;
+        AZStd::string sub, msub;
         if ((motion->GetType() != EMotionFX::SkeletalMotion::TYPE_ID) && (motion->GetType() != EMotionFX::WaveletSkeletalMotion::TYPE_ID))
         {
             sub = "";
@@ -332,13 +327,13 @@ namespace EMStudio
         else
         {
             EMotionFX::SkeletalMotion* skeletalMotion = static_cast<EMotionFX::SkeletalMotion*>(motion);
-            sub.Format("%d", skeletalMotion->GetNumSubMotions());
-            msub.Format("%d", skeletalMotion->GetNumMorphSubMotions());
+            sub = AZStd::string::format("%d", skeletalMotion->GetNumSubMotions());
+            msub = AZStd::string::format("%d", skeletalMotion->GetNumMorphSubMotions());
         }
 
         // create the sub and msub item
-        QTableWidgetItem* subTableItem = new QTableWidgetItem(sub.AsChar());
-        QTableWidgetItem* msubTableItem = new QTableWidgetItem(msub.AsChar());
+        QTableWidgetItem* subTableItem = new QTableWidgetItem(sub.c_str());
+        QTableWidgetItem* msubTableItem = new QTableWidgetItem(msub.c_str());
 
         // set the items in the motion table
         mMotionTable->setItem(rowIndex, 2, subTableItem);
@@ -423,8 +418,9 @@ namespace EMStudio
             return false;
         }
 
-        const MCore::String motionNameLowered = entry->mMotion->GetNameString().Lowered();
-        if (mFindString.empty() || motionNameLowered.Contains(mFindString.c_str()))
+        AZStd::string motionNameLowered = entry->mMotion->GetNameString();
+        AZStd::to_lower(motionNameLowered.begin(), motionNameLowered.end());
+        if (m_searchWidgetText.empty() || motionNameLowered.find(m_searchWidgetText) != AZStd::string::npos)
         {
             return true;
         }
@@ -439,7 +435,7 @@ namespace EMStudio
         size_t numMotions = mMotionWindowPlugin->GetNumMotionEntries();
         mShownMotionEntries.clear();
         mShownMotionEntries.reserve(numMotions);
-        
+
         for (size_t i = 0; i < numMotions; ++i)
         {
             MotionWindowPlugin::MotionTableEntry* entry = mMotionWindowPlugin->GetMotionEntry(i);
@@ -474,15 +470,15 @@ namespace EMStudio
             mMotionTable->setItem(i, 0, nameTableItem);
 
             // create the length item
-            MCore::String length;
-            length.Format("%.2f sec", motion->GetMaxTime());
-            QTableWidgetItem* lengthTableItem = new QTableWidgetItem(length.AsChar());
+            AZStd::string length;
+            length = AZStd::string::format("%.2f sec", motion->GetMaxTime());
+            QTableWidgetItem* lengthTableItem = new QTableWidgetItem(length.c_str());
 
             // set the item in the motion table
             mMotionTable->setItem(i, 1, lengthTableItem);
 
             // set the sub and msub text
-            MCore::String sub, msub;
+            AZStd::string sub, msub;
             if ((motion->GetType() != EMotionFX::SkeletalMotion::TYPE_ID) && (motion->GetType() != EMotionFX::WaveletSkeletalMotion::TYPE_ID))
             {
                 sub = "";
@@ -491,13 +487,13 @@ namespace EMStudio
             else
             {
                 EMotionFX::SkeletalMotion* skeletalMotion = static_cast<EMotionFX::SkeletalMotion*>(motion);
-                sub.Format("%d", skeletalMotion->GetNumSubMotions());
-                msub.Format("%d", skeletalMotion->GetNumMorphSubMotions());
+                sub = AZStd::string::format("%d", skeletalMotion->GetNumSubMotions());
+                msub = AZStd::string::format("%d", skeletalMotion->GetNumMorphSubMotions());
             }
 
             // create the sub and msub item
-            QTableWidgetItem* subTableItem = new QTableWidgetItem(sub.AsChar());
-            QTableWidgetItem* msubTableItem = new QTableWidgetItem(msub.AsChar());
+            QTableWidgetItem* subTableItem = new QTableWidgetItem(sub.c_str());
+            QTableWidgetItem* msubTableItem = new QTableWidgetItem(msub.c_str());
 
             // set the items in the motion table
             mMotionTable->setItem(i, 2, subTableItem);
@@ -623,7 +619,7 @@ namespace EMStudio
         // filter the items
         AZStd::vector<uint32> rowIndices;
         rowIndices.reserve(numSelectedItems);
-        for (size_t i=0; i<numSelectedItems; ++i)
+        for (size_t i = 0; i < numSelectedItems; ++i)
         {
             const uint32 rowIndex = selectedItems[static_cast<uint32>(i)]->row();
             if (AZStd::find(rowIndices.begin(), rowIndices.end(), rowIndex) == rowIndices.end())
@@ -638,7 +634,7 @@ namespace EMStudio
         // get the number of selected items and iterate through them
         const size_t numSelectedRows = rowIndices.size();
         mSelectedMotionIDs.reserve(numSelectedRows);
-        for (size_t i=0; i<numSelectedRows; ++i)
+        for (size_t i = 0; i < numSelectedRows; ++i)
         {
             mSelectedMotionIDs.push_back(GetMotionID(rowIndices[i]));
         }
@@ -675,11 +671,19 @@ namespace EMStudio
             return;
         }
 
-        // Save all selected motions.
+        // Collect motion ids of the motion to be saved.
+        AZStd::vector<AZ::u32> motionIds;
+        motionIds.reserve(numMotions);
         for (AZ::u32 i = 0; i < numMotions; ++i)
         {
-            EMotionFX::Motion* motion = selectionList.GetMotion(i);
-            GetMainWindow()->GetFileManager()->SaveMotion(motion);
+            const EMotionFX::Motion* motion = selectionList.GetMotion(i);
+            motionIds.push_back(motion->GetID());
+        }
+
+        // Save all selected motions.
+        for (AZ::u32 motionId : motionIds)
+        {
+            GetMainWindow()->GetFileManager()->SaveMotion(motionId);
         }
     }
 
@@ -726,7 +730,7 @@ namespace EMStudio
         MCore::CommandGroup commandGroup(groupName);
 
         // add in each selected motion set
-        MCore::String motionName;
+        AZStd::string motionName;
         for (uint32 m = 0; m < numSelectedMotionSets; ++m)
         {
             EMotionFX::MotionSet* motionSet = selectedMotionSets[m];
@@ -743,7 +747,7 @@ namespace EMStudio
                 EMotionFX::GetEMotionFX().GetFilenameRelativeToMediaRoot(&motionName);
 
                 // construct and call the command for actually adding it
-                CommandSystem::AddMotionSetEntry(motionSet->GetID(), "", idStrings, motionName.AsChar(), &commandGroup);
+                CommandSystem::AddMotionSetEntry(motionSet->GetID(), "", idStrings, motionName.c_str(), &commandGroup);
             }
         }
 
@@ -810,7 +814,7 @@ namespace EMStudio
                     // add the menu to add in motion sets
                     QAction* addInSelectedMotionSetsAction = menu.addAction("Add To Selected Motion Sets");
                     addInSelectedMotionSetsAction->setIcon(MysticQt::GetMysticQt()->FindIcon("Images/Icons/Plus.png"));
-                    connect(addInSelectedMotionSetsAction, SIGNAL(triggered()), this, SLOT(OnAddMotionsInSelectedMotionSets()));
+                    connect(addInSelectedMotionSetsAction, &QAction::triggered, this, &MotionListWindow::OnAddMotionsInSelectedMotionSets);
 
                     menu.addSeparator();
                 }
@@ -819,22 +823,14 @@ namespace EMStudio
             // add the remove menu
             QAction* removeAction = menu.addAction("Remove Selected Motions");
             removeAction->setIcon(MysticQt::GetMysticQt()->FindIcon("Images/Icons/Minus.png"));
-            connect(removeAction, SIGNAL(triggered()), this, SLOT(OnRemoveMotionsButtonPressed()));
+            connect(removeAction, &QAction::triggered, this, &MotionListWindow::OnRemoveMotionsButtonPressed);
 
             menu.addSeparator();
 
             // add the save menu
             QAction* saveAction = menu.addAction("Save Selected Motions");
             saveAction->setIcon(MysticQt::GetMysticQt()->FindIcon("/Images/Menu/FileSave.png"));
-            connect(saveAction, SIGNAL(triggered()), this, SLOT(OnSave()));
-
-            menu.addSeparator();
-
-            // data scaling
-            QAction* scaleAction = menu.addAction("Scale Motion Data");
-            scaleAction->setToolTip("<b>Scale Motion Data:</b><br>This will scale all internal data of the motion. This adjusts all pose and keyframe position values.");
-            scaleAction->setIcon(MysticQt::GetMysticQt()->FindIcon("/Images/Rendering/Scale.png"));
-            connect(scaleAction, SIGNAL(triggered()), GetMainWindow(), SLOT(OnScaleSelectedMotions()));
+            connect(saveAction, &QAction::triggered, this, &MotionListWindow::OnSave);
         }
 
         // show the menu at the given position
@@ -891,24 +887,28 @@ namespace EMStudio
     void MotionListWindow::OnRemoveMotionsButtonPressed()
     {
         const CommandSystem::SelectionList& selection = GetCommandManager()->GetCurrentSelection();
-
-        // get the number of selected motions
-        const uint32 numMotions = selection.GetNumSelectedMotions();
+        const AZ::u32 numMotions = selection.GetNumSelectedMotions();
         if (numMotions == 0)
         {
             return;
         }
 
-        // iterate through the selected motions and put them into some array
-        AZStd::vector<EMotionFX::Motion*> motionsToRemove;
-        motionsToRemove.reserve(numMotions);
-        for (uint32 i = 0; i < numMotions; ++i)
+        // Store the motion ids for the to be removed motions as the motion pointers might
+        // be invalidated by the save dirty motions and the reloading processes.
+        AZStd::vector<AZ::u32> motionIdsToRemove;
+        motionIdsToRemove.reserve(numMotions);
+        for (AZ::u32 i = 0; i < numMotions; ++i)
         {
-            EMotionFX::Motion* motion = selection.GetMotion(i);
+            const EMotionFX::Motion* motion = selection.GetMotion(i);
+            motionIdsToRemove.emplace_back(motion->GetID());
+        }
 
-            // in case we modified the motion ask if the user wants to save changes it before removing it
+        // In case the motions got modified, ask to save changes it before removing them.
+        EMotionFX::MotionManager& motionManager = EMotionFX::GetMotionManager();
+        for (AZ::u32 motionId : motionIdsToRemove)
+        {
+            EMotionFX::Motion* motion = motionManager.FindMotionByID(motionId);
             mMotionWindowPlugin->SaveDirtyMotion(motion, nullptr, true, false);
-            motionsToRemove.push_back(motion);
         }
 
         // find the lowest row selected
@@ -924,6 +924,15 @@ namespace EMStudio
         }
 
         // construct the command group and remove the selected motions
+        AZStd::vector<EMotionFX::Motion*> motionsToRemove;
+        for (AZ::u32 motionId : motionIdsToRemove)
+        {
+            EMotionFX::Motion* motion = motionManager.FindMotionByID(motionId);
+            if (motion)
+            {
+                motionsToRemove.emplace_back(motion);
+            }
+        }
         AZStd::vector<EMotionFX::Motion*> failedRemoveMotions;
         CommandSystem::RemoveMotions(motionsToRemove, &failedRemoveMotions);
 
@@ -955,7 +964,7 @@ namespace EMStudio
     void MotionListWindow::OnStopAllMotionsButton()
     {
         // execute the command
-        MCore::String outResult;
+        AZStd::string outResult;
         GetCommandManager()->ExecuteCommand("StopAllMotionInstances", outResult);
     }
 
@@ -988,20 +997,20 @@ namespace EMStudio
         const CommandSystem::SelectionList& selectionList = GetCommandManager()->GetCurrentSelection();
 
         // get the number of selected motions and return directly if there are no motions selected
-        MCore::String textData, command;
+        AZStd::string textData, command;
         const uint32 numMotions = selectionList.GetNumSelectedMotions();
         for (uint32 i = 0; i < numMotions; ++i)
         {
             EMotionFX::Motion* motion = selectionList.GetMotion(i);
 
             // construct the drag&drop data string
-            command.Format("-window \"MotionWindow\" -motionID %i\n", motion->GetID());
+            command = AZStd::string::format("-window \"MotionWindow\" -motionID %i\n", motion->GetID());
             textData += command;
         }
 
         // create the data, set the text and return it
         QMimeData* mimeData = new QMimeData();
-        mimeData->setText(textData.AsChar());
+        mimeData->setText(textData.c_str());
         return mimeData;
     }
 

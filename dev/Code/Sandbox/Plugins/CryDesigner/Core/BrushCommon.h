@@ -223,7 +223,7 @@ namespace CD
     template<class T>
     T GetAdjustedFloatToAvoidZero(T x)
     {
-        T _x = std::abs(x) < kDesignerEpsilon ? kDesignerEpsilon : x;
+        T _x = std::abs(x) < kDesignerEpsilon ? aznumeric_cast<T>(kDesignerEpsilon) : x;
         if (x < 0)
         {
             _x *= -1;
@@ -293,4 +293,4 @@ namespace CD
 
 #define CRYDESIGNER_USER_DIRECTORY      "CryDesigner"
 #define SERIALIZATION_ENUM_LABEL(value, label) \
-    description.add(int(value), label, label);
+    SERIALIZATION_ENUM(value, label, label);

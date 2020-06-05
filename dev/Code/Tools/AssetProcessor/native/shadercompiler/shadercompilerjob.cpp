@@ -12,6 +12,7 @@
 #include "shadercompilerjob.h"
 #include "native/assetprocessor.h"
 #include <AzCore/Debug/Trace.h>
+#include <AzCore/Casting/numeric_cast.h>
 
 #include <QTcpSocket>
 #include <QThread>
@@ -41,12 +42,13 @@ void ShaderCompilerJob::initialize(QObject* pManager, const ShaderCompilerReques
     m_ShaderCompilerMessage = ShaderCompilerMessage;
 }
 
-QString ShaderCompilerJob::choseRandomServerAddress()
+QString ShaderCompilerJob::getServerAddress()
 {
     if (isServerListEmpty())
     {
         return QString();
     }
+
     QString serverAddress;
     if (!m_ShaderCompilerMessage.serverList.contains(","))
     {
@@ -56,16 +58,7 @@ QString ShaderCompilerJob::choseRandomServerAddress()
     }
 
     QStringList serverList = m_ShaderCompilerMessage.serverList.split(",");
-
-    if (m_isUnitTesting)
-    {
-        serverAddress = serverList.takeAt(0);
-    }
-    else
-    {
-        int randomNumber = qrand() % (serverList.count() - 1);
-        serverAddress = serverList.takeAt(randomNumber);
-    }
+    serverAddress = serverList.takeAt(0);
     m_ShaderCompilerMessage.serverList = serverList.join(",");
     return serverAddress;
 }
@@ -175,7 +168,7 @@ bool ShaderCompilerJob::attemptDelivery(QString serverAddress, QByteArray& paylo
                 return false;
             }
 
-            bytesReadTotal += bytesRead;
+            bytesReadTotal = aznumeric_cast<uint32_t>(bytesReadTotal + bytesRead);
         }
     }
 
@@ -189,7 +182,7 @@ void ShaderCompilerJob::run()
     //until server list is empty, keep trying
     while (!isServerListEmpty())
     {
-        QString serverAddress = choseRandomServerAddress();
+        QString serverAddress = getServerAddress();
         //attempt to send payload
         if (attemptDelivery(serverAddress, payload))
         {

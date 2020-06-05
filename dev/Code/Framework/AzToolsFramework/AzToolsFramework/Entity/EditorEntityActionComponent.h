@@ -14,7 +14,6 @@
 #include <AzCore/Component/Component.h>
 #include <AzCore/Component/Entity.h>
 #include <AzToolsFramework/API/EntityCompositionRequestBus.h>
-#include <AzToolsFramework/Entity/EditorEntityContextBus.h>
 
 namespace AzToolsFramework
 {
@@ -28,7 +27,6 @@ namespace AzToolsFramework
         class EditorEntityActionComponent
             : public AZ::Component
             , public EntityCompositionRequestBus::Handler
-            , public EditorEntityContextNotificationBus::Handler
         {
         public:
             AZ_COMPONENT(EditorEntityActionComponent, "{2E26C7DF-544E-4A2A-8D0D-D7A6595C8BBD}");
@@ -46,8 +44,11 @@ namespace AzToolsFramework
             //////////////////////////////////////////////////////////////////////////
             // EntityCompositionRequestBus::Handler
             AddComponentsOutcome AddComponentsToEntities(const EntityIdList& entityIds, const AZ::ComponentTypeList& componentsToAdd) override;
+            AddExistingComponentsOutcome AddExistingComponentsToEntityById(const AZ::EntityId& entityId, const AZStd::vector<AZ::Component*>& componentsToAdd) override;
+            //! LUMBERYARD_DEPRECATED(LY-103316)
             AddExistingComponentsOutcome AddExistingComponentsToEntity(AZ::Entity* entity, const AZStd::vector<AZ::Component*>& componentsToAdd) override;
             RemoveComponentsOutcome RemoveComponents(const AZStd::vector<AZ::Component*>& componentsToRemove) override;
+            ScrubEntitiesOutcome ScrubEntities(const EntityList& entities) override;
 
             void CutComponents(const AZStd::vector<AZ::Component*>& components) override;
             void CopyComponents(const AZStd::vector<AZ::Component*>& components) override;
@@ -65,13 +66,7 @@ namespace AzToolsFramework
 
             bool RemoveComponentFromEntityAndContainers(AZ::Entity* entity, AZ::Component* componentToRemove);
 
-            //////////////////////////////////////////////////////////////////////////
-            // EditorEntityContextNotificationBus::Handler
-            void OnEntityStreamLoadSuccess() override;
-            //////////////////////////////////////////////////////////////////////////
-
-            using ScrubEntityResult = RemoveComponentsResults;
-            ScrubEntityResult ScrubEntity(AZ::Entity* entity);
+            ScrubEntityResults ScrubEntity(AZ::Entity* entity);
 
             /*!
             * Result of add component operations

@@ -20,8 +20,9 @@ def build(bld):
         target                      = 'ResourceCompilerUiCanvas',
         vs_filter                   = 'RC',
         file_list                   = 'resourcecompileruicanvas.waf_files',
-        platforms                   = ['win','darwin'],
-        configurations              = ['debug', 'debug_test', 'profile', 'profile_test'],
+        platforms                   = ['win','darwin', 'linux'],
+        client_only                 = True,
+        exclude_monolithic          = True,
         use                         = ['AzToolsFramework',
                                        'AssetBuilderSDK'],
         uselib                      = ['QT5CORE',
@@ -29,15 +30,16 @@ def build(bld):
                                        'QT5WIDGETS'],
         features                    = ['qt5'],
         includes                    = [ '.',
+                                        bld.Path('Code/CryEngine/CryCommon'),
                                         bld.Path('Code/Tools'),
                                         bld.Path('Code/Tools/RC/ResourceCompiler'),
                                         bld.Path('Code/Tools/CryCommonTools')],
 
         darwin_uselib               = ['AWS_CPP_SDK_CORE',
-                                       'AWS_CPP_SDK_COGNITO_IDENTITY_STATIC',
+                                       'AWS_CPP_SDK_COGNITO_IDENTITY',
                                        'AWS_CPP_SDK_IDENTITY_MANAGEMENT',
                                        'AWS_CPP_SDK_MOBILEANALYTICS'],
-
+        linux_rpath                 = ['$ORIGIN/..'],
         # Testing
         test_all_file_list = ['resourcecompileruicanvas_test.waf_files'],
     )

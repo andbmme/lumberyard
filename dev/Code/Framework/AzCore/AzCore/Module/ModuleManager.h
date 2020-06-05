@@ -19,6 +19,7 @@
 #include <AzCore/std/containers/vector.h>
 #include <AzCore/std/containers/unordered_map.h>
 #include <AzCore/std/smart_ptr/weak_ptr.h>
+#include <AzCore/std/string/string_view.h>
 
 namespace AZ
 {
@@ -136,6 +137,7 @@ namespace AZ
         , protected Internal::ModuleManagerInternalRequestBus::Handler
     {
     public:
+        AZ_CLASS_ALLOCATOR(ModuleManager, AZ::OSAllocator, 0);
         static void Reflect(ReflectContext* context);
 
         ModuleManager();
@@ -147,12 +149,14 @@ namespace AZ
         // To be called by the Component Application when it deserializes an entity
         void AddModuleEntity(ModuleEntity* moduleEntity);
 
+        // Deactivates owned module entities without unloading the module
+        void DeactivateEntities();
+
         // To be called by the Component Application on startup
-        template <typename CrcCollection>
-        void SetSystemComponentTags(const CrcCollection& tags)
-        {
-            m_systemComponentTags.insert(m_systemComponentTags.end(), tags.begin(), tags.end());
-        }
+        void SetSystemComponentTags(AZStd::string_view tags);
+
+        // Get the split list of system component tags specified at startup
+        const AZStd::vector<Crc32>& GetSystemComponentTags() { return m_systemComponentTags; }
 
     protected:
         ////////////////////////////////////////////////////////////////////////

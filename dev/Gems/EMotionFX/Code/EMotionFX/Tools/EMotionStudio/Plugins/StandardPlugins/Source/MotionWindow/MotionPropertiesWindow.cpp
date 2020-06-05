@@ -19,6 +19,7 @@
 #include <MysticQt/Source/ButtonGroup.h>
 #include <EMotionFX/CommandSystem/Source/MotionCommands.h>
 #include <MCore/Source/Compare.h>
+#include <MCore/Source/LogManager.h>
 
 
 namespace EMStudio
@@ -31,6 +32,7 @@ namespace EMStudio
 
         mButtonLoopForever          = nullptr;
         mButtonMirror               = nullptr;
+        mButtonInPlace              = nullptr;
 
         mPlaySpeedResetButton       = nullptr;
         mPlaySpeedSlider            = nullptr;
@@ -60,8 +62,8 @@ namespace EMStudio
         mButtonLoopForever->setText("Loop Forever");
         mButtonMirror->setText("Mirror");
 
-        connect(mButtonLoopForever, SIGNAL(clicked()), this, SLOT(UpdateMotions()));
-        connect(mButtonMirror, SIGNAL(clicked()), this, SLOT(UpdateMotions()));
+        connect(mButtonLoopForever, &QPushButton::clicked, this, &MotionPropertiesWindow::UpdateMotions);
+        connect(mButtonMirror, &QPushButton::clicked, this, &MotionPropertiesWindow::UpdateMotions);
 
         motionPropertiesLayout->addWidget(buttonGroup);
 
@@ -71,9 +73,16 @@ namespace EMStudio
         mButtonPlayBackward = playModeButtonGroup->GetButton(0, 1);
         mButtonPlayForward->setText("Forward");
         mButtonPlayBackward->setText("Backward");
-        connect(mButtonPlayForward, SIGNAL(clicked()), this, SLOT(UpdateMotions()));
-        connect(mButtonPlayBackward, SIGNAL(clicked()), this, SLOT(UpdateMotions()));
+        connect(mButtonPlayForward, &QPushButton::clicked, this, &MotionPropertiesWindow::UpdateMotions);
+        connect(mButtonPlayBackward, &QPushButton::clicked, this, &MotionPropertiesWindow::UpdateMotions);
         motionPropertiesLayout->addWidget(playModeButtonGroup);
+
+        MysticQt::ButtonGroup* miscButtonGroup = new MysticQt::ButtonGroup(this, 1, 2);
+        mButtonInPlace = miscButtonGroup->GetButton(0, 0);
+        miscButtonGroup->GetButton(0, 1)->setVisible(false);
+        mButtonInPlace->setText("In Place");
+        connect(mButtonInPlace, &QPushButton::clicked, this, &MotionPropertiesWindow::UpdateMotions);
+        motionPropertiesLayout->addWidget(miscButtonGroup);
 
         // sliders
         QGridLayout* slidersLayout = new QGridLayout();
@@ -94,9 +103,9 @@ namespace EMStudio
         mPlaySpeedResetButton->setMaximumHeight(18);
         slidersLayout->addWidget(mPlaySpeedResetButton, 2, 3);
 
-        connect(mPlaySpeedSlider, SIGNAL(valueChanged(int)), this, SLOT(PlaySpeedSliderChanged(int)));
-        connect(mPlaySpeedSlider, SIGNAL(sliderReleased()), this, SLOT(UpdateMotions()));
-        connect(mPlaySpeedResetButton, SIGNAL(clicked()), this, SLOT(ResetPlaySpeed()));
+        connect(mPlaySpeedSlider, &MysticQt::Slider::valueChanged, this, &MotionPropertiesWindow::PlaySpeedSliderChanged);
+        connect(mPlaySpeedSlider, &MysticQt::Slider::sliderReleased, this, &MotionPropertiesWindow::UpdateMotions);
+        connect(mPlaySpeedResetButton, &QPushButton::clicked, this, &MotionPropertiesWindow::ResetPlaySpeed);
 
         motionPropertiesLayout->addLayout(slidersLayout);
 
@@ -126,26 +135,31 @@ namespace EMStudio
             EMotionFX::Motion*          motion          = entry->mMotion;
             EMotionFX::PlayBackInfo*    playbackInfo    = motion->GetDefaultPlayBackInfo();
 
-            MCore::String commandParameters;
+            AZStd::string commandParameters;
 
             if (MCore::Compare<float>::CheckIfIsClose(playbackInfo->mPlaySpeed, GetPlaySpeed(), 0.001f) == false)
             {
-                commandParameters += MCore::String().Format("-playSpeed %f ", GetPlaySpeed());
+                commandParameters += AZStd::string::format("-playSpeed %f ", GetPlaySpeed());
             }
 
             // Either loop forever or freeze at the last frame after playing the animation once.
             if (mButtonLoopForever->isChecked())
             {
-                commandParameters += MCore::String().Format("-numLoops %i ", EMFX_LOOPFOREVER);
+                commandParameters += AZStd::string::format("-numLoops %i ", EMFX_LOOPFOREVER);
             }
             else
             {
                 commandParameters += "-numLoops 1 -freezeAtLastFrame true ";
             }
 
+            if (playbackInfo->mInPlace != mButtonInPlace->isChecked())
+            {
+                commandParameters += AZStd::string::format("-inPlace %s", AZStd::to_string(mButtonInPlace->isChecked()).c_str());
+            }
+
             if (playbackInfo->mMirrorMotion != mButtonMirror->isChecked())
             {
-                commandParameters += MCore::String().Format("-mirrorMotion %s", mButtonMirror->isChecked() ? "true" : "false");
+                commandParameters += AZStd::string::format("-mirrorMotion %s", AZStd::to_string(mButtonMirror->isChecked()).c_str());
             }
 
             // playmode
@@ -162,21 +176,21 @@ namespace EMStudio
 
             if (playForward != mButtonPlayForward->isChecked())
             {
-                commandParameters += MCore::String().Format("-playMode %i ", playMode);
+                commandParameters += AZStd::string::format("-playMode %i ", playMode);
             }
 
             // in case the command parameters are empty it means nothing changed, so we can skip this command
-            if (commandParameters.GetIsEmpty() == false)
+            if (commandParameters.empty() == false)
             {
-                commandGroup.AddCommandString(MCore::String().Format("AdjustDefaultPlayBackInfo -filename \"%s\" %s", motion->GetFileName(), commandParameters.AsChar()).AsChar());
+                commandGroup.AddCommandString(AZStd::string::format("AdjustDefaultPlayBackInfo -filename \"%s\" %s", motion->GetFileName(), commandParameters.c_str()).c_str());
             }
         }
 
         // execute the group command
-        MCore::String outResult;
+        AZStd::string outResult;
         if (CommandSystem::GetCommandManager()->ExecuteCommandGroup(commandGroup, outResult) == false)
         {
-            MCore::LogError(outResult.AsChar());
+            MCore::LogError(outResult.c_str());
         }
     }
 
@@ -190,6 +204,7 @@ namespace EMStudio
         const uint32 numSelectedMotions = selection.GetNumSelectedMotions();
         const bool isEnabled = (numSelectedMotions != 0);
 
+        mButtonInPlace->setEnabled(isEnabled);
         mButtonLoopForever->setEnabled(isEnabled);
         mPlaySpeedSlider->setEnabled(isEnabled);
         mPlaySpeedResetButton->setEnabled(isEnabled);
@@ -209,16 +224,15 @@ namespace EMStudio
             MotionWindowPlugin::MotionTableEntry* entry = mMotionWindowPlugin->FindMotionEntryByID(selection.GetMotion(i)->GetID());
             if (entry == nullptr)
             {
-                MCore::LogError("Cannot find motion table entry for the given motion.");
+                MCore::LogWarning("Cannot find motion table entry for the given motion.");
                 continue;
             }
 
             EMotionFX::Motion*          motion              = entry->mMotion;
-            EMotionFX::PlayBackInfo*    defaultPlayBackInfo = motion->GetDefaultPlayBackInfo();
+            const EMotionFX::PlayBackInfo* defaultPlayBackInfo = motion->GetDefaultPlayBackInfo();
 
             if (defaultPlayBackInfo == nullptr)
             {
-                motion->CreateDefaultPlayBackInfo();
                 defaultPlayBackInfo = motion->GetDefaultPlayBackInfo();
             }
 
@@ -236,6 +250,8 @@ namespace EMStudio
                 loopForever = true;
             }
             mButtonLoopForever->setChecked(loopForever);
+
+            mButtonInPlace->setChecked(defaultPlayBackInfo->mInPlace);
 
             // set slider values
             SetPlaySpeed(defaultPlayBackInfo->mPlaySpeed);
@@ -258,7 +274,6 @@ namespace EMStudio
 
         mPlaySpeedLabel->setText(AZStd::string::format("%.2f", playSpeed).c_str());
     }
-
 } // namespace EMStudio
 
 #include <EMotionFX/Tools/EMotionStudio/Plugins/StandardPlugins/Source/MotionWindow/MotionPropertiesWindow.moc>

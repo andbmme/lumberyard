@@ -1,0 +1,11 @@
+
+
+def build(bld):
+    bld.DefineGem(
+        includes = [
+            bld.Path('Code/CryEngine/CryCommon'),
+            bld.Path('Code/CryEngine/RenderDll')
+        ],
+        use=['imguilib'],
+        win_features = ['crcfix'],
+    )

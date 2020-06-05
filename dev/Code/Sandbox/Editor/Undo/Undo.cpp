@@ -158,6 +158,13 @@ void CUndoManager::Restore(bool bUndo)
     //CryLog( "Restore Undo" );
 }
 
+// This function is used below to decide if an operation should force a save or not. This currently
+// prevents selecting an entity, either from the outliner or both the old and new viewports.
+static bool ShouldPersist(const QString& name)
+{
+    return name != "Select Object(s)" && name != "Select Entity" && name != "Box Select Entities";
+}
+
 //////////////////////////////////////////////////////////////////////////
 void CUndoManager::Accept(const QString& name)
 {
@@ -175,7 +182,11 @@ void CUndoManager::Accept(const QString& name)
 
     if (!m_currentUndo->IsEmpty())
     {
-        GetIEditor()->SetModifiedFlag();
+        const bool persist = ShouldPersist(name);
+        if (persist)
+        {
+            GetIEditor()->SetModifiedFlag();
+        }
 
         // If accepting new undo object, must clear all redo stack.
         ClearRedoStack();
@@ -199,7 +210,10 @@ void CUndoManager::Accept(const QString& name)
         //CLogFile::FormatLine( "Undo Object Accepted (Undo:%d,Redo:%d, Size=%dKb)",m_undoStack.size(),m_redoStack.size(),GetDatabaseSize()/1024 );
 
         // If undo accepted, document modified.
-        GetIEditor()->SetModifiedFlag();
+        if (persist)
+        {
+            GetIEditor()->SetModifiedFlag();
+        }
 
         if (name.compare("Select Object(s)", Qt::CaseInsensitive) == 0)
         {
@@ -285,7 +299,7 @@ void CUndoManager::Redo(int numSteps)
     if (!m_redoStack.empty())
     {
         Suspend();
-        while (numSteps-- > 0 && !m_redoStack.empty())
+        while (numSteps-- > 0 && !m_redoStack.empty() && !m_bClearRedoStackQueued)
         {
             m_bRedoing = true;
             CUndoStep* redo = m_redoStack.back();
@@ -310,6 +324,11 @@ void CUndoManager::Redo(int numSteps)
     m_bRedoing = false;
 
     GetIEditor()->Notify(eNotify_OnEndUndoRedo);
+
+    if (m_bClearRedoStackQueued)
+    {
+        ClearRedoStack();
+    }
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -392,6 +411,13 @@ void CUndoManager::RecordUndo(IUndoObject* obj)
 //////////////////////////////////////////////////////////////////////////
 void CUndoManager::ClearRedoStack()
 {
+    if (m_bRedoing)
+    {
+        m_bClearRedoStackQueued = true;
+        return;
+    }
+    m_bClearRedoStackQueued = false;
+
     for (std::list<CUndoStep*>::iterator it = m_redoStack.begin(); it != m_redoStack.end(); it++)
     {
         delete *it;
@@ -544,6 +570,8 @@ void CUndoManager::SuperCancel()
     {
         return;
     }
+
+    AzToolsFramework::EditorMetricsEventBusSelectionChangeHelper metricsHelper;
 
     assert(m_superUndo != 0);
 

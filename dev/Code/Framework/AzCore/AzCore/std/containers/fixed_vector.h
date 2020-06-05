@@ -95,13 +95,12 @@ namespace AZStd
             pointer start = reinterpret_cast<pointer>(&m_data);
             m_last  = AZStd::uninitialized_copy((const_pointer) & rhs.m_data, (const_pointer)rhs.m_last, start, Internal::is_fast_copy<pointer, pointer>());
         }
-#if defined(AZ_HAS_INITIALIZERS_LIST)
+
         AZ_FORCE_INLINE fixed_vector(std::initializer_list<T> list)
             : m_last(reinterpret_cast<pointer>(&m_data))
         {
             construct_iter(list.begin(), list.end(), is_integral<std::initializer_list<T> >());
         }
-#endif // #if defined(AZ_HAS_INITIALIZERS_LIST
 
         AZ_FORCE_INLINE ~fixed_vector()
         {
@@ -435,9 +434,13 @@ namespace AZStd
         }
         AZ_FORCE_INLINE void        swap(this_type& rhs)
         {
-            this_type tempVec = *this;
-            *this = rhs;
-            rhs = tempVec;
+            // Fixed containers cannot swap pointers, they need to do full copies.
+            // Fixed containers of large size may ran out of stack memory. Since we don't know how deep in the stack
+            // we are (or would cost too much to get) we default to use the temporary swap variable in the heap
+            this_type* tempVec = new this_type(AZStd::move(*this));
+            *this = AZStd::move(rhs);
+            rhs = AZStd::move(*tempVec);
+            delete tempVec;
         }
 
         // TR1 Extension. (\todo We should return 0 if there is no data.)

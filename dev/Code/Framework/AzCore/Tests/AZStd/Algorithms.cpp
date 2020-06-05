@@ -15,7 +15,11 @@
 #include <AzCore/std/utils.h>
 #include <AzCore/std/functional.h>
 #include <AzCore/std/containers/array.h>
+#include <AzCore/std/containers/set.h>
 #include <AzCore/std/containers/vector.h>
+#include <AzCore/std/iterator.h>
+#include <AzCore/std/smart_ptr/make_shared.h>
+#include <AzCore/std/smart_ptr/shared_ptr.h>
 #include <AzCore/std/sort.h>
 
 #include <AzCore/Memory/SystemAllocator.h>
@@ -187,28 +191,6 @@ namespace UnitTest
         {
             AZ_TEST_ASSERT(elements[i - 1] > elements[i]);
         }
-
-#ifdef AZSTD_DEBUG_HEAP_IMPLEMENTATION
-        array<int, 3> assertHeap = {
-            {1, 2, 3}
-        };
-        // we should call make heap before we can sort, push or pop
-        AZ_TEST_START_ASSERTTEST;
-        sort_heap(assertHeap.begin(), assertHeap.end());
-        AZ_TEST_STOP_ASSERTTEST(2);
-        assertHeap[0] = 1;
-        assertHeap[1] = 2;
-        assertHeap[2] = 3;
-        AZ_TEST_START_ASSERTTEST;
-        push_heap(assertHeap.begin(), assertHeap.end());
-        AZ_TEST_STOP_ASSERTTEST(1);
-        assertHeap[0] = 1;
-        assertHeap[1] = 2;
-        assertHeap[2] = 3;
-        AZ_TEST_START_ASSERTTEST;
-        pop_heap(assertHeap.begin(), assertHeap.end());
-        AZ_TEST_STOP_ASSERTTEST(2);
-#endif
     }
 
     TEST_F(Algorithms, InsertionSort)
@@ -228,6 +210,38 @@ namespace UnitTest
         for (size_t i = 1; i < elements1.size(); ++i)
         {
             EXPECT_GT(elements1[i - 1], elements1[i]);
+        }
+    }
+
+    TEST_F(Algorithms, InsertionSort_SharedPtr)
+    {
+        array<shared_ptr<int>, 10> elementsSrc = {
+        { 
+            make_shared<int>(10), make_shared<int>(2), make_shared<int>(6), make_shared<int>(3), 
+            make_shared<int>(5), make_shared<int>(8), make_shared<int>(7), make_shared<int>(9), 
+            make_shared<int>(1), make_shared<int>(4) }
+        };
+
+        // Insertion sort
+        auto compareLesser = [](const shared_ptr<int>& lhs, const shared_ptr<int>& rhs) -> bool
+        {
+            return *lhs < *rhs;
+        };
+        array<shared_ptr<int>, 10> elements1(elementsSrc);
+        insertion_sort(elements1.begin(), elements1.end(), compareLesser);
+        for (size_t i = 1; i < elements1.size(); ++i)
+        {
+            EXPECT_LT(*elements1[i - 1], *elements1[i]);
+        }
+
+        auto compareGreater = [](const shared_ptr<int>& lhs, const shared_ptr<int>& rhs) -> bool
+        {
+            return *lhs > *rhs;
+        };
+        insertion_sort(elements1.begin(), elements1.end(), compareGreater);
+        for (size_t i = 1; i < elements1.size(); ++i)
+        {
+            EXPECT_GT(*elements1[i - 1], *elements1[i]);
         }
     }
 
@@ -254,7 +268,7 @@ namespace UnitTest
             }
 
             sortTest.clear();
-            for (int i = vectorSize; i >= 0; --i)
+            for (int i = vectorSize-1; i >= 0; --i)
             {
                 sortTest.push_back(i);
             }
@@ -269,6 +283,57 @@ namespace UnitTest
             for (size_t i = 1; i < sortTest.size(); ++i)
             {
                 EXPECT_GT(sortTest[i - 1], sortTest[i]);
+            }
+        }
+    }
+
+    TEST_F(Algorithms, Sort_SharedPtr)
+    {
+        vector<shared_ptr<int>> sortTest;
+        for (int iSizeTest = 0; iSizeTest < 4; ++iSizeTest)
+        {
+            int vectorSize = 0;
+            switch (iSizeTest)
+            {
+            case 0:
+                vectorSize = 15;     // less than insertion sort threshold (32 at the moment)
+                break;
+            case 1:
+                vectorSize = 32;     // exact size
+                break;
+            case 2:
+                vectorSize = 64;     // double
+                break;
+            case 3:
+                vectorSize = 100;     // just more
+                break;
+            }
+
+            sortTest.clear();
+            for (int i = vectorSize - 1; i >= 0; --i)
+            {
+                sortTest.push_back(make_shared<int>(i));
+            }
+
+            // Normal sort test
+            auto compareLesser = [](const shared_ptr<int>& lhs, const shared_ptr<int>& rhs) -> bool
+            {
+                return *lhs < *rhs;
+            };
+            sort(sortTest.begin(), sortTest.end(), compareLesser);
+            for (size_t i = 1; i < sortTest.size(); ++i)
+            {
+                EXPECT_LT(*sortTest[i - 1], *sortTest[i]);
+            }
+
+            auto compareGreater = [](const shared_ptr<int>& lhs, const shared_ptr<int>& rhs) -> bool
+            {
+                return *lhs > *rhs;
+            };
+            sort(sortTest.begin(), sortTest.end(), compareGreater);
+            for (size_t i = 1; i < sortTest.size(); ++i)
+            {
+                EXPECT_GT(*sortTest[i - 1], *sortTest[i]);
             }
         }
     }
@@ -296,7 +361,7 @@ namespace UnitTest
             }
 
             sortTest.clear();
-            for (int i = vectorSize; i >= 0; --i)
+            for (int i = vectorSize-1; i >= 0; --i)
             {
                 sortTest.push_back(i);
             }
@@ -313,6 +378,70 @@ namespace UnitTest
                 EXPECT_GT(sortTest[i - 1], sortTest[i]);
             }
         }
+    }
+
+    TEST_F(Algorithms, StableSort_SharedPtr)
+    {
+        vector<shared_ptr<int>> sortTest;
+        for (int iSizeTest = 0; iSizeTest < 4; ++iSizeTest)
+        {
+            int vectorSize = 0;
+            switch (iSizeTest)
+            {
+            case 0:
+                vectorSize = 15;     // less than insertion sort threshold (32 at the moment)
+                break;
+            case 1:
+                vectorSize = 32;     // exact size
+                break;
+            case 2:
+                vectorSize = 64;     // double
+                break;
+            case 3:
+                vectorSize = 100;     // just more
+                break;
+            }
+
+            sortTest.clear();
+            for (int i = vectorSize-1; i >= 0; --i)
+            {
+                sortTest.push_back(make_shared<int>(i));
+            }
+
+            // Stable sort test
+            auto compareLesser = [](const shared_ptr<int>& lhs, const shared_ptr<int>& rhs) -> bool
+            {
+                return *lhs < *rhs;
+            };
+            stable_sort(sortTest.begin(), sortTest.end(), compareLesser, sortTest.get_allocator());
+            for (size_t i = 1; i < sortTest.size(); ++i)
+            {
+                EXPECT_LT(*sortTest[i - 1], *sortTest[i]);
+            }
+
+            auto compareGreater = [](const shared_ptr<int>& lhs, const shared_ptr<int>& rhs) -> bool
+            {
+                return *lhs > *rhs;
+            };
+            stable_sort(sortTest.begin(), sortTest.end(), compareGreater, sortTest.get_allocator());
+            for (size_t i = 1; i < sortTest.size(); ++i)
+            {
+                EXPECT_GT(*sortTest[i - 1], *sortTest[i]);
+            }
+        }
+    }
+
+    TEST_F(Algorithms, DISABLED_StableSort_AlreadySorted)
+    {
+        AZStd::vector<uint64_t> testVec;
+        for (int i = 0; i < 33; ++i)
+        {
+            testVec.push_back(i);
+        }
+
+        auto expectedResultVec = testVec;
+        AZStd::stable_sort(testVec.begin(), testVec.end(), AZStd::less<uint64_t>(), testVec.get_allocator());
+        EXPECT_EQ(expectedResultVec, testVec);
     }
 
     TEST_F(Algorithms, PartialSort)
@@ -338,7 +467,7 @@ namespace UnitTest
             }
 
             sortTest.clear();
-            for (int i = vectorSize; i >= 0; --i)
+            for (int i = vectorSize-1; i >= 0; --i)
             {
                 sortTest.push_back(i);
             }
@@ -354,6 +483,58 @@ namespace UnitTest
             for (int i = 1; i < sortSize; ++i)
             {
                 EXPECT_GT(sortTest[i - 1], sortTest[i]);
+            }
+        }
+    }
+
+    TEST_F(Algorithms, PartialSort_SharedPtr)
+    {
+        vector<shared_ptr<int>> sortTest;
+        for (int iSizeTest = 0; iSizeTest < 4; ++iSizeTest)
+        {
+            int vectorSize = 0;
+            switch (iSizeTest)
+            {
+            case 0:
+                vectorSize = 15;     // less than insertion sort threshold (32 at the moment)
+                break;
+            case 1:
+                vectorSize = 32;     // exact size
+                break;
+            case 2:
+                vectorSize = 64;     // double
+                break;
+            case 3:
+                vectorSize = 100;     // just more
+                break;
+            }
+
+            sortTest.clear();
+            for (int i = vectorSize - 1; i >= 0; --i)
+            {
+                sortTest.push_back(make_shared<int>(i));
+            }
+
+            // partial_sort test
+            auto compareLesser = [](const shared_ptr<int>& lhs, const shared_ptr<int>& rhs) -> bool
+            {
+                return *lhs < *rhs;
+            };
+            int sortSize = vectorSize / 2;
+            partial_sort(sortTest.begin(), sortTest.begin() + sortSize, sortTest.end(), compareLesser);
+            for (int i = 1; i < sortSize; ++i)
+            {
+                EXPECT_LT(*sortTest[i - 1], *sortTest[i]);
+            }
+
+            auto compareGreater = [](const shared_ptr<int>& lhs, const shared_ptr<int>& rhs) -> bool
+            {
+                return *lhs > *rhs;
+            };
+            partial_sort(sortTest.begin(), sortTest.begin() + sortSize, sortTest.end(), compareGreater);
+            for (int i = 1; i < sortSize; ++i)
+            {
+                EXPECT_GT(*sortTest[i - 1], *sortTest[i]);
             }
         }
     }
@@ -401,5 +582,619 @@ namespace UnitTest
         {
             AZ_TEST_ASSERT(int64Arr[static_cast<AZStd::size_t>(i - 1)] == (i << 56 | AZ_INT64_CONST(0x000f0e0d0c0b0a09)));
         }
+    }
+
+    TEST_F(Algorithms, CopyBackwardFastCopy)
+    {
+        array<int, 3> src = {{ 1, 2, 3 }};
+        array<int, 3> dest;
+
+        AZStd::copy_backward(src.begin(), src.end(), dest.end());
+        
+        EXPECT_EQ(1, dest[0]);
+        EXPECT_EQ(2, dest[1]);
+        EXPECT_EQ(3, dest[2]);
+    }
+
+    TEST_F(Algorithms, CopyBackwardStandardCopy)
+    {
+        // List is not contiguous, and is therefore unable to perform a fast copy
+        list<int> src = { 1, 2, 3 };
+        array<int, 3> dest;
+
+        AZStd::copy_backward(src.begin(), src.end(), dest.end());
+        
+        EXPECT_EQ(1, dest[0]);
+        EXPECT_EQ(2, dest[1]);
+        EXPECT_EQ(3, dest[2]);
+    }
+
+    TEST_F(Algorithms, ReverseCopy)
+    {
+        array<int, 3> src = {{ 1, 2, 3 }};
+        array<int, 3> dest;
+
+        AZStd::reverse_copy(src.begin(), src.end(), dest.begin());
+        EXPECT_EQ(3, dest[0]);
+        EXPECT_EQ(2, dest[1]);
+        EXPECT_EQ(1, dest[2]);
+    }
+
+    TEST_F(Algorithms, MinMaxElement)
+    {
+        AZStd::initializer_list<uint32_t> emptyData{};
+        AZStd::array<uint32_t, 1> singleElementData{ { 313 } };
+        AZStd::array<uint32_t, 3> unorderedData{ { 5, 3, 2} };
+        AZStd::array<uint32_t, 5> multiMinMaxData{ { 5, 3, 2, 5, 2 } };
+
+        // Empty container test
+        {
+            AZStd::pair<const uint32_t*, const uint32_t*> minMaxPair = AZStd::minmax_element(emptyData.begin(), emptyData.end());
+            EXPECT_EQ(minMaxPair.first, minMaxPair.second);
+            EXPECT_EQ(emptyData.end(), minMaxPair.first);
+        }
+
+        {
+            // Single element container test
+            AZStd::pair<uint32_t*, uint32_t*> minMaxPair = AZStd::minmax_element(singleElementData.begin(), singleElementData.end());
+            EXPECT_EQ(minMaxPair.first, minMaxPair.second);
+            EXPECT_NE(singleElementData.end(), minMaxPair.second);
+            EXPECT_EQ(313, *minMaxPair.first);
+            EXPECT_EQ(313, *minMaxPair.second);
+
+            // Unordered container test
+            minMaxPair = AZStd::minmax_element(unorderedData.begin(), unorderedData.end());
+            EXPECT_NE(unorderedData.end(), minMaxPair.first);
+            EXPECT_NE(unorderedData.end(), minMaxPair.second);
+            EXPECT_EQ(2, *minMaxPair.first);
+            EXPECT_EQ(5, *minMaxPair.second);
+
+            // Multiple min and max elements in same container test
+            minMaxPair = AZStd::minmax_element(multiMinMaxData.begin(), multiMinMaxData.end());
+            EXPECT_NE(multiMinMaxData.end(), minMaxPair.first);
+            EXPECT_NE(multiMinMaxData.end(), minMaxPair.second);
+            // The smallest element should correspond to the first '2' within the multiMinMaxData container
+            EXPECT_EQ(multiMinMaxData.begin() + 2, minMaxPair.first);
+            // The greatest element should correspond to the second '5' within the multiMinMaxData container
+            EXPECT_EQ(multiMinMaxData.begin() + 3, minMaxPair.second);
+            EXPECT_EQ(2, *minMaxPair.first);
+            EXPECT_EQ(5, *minMaxPair.second);
+
+            // Custom comparator test
+            minMaxPair = AZStd::minmax_element(unorderedData.begin(), unorderedData.end(), AZStd::greater<uint32_t>());
+            EXPECT_NE(unorderedData.end(), minMaxPair.first);
+            EXPECT_NE(unorderedData.end(), minMaxPair.second);
+            EXPECT_EQ(5, *minMaxPair.first);
+            EXPECT_EQ(2, *minMaxPair.second);
+        }
+    }
+
+    TEST_F(Algorithms, MinMax)
+    {
+        AZStd::initializer_list<uint32_t> singleElementData{ 908 };
+        AZStd::initializer_list<uint32_t> unorderedData{ 5, 3, 2 };
+        AZStd::initializer_list<uint32_t> multiMinMaxData{ 7, 10, 552, 57234, 224, 57234, 7, 238 };
+
+        // Initializer list test
+        {
+            // Single element container test
+            AZStd::pair<uint32_t, uint32_t> minMaxPair = AZStd::minmax(singleElementData);
+            EXPECT_EQ(908, minMaxPair.first);
+            EXPECT_EQ(908, minMaxPair.second);
+
+            // Unordered container test
+            minMaxPair = AZStd::minmax(unorderedData);
+            EXPECT_EQ(2, minMaxPair.first);
+            EXPECT_EQ(5, minMaxPair.second);
+
+            // Multiple min and max elements in same container test
+            minMaxPair = AZStd::minmax(multiMinMaxData);
+            EXPECT_EQ(7, minMaxPair.first);
+            EXPECT_EQ(57234, minMaxPair.second);
+
+            // Custom comparator test
+            minMaxPair = AZStd::minmax(unorderedData, AZStd::greater<uint32_t>());
+            EXPECT_EQ(5, minMaxPair.first);
+            EXPECT_EQ(2, minMaxPair.second);
+        }
+
+        // Two parameter test
+        {
+            // Sanity test
+            AZStd::pair<uint32_t, uint32_t> minMaxPair = AZStd::minmax(7000, 6999);
+            EXPECT_EQ(6999, minMaxPair.first);
+            EXPECT_EQ(7000, minMaxPair.second);
+
+            // Customer comparator Test
+            minMaxPair = AZStd::minmax(9001, 9000, AZStd::greater<uint32_t>());
+            EXPECT_EQ(9001, minMaxPair.first);
+            EXPECT_EQ(9000, minMaxPair.second);
+        }
+    }
+
+    TEST_F(Algorithms, IsSorted)
+    {
+        AZStd::array<int, 10> container1 = {{ 1, 2, 3, 4, 4, 5, 5, 5, 10, 20 }};
+
+        bool isFullContainer1Sorted = AZStd::is_sorted(container1.begin(), container1.end());
+        EXPECT_TRUE(isFullContainer1Sorted);
+
+        bool isPartialContainer1Sorted = AZStd::is_sorted(container1.begin()+1, container1.begin()+5);
+        EXPECT_TRUE(isPartialContainer1Sorted);
+
+        bool isRangeLengthOneSorted = AZStd::is_sorted(container1.begin(), container1.begin());
+        EXPECT_TRUE(isRangeLengthOneSorted);
+
+        AZStd::array<int, 10> container2 = {{ 1, 2, 3, 4, 4, 5, 5, 5, 10, 9 }};
+
+        bool isFullContainer2Sorted = AZStd::is_sorted(container2.begin(), container2.end());
+        EXPECT_FALSE(isFullContainer2Sorted);
+
+        // this range is container2[1] up to and including container2[8] (range doesn't include element pointed to by last iterator)
+        bool isPartialContainer2Sorted = AZStd::is_sorted(container2.begin()+1, container2.begin()+9);
+        EXPECT_TRUE(isPartialContainer2Sorted);
+
+        // this range is container2[8] up to and including container2[9]
+        bool isVeryEndOfContainer2Sorted = AZStd::is_sorted(container2.begin()+8, container2.end());
+        EXPECT_FALSE(isVeryEndOfContainer2Sorted);
+    }
+
+    TEST_F(Algorithms, IsSorted_Comp)
+    {
+        auto compareLessThan = [](const int& lhs, const int& rhs) -> bool
+        {
+            return lhs < rhs;
+        };
+
+        auto compareGreaterThan = [](const int& lhs, const int& rhs) -> bool
+        {
+            return lhs > rhs;
+        };
+
+        AZStd::array<int, 10> container1 = {{ 1, 2, 3, 4, 4, 5, 5, 5, 10, 20 }};
+
+        bool isFullContainer1SortedLt = AZStd::is_sorted(container1.begin(), container1.end(), compareLessThan);
+        EXPECT_TRUE(isFullContainer1SortedLt);
+
+        bool isFullContainer1SortedGt = AZStd::is_sorted(container1.begin(), container1.end(), compareGreaterThan);
+        EXPECT_FALSE(isFullContainer1SortedGt);
+
+        bool isPartialContainer1SortedLt = AZStd::is_sorted(container1.begin()+1, container1.begin()+5, compareLessThan);
+        EXPECT_TRUE(isPartialContainer1SortedLt);
+
+        bool isRangeLengthOneSortedLt = AZStd::is_sorted(container1.begin(), container1.begin(), compareLessThan);
+        EXPECT_TRUE(isRangeLengthOneSortedLt);
+
+        AZStd::array<int, 10> container2 = {{ 1, 2, 3, 4, 4, 5, 5, 5, 10, 9 }};
+
+        bool isFullContainer2SortedLt = AZStd::is_sorted(container2.begin(), container2.end(), compareLessThan);
+        EXPECT_FALSE(isFullContainer2SortedLt);
+
+        // this range is container2[1] up to and including container2[8] (range doesn't include element pointed to by last iterator)
+        bool isPartialContainer2SortedLt = AZStd::is_sorted(container2.begin()+1, container2.begin()+9, compareLessThan);
+        EXPECT_TRUE(isPartialContainer2SortedLt);
+
+        // this range is container2[8] up to and including container2[9]
+        bool isVeryEndOfContainer2SortedLt = AZStd::is_sorted(container2.begin()+8, container2.end(), compareLessThan);
+        EXPECT_FALSE(isVeryEndOfContainer2SortedLt);
+
+        AZStd::array<int, 10> container3 = {{ 9, 10, 5, 5, 5, 4, 4, 3, 2, 1 }};
+
+        bool isFullContainer3SortedLt = AZStd::is_sorted(container3.begin(), container3.end(), compareLessThan);
+        EXPECT_FALSE(isFullContainer3SortedLt);
+
+        bool isFullContainer3SortedGt = AZStd::is_sorted(container3.begin(), container3.end(), compareGreaterThan);
+        EXPECT_FALSE(isFullContainer3SortedGt);
+
+        // this range is container3[1] up to and including container3[8] (range doesn't include element pointed to by last iterator)
+        bool isPartialContainer3SortedLt = AZStd::is_sorted(container3.begin()+1, container3.begin()+9, compareLessThan);
+        EXPECT_FALSE(isPartialContainer3SortedLt);
+        bool isPartialContainer3SortedGt = AZStd::is_sorted(container3.begin()+1, container3.begin()+9, compareGreaterThan);
+        EXPECT_TRUE(isPartialContainer3SortedGt);
+
+        // this range is container3[0] up to and including container3[1]
+        bool isVeryStartOfContainer3SortedLt = AZStd::is_sorted(container3.begin(), container3.begin()+2, compareLessThan);
+        EXPECT_TRUE(isVeryStartOfContainer3SortedLt);
+        bool isVeryStartOfContainer3SortedGt = AZStd::is_sorted(container3.begin(), container3.begin()+2, compareGreaterThan);
+        EXPECT_FALSE(isVeryStartOfContainer3SortedGt);
+    }
+
+    TEST_F(Algorithms, Unique)
+    {
+        AZStd::vector<int> container1 = {{ 1, 2, 3, 4, 4, 5, 5, 5, 10, 20 }};
+
+        auto iterBeyondEndOfUniques = AZStd::unique(container1.begin(), container1.end());
+
+        size_t numberOfUniques = iterBeyondEndOfUniques - container1.begin();
+        EXPECT_EQ(numberOfUniques, 7);
+
+        container1.erase(iterBeyondEndOfUniques, container1.end());
+        EXPECT_EQ(container1.size(), 7);
+
+        AZStd::vector<int> container2 = {{ 1, 2, 3, 4, 4, 5, 2, 5, 5, 5 }};
+
+        auto iterBeyondEndOfUniques2 = AZStd::unique(container2.begin(), container2.end());
+
+        size_t numberOfUniques2 = iterBeyondEndOfUniques2 - container2.begin();
+        EXPECT_EQ(numberOfUniques2, 7);
+
+        container2.erase(iterBeyondEndOfUniques2, container2.end());
+        EXPECT_EQ(container2.size(), 7);
+    }
+
+    TEST_F(Algorithms, Unique_BinaryPredicate)
+    {
+        auto isEquivalent = [](const int& lhs, const int& rhs) -> bool
+        {
+            return lhs == rhs;
+        };
+
+        AZStd::vector<int> container1 = {{ 1, 2, 3, 4, 4, 5, 5, 5, 10, 20 }};
+
+        auto iterBeyondEndOfUniques = AZStd::unique(container1.begin(), container1.end(), isEquivalent);
+
+        container1.erase(iterBeyondEndOfUniques, container1.end());
+        EXPECT_EQ(container1.size(), 7);
+
+        AZStd::vector<int> container2 = {{ 1, 2, 3, 4, 4, 5, 2, 5, 5, 5 }};
+
+        auto iterBeyondEndOfUniques2 = AZStd::unique(container2.begin(), container2.end(), isEquivalent);
+
+        container2.erase(iterBeyondEndOfUniques2, container2.end());
+        EXPECT_EQ(container2.size(), 7);
+    }
+
+    TEST_F(Algorithms, SetDifference)
+    {
+        AZStd::set<int> setA { 3, 5, 8, 10 };
+        AZStd::set<int> setB { 1, 2, 3, 8 };
+        AZStd::set<int> setC { 7, 8, 9, 10, 11, 12 };
+
+        // Continue with tests: A - B, B - A, A - C, C - A, B - C, C - B
+
+        // A - B = 5, 10
+        AZStd::set<int> remainder;
+        AZStd::set_difference(setA.begin(), setA.end(), setB.begin(), setB.end(), AZStd::inserter(remainder, remainder.begin()));
+        EXPECT_TRUE(remainder == AZStd::set<int>({ 5, 10 }));
+
+        // B - A = 1, 2
+        remainder.clear();
+        AZStd::set_difference(setB.begin(), setB.end(), setA.begin(), setA.end(), AZStd::inserter(remainder, remainder.begin()));
+        EXPECT_TRUE(remainder == AZStd::set<int>({ 1, 2 }));
+
+        // A - C = 3, 5
+        remainder.clear();
+        AZStd::set_difference(setA.begin(), setA.end(), setC.begin(), setC.end(), AZStd::inserter(remainder, remainder.begin()));
+        EXPECT_TRUE(remainder == AZStd::set<int>({ 3, 5 }));
+
+        // C - A = 7, 9, 11, 12
+        remainder.clear();
+        AZStd::set_difference(setC.begin(), setC.end(), setA.begin(), setA.end(), AZStd::inserter(remainder, remainder.begin()));
+        EXPECT_TRUE(remainder == AZStd::set<int>({ 7, 9, 11, 12 }));
+
+        // B - C = 1, 2, 3
+        remainder.clear();
+        AZStd::set_difference(setB.begin(), setB.end(), setC.begin(), setC.end(), AZStd::inserter(remainder, remainder.begin()));
+        EXPECT_TRUE(remainder == AZStd::set<int>({ 1, 2, 3 }));
+
+        // C - B = 7, 9, 10, 11, 12
+        remainder.clear();
+        AZStd::set_difference(setC.begin(), setC.end(), setB.begin(), setB.end(), AZStd::inserter(remainder, remainder.begin()));
+        EXPECT_TRUE(remainder == AZStd::set<int>({ 7, 9, 10, 11, 12 }));
+    }
+
+    TEST_F(Algorithms, Equal)
+    {
+        AZStd::vector<int> container1 = { 1, 2, 3, 4, 5 };
+        AZStd::vector<int> container2 = { 11, 12, 13, 14, 15 };
+
+        EXPECT_TRUE(AZStd::equal(container1.begin(), container1.end(), container1.begin()));
+        EXPECT_FALSE(AZStd::equal(container1.begin(), container1.end(), container2.begin()));
+
+        auto compare = [](int lhs, int rhs) -> bool
+        {
+            return lhs == rhs;
+        };
+
+        EXPECT_TRUE(AZStd::equal(container1.begin(), container1.end(), container1.begin(), compare));
+        EXPECT_FALSE(AZStd::equal(container1.begin(), container1.end(), container2.begin(), compare));
+    }
+
+    TEST_F(Algorithms, MinMax_Compile_WhenUsedInConstexpr)
+    {
+        static_assert(AZStd::GetMin(7, 10) == 7);
+        static_assert(AZStd::min(11, 6) == 6);
+        static_assert(AZStd::GetMax(5, 12) == 12);
+        static_assert(AZStd::max(13, 4) == 13);
+        static_assert(AZStd::max(13, 4) == 13);
+        constexpr AZStd::pair<int, int> resultPair1 = AZStd::minmax(7, 8, [](int lhs, int rhs) { return lhs < rhs; });
+        static_assert(resultPair1.first == 7);
+        static_assert(resultPair1.second == 8);
+        constexpr AZStd::pair<int, int> resultPair2 = AZStd::minmax(14, 5);
+        static_assert(resultPair2.first == 5);
+        static_assert(resultPair2.second == 14);
+
+        static constexpr AZStd::array<int, 6> testList = { { 7, 43, 42, 0, -9, 500 } };
+        constexpr AZStd::pair<const int*, const int*> testPair1 = AZStd::minmax_element(testList.begin(), testList.end(), [](int lhs, int rhs) { return rhs < lhs; });
+        static_assert(*testPair1.first == 500);
+        static_assert(*testPair1.second == -9);
+        constexpr AZStd::pair<const int*, const int*> testPair2 = AZStd::minmax_element(testList.begin(), testList.end());
+        static_assert(*testPair2.first == -9);
+        static_assert(*testPair2.second == 500);
+        constexpr AZStd::pair<int, int> testPair3 = AZStd::minmax({ 7, 43, 42, 0, -9, 500 }, [](int lhs, int rhs) { return rhs < lhs; });
+        static_assert(testPair3.first == 500);
+        static_assert(testPair3.second == -9);
+        constexpr AZStd::pair<int, int> testPair4 = AZStd::minmax({ 7, 43, 42, 0, -9, 500 });
+        static_assert(testPair4.first == -9);
+        static_assert(testPair4.second == 500);
+
+        static_assert(AZStd::clamp(15, 0, 10) == 10);
+    }
+
+    TEST_F(Algorithms, ForEach_Compile_WhenUsedInConstexpr)
+    {
+        auto CreateArray = []() constexpr -> AZStd::array<int, 3>
+        {
+            AZStd::array<int, 3> localArray = { {1, 2, 3} };
+            auto resultFunc = AZStd::for_each(localArray.begin(), localArray.end(), [](int& element) { ++element; });
+            return localArray;
+        };
+        constexpr AZStd::array<int, 3> testArray = CreateArray();
+        static_assert(testArray[0] == 2);
+        static_assert(testArray[1] == 3);
+        static_assert(testArray[2] == 4);
+    }
+
+
+    TEST_F(Algorithms, CountIf_Compile_WhenUsedInConstexpr)
+    {
+        constexpr AZStd::array<int, 3> testList = { { 1, 2, 3 } };
+
+        constexpr ptrdiff_t testResult = AZStd::count_if(testList.begin(), testList.end(), [](int element) { return element < 3; });
+        static_assert(testResult == 2);
+    }
+
+    TEST_F(Algorithms, FindFunctions_Compile_WhenUsedInConstexpr)
+    {
+        static constexpr AZStd::array<int, 3> testList = { { 1, 2, 3 } };
+
+        constexpr const int* findIter1 = AZStd::find(testList.begin(), testList.end(), 2);
+        static_assert(*findIter1 == 2);
+
+        constexpr const int* findIter2 = AZStd::find_if(testList.begin(), testList.end(), [](int element) { return element == 3; });
+        static_assert(*findIter2 == 3);
+
+        constexpr const int* findIter3 = AZStd::find_if_not(testList.begin(), testList.end(), [](int element) { return element == 1; });
+        static_assert(*findIter3 == 2);
+
+        static constexpr AZStd::array<int, 6> testList2 = { { 7, 2, 3, 3, 4, 4 } };
+        constexpr const int* findIter4 = AZStd::adjacent_find(testList2.begin(), testList2.end());
+        static_assert(*findIter4 == 3);
+        constexpr const int* findIter5 = AZStd::adjacent_find(testList2.begin(), testList2.end(), [](int first, int next) { return first != 3 && first == next; });
+        static_assert(*findIter5 == 4);
+
+        static constexpr AZStd::array<int, 4> testList3 = { {10, 11, 12, 13 } };
+        static constexpr AZStd::array<int, 4> findList = { { 96, 17, -13, 11 } };
+        constexpr const int* findIter6 = AZStd::find_first_of(testList3.begin(), testList3.end(), findList.begin(), findList.end());
+        static_assert(*findIter6 == 11);
+
+        constexpr const int* findIter7 = AZStd::find_first_of(testList3.begin(), testList3.end(), findList.begin(), findList.end(),
+            [](int sourceElement, int findElement) {return sourceElement != findElement; });
+        static_assert(*findIter7 == 10);
+    }
+
+    TEST_F(Algorithms, AllOf_AnyOf_NoneOf_Compile_WhenUsedInConstexpr)
+    {
+        static constexpr AZStd::array<int, 3> testList = { { 1, 2, 3 } };
+        static_assert(!AZStd::all_of(testList.begin(), testList.end(), [](int element) { return element < 2; }));
+        static_assert(AZStd::any_of(testList.begin(), testList.end(), [](int element) { return element < 2; }));
+        static_assert(!AZStd::none_of(testList.begin(), testList.end(), [](int element) { return element < 2; }));
+    }
+
+    TEST_F(Algorithms, Transform_Compile_WhenUsedInConstexpr)
+    {
+        auto TransformInitList = []() constexpr
+        {
+            constexpr AZStd::array<int, 3> testList = { { 1, 2, 3 } };
+            AZStd::array<int, 3> localArray = {};
+            AZStd::transform(testList.begin(), testList.end(), localArray.begin(), [](int element) { return element + 3; });
+            return localArray;
+        };
+
+        constexpr AZStd::array<int, 3> resultArray = TransformInitList();
+        static_assert(resultArray[0] == 4);
+        static_assert(resultArray[1] == 5);
+        static_assert(resultArray[2] == 6);
+    }
+
+    TEST_F(Algorithms, Replace_Compile_WhenUsedInConstexpr)
+    {
+        auto ReplaceIf = []() constexpr
+        {
+            AZStd::array<int, 4> localArray = { { 6, 2, -423, 0 } };
+            AZStd::replace_if(localArray.begin(), localArray.end(), [](int element) { return element < 0; }, 7);
+            return localArray;
+        };
+
+        constexpr AZStd::array<int, 4> resultArray1 = ReplaceIf();
+        static_assert(resultArray1[0] == 6);
+        static_assert(resultArray1[1] == 2);
+        static_assert(resultArray1[2] == 7);
+        static_assert(resultArray1[3] == 0);
+
+        auto ReplaceCopyIf = []() constexpr
+        {
+            AZStd::array<int, 4> localArray = { { 6, 2, -423, 0 } };
+            AZStd::array<int, 4> outputArray = {};
+            AZStd::replace_copy_if(localArray.begin(), localArray.end(), outputArray.begin(), [](int element) { return element > 0; }, 10);
+            return outputArray;
+        };
+
+        constexpr AZStd::array<int, 4> resultArray2 = ReplaceCopyIf();
+        static_assert(resultArray2[0] == 10);
+        static_assert(resultArray2[1] == 10);
+        static_assert(resultArray2[2] == -423);
+        static_assert(resultArray2[3] == 0);
+    }
+
+    TEST_F(Algorithms, Remove_Compile_WhenUsedInConstexpr)
+    {
+        auto RemoveIf = []() constexpr
+        {
+            AZStd::array<int, 4> localArray = { { 6, 2, -423, 0 } };
+            AZStd::remove_if(localArray.begin(), localArray.end(), [](int element) { return element < 0; });
+            return localArray;
+        };
+
+        constexpr AZStd::array<int, 4> resultArray1 = RemoveIf();
+        static_assert(resultArray1[0] == 6);
+        static_assert(resultArray1[1] == 2);
+        static_assert(resultArray1[2] == 0);
+
+        auto RemoveCopyIf = []() constexpr
+        {
+            AZStd::array<int, 4> localArray = { { 6, 2, -423, 0 } };
+            AZStd::array<int, 4> outputArray = { };
+            AZStd::remove_copy_if(localArray.begin(), localArray.end(), outputArray.begin(), [](int element) { return element > 0; });
+            return outputArray;
+        };
+
+        constexpr AZStd::array<int, 4> resultArray2 = RemoveCopyIf();
+        static_assert(resultArray2[0] == -423);
+    }
+
+    TEST_F(Algorithms, Generate_Compile_WhenUsedInConstexpr)
+    {
+        auto GenerateTest = []() constexpr -> AZStd::array<int, 3>
+        {
+            AZStd::array<int, 3> localArray{};
+            auto GeneratorFunc = [counter = 7]() constexpr mutable
+            {
+                return counter++;
+            };
+            AZStd::generate(localArray.begin(), localArray.end(), GeneratorFunc);
+            return localArray;
+        };
+
+        constexpr AZStd::array<int, 3> resultArray1 = GenerateTest();
+        static_assert(resultArray1[0] == 7);
+        static_assert(resultArray1[1] == 8);
+        static_assert(resultArray1[2] == 9);
+
+        auto GenerateNTest = []() constexpr -> AZStd::array<int, 3>
+        {
+            AZStd::array<int, 3> localArray{};
+            auto GeneratorFunc = [counter = 7]() constexpr mutable
+            {
+                return counter++;
+            };
+            AZStd::generate_n(localArray.begin(), 2, GeneratorFunc);
+            return localArray;
+        };
+
+        constexpr AZStd::array<int, 3> resultArray2 = GenerateNTest();
+        static_assert(resultArray2[0] == 7);
+        static_assert(resultArray2[1] == 8);
+        static_assert(resultArray2[2] == 0);
+    }
+
+    TEST_F(Algorithms, HeapFunctions_Compile_WhenUsedInConstexpr)
+    {
+        auto MakeHeap = []() constexpr -> AZStd::array<int, 5>
+        {
+            AZStd::array<int, 5> localArray = { {3, 2, 17, 0, 72} };
+            AZStd::make_heap(localArray.begin(), localArray.end());
+            return localArray;
+        };
+
+        constexpr AZStd::array<int, 5> testArray1 = MakeHeap();
+        static_assert(testArray1[0] == 72);
+        static_assert(testArray1[1] == 3);
+        static_assert(testArray1[2] == 17);
+        static_assert(testArray1[3] == 0);
+        static_assert(testArray1[4] == 2);
+
+        auto PopHeap = [](AZStd::array<int, 5> sourceArray) constexpr -> AZStd::array<int, 5>
+        {
+            AZStd::pop_heap(sourceArray.begin(), sourceArray.end());
+            return sourceArray;
+        };
+
+        constexpr AZStd::array<int, 5> testArray2 = PopHeap(testArray1);
+        static_assert(testArray2[0] == 17);
+        static_assert(testArray2[1] == 3);
+        static_assert(testArray2[2] == 2);
+        static_assert(testArray2[3] == 0);
+
+        auto PushHeap = [](AZStd::array<int, 5> sourceArray) constexpr -> AZStd::array<int, 5>
+        {
+            sourceArray[4] = 5;
+            AZStd::push_heap(sourceArray.begin(), sourceArray.end());
+            return sourceArray;
+        };
+
+        constexpr AZStd::array<int, 5> testArray3 = PushHeap(testArray2);
+        static_assert(testArray3[0] == 17);
+        static_assert(testArray3[1] == 5);
+        static_assert(testArray3[2] == 2);
+        static_assert(testArray3[3] == 0);
+        static_assert(testArray3[4] == 3);
+
+        auto SortHeap = [](AZStd::array<int, 5> sourceArray) constexpr->AZStd::array<int, 5>
+        {
+            AZStd::sort_heap(sourceArray.begin(), sourceArray.end());
+            return sourceArray;
+        };
+
+        constexpr AZStd::array<int, 5> testArray4 = SortHeap(testArray3);
+        static_assert(testArray4[0] == 0);
+        static_assert(testArray4[1] == 2);
+        static_assert(testArray4[2] == 3);
+        static_assert(testArray4[3] == 5);
+        static_assert(testArray4[4] == 17);
+    }
+
+    TEST_F(Algorithms, UpperBound_LowerBound__Compile_WhenUsedInConstexpr)
+    {
+        constexpr AZStd::array<int, 6> testList = { { 1, 2, 3, 5, 6, 7 } };
+        auto LowerBound = [](int lhs, int paritionValue) constexpr -> bool
+        {
+            return lhs < paritionValue;
+        };
+        static_assert(*AZStd::lower_bound(testList.begin(), testList.end(), 4 ) == 5);
+        static_assert(*AZStd::lower_bound(testList.begin(), testList.end(), 3, LowerBound) == 3);
+
+        auto UpperBound = [](int partitionValue, int rhs) constexpr -> bool
+        {
+            return partitionValue <= rhs;
+        };
+
+        static_assert(*AZStd::upper_bound(testList.begin(), testList.end(), 4) == 5);
+        static_assert(*AZStd::upper_bound(testList.begin(), testList.end(), 4, UpperBound) == 5);
+    }
+
+    TEST_F(Algorithms, Unique_Compile_WhenUsedInConstexpr)
+    {
+        constexpr AZStd::array<int, 3> testList = { { 1, 2, 3 } };
+        auto TestUnique = []() constexpr
+        {
+            AZStd::array<int, 6> localArray{ { 1, 2, 2, 5, 5, 6} };
+            AZStd::unique(localArray.begin(), localArray.end());
+            return localArray;
+        };
+
+        constexpr AZStd::array<int, 6> resultArray = TestUnique();
+        static_assert(resultArray[0] == 1);
+        static_assert(resultArray[1] == 2);
+        static_assert(resultArray[2] == 5);
+        static_assert(resultArray[3] == 6);
+    }
+
+    TEST_F(Algorithms, LexicographicalCompare_Compile_WhenUsedInConstexpr)
+    {
+        constexpr const char* testString1{ "Test1" };
+        constexpr const char* testString2{ "Test2" };
+        static_assert(AZStd::lexicographical_compare(testString1, testString1 + 5, testString2, testString2 + 5));
+        static_assert(!AZStd::lexicographical_compare(testString1, testString1 + 5, testString2, testString2 + 5, [](char lhs, char rhs) { return rhs < lhs; }));
     }
 }

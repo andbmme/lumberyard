@@ -19,11 +19,24 @@
 #ifndef __GLDEVICE__
 #define __GLDEVICE__
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#undef AZ_RESTRICTED_SECTION
+#define GLDEVICE_HPP_SECTION_1 1
+#define GLDEVICE_HPP_SECTION_2 2
+#endif
+
 #include "GLCommon.hpp"
 #include "GLContext.hpp"
 
 #include <AzFramework/API/ApplicationAPI.h>
 #include <AzCore/std/containers/map.h>
+
+// EGL Windows are pointers on some platforms and integers on other platforms, so we can't globally use nullptr
+#if defined(AZ_PLATFORM_LINUX)
+    #define EGL_NULL_VALUE 0
+#else
+    #define EGL_NULL_VALUE nullptr
+#endif
 
 namespace NCryOpenGL
 {
@@ -49,6 +62,8 @@ namespace NCryOpenGL
         eF_MultiBind,
         eF_DebugOutput,
         eF_DualSourceBlending,
+        eF_IndependentBlending,
+        eF_CopyImage,
         eF_NUM // Must be last one
     };
 
@@ -65,6 +80,7 @@ namespace NCryOpenGL
         GLint m_iMaxVertexAttribs;
         GLint m_maxRenderTargets;
         GLint m_plsSizeInBytes; // 0 when PLS is not supported
+        RenderCapabilities::FrameBufferFetchMask m_frameBufferFetchSupport;
 
         SResourceUnitCapabilities m_akResourceUnits[eRUT_NUM];
 
@@ -82,23 +98,21 @@ namespace NCryOpenGL
         // The supported usage for each GI format (union of D3D11_FORMAT_SUPPORT flags)
         uint32 m_auFormatSupport[eGIF_NUM];
 
-#if DXGL_SUPPORT_COPY_IMAGE
         // Some drivers implementation of glCopyImageSubData does not work on cube map faces as specified by the standard
         bool m_bCopyImageWorksOnCubeMapFaces;
-#endif
     };
 
     struct SVersion
     {
-        uint32 m_uMajorVersion;
-        uint32 m_uMinorVersion;
+        int32 m_uMajorVersion;
+        int32 m_uMinorVersion;
 
         SVersion()
             : m_uMajorVersion(0)
             , m_uMinorVersion(0)
         {}
 
-        SVersion(uint32 version)
+        SVersion(int32 version)
         {
             m_uMajorVersion = version / 100;
             m_uMinorVersion = (version / 10) % 10;
@@ -137,7 +151,19 @@ namespace NCryOpenGL
         uint32 m_uWidth;
         uint32 m_uHeight;
         uint32 m_uFrequency;
-#if defined(WIN32)
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION GLDEVICE_HPP_SECTION_1
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/GLDevice_hpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/GLDevice_hpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/GLDevice_hpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#elif defined(WIN32)
         uint32 m_uBitsPerPixel;
 #elif defined(ANDROID)
         int32_t m_nativeFormat;
@@ -158,6 +184,17 @@ namespace NCryOpenGL
     typedef AZStd::shared_ptr<EGLNativePlatform> TNativeDisplay;
 #else
     typedef TWindowContext TNativeDisplay;
+#endif
+
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION GLDEVICE_HPP_SECTION_2
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/GLDevice_hpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/GLDevice_hpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/GLDevice_hpp_salem.inl"
+    #endif
 #endif
 
 #if defined(DXGL_USE_EGL)
@@ -182,6 +219,10 @@ namespace NCryOpenGL
     protected:
         bool CreateSurface();
         bool DestroySurface();
+
+#if defined(AZ_PLATFORM_LINUX)
+        bool CreateX11Window();
+#endif
 
         EGLDisplay m_display;
         EGLSurface m_surface;
@@ -301,6 +342,7 @@ namespace NCryOpenGL
         static bool MakeCurrent(const TWindowContext&kWindowContext, TRenderingContext kRenderingContext);
 
         void OnApplicationWindowCreated() override;
+        void OnApplicationWindowRedrawNeeded() override;
 
         static uint32 ms_uNumContextsPerDevice;
         static CDevice* ms_pCurrentDevice;
@@ -325,6 +367,8 @@ namespace NCryOpenGL
 
         typedef AZStd::map<HWND, std::pair<uint32, uint32>> WindowSizeList;
         static WindowSizeList m_windowSizes;
+
+        uint64 m_texturesStreamingFunctorId;
     };
 
     bool FeatureLevelToFeatureSpec(SFeatureSpec& kContextSpec, D3D_FEATURE_LEVEL eFeatureLevel, NCryOpenGL::SAdapter* pGLAdapter);

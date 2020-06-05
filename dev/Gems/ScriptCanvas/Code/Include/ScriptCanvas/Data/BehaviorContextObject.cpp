@@ -10,11 +10,14 @@
 *
 */
 
-#include "precompiled.h"
 #include "BehaviorContextObject.h"
-#include <ScriptCanvas/SystemComponent.h>
+#include <ScriptCanvas/Core/ScriptCanvasBus.h>
+#include <ScriptCanvas/Data/DataRegistry.h>
 
 #include <AzCore/Component/EntityBus.h>
+#include <AzCore/Serialization/Utils.h>
+
+#include <ScriptCanvas/Core/GraphScopedTypes.h>
 
 namespace ScriptCanvas
 {
@@ -28,14 +31,7 @@ namespace ScriptCanvas
 
     void BehaviorContextObject::OnWriteEnd()
     {
-        if (m_object.empty())
-        {
-            AZ_Assert(!IsOwned(), "Errors in BehaviorContextObject serialization. Empty objects should be not be considered owned.");
-        }
-        else 
-        {
-            AZ_Assert(IsOwned(), "Errors in BehaviorContextObject serialization. Not empty objects should be owned.");
-        }
+        // Id Remapping invokes this method as well, not just serializing from an ObjectStream
     }
 
     void BehaviorContextObject::Reflect(AZ::ReflectContext* reflection)
@@ -51,11 +47,13 @@ namespace ScriptCanvas
 
             if (auto editContext = serializeContext->GetEditContext())
             {
-                editContext->Class<BehaviorContextObject>("BehaviorContextObject", "BehaviorContextObject")
+                editContext->Class<BehaviorContextObject>("", "BehaviorContextObject")
+                    ->ClassElement(AZ::Edit::ClassElements::EditorData, "BehaviorContextObject")
+                        ->Attribute(AZ::Edit::Attributes::Visibility, AZ::Edit::PropertyVisibility::ShowChildrenOnly)
                     ->DataElement(AZ::Edit::UIHandlers::Default, &BehaviorContextObject::m_object, "Datum", "")
+                        ->Attribute(AZ::Edit::Attributes::Visibility, AZ::Edit::PropertyVisibility::ShowChildrenOnly)
                         ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
                         ->Attribute(AZ::Edit::Attributes::ContainerCanBeModified, true)
-                        ->Attribute(AZ::Edit::Attributes::Visibility, AZ::Edit::PropertyVisibility::ShowChildrenOnly)
                     ;
             }
         }
@@ -73,33 +71,58 @@ namespace ScriptCanvas
         object->OnWriteEnd();
     }
 
-    SystemComponent* BehaviorContextObject::GetSystemComponent()
+    BehaviorContextObjectPtr BehaviorContextObject::CloneObject(const AZ::BehaviorClass& behaviorClass)
     {
-        SystemComponent* systemComponent{};
-        SystemRequestBus::BroadcastResult(systemComponent, &SystemRequests::ModSystemComponent);
-        return systemComponent;
+        if (SystemRequestBus::HasHandlers())
+        {
+            AZStd::vector<char> buffer;
+
+            {
+                bool wasOwned = IsOwned();
+                m_flags |= Flags::Owned;
+
+                AZ::IO::ByteContainerStream<AZStd::vector<char>> writeStream(&buffer);
+                AZ::Utils::SaveObjectToStream<BehaviorContextObject>(writeStream, AZ::DataStream::ST_BINARY, this);
+
+                if (!wasOwned)
+                {
+                    m_flags &= ~Flags::Owned;
+                }
+            }
+
+            AZ::IO::ByteContainerStream<AZStd::vector<char>> readStream(&buffer);
+
+            BehaviorContextObject* newObject = CreateDefault(behaviorClass);
+            AZ::Utils::LoadObjectFromStreamInPlace(readStream, (*newObject));
+
+            if (newObject != nullptr)
+            {
+                SystemRequestBus::Broadcast(&SystemRequests::AddOwnedObjectReference, newObject->Get(), newObject);
+                return BehaviorContextObjectPtr(newObject);
+            }
+        }
+
+        return nullptr;
     }
 
     BehaviorContextObjectPtr BehaviorContextObject::Create(const AZ::BehaviorClass& behaviorClass, const void* value)
     {
-        CheckClass(behaviorClass);
-
-        if (SystemComponent* scEditorSystemComponent = GetSystemComponent())
+        if (SystemRequestBus::HasHandlers())
         {
             BehaviorContextObject* ownedObject = value ? CreateCopy(behaviorClass, value) : CreateDefault(behaviorClass);
-            scEditorSystemComponent->AddOwnedObjectReference(ownedObject->Get(), ownedObject);
+            SystemRequestBus::Broadcast(&SystemRequests::AddOwnedObjectReference, ownedObject->Get(), ownedObject);
             return BehaviorContextObjectPtr(ownedObject);
         }
 
-        AZ_Assert(false, "The Script Canvas SystemComponent needs to be part of the SystemEntity!");
+        AZ_Assert(false, "The Script Canvas SystemRequest Bus needs to be handled by at least one class!");
         return nullptr;
     }
 
     BehaviorContextObjectPtr BehaviorContextObject::CreateReference(const AZ::Uuid& typeID, void* reference)
     {
         const AZ::u32 referenceFlags(0);
-        SystemComponent* scEditorSystemComponent = GetSystemComponent();
-        BehaviorContextObject* ownedObject = scEditorSystemComponent ? scEditorSystemComponent->FindOwnedObjectReference(reference) : nullptr;
+        BehaviorContextObject* ownedObject{};
+        SystemRequestBus::BroadcastResult(ownedObject, &SystemRequests::FindOwnedObjectReference, reference);
         return ownedObject
             ? BehaviorContextObjectPtr(ownedObject)
             : BehaviorContextObjectPtr(aznew BehaviorContextObject(reference, GetAnyTypeInfoReference(typeID), referenceFlags));
@@ -109,10 +132,7 @@ namespace ScriptCanvas
     {
         if (--m_referenceCount == 0)
         {
-            if (SystemComponent* scEditorSystemComponent = GetSystemComponent())
-            {
-                scEditorSystemComponent->RemoveOwnedObjectReference(Get());
-            }
+            SystemRequestBus::Broadcast(&SystemRequests::RemoveOwnedObjectReference, Get());
             delete this;
         }
     }

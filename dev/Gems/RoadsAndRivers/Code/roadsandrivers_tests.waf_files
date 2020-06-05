@@ -1,0 +1,8 @@
+{
+    "auto": {
+        "Tests": [
+            "Tests/RoadsAndRiversTestCommon.h",
+            "Tests/RoadsAndRiversTest.cpp"
+        ]
+    }
+}

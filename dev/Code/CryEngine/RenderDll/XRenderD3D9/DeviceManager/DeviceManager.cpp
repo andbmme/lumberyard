@@ -14,16 +14,48 @@
 #include "StdAfx.h"
 #include "../DriverD3D.h"
 
-#include <IJobManager.h>
-#include <IJobManager_JobDelegator.h>
 #include <Common/Memory/VRAMDrillerBus.h>
 #include "Base.h"
 
-#if   defined(CRY_USE_DX12)
+
+#if defined(AZ_RESTRICTED_PLATFORM)
+#undef AZ_RESTRICTED_SECTION
+#define DEVICEMANAGER_CPP_SECTION_1 1
+#define DEVICEMANAGER_CPP_SECTION_3 3
+#define DEVICEMANAGER_CPP_SECTION_4 4
+#define DEVICEMANAGER_CPP_SECTION_5 5
+#define DEVICEMANAGER_CPP_SECTION_6 6
+#define DEVICEMANAGER_CPP_SECTION_7 7
+#define DEVICEMANAGER_CPP_SECTION_8 8
+#define DEVICEMANAGER_CPP_SECTION_9 9
+#define DEVICEMANAGER_CPP_SECTION_10 10
+#define DEVICEMANAGER_CPP_SECTION_11 11
+#define DEVICEMANAGER_CPP_SECTION_12 12
+#define DEVICEMANAGER_CPP_SECTION_13 13
+#define DEVICEMANAGER_CPP_SECTION_14 14
+#define DEVICEMANAGER_CPP_SECTION_15 15
+#define DEVICEMANAGER_CPP_SECTION_16 16
+#define DEVICEMANAGER_CPP_SECTION_17 17
+#define DEVICEMANAGER_CPP_SECTION_18 18
+#define DEVICEMANAGER_CPP_SECTION_20 20
+#endif
+
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DEVICEMANAGER_CPP_SECTION_1
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DeviceManager_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DeviceManager_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DeviceManager_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#elif defined(CRY_USE_DX12)
     #include "DeviceManager_D3D12.inl"
 #else
     #include "DeviceManager_D3D11.inl"
-
 
     #if defined(USE_NV_API)
         #include "DeviceManager_D3D11_NVAPI.h"
@@ -47,6 +79,16 @@ CDeviceManager::~CDeviceManager()
 
 void CDeviceManager::Init()
 {
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DEVICEMANAGER_CPP_SECTION_3
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DeviceManager_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DeviceManager_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DeviceManager_cpp_salem.inl"
+    #endif
+#endif
 #if !DEVICE_MANAGER_IMMEDIATE_STATE_WRITE
     memset(m_CB, 0x0, sizeof(m_CB));
     memset(m_SRV, 0x0, sizeof(m_SRV));
@@ -67,6 +109,16 @@ void CDeviceManager::RT_Tick()
 {
     m_numInvalidDrawcalls = 0;
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DEVICEMANAGER_CPP_SECTION_4
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DeviceManager_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DeviceManager_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DeviceManager_cpp_salem.inl"
+    #endif
+#endif
 }
 
 HRESULT CDeviceManager::CreateD3D11Texture2D(const D3D11_TEXTURE2D_DESC* desc, const FLOAT clearValue[4], const D3D11_SUBRESOURCE_DATA* initialData, ID3D11Texture2D** texture2D, const char* textureName)
@@ -151,11 +203,31 @@ void CDeviceManager::ReleaseD3D11Buffer(D3DBuffer* buffer)
 
 void* CDeviceManager::GetBackingStorage(D3DBuffer* buffer)
 {
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DEVICEMANAGER_CPP_SECTION_5
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DeviceManager_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DeviceManager_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DeviceManager_cpp_salem.inl"
+    #endif
+# endif
     return NULL;
 }
 void CDeviceManager::FreebackingStorage(void* base_ptr)
 {
     FUNCTION_PROFILER(gEnv->pSystem, PROFILE_RENDERER);
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DEVICEMANAGER_CPP_SECTION_6
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DeviceManager_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DeviceManager_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DeviceManager_cpp_salem.inl"
+    #endif
+# endif
 }
 
 HRESULT CDeviceManager::CreateFence(DeviceFenceHandle& query)
@@ -164,6 +236,19 @@ HRESULT CDeviceManager::CreateFence(DeviceFenceHandle& query)
 # if CRY_USE_DX12
     query = reinterpret_cast<DeviceFenceHandle>(new UINT64);
     hr = query ? S_OK : S_FALSE;
+#   define AZ_RESTRICTED_SECTION_IMPLEMENTED
+#elif defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DEVICEMANAGER_CPP_SECTION_7
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DeviceManager_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DeviceManager_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DeviceManager_cpp_salem.inl"
+    #endif
+# endif
+# if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#   undef AZ_RESTRICTED_SECTION_IMPLEMENTED
 # else
     D3D11_QUERY_DESC QDesc;
     QDesc.Query = D3D11_QUERY_EVENT;
@@ -187,6 +272,19 @@ HRESULT CDeviceManager::ReleaseFence(DeviceFenceHandle query)
 # if CRY_USE_DX12
     delete reinterpret_cast<UINT64*>(query);
     hr = S_OK;
+#   define AZ_RESTRICTED_SECTION_IMPLEMENTED
+#elif defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DEVICEMANAGER_CPP_SECTION_8
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DeviceManager_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DeviceManager_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DeviceManager_cpp_salem.inl"
+    #endif
+# endif
+# if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#   undef AZ_RESTRICTED_SECTION_IMPLEMENTED
 # else
     D3DQuery* d3d_query = reinterpret_cast<D3DQuery*>(query);
     SAFE_RELEASE(d3d_query);
@@ -204,6 +302,19 @@ HRESULT CDeviceManager::IssueFence(DeviceFenceHandle query)
         *handle = gcpRendD3D->GetDeviceContext().InsertFence();
         //  gcpRendD3D->GetDeviceContext().Flush();
     }
+#   define AZ_RESTRICTED_SECTION_IMPLEMENTED
+#elif defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DEVICEMANAGER_CPP_SECTION_9
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DeviceManager_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DeviceManager_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DeviceManager_cpp_salem.inl"
+    #endif
+# endif
+# if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#   undef AZ_RESTRICTED_SECTION_IMPLEMENTED
 # else
     D3DQuery* d3d_query = reinterpret_cast<D3DQuery*>(query);
     if (d3d_query)
@@ -237,6 +348,19 @@ HRESULT CDeviceManager::SyncFence(DeviceFenceHandle query, bool block, bool flus
             }
         }
     }
+#   define AZ_RESTRICTED_SECTION_IMPLEMENTED
+#elif defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DEVICEMANAGER_CPP_SECTION_10
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DeviceManager_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DeviceManager_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DeviceManager_cpp_salem.inl"
+    #endif
+# endif
+# if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#   undef AZ_RESTRICTED_SECTION_IMPLEMENTED
 # else
     D3DQuery* d3d_query = reinterpret_cast<D3DQuery*>(query);
     if (d3d_query)
@@ -249,6 +373,20 @@ HRESULT CDeviceManager::SyncFence(DeviceFenceHandle query, bool block, bool flus
             if (hr != S_OK && hr != S_FALSE)
             {
                 CHECK_HRESULT(hr);
+
+                if (hr == DXGI_ERROR_DEVICE_REMOVED)
+                {
+                    // If the device has been removed we will be stuck here if this is a blocking sync (i.e. block == true) ).
+                    // It's a critical error, though, so we have to bail out and handle it elsewhere.
+                    ID3D11Device* device = nullptr;
+                    gcpRendD3D->GetDeviceContext().GetDevice(&device);
+                    if (device)
+                    {
+                        const HRESULT removedReason = device->GetDeviceRemovedReason();
+                        CryWarning(VALIDATOR_MODULE_RENDERER, VALIDATOR_WARNING, "Graphical device was removed for the following reason: %x", removedReason);
+                    }
+                    return hr;
+                }
             }
 #     endif
         } while (block && hr != S_OK);
@@ -259,11 +397,31 @@ HRESULT CDeviceManager::SyncFence(DeviceFenceHandle query, bool block, bool flus
 
 HRESULT CDeviceManager::InvalidateCpuCache(void* buffer_ptr, size_t size, size_t offset)
 {
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DEVICEMANAGER_CPP_SECTION_11
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DeviceManager_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DeviceManager_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DeviceManager_cpp_salem.inl"
+    #endif
+# endif
     return S_OK;
 }
 
 HRESULT CDeviceManager::InvalidateGpuCache(D3DBuffer* buffer, void* buffer_ptr, size_t size, size_t offset)
 {
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DEVICEMANAGER_CPP_SECTION_12
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DeviceManager_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DeviceManager_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DeviceManager_cpp_salem.inl"
+    #endif
+# endif
     return S_OK;
 }
 
@@ -285,18 +443,18 @@ HRESULT CDeviceManager::CreateDirectAccessBuffer(uint32 nSize, uint32 elemSize, 
 #if BUFFER_ENABLE_DIRECT_ACCESS == 0
     nUsage |= CDeviceManager::USAGE_DYNAMIC;
 #endif
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DEVICEMANAGER_CPP_SECTION_13
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DeviceManager_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DeviceManager_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DeviceManager_cpp_salem.inl"
+    #endif
+#endif
 
-    HRESULT result = CreateBuffer(nSize, elemSize, nUsage, nBindFlags, ppBuff);
-
-    if (result == S_OK)
-    {
-        // Register the allocation with the VRAM driller
-        void* address = static_cast<void*>(*ppBuff);
-        const char* bufferName = "CreateDirectAccessBuffer";
-        EBUS_EVENT(Render::Debug::VRAMDrillerBus, RegisterAllocation, address, nSize * elemSize, bufferName, Render::Debug::VRAM_CATEGORY_BUFFER, Render::Debug::VRAMAllocationSubcategory::VRAM_SUBCATEGORY_BUFFER_OTHER_BUFFER);
-    }
-
-    return result;
+    return CreateBuffer(nSize, elemSize, nUsage, nBindFlags, ppBuff);
 }
 
 HRESULT CDeviceManager::DestroyDirectAccessBuffer(D3DBuffer* ppBuff)
@@ -340,13 +498,33 @@ void CDeviceManager::UnlockDirectAccessBuffer(D3DBuffer* pBuff, int32 nBindFlags
 
 void CDeviceManager::InvalidateBuffer(D3DBuffer* buffer, void* base_ptr, size_t offset, size_t size, uint32 id)
 {
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DEVICEMANAGER_CPP_SECTION_14
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DeviceManager_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DeviceManager_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DeviceManager_cpp_salem.inl"
+    #endif
+# endif
 }
 
 ILINE bool CDeviceManager::ValidateDrawcall()
 {
     if (CHWShader_D3D::s_nActivationFailMask != 0)
     {
-        ++m_numInvalidDrawcalls;
+        /*
+            A draw call is allowed to fail if we're currently processing
+            shader compilation asynchronously. If shader jobs are running
+            we don't want to count an "invalid" draw call because this is 
+            expected behavior. A draw call is only invalid if there are no 
+            shader jobs running.
+        */
+        if (gRenDev->m_cEF.m_ShaderCacheStats.m_nNumShaderAsyncCompiles == 0)
+        {
+            ++m_numInvalidDrawcalls;
+        }
         return false;
     }
 
@@ -532,6 +710,28 @@ void CDeviceManager::UnbindConstantBuffer(AzRHI::ConstantBuffer* constantBuffer)
 
     // Commit device state to immediately unbind the resource because we may be deleting it
     CommitDeviceStates();
+}
+
+
+void CDeviceManager::UnbindSRV(D3DShaderResourceView* shaderResourceView)
+{
+# if !DEVICE_MANAGER_IMMEDIATE_STATE_WRITE
+    if (!shaderResourceView)
+    {
+        return;
+    }
+
+    for (int type = 0; type < EHWShaderClass::eHWSC_Num; ++type)
+    {
+        for (uint32 slot = 0; slot < MAX_BOUND_SRVS; ++slot)
+        {
+            if (m_SRV[type].views[slot] == shaderResourceView)
+            {
+                BindSRV(static_cast<EHWShaderClass>(type), nullptr, slot);
+            }
+        }
+    }
+#endif
 }
 
 void CDeviceManager::BindConstantBuffer(
@@ -917,35 +1117,77 @@ void CDeviceManager::SyncToGPU()
     }
 }
 
+void CDeviceManager::DisplayMemoryUsage()
+{
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DEVICEMANAGER_CPP_SECTION_20
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DeviceManager_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DeviceManager_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DeviceManager_cpp_salem.inl"
+    #endif
+#endif
+}
+
 //=============================================================================
 
 int CDeviceTexture::Cleanup()
 {
     Unbind();
 
+    // Unregister the VRAM allocation with the VRAM driller
+    RemoveFromTextureMemoryTracking();
+
     int32 nRef = -1;
     if (m_pD3DTexture)
     {
-        // Unregister the VRAM allocation with the VRAM driller
-        EBUS_EVENT(Render::Debug::VRAMDrillerBus, UnregisterAllocation, static_cast<void*>(m_pD3DTexture));
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DEVICEMANAGER_CPP_SECTION_18
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DeviceManager_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DeviceManager_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DeviceManager_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#else
         nRef = m_pD3DTexture->Release();
+#endif
         m_pD3DTexture = NULL;
     }
 
 #ifdef DEVMAN_USE_STAGING_POOL
-    if (m_pStagingResource[0])
+    if (m_pStagingResourceDownload)
     {
-        gcpRendD3D->m_DevMan.ReleaseStagingResource(m_pStagingResource[0]);
-        m_pStagingResource[0] = NULL;
+        gcpRendD3D->m_DevMan.ReleaseStagingResource(m_pStagingResourceDownload);
+        m_pStagingResourceDownload = nullptr;
     }
 
-    if (m_pStagingResource[1])
+    for (int i = 0; i < NUM_UPLOAD_STAGING_RES; i++)
     {
-        gcpRendD3D->m_DevMan.ReleaseStagingResource(m_pStagingResource[1]);
-        m_pStagingResource[1] = NULL;
+        if (m_pStagingResourceUpload[i])
+        {
+            gcpRendD3D->m_DevMan.ReleaseStagingResource(m_pStagingResourceUpload[i]);
+            m_pStagingResourceUpload[i] = nullptr;
+        }
     }
 #endif
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DEVICEMANAGER_CPP_SECTION_16
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DeviceManager_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DeviceManager_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DeviceManager_cpp_salem.inl"
+    #endif
+#endif
 
 #if defined(USE_NV_API)
     m_handleMGPU = NULL;
@@ -959,10 +1201,24 @@ CDeviceTexture::~CDeviceTexture()
     Cleanup();
 }
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION DEVICEMANAGER_CPP_SECTION_17
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/DeviceManager_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/DeviceManager_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/DeviceManager_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
+#else
 uint32 CDeviceTexture::TextureDataSize(uint32 nWidth, uint32 nHeight, uint32 nDepth, uint32 nMips, uint32 nSlices, const ETEX_Format eTF)
 {
     return CTexture::TextureDataSize(nWidth, nHeight, nDepth, nMips, nSlices, eTF);
 }
+#endif
 
 uint32 CDeviceTexture::TextureDataSize(D3DBaseView* pView)
 {
@@ -1102,3 +1358,69 @@ uint32 CDeviceTexture::TextureDataSize(D3DBaseView* pView, const uint numRects, 
 
     return 0;
 }
+
+void CDeviceTexture::TrackTextureMemory(uint32 usageFlags, const char* name)
+{
+    AZ_Warning("Rendering", !m_isTracked, "Texture %s already being tracked by the VRAMDriller", name);
+
+    Render::Debug::VRAMAllocationSubcategory subcategory = Render::Debug::VRAM_SUBCATEGORY_TEXTURE_TEXTURE;
+    if (usageFlags & (CDeviceManager::USAGE_DEPTH_STENCIL | CDeviceManager::USAGE_RENDER_TARGET | CDeviceManager::USAGE_UNORDERED_ACCESS))
+    {
+        subcategory = Render::Debug::VRAM_SUBCATEGORY_TEXTURE_RENDERTARGET;
+    }
+    else if (usageFlags & (CDeviceManager::USAGE_DYNAMIC | CDeviceManager::USAGE_STAGING))
+    {
+        subcategory = Render::Debug::VRAM_SUBCATEGORY_TEXTURE_DYNAMIC;            
+    }
+    EBUS_EVENT(Render::Debug::VRAMDrillerBus, RegisterAllocation, this, m_nBaseAllocatedSize, name, Render::Debug::VRAM_CATEGORY_TEXTURE, subcategory);
+    m_isTracked = true;
+}
+
+void CDeviceTexture::RemoveFromTextureMemoryTracking()
+{
+    // We cannot naively remove the texture from tracking because dummy device textures are created at times that do not have a memory backing
+    if (m_isTracked)
+    {
+        EBUS_EVENT(Render::Debug::VRAMDrillerBus, UnregisterAllocation, static_cast<void*>(this));
+        m_isTracked = false;
+    }
+} 
+
+D3DResource* CDeviceTexture::GetCurrUploadStagingResource()
+{
+#ifdef DEVMAN_USE_STAGING_POOL
+    int resourceIndex = gcpRendD3D->GetFrameID() % NUM_UPLOAD_STAGING_RES;
+    return m_pStagingResourceUpload[resourceIndex];
+#else
+    return nullptr;
+#endif
+}
+
+D3DResource* CDeviceTexture::GetCurrDownloadStagingResource()
+{
+#ifdef DEVMAN_USE_STAGING_POOL
+    return m_pStagingResourceDownload;
+#else
+    return nullptr;
+#endif
+}
+
+void** CDeviceTexture::GetCurrUploadStagingMemoryPtr()
+{
+#ifdef DEVMAN_USE_STAGING_POOL
+    int resourceIndex = gcpRendD3D->GetFrameID() % NUM_UPLOAD_STAGING_RES;
+    return &m_pStagingMemoryUpload[resourceIndex];
+#else
+    return nullptr;
+#endif
+}
+
+void** CDeviceTexture::GetCurrDownloadStagingMemoryPtr()
+{
+#ifdef DEVMAN_USE_STAGING_POOL
+    return &m_pStagingMemoryDownload;
+#else
+    return nullptr;
+#endif
+}
+

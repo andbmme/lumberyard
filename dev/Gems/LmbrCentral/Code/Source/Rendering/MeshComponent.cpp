@@ -11,7 +11,7 @@
 */
 #include "LmbrCentral_precompiled.h"
 #include "MeshComponent.h"
-#include "MaterialOwnerRequestBusHandlerImpl.h"
+#include <LmbrCentral/Rendering/Utils/MaterialOwnerRequestBusHandlerImpl.h>
 
 #include <AzCore/Serialization/SerializeContext.h>
 #include <AzCore/Serialization/EditContext.h>
@@ -20,6 +20,7 @@
 #include <AzCore/Asset/AssetManager.h>
 #include <AzCore/RTTI/BehaviorContext.h>
 
+#include <LmbrCentral/Rendering/GiRegistrationBus.h>
 #include <MathConversion.h>
 
 #include <I3DEngine.h>
@@ -44,6 +45,17 @@ namespace LmbrCentral
 
     //////////////////////////////////////////////////////////////////////////
 
+    AZ::BehaviorParameterOverrides CreateMaterialIdDetails(AZ::BehaviorContext* behaviorContext)
+    {
+        return{ "MaterialID", "The ID of a Material slot to access, if the Owner has multiple Materials. IDs start at 1.", behaviorContext->MakeDefaultValue(1) };
+    }
+
+    AZStd::array<AZ::BehaviorParameterOverrides, 2> GetMaterialParamArgs(AZ::BehaviorContext* behaviorContext)
+    {
+        AZ::BehaviorParameterOverrides getParamNameDetails = { "ParamName", "The name of the Material param to return" };
+        return{ { getParamNameDetails, CreateMaterialIdDetails(behaviorContext) } };
+    }
+
     void MeshComponent::Reflect(AZ::ReflectContext* context)
     {
         MeshComponentRenderNode::Reflect(context);
@@ -60,18 +72,18 @@ namespace LmbrCentral
         if (AZ::BehaviorContext* behaviorContext = azrtti_cast<AZ::BehaviorContext*>(context))
         {
             behaviorContext->EBus<MeshComponentRequestBus>("MeshComponentRequestBus")
-                ->Event("GetWorldBounds", &MeshComponentRequestBus::Events::GetWorldBounds)
-                ->Event("GetLocalBounds", &MeshComponentRequestBus::Events::GetLocalBounds)
                 ->Event("SetVisibility", &MeshComponentRequestBus::Events::SetVisibility)
                 ->Event("GetVisibility", &MeshComponentRequestBus::Events::GetVisibility)
                 ->VirtualProperty("Visibility", "GetVisibility", "SetVisibility");
-            
+
+            behaviorContext->EBus<RenderBoundsRequestBus>("RenderBoundsRequestBus")
+                ->Attribute(AZ::Script::Attributes::ExcludeFrom, AZ::Script::Attributes::ExcludeFlags::Preview)
+                ->Event("GetWorldBounds", &RenderBoundsRequestBus::Events::GetWorldBounds)
+                ->Event("GetLocalBounds", &RenderBoundsRequestBus::Events::GetLocalBounds);
+
             const char* setMaterialParamTooltip = "Sets a Material param value for the given Entity. The Material will be cloned once before any changes are applied, so other instances are not affected.";
             const char* getMaterialParamTooltip = "Returns a Material param value for the given Entity";
             AZ::BehaviorParameterOverrides setParamNameDetails = { "ParamName", "The name of the Material param to set" };
-            AZ::BehaviorParameterOverrides getParamNameDetails = { "ParamName", "The name of the Material param to return" };
-            AZ::BehaviorParameterOverrides paramMaterialIdDetails = { "MaterialID", "The ID of a Material slot to access, if the Owner has multiple Materials. IDs start at 1.",  behaviorContext->MakeDefaultValue(1) };
-            const AZStd::array<AZ::BehaviorParameterOverrides, 2> getMaterialParamArgs = { { getParamNameDetails, paramMaterialIdDetails } };
             const char* newValueTooltip = "The new value to apply";
 
             behaviorContext->EBus<MaterialOwnerRequestBus>("MaterialOwnerRequestBus", nullptr, "Includes functions for Components that have a Material such as Mesh Component, Decal Component, etc.")
@@ -82,21 +94,21 @@ namespace LmbrCentral
                     ->Attribute(AZ::Script::Attributes::ToolTip, "Sets an Entity's Material")
                 ->Event("GetMaterial", &MaterialOwnerRequestBus::Events::GetMaterialHandle)
                     ->Attribute(AZ::Script::Attributes::ToolTip, "Returns an Entity's current Material")
-                ->Event("SetParamVector4", &MaterialOwnerRequestBus::Events::SetMaterialParamVector4, { { setParamNameDetails, { "Vector4", newValueTooltip }, paramMaterialIdDetails } })
+                ->Event("SetParamVector4", &MaterialOwnerRequestBus::Events::SetMaterialParamVector4, { { setParamNameDetails, { "Vector4", newValueTooltip }, CreateMaterialIdDetails(behaviorContext) } })
                     ->Attribute(AZ::Script::Attributes::ToolTip, setMaterialParamTooltip)
-                ->Event("SetParamVector3", &MaterialOwnerRequestBus::Events::SetMaterialParamVector3, { { setParamNameDetails, { "Vector3", newValueTooltip }, paramMaterialIdDetails } })
+                ->Event("SetParamVector3", &MaterialOwnerRequestBus::Events::SetMaterialParamVector3, { { setParamNameDetails, { "Vector3", newValueTooltip }, CreateMaterialIdDetails(behaviorContext) } })
                     ->Attribute(AZ::Script::Attributes::ToolTip, setMaterialParamTooltip)
-                ->Event("SetParamColor", &MaterialOwnerRequestBus::Events::SetMaterialParamColor,     { { setParamNameDetails, { "Color"  , newValueTooltip }, paramMaterialIdDetails } })
+                ->Event("SetParamColor", &MaterialOwnerRequestBus::Events::SetMaterialParamColor,     { { setParamNameDetails, { "Color"  , newValueTooltip }, CreateMaterialIdDetails(behaviorContext) } })
                     ->Attribute(AZ::Script::Attributes::ToolTip, setMaterialParamTooltip)
-                ->Event("SetParamNumber", &MaterialOwnerRequestBus::Events::SetMaterialParamFloat,    { { setParamNameDetails, { "Number" , newValueTooltip }, paramMaterialIdDetails } }) // Using ParamNumber instead of ParamFloat because in Script Canvas all primitives are just "numbers"
+                ->Event("SetParamNumber", &MaterialOwnerRequestBus::Events::SetMaterialParamFloat,    { { setParamNameDetails, { "Number" , newValueTooltip }, CreateMaterialIdDetails(behaviorContext) } }) // Using ParamNumber instead of ParamFloat because in Script Canvas all primitives are just "numbers"
                     ->Attribute(AZ::Script::Attributes::ToolTip, setMaterialParamTooltip)
-                ->Event("GetParamVector4", &MaterialOwnerRequestBus::Events::GetMaterialParamVector4, getMaterialParamArgs)
+                ->Event("GetParamVector4", &MaterialOwnerRequestBus::Events::GetMaterialParamVector4, GetMaterialParamArgs(behaviorContext))
                     ->Attribute(AZ::Script::Attributes::ToolTip, getMaterialParamTooltip)
-                ->Event("GetParamVector3", &MaterialOwnerRequestBus::Events::GetMaterialParamVector3, getMaterialParamArgs)
+                ->Event("GetParamVector3", &MaterialOwnerRequestBus::Events::GetMaterialParamVector3, GetMaterialParamArgs(behaviorContext))
                     ->Attribute(AZ::Script::Attributes::ToolTip, getMaterialParamTooltip)
-                ->Event("GetParamColor", &MaterialOwnerRequestBus::Events::GetMaterialParamColor,     getMaterialParamArgs)
+                ->Event("GetParamColor", &MaterialOwnerRequestBus::Events::GetMaterialParamColor, GetMaterialParamArgs(behaviorContext))
                     ->Attribute(AZ::Script::Attributes::ToolTip, getMaterialParamTooltip)
-                ->Event("GetParamNumber", &MaterialOwnerRequestBus::Events::GetMaterialParamFloat,    getMaterialParamArgs) // Using ParamNumber instead of ParamFloat because in Script Canvas all primitives are just "numbers"
+                ->Event("GetParamNumber", &MaterialOwnerRequestBus::Events::GetMaterialParamFloat, GetMaterialParamArgs(behaviorContext)) // Using ParamNumber instead of ParamFloat because in Script Canvas all primitives are just "numbers"
                     ->Attribute(AZ::Script::Attributes::ToolTip, getMaterialParamTooltip);
 
             behaviorContext->EBus<MaterialOwnerNotificationBus>("MaterialOwnerNotificationBus", nullptr, "Provides notifications from Components that have a Material such as Mesh Component, Decal Component, etc.")
@@ -118,12 +130,13 @@ namespace LmbrCentral
         if (serializeContext)
         {
             serializeContext->Class<MeshComponentRenderNode::MeshRenderOptions>()
-                ->Version(4, &VersionConverter)
+                ->Version(5, &VersionConverter)
                 ->Field("Opacity", &MeshComponentRenderNode::MeshRenderOptions::m_opacity)
                 ->Field("MaxViewDistance", &MeshComponentRenderNode::MeshRenderOptions::m_maxViewDist)
                 ->Field("ViewDistanceMultiplier", &MeshComponentRenderNode::MeshRenderOptions::m_viewDistMultiplier)
                 ->Field("LODRatio", &MeshComponentRenderNode::MeshRenderOptions::m_lodRatio)
                 ->Field("CastShadows", &MeshComponentRenderNode::MeshRenderOptions::m_castShadows)
+                ->Field("LODBBoxBased", &MeshComponentRenderNode::MeshRenderOptions::m_lodBoundingBoxBased)
                 ->Field("UseVisAreas", &MeshComponentRenderNode::MeshRenderOptions::m_useVisAreas)
                 ->Field("RainOccluder", &MeshComponentRenderNode::MeshRenderOptions::m_rainOccluder)
                 ->Field("AffectDynamicWater", &MeshComponentRenderNode::MeshRenderOptions::m_affectDynamicWater)
@@ -132,6 +145,7 @@ namespace LmbrCentral
                 ->Field("AffectNavmesh", &MeshComponentRenderNode::MeshRenderOptions::m_affectNavmesh)
                 ->Field("VisibilityOccluder", &MeshComponentRenderNode::MeshRenderOptions::m_visibilityOccluder)
                 ->Field("DynamicMesh", &MeshComponentRenderNode::MeshRenderOptions::m_dynamicMesh)
+                ->Field("AffectsGI", &MeshComponentRenderNode::MeshRenderOptions::m_affectGI)
                 ;
         }
     }
@@ -165,12 +179,35 @@ namespace LmbrCentral
             shadowNode.SetName("CastShadows");
         }
 
+        // conversion from version 4:
+        // - Set "CastShadows" to false if "Opacity" is less than 1.0f, in order to not break old assets.
+        //   The new system ignores opacity for shadow casting and relies only on the "CastShadows" flag.
+        if (classElement.GetVersion() <= 4)
+        {
+            float opacity;
+            int opacityElementIndex = classElement.FindElement(AZ_CRC("Opacity", 0x43fd6d66));
+            AZ::SerializeContext::DataElementNode& opacityNode = classElement.GetSubElement(opacityElementIndex);
+            opacityNode.GetData(opacity);
+
+            if (opacity < 1.0f)
+            {
+                int castShadowsElementIndex = classElement.FindElement(AZ_CRC("CastShadows", 0xbe687463));
+                AZ::SerializeContext::DataElementNode& castShadowsNode = classElement.GetSubElement(castShadowsElementIndex);
+                castShadowsNode.SetData(context, false);
+            }
+        }
+       
         return true;
     }
 
     bool MeshComponentRenderNode::MeshRenderOptions::IsStatic() const
     {
-        return (m_hasStaticTransform && !m_dynamicMesh &&!m_receiveWind);
+        return (m_hasStaticTransform && !m_dynamicMesh && !m_receiveWind);
+    }
+
+    bool MeshComponentRenderNode::MeshRenderOptions::AffectsGi() const
+    {
+        return m_affectGI && IsStatic();
     }
 
     AZ::Crc32 MeshComponentRenderNode::MeshRenderOptions::StaticPropertyVisibility() const
@@ -214,6 +251,7 @@ namespace LmbrCentral
         , m_lodRatio(100)
         , m_useVisAreas(true)
         , m_castShadows(true)
+        , m_lodBoundingBoxBased(false)
         , m_rainOccluder(true)
         , m_affectNavmesh(true)
         , m_affectDynamicWater(false)
@@ -222,6 +260,7 @@ namespace LmbrCentral
         , m_visibilityOccluder(false)
         , m_dynamicMesh(false)
         , m_hasStaticTransform(false)
+        , m_affectGI(true)
     {
         m_maxViewDist = GetDefaultMaxViewDist();
     }
@@ -233,9 +272,11 @@ namespace LmbrCentral
         , m_auxiliaryRenderFlags(0)
         , m_auxiliaryRenderFlagsHistory(0)
         , m_lodDistance(0.f)
+        , m_lodDistanceScaled(FLT_MAX / (SMeshLodInfo::s_nMaxLodCount + 1))  // defualt overflow prevention - it is scaled by (SMeshLodInfo::s_nMaxLodCount + 1)
+        , m_lodDistanceScaleValue(1.0f)  
         , m_isRegisteredWithRenderer(false)
         , m_objectMoved(false)
-        , m_meshAsset(static_cast<AZ::u8>(AZ::Data::AssetFlags::OBJECTSTREAM_QUEUE_LOAD))
+        , m_meshAsset(AZ::Data::AssetLoadBehavior::QueueLoad)
         , m_visible(true)
     {
         m_localBoundingBox.Reset();
@@ -265,6 +306,11 @@ namespace LmbrCentral
             AZ::TransformNotificationBus::Handler::BusDisconnect(m_renderOptions.m_attachedToEntityId);
         }
 
+        if (m_modificationHelper.IsConnected())
+        {
+            m_modificationHelper.Disconnect();
+        }
+
         if (id.IsValid())
         {
             if (!AZ::TransformNotificationBus::Handler::BusIsConnectedId(id))
@@ -275,6 +321,8 @@ namespace LmbrCentral
             AZ::Transform entityTransform = AZ::Transform::CreateIdentity();
             EBUS_EVENT_ID_RESULT(entityTransform, id, AZ::TransformBus, GetWorldTM);
             UpdateWorldTransform(entityTransform);
+
+            m_modificationHelper.Connect(id);
         }
 
         m_renderOptions.m_attachedToEntityId = id;
@@ -315,7 +363,7 @@ namespace LmbrCentral
         }
     }
 
-    void MeshComponentRenderNode::SetTransformStaticState( bool isStatic)
+    void MeshComponentRenderNode::SetTransformStaticState(bool isStatic)
     {
         m_renderOptions.m_hasStaticTransform = isStatic;
     }
@@ -383,8 +431,12 @@ namespace LmbrCentral
 
     void MeshComponentRenderNode::SetMeshAsset(const AZ::Data::AssetId& id)
     {
-        m_meshAsset.Create(id);
-        OnAssetPropertyChanged();
+        AZ::Data::Asset<MeshAsset> asset = AZ::Data::AssetManager::Instance().GetAsset<MeshAsset>(id, false);
+        if (asset)
+        {
+            m_meshAsset = asset;
+            OnAssetPropertyChanged();
+        }
     }
 
     void MeshComponentRenderNode::GetMemoryUsage(class ICrySizer* pSizer) const
@@ -399,24 +451,24 @@ namespace LmbrCentral
         return scales.GetX();
     }
 
-    float MeshComponentRenderNode::GetColumnScale(int column) 
+    float MeshComponentRenderNode::GetColumnScale(int column)
     {
         AZ::Vector3 scales = m_worldTransform.RetrieveScale();
-        switch (column) 
+        switch (column)
         {
-            case 0:
-                return scales.GetX();
-                break;
-            case 1:
-                return scales.GetY();
-                break;
-            case 2:
-                return scales.GetZ();
-                break;
-            default:
-                AZ_Assert(false, "Column out of range");
-                return 1.0f;
-                break;
+        case 0:
+            return scales.GetX();
+            break;
+        case 1:
+            return scales.GetY();
+            break;
+        case 2:
+            return scales.GetZ();
+            break;
+        default:
+            AZ_Assert(false, "Column out of range");
+            return 1.0f;
+            break;
         }
         return 1.0f;
     }
@@ -432,9 +484,7 @@ namespace LmbrCentral
         if (asset == m_meshAsset)
         {
             m_meshAsset = asset;
-            m_statObj = m_meshAsset.Get()->m_statObj;
-            
-
+            BuildRenderMesh();
 
             if (HasMesh())
             {
@@ -470,7 +520,7 @@ namespace LmbrCentral
                 RegisterWithRenderer(true);
 
                 // Inform listeners that the mesh has been changed
-                EBUS_EVENT_ID(m_renderOptions.m_attachedToEntityId, MeshComponentNotificationBus, OnMeshCreated, asset);
+                LmbrCentral::MeshComponentNotificationBus::Event(m_renderOptions.m_attachedToEntityId, &LmbrCentral::MeshComponentNotifications::OnMeshCreated, asset);
             }
         }
     }
@@ -484,7 +534,12 @@ namespace LmbrCentral
             // Since the new asset passed in has zero refCount. The assigning will clear the refCount of the old m_meshAsset
             // and set the refCount of the new asset to 1, otherwise it will be unloaded.
             m_meshAsset = asset;
-            m_statObj = m_meshAsset.Get()->m_statObj;
+            BuildRenderMesh();
+
+            RefreshRenderState();
+
+            // Inform listeners that the mesh has been changed
+            LmbrCentral::MeshComponentNotificationBus::Event(m_renderOptions.m_attachedToEntityId, &LmbrCentral::MeshComponentNotifications::OnMeshCreated, asset);
         }
     }
 
@@ -495,6 +550,15 @@ namespace LmbrCentral
         m_renderTransform = AZTransformToLYTransform(m_worldTransform);
 
         UpdateWorldBoundingBox();
+        if (m_isRegisteredWithRenderer && m_renderOptions.AffectsGi())
+        {
+            GiRegistrationBus::Broadcast(&GiRegistration::UpsertToGi,
+                m_renderOptions.m_attachedToEntityId,
+                m_worldTransform,
+                CalculateWorldAABB(),
+                m_meshAsset,
+                GetMaterial());
+        }
 
         if (m_deformNode)
         {
@@ -553,6 +617,16 @@ namespace LmbrCentral
 
                     gEnv->p3DEngine->RegisterEntity(this);
 
+                    if (m_renderOptions.AffectsGi())
+                    {
+                        GiRegistrationBus::Broadcast(&GiRegistration::UpsertToGi,
+                            m_renderOptions.m_attachedToEntityId,
+                            m_worldTransform,
+                            CalculateWorldAABB(),
+                            m_meshAsset,
+                            GetMaterial());
+                    }
+
                     m_isRegisteredWithRenderer = true;
                 }
             }
@@ -561,6 +635,10 @@ namespace LmbrCentral
                 if (m_isRegisteredWithRenderer)
                 {
                     gEnv->p3DEngine->FreeRenderNodeState(this);
+
+                    GiRegistrationBus::Broadcast(&GiRegistration::RemoveFromGi,
+                        m_renderOptions.m_attachedToEntityId);
+
                     m_isRegisteredWithRenderer = false;
                 }
             }
@@ -586,6 +664,7 @@ namespace LmbrCentral
     {
         using MeshInternal::UpdateRenderFlag;
         unsigned int flags = GetRndFlags();
+        flags |= ERF_COMPONENT_ENTITY;
 
         // Turn off any flag which has ever been set via auxiliary render flags
         UpdateRenderFlag(false, m_auxiliaryRenderFlagsHistory, flags);
@@ -604,6 +683,8 @@ namespace LmbrCentral
         UpdateRenderFlag(false == m_renderOptions.m_affectDynamicWater && m_renderOptions.IsStatic(), ERF_NODYNWATER, flags);
         UpdateRenderFlag(false == m_renderOptions.m_acceptDecals, ERF_NO_DECALNODE_DECALS, flags);
 
+        UpdateRenderFlag(m_renderOptions.m_lodBoundingBoxBased, ERF_LOD_BBOX_BASED, flags);
+
         // Apply current auxiliary render flags
         UpdateRenderFlag(true, m_auxiliaryRenderFlags, flags);
 
@@ -616,9 +697,63 @@ namespace LmbrCentral
         SetRndFlags(flags);
     }
 
-    CLodValue MeshComponentRenderNode::ComputeLOD(int wantedLod, const SRenderingPassInfo& passInfo)
+    CLodValue MeshComponentRenderNode::ComputeLOD( int wantedLod, const SRenderingPassInfo& passInfo)
     {
-        return CLodValue(wantedLod);
+        // Default values as per the CVar - default fade going between 2 and 8 meters with dissolve enabled
+        float   dissolveDistMin = 2.0f;
+        float   dissolveDistMax = 8.0f;
+        int     dissolveEnabled = 1;
+
+        if (gEnv && gEnv->pConsole)
+        {
+            static ICVar* dissolveDistMinCvar = gEnv->pConsole->GetCVar("e_DissolveDistMin");
+            static ICVar* dissolveDistMaxCvar = gEnv->pConsole->GetCVar("e_DissolveDistMax");
+            static ICVar* dissolveEnabledCvar = gEnv->pConsole->GetCVar("e_Dissolve");
+
+            dissolveDistMin = dissolveDistMinCvar->GetFVal();
+            dissolveDistMax = dissolveDistMaxCvar->GetFVal();
+            dissolveEnabled = dissolveEnabledCvar->GetIVal() ;
+        }
+
+        const Vec3  cameraPos = passInfo.GetCamera().GetPosition();
+        const float entityDistance = sqrt_tpl(Distance::Point_AABBSq(cameraPos, GetBBox())) * passInfo.GetZoomFactor();
+
+        wantedLod = CLAMP(wantedLod, m_statObj->GetMinUsableLod(), SMeshLodInfo::s_nMaxLodCount);
+        int         currentLod = m_statObj->FindNearesLoadedLOD(wantedLod, true);
+
+        if (dissolveEnabled && passInfo.IsGeneralPass())
+        {
+            float   invDissolveDist = 1.0f / CLAMP(0.1f * m_fWSMaxViewDist, dissolveDistMin, dissolveDistMax );
+            int     nextLod = m_statObj->FindNearesLoadedLOD(currentLod + 1, true);
+            
+            // If the user chose to base LOD switch on bounding boxes, then we do not use the geometric mean computed at init.
+            if (GetRndFlags() & ERF_LOD_BBOX_BASED)
+            {
+                const float lodRatio = GetLodRatioNormalized();
+                if (lodRatio > 0.0f)
+                {
+                    // We do not use a geometric mean  per object but a global value for all objects.
+                    static ICVar* lodBoundingBoxDistanceMultiplier = gEnv->pConsole->GetCVar("e_LodBoundingBoxDistanceMultiplier");
+
+                    m_lodDistanceScaled = lodBoundingBoxDistanceMultiplier->GetFVal() * m_lodDistanceScaleValue;
+                }
+            }
+            else
+            {
+                m_lodDistanceScaled = m_lodDistance * m_lodDistanceScaleValue;
+            }
+
+            float   lodDistance = m_lodDistanceScaled * (currentLod + 1);
+            uint8   dissolveRatio255 = (uint8)SATURATEB((1.0f + (entityDistance - lodDistance) * invDissolveDist) * 255.f);
+
+            if (dissolveRatio255 == 255)
+            {
+                return CLodValue(nextLod, 0, -1);
+            }
+            return CLodValue(currentLod, dissolveRatio255, nextLod);
+        }
+
+        return CLodValue(currentLod);
     }
 
     AZ::Aabb MeshComponentRenderNode::CalculateWorldAABB() const
@@ -648,6 +783,49 @@ namespace LmbrCentral
         if (!HasMesh())
         {
             return;
+        }
+
+        IStatObj* obj = GetEntityStatObj();
+
+        for (const LmbrCentral::MeshModificationRequestHelper::MeshLODPrimIndex& meshIndices : m_modificationHelper.MeshesToEdit())
+        {
+            if (meshIndices.lodIndex != 0)
+            {
+                continue;
+            }
+
+            int subObjectCount = obj->GetSubObjectCount();
+            if (subObjectCount == 0)
+            {
+                if (meshIndices.primitiveIndex > 0)
+                {
+                    AZ_Warning("MeshComponentRenderNode", false, "Mesh indices out of range");
+                    continue;
+                }
+
+                MeshModificationNotificationBus::Event(
+                    GetEntityId(),
+                    &MeshModificationNotificationBus::Events::ModifyMesh,
+                    meshIndices.lodIndex,
+                    meshIndices.primitiveIndex,
+                    obj->GetRenderMesh());
+            }
+            else
+            {
+                if (meshIndices.primitiveIndex >= subObjectCount)
+                {
+                    AZ_Warning("MeshComponentRenderNode", false, "Mesh indices out of range");
+                    continue;
+                }
+
+                IStatObj* childObj = obj->GetSubObject(meshIndices.primitiveIndex)->pStatObj;
+                MeshModificationNotificationBus::Event(
+                    GetEntityId(),
+                    &MeshModificationNotificationBus::Events::ModifyMesh,
+                    meshIndices.lodIndex,
+                    meshIndices.primitiveIndex,
+                    childObj->GetRenderMesh());
+            }
         }
 
         SRendParams rParams(inRenderParams);
@@ -706,7 +884,6 @@ namespace LmbrCentral
                 distances[lodIndex] = FLT_MAX;
             }
         }
-
         return true;
     }
 
@@ -720,11 +897,27 @@ namespace LmbrCentral
         }
 
         m_lodDistance = sqrt(lodInfo.fGeometricMean);
+
+        // The following computation need to stay in accordance with the 'GetLodDistances' formula.
+        const float lodRatio = GetLodRatioNormalized();
+        if (lodRatio > 0.0f)
+        {
+            m_lodDistanceScaled = m_lodDistance / (lodRatio * frameLodInfo.fTargetSize);
+            m_lodDistanceScaleValue = 1.0f / (lodRatio * frameLodInfo.fTargetSize);
+        }
     }
 
     /*IRenderNode*/ EERType MeshComponentRenderNode::GetRenderNodeType()
     {
         return m_renderOptions.IsStatic() ? eERType_StaticMeshRenderComponent : eERType_DynamicMeshRenderComponent;
+    }
+
+    /*IRenderNode*/ bool MeshComponentRenderNode::CanExecuteRenderAsJob()
+    {
+        return !m_renderOptions.m_dynamicMesh 
+            && !m_renderOptions.m_receiveWind 
+            && (!m_deformNode || !m_deformNode->HasDeformableData())
+            && m_modificationHelper.MeshesToEdit().empty();
     }
 
     /*IRenderNode*/ const char* MeshComponentRenderNode::GetName() const
@@ -851,7 +1044,7 @@ namespace LmbrCentral
 
     MeshComponent::MeshComponent()
     {
-        m_materialBusHandler = aznew MaterialOwnerRequestBusHandlerImpl(); 
+        m_materialBusHandler = aznew MaterialOwnerRequestBusHandlerImpl();
     }
 
     MeshComponent::~MeshComponent()
@@ -870,6 +1063,7 @@ namespace LmbrCentral
         // m_mesh.CreateMesh() can result in events (eg: OnMeshCreated) that we want receive.
         MaterialOwnerRequestBus::Handler::BusConnect(m_entity->GetId());
         MeshComponentRequestBus::Handler::BusConnect(m_entity->GetId());
+        RenderBoundsRequestBus::Handler::BusConnect(m_entity->GetId());
         RenderNodeRequestBus::Handler::BusConnect(m_entity->GetId());
         m_meshRenderNode.CreateMesh();
         LegacyMeshComponentRequestBus::Handler::BusConnect(GetEntityId());
@@ -878,6 +1072,7 @@ namespace LmbrCentral
     void MeshComponent::Deactivate()
     {
         MeshComponentRequestBus::Handler::BusDisconnect();
+        RenderBoundsRequestBus::Handler::BusDisconnect();
         MaterialOwnerRequestBus::Handler::BusDisconnect();
         LegacyMeshComponentRequestBus::Handler::BusDisconnect();
         RenderNodeRequestBus::Handler::BusDisconnect();
@@ -901,7 +1096,7 @@ namespace LmbrCentral
     {
         m_meshRenderNode.SetMeshAsset(id);
     }
-    
+
     bool MeshComponent::IsMaterialOwnerReady()
     {
         return m_materialBusHandler->IsMaterialOwnerReady();
@@ -917,9 +1112,9 @@ namespace LmbrCentral
         return m_materialBusHandler->GetMaterial();
     }
 
-    void MeshComponent::SetMaterialHandle(MaterialHandle m)
+    void MeshComponent::SetMaterialHandle(const MaterialHandle& materialHandle)
     {
-        m_materialBusHandler->SetMaterialHandle(m);
+        m_materialBusHandler->SetMaterialHandle(materialHandle);
     }
 
     MaterialHandle MeshComponent::GetMaterialHandle()
@@ -990,5 +1185,45 @@ namespace LmbrCentral
     void MeshComponent::SetVisibility(bool isVisible)
     {
         m_meshRenderNode.SetVisible(isVisible);
+    }
+
+    void MeshComponentRenderNode::BuildRenderMesh()
+    {
+        m_statObj = nullptr; // Release smart pointer
+
+        MeshAsset* data = m_meshAsset.Get();
+        if (!data || !data->m_statObj)
+        {
+            return;
+        }
+
+        // Populate m_statObj. If the mesh doesn't require to be unique, we reuse the render mesh from the asset. If the
+        // mesh requires to be unique, we create a copy of the asset's render mesh since it will be modified.
+
+        bool hasClothInverseMasses = !data->m_statObj->GetClothInverseMasses().empty();
+        const int subObjectCount = data->m_statObj->GetSubObjectCount();
+        for (int i = 0; i < subObjectCount && !hasClothInverseMasses; ++i)
+        {
+            IStatObj::SSubObject* subObject = data->m_statObj->GetSubObject(i);
+            if (subObject &&
+                subObject->pStatObj &&
+                !subObject->pStatObj->GetClothInverseMasses().empty())
+            {
+                hasClothInverseMasses = true;
+            }
+        }
+
+        bool useUniqueMesh = hasClothInverseMasses;
+
+        if (useUniqueMesh)
+        {
+            // Create a copy since each mesh can be deforming differently and we need to send different meshes to render
+            m_statObj = data->m_statObj->Clone( /*bCloneGeometry*/ true, /*bCloneChildren*/ true, /*bMeshesOnly*/ false);
+        }
+        else
+        {
+            // Reuse the same render mesh
+            m_statObj = data->m_statObj;
+        }
     }
 } // namespace LmbrCentral

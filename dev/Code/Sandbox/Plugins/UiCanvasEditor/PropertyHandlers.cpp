@@ -14,9 +14,12 @@
 
 #include "PropertyHandlerAnchor.h"
 #include "PropertyHandlerChar.h"
+#include "PropertyHandlerDirectory.h"
 #include "PropertyHandlerEntityIdComboBox.h"
 #include "PropertyHandlerLayoutPadding.h"
 #include "PropertyHandlerOffset.h"
+#include "PropertyHandlerUiParticleColorKeyframe.h"
+#include "PropertyHandlerUiParticleFloatKeyframe.h"
 #include "PropertyHandlerPivot.h"
 #include "PropertyHandlerSprite.h"
 #include "PropertyHandlerVec.h"
@@ -37,8 +40,11 @@ void PropertyHandlers::Register()
 
     PropertyHandlerAnchor::Register();
     PropertyHandlerChar::Register();
+    PropertyHandlerDirectory::Register();
     PropertyHandlerEntityIdComboBox::Register();
     PropertyHandlerLayoutPadding::Register();
+    PropertyHandlerUiParticleColorKeyframe::Register();
+    PropertyHandlerUiParticleFloatKeyframe::Register();
     PropertyHandlerOffset::Register();
     PropertyHandlerPivot::Register();
     PropertyHandlerSprite::Register();

@@ -20,10 +20,18 @@
 #include "D3DPostProcess.h"
 #include "../Common/Textures/TextureHelpers.h"
 
+
+#if defined(AZ_RESTRICTED_PLATFORM)
+#undef AZ_RESTRICTED_SECTION
+#define D3DAMBIENTOCCLUSION_CPP_SECTION_1 1
+#define D3DAMBIENTOCCLUSION_CPP_SECTION_2 2
+#endif
+
 #ifdef USE_NV_API
     #pragma warning(push)
     #pragma warning(disable:4819)   // Invalid character not in default code page
-    #include <NVAPI/nvapi.h>
+    #pragma warning(disable:4828)
+    #include <nvapi.h>
     #pragma warning(pop)
 #endif
 
@@ -100,6 +108,15 @@ void CD3D9Renderer::SetDepthBoundTest(float fMin, float fMax, bool bEnable)
         m_fDepthBoundsMax = fMax;
 #if defined(OPENGL) && !DXGL_FULL_EMULATION
         DXGLSetDepthBoundsTest(true, fMin, fMax);
+#elif defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DAMBIENTOCCLUSION_CPP_SECTION_1
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DAmbientOcclusion_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DAmbientOcclusion_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DAmbientOcclusion_cpp_salem.inl"
+    #endif
 #elif defined (USE_NV_API) //transparent execution without NVDB
         NvAPI_Status status = NvAPI_D3D11_SetDepthBoundsTest(&GetDevice(), bEnable, fMin, fMax);
         assert(status == NVAPI_OK);
@@ -111,6 +128,15 @@ void CD3D9Renderer::SetDepthBoundTest(float fMin, float fMax, bool bEnable)
         m_fDepthBoundsMax = 1.0f;
 #if defined(OPENGL) && !DXGL_FULL_EMULATION
         DXGLSetDepthBoundsTest(false, 0.0f, 1.0f);
+#elif defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION D3DAMBIENTOCCLUSION_CPP_SECTION_2
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/D3DAmbientOcclusion_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/D3DAmbientOcclusion_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/D3DAmbientOcclusion_cpp_salem.inl"
+    #endif
 #elif defined (USE_NV_API)
         NvAPI_Status status = NvAPI_D3D11_SetDepthBoundsTest(&GetDevice(), bEnable, fMin, fMax);
         assert(status == NVAPI_OK);

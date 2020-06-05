@@ -13,6 +13,9 @@
 
 #include <AzCore/RTTI/TypeInfo.h>
 #include <AzFramework/Asset/SimpleAsset.h>
+#include <AzCore/Asset/AssetCommon.h>
+#include <smartptr.h>
+#include <IMaterial.h>
 
 namespace LmbrCentral
 {
@@ -56,6 +59,7 @@ namespace LmbrCentral
         }
     };
 } // namespace LmbrCentral
+
 
 namespace AZ
 {

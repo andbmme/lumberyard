@@ -9,7 +9,7 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
-#include "stdafx.h"
+#include "EditorUI_QT_Precompiled.h"
 #include "QCollapsePanel.h"
 #include <VariableWidgets/ui_QCollapsePanel.h>
 #include <QtWidgets/QLabel>
@@ -50,7 +50,7 @@ QCollapsePanel::QCollapsePanel(QWidget* parent, CAttributeItem* attributeItem)
         action->setCheckable(true);
         action->setChecked(!isCollapsed());
         action->setUserData(0, this);
-        action->connect(action, &QAction::triggered, [this, action](bool state)
+        action->connect(action, &QAction::triggered, this, [this, action](bool state)
             {
                 setCollapsed(!isCollapsed());
                 action->setChecked(!isCollapsed());

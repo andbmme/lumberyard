@@ -9,7 +9,7 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
-#include "stdafx.h"
+#include "EditorUI_QT_Precompiled.h"
 #include "QGradientColorPickerWidget.h"
 #include "QCustomGradientWidget.h"
 #include "ISplines.h"
@@ -24,7 +24,7 @@
 #include <QtMath>
 #include "qtooltip.h"
 #include "CurveEditorControl.h"
-#include "qmenu.h"
+#include "QMenu"
 #include "../ContextMenu.h"
 #include "qlayoutitem.h"
 #include "QCustomColorDialog.h"
@@ -71,7 +71,7 @@ QGradientColorPickerWidget::QGradientColorPickerWidget(SCurveEditorContent conte
     m_gradientMenuEditAction->setDefaultWidget(m_gradientMenuEdit);
     m_gradientMenuBtnAction->setDefaultWidget(m_gradientMenuBtn);
 
-    connect(m_gradientMenuBtn, &QPushButton::pressed, this, [&] {
+    connect(m_gradientMenuBtn, &QPushButton::clicked, this, [&] {
             if ((bool)callback_add_gradient_to_library)
             {
                 callback_add_gradient_to_library(m_gradientMenuEdit->text());
@@ -122,7 +122,7 @@ QGradientColorPickerWidget::QGradientColorPickerWidget(SCurveEditorContent conte
     }
     // Updates internal spline, to make sure the curve is updated
     // also during dragging of the key
-    connect(m_curveEditor, &CCurveEditor::SignalKeyMoved, [=]()
+    connect(m_curveEditor, &CCurveEditor::SignalKeyMoved, this, [=]()
         {
             syncToInterpolator();
             UpdateIcons();
@@ -130,7 +130,7 @@ QGradientColorPickerWidget::QGradientColorPickerWidget(SCurveEditorContent conte
         });
 
     // This event is triggered when the key is released
-    connect(m_curveEditor, &CCurveEditor::SignalContentChanged, [=]()
+    connect(m_curveEditor, &CCurveEditor::SignalContentChanged, this, [=]()
         {
             syncToInterpolator();
             m_curveEditor->update();
@@ -148,11 +148,8 @@ QGradientColorPickerWidget::QGradientColorPickerWidget(SCurveEditorContent conte
         });
 
     // This event is triggered when the curve key is selected
-    connect(m_curveEditor, &CCurveEditor::SignalKeySelected, [=](CCurveEditorControl* key)
-        {
-            //Get time(u) and value(v) from key
-            PassThroughtSignalSelectCurveKey(key);
-        });
+    //Get time(u) and value(v) from key
+    connect(m_curveEditor, &CCurveEditor::SignalKeySelected, this, &QGradientColorPickerWidget::PassThroughtSignalSelectCurveKey);
 
     layout.addWidget(m_gradient, 0, 0, 1, 1);
     layout.addWidget(m_curveEditor, 0, 0, 1, 1);

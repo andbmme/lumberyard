@@ -15,19 +15,22 @@
 #define CRYINCLUDE_CRY3DENGINE_TERRAIN_SECTOR_H
 #pragma once
 
-#define MML_NOT_SET ((uint8) - 1)
-
 #define ARR_TEX_OFFSETS_SIZE 4
 
-
-#include "BasicArea.h"
-#include "Array2d.h"
+#include <CryArray2d.h>
 #include "Terrain/Texture/MacroTexture.h"
+#include "Terrain/LegacyTerrainBase.h"
 #include <ITerrain.h>
+#include <Terrain/ITerrainNode.h>
 
 class BuildMeshData;
 class InPlaceIndexBuffer;
 struct SSurfaceType;
+
+namespace LegacyProceduralVegetation
+{
+    class VegetationSector;
+}
 
 struct DetailLayerMesh
 {
@@ -80,6 +83,9 @@ struct SurfaceTile
 
     void AssignMaps(uint16 size, uint16* heightmap, ITerrain::SurfaceWeight* weights)
     {
+        delete[] m_Heightmap;
+        delete[] m_Weightmap;
+
         m_Size = size;
         m_Heightmap = heightmap;
         m_Weightmap = weights;
@@ -218,9 +224,6 @@ struct SurfaceTile
         return m_Heightmap;
     }
 
-    static const int Hole = 128;
-    static const int MaxSurfaceCount = 129;
-
 private:
     float m_Offset;
     float m_Range;
@@ -248,146 +251,9 @@ private:
     }
 };
 
-template <class T>
-class TPool
-{
-public:
-
-    TPool(int nPoolSize)
-    {
-        m_nPoolSize = nPoolSize;
-        m_pPool = new T[nPoolSize];
-        m_lstFree.PreAllocate(nPoolSize, 0);
-        m_lstUsed.PreAllocate(nPoolSize, 0);
-        for (int i = 0; i < nPoolSize; i++)
-        {
-            m_lstFree.Add(&m_pPool[i]);
-        }
-    }
-
-    ~TPool()
-    {
-        delete[] m_pPool;
-    }
-
-    void ReleaseObject(T* pInst)
-    {
-        if (m_lstUsed.Delete(pInst))
-        {
-            m_lstFree.Add(pInst);
-        }
-    }
-
-    int GetUsedInstancesCount(int& nAll)
-    {
-        nAll = m_nPoolSize;
-        return m_lstUsed.Count();
-    }
-
-    T* GetObject()
-    {
-        T* pInst = NULL;
-        if (m_lstFree.Count())
-        {
-            pInst = m_lstFree.Last();
-            m_lstFree.DeleteLast();
-            m_lstUsed.Add(pInst);
-        }
-        else
-        {
-            assert(!"TPool::GetObject: Out of free elements error");
-        }
-
-        return pInst;
-    }
-
-    void GetMemoryUsage(class ICrySizer* pSizer) const
-    {
-        pSizer->AddObject(m_lstFree);
-        pSizer->AddObject(m_lstUsed);
-
-        if (m_pPool)
-        {
-            for (int i = 0; i < m_nPoolSize; i++)
-            {
-                m_pPool[i].GetMemoryUsage(pSizer);
-            }
-        }
-    }
-
-    PodArray<T*> m_lstFree;
-    PodArray<T*> m_lstUsed;
-    T* m_pPool;
-    int m_nPoolSize;
-};
-
-#define MAX_PROC_OBJ_CHUNKS_NUM 128
-
-struct SProcObjChunk
-    : public Cry3DEngineBase
-{
-    CVegetation* m_pInstances;
-    SProcObjChunk();
-    ~SProcObjChunk();
-    void GetMemoryUsage(class ICrySizer* pSizer) const;
-};
-
-typedef TPool<SProcObjChunk> SProcObjChunkPool;
-
-class CProcObjSector
-    : public Cry3DEngineBase
-{
-public:
-    CProcObjSector() { m_nProcVegetNum = 0; m_ProcVegetChunks.PreAllocate(32); }
-    ~CProcObjSector();
-    CVegetation* AllocateProcObject();
-    void ReleaseAllObjects();
-    int GetUsedInstancesCount(int& nAll) { nAll = m_ProcVegetChunks.Count(); return m_nProcVegetNum; }
-    void GetMemoryUsage(ICrySizer* pSizer) const;
-
-protected:
-    PodArray<SProcObjChunk*> m_ProcVegetChunks;
-    int m_nProcVegetNum;
-};
-
-typedef TPool<CProcObjSector> CProcVegetPoolMan;
-
-
-struct STerrainNodeLeafData
-{
-    STerrainNodeLeafData()
-    {
-        memset(this, 0, sizeof(*this));
-    }
-    ~STerrainNodeLeafData();
-
-    struct TextureParams
-    {
-        void Set(const SSectorTextureSet& set)
-        {
-            offsetX = set.fTexOffsetX;
-            offsetY = set.fTexOffsetY;
-            scale = set.fTexScale;
-            id = set.nTex0;
-        }
-
-        float offsetX;
-        float offsetY;
-        float scale;
-        uint32 id;
-    };
-
-    TextureParams m_TextureParams[MAX_RECURSION_LEVELS];
-
-    int m_SurfaceAxisIndexCount[SurfaceTile::MaxSurfaceCount][4];
-    PodArray<CTerrainNode*> m_Neighbors;
-    PodArray<uint8> m_NeighborLods;
-    _smart_ptr<IRenderMesh> m_pRenderMesh;
-};
-
 class CTerrainNode
-    : public Cry3DEngineBase
-    , public IShadowCaster
+    : public ITerrainNode
+    , public LegacyTerrainBase
 {
 public:
     friend class CTerrain;
@@ -401,6 +267,17 @@ public:
     virtual bool IsRenderNode() { return false; }
     virtual EERType GetRenderNodeType();
 
+    ///////////////////////////////////////////////////////////////////////////
+    // ITerrainNode START
+    ITerrainNode* FindMinNodeContainingBox(const AABB& aabbBox) override;
+    const AABB& GetLocalAABB() const override { return m_LocalAABB; }
+    ITerrainNode* GetParent() const override { return m_Parent; }
+    SSectorTextureSet* GetTextureSet() override { return &m_TextureSet; }
+    int GetAreaLOD(const SRenderingPassInfo& passInfo) const override;
+    STerrainNodeLeafData* GetLeafData() const override { return m_pLeafData; }
+    // ITerrainNode END
+
+
     void Init(int x1, int y1, int nNodeSize, CTerrainNode* pParent, bool bBuildErrorsTable);
     CTerrainNode()
         : m_TextureSet(0)
@@ -411,9 +288,11 @@ public:
         , m_nLastTimeUsed(0)
         , m_nSetLodFrameId(0)
         , m_ZErrorFromBaseLOD(0)
-        , m_pProcObjPoolPtr(0)
-        , m_nGSMFrameId(0)
+        , m_vegetationSectorPtr(nullptr)
         , m_pRNTmpData(0)
+        , m_bProcObjectsReady(0)
+        , m_nEditorDiffuseTex(0)
+        , m_nEditorDiffuseTexSize(0)
     {
         memset(&m_DistanceToCamera, 0, sizeof(m_DistanceToCamera));
     }
@@ -423,17 +302,9 @@ public:
 
     static void GetStaticMemoryUsage(ICrySizer* sizer);
 
-    static CProcVegetPoolMan* GetProcObjPoolMan() { return m_pProcObjPoolMan; }
-
-    static SProcObjChunkPool* GetProcObjChunkPool() { return m_pProcObjChunkPool; }
-
-    static void SetProcObjPoolMan(CProcVegetPoolMan* pProcObjPoolMan) { m_pProcObjPoolMan = pProcObjPoolMan; }
-
-    static void SetProcObjChunkPool(SProcObjChunkPool* pProcObjChunkPool) { m_pProcObjChunkPool = pProcObjChunkPool; }
-
     bool CheckVis(bool bAllIN, bool bAllowRenderIntoCBuffer, const SRenderingPassInfo& passInfo);
 
-    void SetSectorTexture(unsigned int textureId);
+    void SetSectorTexture(unsigned int textureId, unsigned int textureSizeX, unsigned int textureSizeY);
 
     void CheckNodeGeomUnload(const SRenderingPassInfo& passInfo);
 
@@ -441,14 +312,11 @@ public:
 
     void SetChildsLod(int nNewGeomLOD, const SRenderingPassInfo& passInfo);
 
-    int GetAreaLOD(const SRenderingPassInfo& passInfo);
-
     bool CheckUpdateProcObjects(const SRenderingPassInfo& passInfo);
 
     void IntersectTerrainAABB(const AABB& aabbBox, PodArray<CTerrainNode*>& lstResult);
-    void IntersectWithShadowFrustum(bool bAllIn, PodArray<CTerrainNode*>* plstResult, ShadowMapFrustum* pFrustum, const float fHalfGSMBoxSize, const SRenderingPassInfo& passInfo);
+    void IntersectWithShadowFrustum(bool bAllIn, PodArray<ITerrainNode*>* plstResult, ShadowMapFrustum* pFrustum, const float fHalfGSMBoxSize, const SRenderingPassInfo& passInfo);
     void IntersectWithBox(const AABB& aabbBox, PodArray<CTerrainNode*>* plstResult);
-    CTerrainNode* FindMinNodeContainingBox(const AABB& aabbBox);
 
     void UpdateDetailLayersInfo(bool bRecursive);
     void RemoveProcObjects(bool bRecursive = false);
@@ -469,14 +337,14 @@ public:
     void ResetHeightMapGeometry(bool bRecursive = false, const AABB* pBox = NULL);
     int GetSecIndex();
 
+    void GetMaterials(AZStd::vector<_smart_ptr<IMaterial>>& materials);
+
     uint32 GetLastTimeUsed() { return m_nLastTimeUsed; }
 
     const float GetDistance(const SRenderingPassInfo& passInfo);
     bool IsProcObjectsReady() { return m_bProcObjectsReady != 0; }
 
     int GetSectorSizeInHeightmapUnits() const;
-
-    inline STerrainNodeLeafData* GetLeafData() { return m_pLeafData; }
 
     inline const SurfaceTile& GetSurfaceTile() const
     {
@@ -494,10 +362,10 @@ public:
     uint8 m_bProcObjectsReady : 1;
     uint8 m_bForceHighDetail : 1;
     uint8 m_bHasHoles : 2;
-    uint8 m_bNoOcclusion : 1; // sector has visareas under terrain surface
-    uint8 m_QueuedLOD, m_CurrentLOD, m_TextureLOD;
+    uint8 m_TextureLOD;
     uint8 m_nTreeLevel;
 
+    uint16 m_nEditorDiffuseTexSize;
     uint32 m_nEditorDiffuseTex;
 
     uint16 m_nOriginX, m_nOriginY;
@@ -509,8 +377,6 @@ public:
     SurfaceTile m_SurfaceTile;
 
     SSectorTextureSet m_TextureSet;
-
-    int m_nGSMFrameId;
 
     float m_DistanceToCamera[MAX_RECURSION_LEVELS];
     int FTell(uint8*& f);
@@ -542,9 +408,9 @@ private:
 
     void BuildVertices(int step);
 
-    void AddIndexAliased(int _x, int _y, int _step, int nSectorSize, PodArray<CTerrainNode*>* plstNeighbourSectors, InPlaceIndexBuffer& indices, const SRenderingPassInfo& passInfo);
+    void AddIndexAliased(int _x, int _y, int _step, int nSectorSize, PodArray<ITerrainNode*>* plstNeighbourSectors, InPlaceIndexBuffer& indices, const SRenderingPassInfo& passInfo);
 
-    void BuildIndices(InPlaceIndexBuffer& si, PodArray<CTerrainNode*>* pNeighbourSectors, const SRenderingPassInfo& passInfo);
+    void BuildIndices(InPlaceIndexBuffer& si, PodArray<ITerrainNode*>* pNeighbourSectors, const SRenderingPassInfo& passInfo);
 
     void RenderSectorUpdate_Finish(const SRenderingPassInfo& passInfo);
 
@@ -566,7 +432,7 @@ private:
 
     STerrainNodeLeafData* m_pLeafData;
 
-    CProcObjSector* m_pProcObjPoolPtr;
+    LegacyProceduralVegetation::VegetationSector* m_vegetationSectorPtr;
 
     PodArray<DetailLayerMesh> m_DetailLayers;
 
@@ -575,19 +441,16 @@ private:
 
     BuildMeshData* m_MeshData;
 
-    static PodArray<vtx_idx> m_SurfaceIndices[SurfaceTile::MaxSurfaceCount][4];
-    static CProcVegetPoolMan* m_pProcObjPoolMan;
-    static SProcObjChunkPool* m_pProcObjChunkPool;
+    static PodArray<vtx_idx> s_SurfaceIndices[LegacyTerrain::TerrainNodeSurface::MaxSurfaceCount][4];
 
     static void SetupTexGenParams(SSurfaceType* pLayer, float* pOutParams, uint8 ucProjAxis, bool bOutdoor, float fTexGenScale = 1.f);
 
-    static void GenerateIndicesForAllSurfaces(IRenderMesh * mesh, int surfaceAxisIndexCount[SurfaceTile::MaxSurfaceCount][4], BuildMeshData * meshData);
+    static void GenerateIndicesForAllSurfaces(IRenderMesh * mesh, int surfaceAxisIndexCount[LegacyTerrain::TerrainNodeSurface::MaxSurfaceCount][4], BuildMeshData * meshData);
 };
-
 
 // Container to manager temp memory as well as running update jobs
 class CTerrainUpdateDispatcher
-    : public Cry3DEngineBase
+    : public LegacyTerrainBase
 {
 public:
     CTerrainUpdateDispatcher();
@@ -615,23 +478,6 @@ private:
     PodArray<CTerrainNode*>     m_queuedJobs;
     PodArray<CTerrainNode*>     m_arrRunningJobs;
 };
-
-#pragma pack(push,4)
-
-struct STerrainNodeChunk
-{
-    int16   nChunkVersion;
-    int16 bHasHoles;
-    AABB    boxHeightmap;
-    float fOffset;
-    float fRange;
-    int     nSize;
-    int     nSurfaceTypesNum;
-
-    AUTO_STRUCT_INFO
-};
-
-#pragma pack(pop)
 
 #include "terrain.h"
 

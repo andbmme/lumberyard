@@ -258,6 +258,9 @@ namespace AZ
         AZ_MATH_FORCE_INLINE const Vector3 GetClamp(const Vector3& min, const Vector3& max) const   { return GetMin(max).GetMax(min); }
         /*@}*/
 
+        VectorFloat GetMaxElement() const { return GetX().GetMax(GetY().GetMax(GetZ())); }
+        VectorFloat GetMinElement() const { return GetX().GetMin(GetY().GetMin(GetZ())); }
+
         //===============================================================
         // Standard operators
         //===============================================================
@@ -322,6 +325,37 @@ namespace AZ
         ///wraps the angle in each component into the [-pi,pi] range
         const Vector3 GetAngleMod() const;
 
+        ///Calculates the closest angle(radians) towards the given vector with in the [0, pi] range
+        ///Note: It's unsafe if any of the vectors are (0, 0, 0)
+        AZ_MATH_FORCE_INLINE VectorFloat Angle(const Vector3& v) const
+        {
+            VectorFloat cos = Dot(v) / ((GetLengthSq() * v.GetLengthSq()).GetSqrt());
+            // secure against any float precision error, cosine must be between [-1, 1]
+            cos = cos.GetClamp(-VectorFloat::CreateOne(), VectorFloat::CreateOne());
+            VectorFloat res = acosf(cos);
+            AZ_Assert(res.IsFinite() && (res >= 0.f) && (res <= Constants::Pi), "Calculated an invalid angle");
+            return res;
+        }
+
+        ///Calculates the closest angle(degrees) towards the given vector with in the [0, 180] range
+        ///Note: It's unsafe if any of the vectors are (0, 0, 0)
+        AZ_MATH_FORCE_INLINE VectorFloat AngleDeg(const Vector3& v) const
+        {
+            return RadToDeg(Angle(v));
+        }
+
+        ///Calculates the closest angle(radians) towards the given vector with in the [0, pi] range
+        AZ_MATH_FORCE_INLINE VectorFloat AngleSafe(const Vector3& v) const
+        {
+            return (!IsZero() && !v.IsZero()) ? Angle(v) : VectorFloat::CreateZero();
+        }
+        
+        ///Calculates the closest angle(degrees) towards the given vector with in the [0, 180] range
+        AZ_MATH_FORCE_INLINE VectorFloat AngleSafeDeg(const Vector3& v) const
+        {
+            return (!IsZero() && !v.IsZero()) ? AngleDeg(v) : VectorFloat::CreateZero();
+        }
+
         //===============================================================
         // Miscellaneous
         //===============================================================
@@ -348,6 +382,9 @@ namespace AZ
         AZ_MATH_FORCE_INLINE void Madd(const Vector3& mul, const Vector3& add)      { *this = GetMadd(mul, add); }
 
         bool IsPerpendicular(const Vector3& v, const VectorFloat& tolerance = g_simdTolerance) const;
+
+        /// Returns an (unnormalized) arbitrary vector which is orthogonal to this vector.
+        Vector3 GetOrthogonalVector() const;
 
         /// Project vector onto another. P = (a.Dot(b) / b.Dot(b)) * b
         AZ_MATH_FORCE_INLINE void           Project(const Vector3& rhs)                 { *this = rhs * (Dot(rhs) / rhs.Dot(rhs)); }
@@ -379,12 +416,19 @@ namespace AZ
         float m_pad;                    //pad to 16 bytes, also for consistency with simd implementations
         #endif
     };
-}
 
-#ifndef AZ_PLATFORM_WINDOWS // Remove this once all compilers support POD (MSVC already does)
-#   include <AzCore/std/typetraits/is_pod.h>
-AZSTD_DECLARE_POD_TYPE(AZ::Vector3);
-#endif
+    /// NON member functionality belonging to the AZ namespace
+
+    /// Degrees-Radians conversions on AZ::Vector3
+    AZ_MATH_FORCE_INLINE AZ::Vector3 Vector3RadToDeg(const AZ::Vector3& radians)
+    {
+        return radians * 180.f / AZ::Constants::Pi;
+    }
+    AZ_MATH_FORCE_INLINE AZ::Vector3 Vector3DegToRad(const AZ::Vector3& degrees)
+    {
+        return degrees * AZ::Constants::Pi / 180.f;
+    }
+}
 
 #if AZ_TRAIT_USE_PLATFORM_SIMD
     #include <AzCore/Math/Internal/Vector3Win32.inl>

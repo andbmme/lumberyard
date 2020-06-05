@@ -15,6 +15,7 @@
 #pragma once
 
 #include <XRenderD3D9/DeviceManager/Enums.h>
+#include <AzCore/std/containers/bitset.h>
 
 namespace RenderCapabilities
 {
@@ -24,7 +25,6 @@ namespace RenderCapabilities
     static const unsigned int s_gpuVendorIdIntel = 0x8086;
     static const unsigned int s_gpuVendorIdQualcomm = 0x5143;
     static const unsigned int s_gpuVendorIdSamsung = 0x1099;
-    //  Confetti BEGIN: Igor Lobanchikov :END
     static const unsigned int s_gpuVendorIdARM = 0x13B5;
 
     //Note that for platforms that don't support texture views, you are still allowed to create a single view, that view must "match" the creation parameters of
@@ -52,11 +52,6 @@ namespace RenderCapabilities
     bool SupportsHalfFloatRendering();
 #endif
 
-#if defined(CRY_USE_METAL)
-    //Cache the OS version which can then be used to query if certain API calls are enabled/disabled.
-    void CacheMinOSVersionInfo();
-#endif
-
 #if defined(OPENGL_ES) || defined(OPENGL)
     uint32 GetDeviceGLVersion();
 #endif
@@ -64,7 +59,19 @@ namespace RenderCapabilities
     //Check if Depth clipping API is enabled
     bool SupportsDepthClipping();
 
-    bool SupportsFrameBufferFetches();
+    // Flags for Frame Buffer Fetch capabilities
+    enum
+    {
+        FBF_ALL_COLORS  = 0,// Can fetch from any color render target that is bound. 
+        FBF_COLOR0,         // Some devices only allows fetching from the first color render target.
+        FBF_DEPTH,          // Can fetch the depth value from the attached buffer.
+        FBF_STENCIL,        // Can fetch the stencil value from the attached buffer.
+        FBF_COUNT
+    };
+
+    using FrameBufferFetchMask = AZStd::bitset<FBF_COUNT>;
+
+    FrameBufferFetchMask GetFrameBufferFetchCapabilities();
 
     // Extracting this out as to not pollute rest of code base with a bunch of "if defined(OPENGL_ES)"
     bool SupportsPLSExtension();
@@ -72,6 +79,8 @@ namespace RenderCapabilities
     bool SupportsDualSourceBlending();
 
     bool SupportsStructuredBuffer(EShaderStage stage);
+
+    bool SupportsIndependentBlending();
 }
 
 #endif // CRYINCLUDE_CRYENGINE_RENDERDLL_COMMON_RENDERCAPABILITIES_H

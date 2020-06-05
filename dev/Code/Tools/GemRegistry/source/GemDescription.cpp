@@ -44,6 +44,7 @@ namespace Gems
         m_modulesByType.emplace(ModuleDefinition::Type::EditorModule);
         m_modulesByType.emplace(ModuleDefinition::Type::StaticLib);
         m_modulesByType.emplace(ModuleDefinition::Type::Builder);
+        m_modulesByType.emplace(ModuleDefinition::Type::Standalone);
     }
 
     GemDescription::GemDescription(const GemDescription& rhs)
@@ -118,6 +119,7 @@ namespace Gems
             { GPF_TAG_MODULE_TYPE_EDITOR_MODULE,    ModuleDefinition::Type::EditorModule },
             { GPF_TAG_MODULE_TYPE_STATIC_LIB,       ModuleDefinition::Type::StaticLib },
             { GPF_TAG_MODULE_TYPE_BUILDER,          ModuleDefinition::Type::Builder },
+            { GPF_TAG_MODULE_TYPE_STANDALONE,       ModuleDefinition::Type::Standalone },
         };
 
         auto found = AZStd::find_if(moduleNameToType.begin(), moduleNameToType.end(), [&value](decltype(moduleNameToType)::const_reference pair) {
@@ -516,8 +518,16 @@ namespace Gems
                 {
                     if (!foundDefaultModule)
                     {
-                        modulePtr->m_fileName = AZStd::string::format("Gem.%s.%s.v%s", gem.GetName().c_str(), idStr, gem.GetVersion().ToString().c_str());
                         foundDefaultModule = true;
+                        // if the module name for 'GameModule' type is specified, such as 'Private' then it needs to be appended into the gem name
+                        if (modulePtr->m_name != moduleTypeStr)
+                        {
+                            modulePtr->m_fileName = AZStd::string::format("Gem.%s.%s.%s.v%s", gem.GetName().c_str(), modulePtr->m_name.c_str(), idStr, gem.GetVersion().ToString().c_str());
+                        }
+                        else
+                        {
+                            modulePtr->m_fileName = AZStd::string::format("Gem.%s.%s.v%s", gem.GetName().c_str(), idStr, gem.GetVersion().ToString().c_str());
+                        }
                     }
 
                     // If LinkType is specified, read and validate it.

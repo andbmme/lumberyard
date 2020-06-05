@@ -20,8 +20,29 @@
 #include "CryUtils.h"
 
 #define INCLUDED_FROM_SYSTEM_THREADING_CPP
+
+#if defined(AZ_RESTRICTED_PLATFORM)
+#undef AZ_RESTRICTED_SECTION
+#define SYSTEMTHREADING_CPP_SECTION_1 1
+#define SYSTEMTHREADING_CPP_SECTION_2 2
+#define SYSTEMTHREADING_CPP_SECTION_3 3
+#endif
+
 #if defined(WIN32) || defined(WIN64)
     #include "CryThreadUtil_win32_thread.h"
+#define AZ_RESTRICTED_SECTION_IMPLEMENTED
+#elif defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION SYSTEMTHREADING_CPP_SECTION_1
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/SystemThreading_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/SystemThreading_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/SystemThreading_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
 #else
     #include "CryThreadUtil_pthread.h"
 #endif
@@ -116,6 +137,19 @@ public:
 private:
 #if defined(WIN32) || defined(WIN64)
     static unsigned __stdcall RunThread(void* thisPtr);
+#define AZ_RESTRICTED_SECTION_IMPLEMENTED
+#elif defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION SYSTEMTHREADING_CPP_SECTION_2
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/SystemThreading_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/SystemThreading_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/SystemThreading_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
 #else
     static void* RunThread(void* thisPtr);
 #endif
@@ -157,6 +191,19 @@ private:
 //////////////////////////////////////////////////////////////////////////
 #if defined(WIN32) || defined(WIN64)
 unsigned __stdcall CThreadManager::RunThread(void* thisPtr)
+#define AZ_RESTRICTED_SECTION_IMPLEMENTED
+#elif defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION SYSTEMTHREADING_CPP_SECTION_3
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/SystemThreading_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/SystemThreading_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/SystemThreading_cpp_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
 #else
 void* CThreadManager::RunThread(void* thisPtr)
 #endif
@@ -376,7 +423,7 @@ bool CThreadManager::SpawnThread(IThread* pThreadTask, const char* sThreadName, 
 
     // Format thread name
     char strThreadName[THREAD_NAME_LENGTH_MAX];
-    const int cNumCharsNeeded = vsnprintf(strThreadName, CRY_ARRAY_COUNT(strThreadName), sThreadName, args);
+    const int cNumCharsNeeded = azvsnprintf(strThreadName, CRY_ARRAY_COUNT(strThreadName), sThreadName, args);
     if (cNumCharsNeeded > THREAD_NAME_LENGTH_MAX - 1 || cNumCharsNeeded < 0)
     {
         strThreadName[THREAD_NAME_LENGTH_MAX - 1] = '\0'; // The WinApi only null terminates if strLen < bufSize
@@ -461,7 +508,7 @@ bool CThreadManager::RegisterThirdPartyThread(void* pThreadHandle, const char* s
 
     // Format thread name
     char strThreadName[THREAD_NAME_LENGTH_MAX];
-    const int cNumCharsNeeded = vsnprintf(strThreadName, CRY_ARRAY_COUNT(strThreadName), sThreadName, args);
+    const int cNumCharsNeeded = azvsnprintf(strThreadName, CRY_ARRAY_COUNT(strThreadName), sThreadName, args);
     if (cNumCharsNeeded > THREAD_NAME_LENGTH_MAX - 1)
     {
         CryWarning(VALIDATOR_MODULE_SYSTEM, VALIDATOR_WARNING, "<ThreadInfo>: ThreadName \"%s\" has been truncated. Max characters allowed: %i. ", strThreadName, THREAD_NAME_LENGTH_MAX - 1);
@@ -535,7 +582,7 @@ bool CThreadManager::UnRegisterThirdPartyThread(const char* sThreadName, ...)
 
     // Format thread name
     char strThreadName[THREAD_NAME_LENGTH_MAX];
-    const int cNumCharsNeeded = vsnprintf(strThreadName, CRY_ARRAY_COUNT(strThreadName), sThreadName, args);
+    const int cNumCharsNeeded = azvsnprintf(strThreadName, CRY_ARRAY_COUNT(strThreadName), sThreadName, args);
     if (cNumCharsNeeded > THREAD_NAME_LENGTH_MAX - 1)
     {
         CryWarning(VALIDATOR_MODULE_SYSTEM, VALIDATOR_WARNING, "<ThreadInfo>: ThreadName \"%s\" has been truncated. Max characters allowed: %i. ", strThreadName, THREAD_NAME_LENGTH_MAX - 1);
@@ -577,7 +624,7 @@ threadID CThreadManager::GetThreadId(const char* sThreadName, ...)
 
     // Format thread name
     char strThreadName[THREAD_NAME_LENGTH_MAX];
-    const int cNumCharsNeeded = vsnprintf(strThreadName, CRY_ARRAY_COUNT(strThreadName), sThreadName, args);
+    const int cNumCharsNeeded = azvsnprintf(strThreadName, CRY_ARRAY_COUNT(strThreadName), sThreadName, args);
     if (cNumCharsNeeded > THREAD_NAME_LENGTH_MAX - 1)
     {
         CryWarning(VALIDATOR_MODULE_SYSTEM, VALIDATOR_WARNING, "<ThreadInfo>: ThreadName \"%s\" has been truncated. Max characters allowed: %i. ", strThreadName, THREAD_NAME_LENGTH_MAX - 1);

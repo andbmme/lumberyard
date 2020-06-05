@@ -32,7 +32,7 @@ namespace EMStudio
         setWindowTitle("Notification");
 
         // window, no border, no focus, stays on top
-        setWindowFlags(Qt::Window | Qt::FramelessWindowHint | Qt::WindowDoesNotAcceptFocus);
+        setWindowFlags(Qt::Popup | Qt::FramelessWindowHint | Qt::WindowDoesNotAcceptFocus);
 
         // enable the translucent background
         setAttribute(Qt::WA_TranslucentBackground);
@@ -61,7 +61,7 @@ namespace EMStudio
         {
             mIcon->setIcon(MysticQt::GetMysticQt()->FindIcon("Images/Icons/Confirm.png"));
         }
-        connect(mIcon, SIGNAL(pressed()), this, SLOT(IconPressed()));
+        connect(mIcon, &QToolButton::pressed, this, &NotificationWindow::IconPressed);
 
         // create the message label
         mMessageLabel = new QLabel(Message);
@@ -71,14 +71,14 @@ namespace EMStudio
         QHBoxLayout* layout = new QHBoxLayout();
         layout->addWidget(mIcon);
         layout->addWidget(mMessageLabel);
- 
+
         // set the layout
         setLayout(layout);
 
         // start the timer
         mTimer = new QTimer(this);
         mTimer->setSingleShot(true);
-        connect(mTimer, SIGNAL(timeout()), this, SLOT(TimerTimeOut()));
+        connect(mTimer, &QTimer::timeout, this, &NotificationWindow::TimerTimeOut);
         mTimer->start(GetNotificationWindowManager()->GetVisibleTime() * 1000);
     }
 
@@ -171,8 +171,8 @@ namespace EMStudio
         labelPropertyAnimation->start(QPropertyAnimation::DeleteWhenStopped);
 
         // connect the animation, the two animations are the same so only connect for the text is enough
-        connect(labelOpacityEffect, SIGNAL(opacityChanged(qreal)), this, SLOT(OpacityChanged(qreal)));
-        connect(labelPropertyAnimation, SIGNAL(finished()), this, SLOT(FadeOutFinished()));
+        connect(labelOpacityEffect, &QGraphicsOpacityEffect::opacityChanged, this, &NotificationWindow::OpacityChanged);
+        connect(labelPropertyAnimation, &QPropertyAnimation::finished, this, &NotificationWindow::FadeOutFinished);
     }
 
 
@@ -180,7 +180,7 @@ namespace EMStudio
     void NotificationWindow::OpacityChanged(qreal opacity)
     {
         // set the new opacity for the paint of the window
-        mOpacity = opacity * 255;
+        mOpacity = aznumeric_cast<int>(opacity * 255);
 
         // update the window
         update();

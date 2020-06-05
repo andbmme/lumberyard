@@ -17,8 +17,8 @@
 #include <CloudCanvas/CloudCanvasMappingsBus.h>
 
 /// To use a specific AWS API request you have to include each of these.
-#pragma warning(push)
-#pragma warning(disable: 4355) // <future> includes ppltasks.h which throws a C4355 warning: 'this' used in base member initializer list
+#include <AzCore/PlatformDef.h>
+AZ_PUSH_DISABLE_WARNING(4251 4355 4996, "-Wunknown-warning-option")
 #include <aws/lambda/LambdaClient.h>
 #include <aws/lambda/model/ListFunctionsRequest.h>
 #include <aws/lambda/model/ListFunctionsResult.h>
@@ -26,7 +26,7 @@
 #include <aws/lambda/model/InvokeResult.h>
 #include <aws/core/utils/Outcome.h>
 #include <aws/core/utils/memory/stl/AWSStringStream.h>
-#pragma warning(pop)
+AZ_POP_DISABLE_WARNING
 
 namespace CloudGemAWSScriptBehaviors
 {
@@ -71,6 +71,13 @@ namespace CloudGemAWSScriptBehaviors
     {
         AZStd::vector<AZStd::string> functionNames;
         CloudGemFramework::CloudCanvasMappingsBus::BroadcastResult(functionNames, &CloudGemFramework::CloudCanvasMappingsBus::Events::GetMappingsOfType, "AWS::Lambda::Function");
+
+        if (AZStd::find(functionNames.begin(), functionNames.end(), m_inFunctionName) == functionNames.end())
+        {
+            m_inFunctionName = functionNames.size() > 0 ? functionNames[0] : "";
+        }
+        
+
         return functionNames;
     }
 
@@ -95,11 +102,20 @@ namespace CloudGemAWSScriptBehaviors
                 Aws::IOStream& stream = job->result.GetPayload();
                 std::istreambuf_iterator<AZStd::string::value_type> eos;
                 AZStd::string content = AZStd::string{ std::istreambuf_iterator<AZStd::string::value_type>(stream),eos };
-                AWSBehaviorLambdaNotificationsBus::Broadcast(&AWSBehaviorLambdaNotificationsBus::Events::OnSuccess, content.c_str());
+                AZStd::function<void()> notifyOnMainThread = [content]()
+                {
+                    AWSBehaviorLambdaNotificationsBus::Broadcast(&AWSBehaviorLambdaNotificationsBus::Events::OnSuccess, content.c_str());
+                };
+                AZ::TickBus::QueueFunction(notifyOnMainThread);
             },
             [](LambdaInvokeRequestJob* job) // OnError handler
             {
-                AWSBehaviorLambdaNotificationsBus::Broadcast(&AWSBehaviorLambdaNotificationsBus::Events::OnError, job->error.GetMessage().c_str());
+                Aws::String errorMessage = job->error.GetMessage();
+                AZStd::function<void()> notifyOnMainThread = [errorMessage]()
+                {
+                    AWSBehaviorLambdaNotificationsBus::Broadcast(&AWSBehaviorLambdaNotificationsBus::Events::OnError, errorMessage.c_str());
+                };
+                AZ::TickBus::QueueFunction(notifyOnMainThread);
             },
             &config
         );

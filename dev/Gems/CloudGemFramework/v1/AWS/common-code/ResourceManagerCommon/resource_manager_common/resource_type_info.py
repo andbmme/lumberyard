@@ -14,12 +14,13 @@ import boto3
 import json
 import re
 import sys
+from . import constant
+from six import iteritems
 
-import constant
 try:
     from cgf_utils import aws_utils
 except:
-    print 'Failed to import from cgf_utils, path is {}'.format(sys.path)
+    print('Failed to import from cgf_utils, path is {}'.format(sys.path))
 
 from cgf_utils import lambda_utils
 
@@ -31,11 +32,12 @@ LAMBDA_TAGS = {CUSTOM_RESOURCE_LAMBDA_TAG, ARN_LAMBDA_TAG}
 
 
 class ResourceTypeInfo(object):
-    def __init__(self, stack_arn, source_resource_name, resource_type_name, data):
+    def __init__(self, stack_arn, source_resource_name, resource_type_name, lambda_dictionary, deleted, data):
         self.__stack_arn = stack_arn
         self.__stack_name = aws_utils.get_stack_name_from_stack_arn(stack_arn)
         self.__source_resource_name = source_resource_name
         self.__resource_type_name = resource_type_name
+        self.__deleted = deleted
         self.__permission_metadata = data.get('PermissionMetadata', {})
         self.__service_api = data.get('ServiceApi', None)
         self.__arn_format = data.get('ArnFormat', None)
@@ -44,6 +46,12 @@ class ResourceTypeInfo(object):
         self.__handler_url = data.get('HandlerUrl', None)
         self.__arn_function = data.get('ArnFunction', None)
         self.__handler_function = data.get('HandlerFunction', None)
+        self.__handler_function_version = None
+
+        if  self.__handler_function:
+            lambda_data = lambda_dictionary.get(self.get_custom_resource_lambda_function_name(), None)
+            self.__handler_function_version = lambda_data['v'] if lambda_data else None  # Backwards compatibility
+
         self._validate()
 
     def _validate(self):
@@ -70,6 +78,10 @@ class ResourceTypeInfo(object):
     @property
     def resource_type_name(self):
         return self.__resource_type_name
+
+    @property
+    def deleted(self):
+        return self.__deleted
 
     @property
     def permission_metadata(self):
@@ -102,6 +114,10 @@ class ResourceTypeInfo(object):
     @property
     def handler_function(self):
         return self.__handler_function
+
+    @property
+    def handler_function_version(self):
+        return self.__handler_function_version
 
     def get_lambda_function_name(self, tag):
         name = "%s-%s-%s-%s" % (self.__stack_name, tag, self.__source_resource_name,
@@ -154,12 +170,17 @@ def _load_mappings_for_prefix(destination, bucket, prefix, delimiter, s3_client)
         info = json.loads(contents)
         resource_stack_id = info['StackId']
         definitions = info['Definitions']
+        lambda_info = info['Lambdas']
+        deleted_types = set(info['Deleted']) if 'Deleted' in info else set()  # Backwards compatibility
         path_info = ResourceTypesPathInfo(file_key)
+        lambda_dictionary = lambda_info if isinstance(lambda_info, dict) else {}  # Backwards compatibility
 
         # Add resource type definitions from the file to the dictionary
-        for resource_type_name, data in definitions.iteritems():
+        for resource_type_name, data in iteritems(definitions):
             destination[resource_type_name] = ResourceTypeInfo(resource_stack_id, path_info.resource_name,
-                                                               resource_type_name, data)
+                                                               resource_type_name, lambda_dictionary,
+                                                               resource_type_name in deleted_types,
+                                                               data)
 
 
 def load_resource_type_mapping(bucket, stack, s3_client=None):

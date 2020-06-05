@@ -64,6 +64,12 @@ A few options (--qt{dir,bin,...}) and environment variables
 tool path selection, etc; please read the source for more info.
 
 """
+# System Imports
+import os
+import re
+import shutil
+import stat
+import sys
 
 try:
     from xml.sax import make_parser
@@ -74,19 +80,18 @@ except ImportError:
 else:
     has_xml = True
 
-import os, sys, re, time, shutil, stat, hashlib
-from waflib.Tools import cxx
-from waflib import Task, Utils, Options, Errors, Context
+# waflib imports
+from waflib import Context, Errors, Logs, Options, Task, Utils
 from waflib.TaskGen import feature, after_method, extension, before_method
 from waflib.Configure import conf
 from waflib.Tools import c_preproc
-from waflib import Logs
-from generate_uber_files import UBER_HEADER_COMMENT
-import copy_tasks
-from collections import defaultdict
-from threading import Lock
-from sets import Set
-import lmbr_setup_tools
+
+# lmbrwaflib imports
+from lmbrwaflib import copy_tasks
+from lmbrwaflib import lmbr_setup_tools
+from lmbrwaflib import lumberyard
+from lmbrwaflib.generate_uber_files import UBER_HEADER_COMMENT
+
 
 MOC_H = ['.h', '.hpp', '.hxx', '.hh']
 """
@@ -111,7 +116,6 @@ File extensions of C++ files that may require a .moc processing
 QT5_LIBS = '''
 qtmain
 Qt5Bluetooth
-Qt5CLucene
 Qt5Concurrent
 Qt5Core
 Qt5DBus
@@ -120,7 +124,8 @@ Qt5DesignerComponents
 Qt5Designer
 Qt5Gui
 Qt5Help
-Qt5MultimediaQuick_p
+Qt5MacExtras
+Qt5MultimediaQuick
 Qt5Multimedia
 Qt5MultimediaWidgets
 Qt5Network
@@ -139,14 +144,34 @@ Qt5SerialPort
 Qt5Sql
 Qt5Svg
 Qt5Test
-Qt5WebKit
-Qt5WebKitWidgets
+Qt5WebEngine
+Qt5WebEngineCore
+Qt5WebEngineWidgets
+Qt5WebChannel
 Qt5Widgets
 Qt5WinExtras
 Qt5X11Extras
 Qt5XmlPatterns
 Qt5Xml'''
 
+QT5_WEBENGINE_DLLS = [
+'Qt5Core',
+'Qt5Gui',
+'Qt5Network',
+'Qt5Positioning',
+'Qt5Qml',
+'Qt5Quick',
+'Qt5WebChannel',
+'Qt5WebEngineCore'
+]
+
+QT_CONF = '''[Paths]
+Prefix = qtlibs
+'''
+
+QT_WEBENGINE_CONF = '''[Paths]
+Prefix = ..
+'''
 
 # Search pattern to find the required #include <*.moc> lines in the source code to identify the header files that need
 # moc'ing.  The path of the moc file must be relative to the current project root
@@ -157,13 +182,13 @@ QOBJECT_RE = re.compile(r'\s*Q_OBJECT\s*', flags=re.MULTILINE)
 
 # Derive a specific moc_files.<idx> folder name based on the base bldnode and idx
 def get_target_qt5_root(ctx, target_name, idx):
-    base_qt_node = ctx.bldnode.make_node('qt5/{}.{}'.format(target_name,idx))
+    base_qt_node = ctx.bldnode.make_node('qt5/{}.{}'.format(target_name, idx))
     return base_qt_node
 
 # Change a target node from a changed extension to one marked as QT code generated
 # The qt5 generated files are restricted to the build folder.  That means
 # each project cannot use any QT generated artifacts that do no exist within its project boundaries.
-def change_target_qt5_node(ctx, project_path, target_name, relpath_target, idx):
+def change_target_qt5_node(ctx, project_path, target_name, relpath_target, target_uid):
     relpath_project = project_path.relpath()
 
     if relpath_target.startswith(relpath_project):
@@ -179,14 +204,14 @@ def change_target_qt5_node(ctx, project_path, target_name, relpath_target, idx):
         if target_node_name_lower.endswith(".moc") or target_node_name_lower.endswith(".h"):
             ctx.fatal("QT target {} for project {} cannot exist outside of its source folder context.".format(relpath_target, target_name))
 
-        restricted_path = "__/{}.{}/{}".format(target_name, idx, target_name)
+        restricted_path = "__/{}.{}/{}".format(target_name, target_uid, target_name)
     else:
         restricted_path = relpath_target
 
     target_node_subdir = os.path.dirname(restricted_path)
 
     # Change the output target to the specific moc file folder
-    output_qt_dir = get_target_qt5_root(ctx, target_name, idx).make_node(target_node_subdir)
+    output_qt_dir = get_target_qt5_root(ctx, target_name, target_uid).make_node(target_node_subdir)
     output_qt_dir.mkdir()
 
     output_qt_node = output_qt_dir.make_node(os.path.split(relpath_target)[1])
@@ -243,7 +268,11 @@ class qxx(Task.classes['cxx']):
             self.add_moc_tasks()
             # At this point, the moc task should be done, recycle and try the status check again
             self.moc_done = 1
-            return Task.ASK_LATER
+            try:
+                del self.cache_sig
+            except:
+                pass
+            return Task.Task.runnable_status(self)
 
         return status
 
@@ -257,7 +286,7 @@ class qxx(Task.classes['cxx']):
         use the tool slow_qt5 instead (and enjoy the slow builds... :-( )
         """
 
-        cache_key = '{}.{}'.format(h_node.abspath(),self.generator.idx)
+        cache_key = '{}.{}'.format(h_node.abspath(),self.generator.target_uid)
 
         try:
             moc_cache = self.generator.bld.moc_cache
@@ -273,7 +302,7 @@ class qxx(Task.classes['cxx']):
                                                  self.generator.path,
                                                  self.generator.name,
                                                  relpath_target,
-                                                 self.generator.idx)
+                                                 self.generator.target_uid)
 
             tsk = moc_cache[cache_key] = Task.classes['moc'](env=self.env, generator=self.generator)
             tsk.set_inputs(h_node)
@@ -427,7 +456,7 @@ def create_rcc_task(self, node):
                                         self.path,
                                         self.name,
                                         relpath_target,
-                                        self.idx)
+                                        self.target_uid)
 
         qrc_task = self.create_task('rcc', node, rcnode)
         self.rcc_tasks.append(qrc_task)
@@ -441,7 +470,7 @@ def create_rcc_task(self, node):
                                         self.path,
                                         self.name,
                                         relpath_target,
-                                        self.idx)
+                                        self.target_uid)
 
         qrc_task = self.create_task('rcc', node, rcnode)
         self.rcc_tasks.append(qrc_task)
@@ -476,7 +505,8 @@ def create_automoc_task(self):
         task = self.create_task('automoc', header_nodes)
 
         # this may mutate the link task, must run the link task after this task
-        self.link_task.set_run_after(task)
+        if hasattr(self, "link_task"):
+            self.link_task.set_run_after(task)
 
 @extension(*EXT_UI)
 def create_uic_task(self, node):
@@ -499,7 +529,7 @@ def create_uic_task(self, node):
                                          self.path,
                                          self.name,
                                          relpath_target,
-                                         self.idx)
+                                         self.target_uid)
     uictask.outputs = [target_node]
     self.uic_tasks.append(uictask)
 
@@ -530,10 +560,13 @@ def apply_qt5_includes(self):
 
     base_moc_node = get_target_qt5_root(self.bld,
                                         self.name,
-                                        self.idx)
+                                        self.target_uid)
     if not hasattr(self, 'includes'):
         self.includes = []
     self.includes.append(base_moc_node)
+
+    if self.env.PLATFORM == 'win_x64_clang':
+        self.env.append_unique('CXXFLAGS', '-Wno-ignored-pragmas')
 
 
 @feature('qt5')
@@ -573,7 +606,7 @@ def apply_qt5(self):
                                                  self.path,
                                                  self.name,
                                                  relpath_target,
-                                                 self.idx)
+                                                 self.target_uid)
             qmtask = self.create_task('ts2qm', x, new_qm_node)
             qmtasks.append(qmtask)
 
@@ -592,7 +625,7 @@ def apply_qt5(self):
                                                  self.path,
                                                  self.name,
                                                  relpath_target,
-                                                 self.idx)
+                                                 self.target_uid)
             t = self.create_task('qm2rcc', qmnodes, new_rc_node)
 
             for x in qmtasks:
@@ -684,7 +717,7 @@ class automoc(Task.Task):
                                               self.generator.path,
                                               self.generator.name,
                                               relpath_target,
-                                              self.generator.idx)
+                                              self.generator.target_uid)
 
             moc_task = self.generator.create_task('moc', moc_header, moc_node)
             # Include the precompiled header, if applicable
@@ -753,6 +786,10 @@ class automoc(Task.Task):
 
     def post_run(self):
         self.generator.bld.node_deps[self.uid()] = getattr(self, 'moc_headers', [])
+        try:
+            del self.cache_sig
+        except:
+            pass
         Task.Task.post_run(self)
 
 
@@ -885,10 +922,10 @@ bin_cache = {}
 # maintain a cache set of platforms that don't have Qt
 # so that we don't needlessly search multiple times, and
 # so that the user doesn't get numerous warnings of the same thing
-QT_SDK_MISSING = Set()
+QT_SDK_MISSING = set()
 
 
-@conf 
+@conf
 def get_qt_version(self):
     # at the end, try to find qmake in the paths given
     # keep the one with the highest version
@@ -957,18 +994,29 @@ def find_qt5_binaries(self, platform):
 
     opt = Options.options
     qtbin = getattr(opt, 'qtbin', '')
+    
+    platform_details = self.get_target_platform_detail(platform)
+    if not platform_details.attributes.get('qt_supported', False):
+        raise Errors.WafError('Platform {} is not supported by our Qt waf scripts.'.format(platform))
+    
+    qt_platform_dir = platform_details.attributes.get('qt_platform_dir', None)
+    if not qt_platform_dir:
+        raise Errors.WafError("Platform settings for platform {} is missing required '' attribute.".format(platform))
 
-    platformDirectoryMapping = {
-        'win_x64_vs2013': 'msvc2013_64',
-        'win_x64_vs2015': 'msvc2015_64',
-        'darwin_x64': 'clang_64',
-        'linux_x64': 'gcc_64'
-    }
+    # Get the QT dir from the third party settings
+    qtdir, enabled, roles, _ = self.tp.get_third_party_path(platform, 'qt')
 
-    if not platformDirectoryMapping.has_key(platform):
-        self.fatal('Platform %s is not supported by our Qt waf scripts!')
+    # If the path was not resolved, it could be an invalid alias (missing from the SetupAssistantConfig.json)
+    if not qtdir:
+        raise Errors.WafError("Invalid required QT alias for platform {}".format(platform))
 
-    qtdir = os.path.normpath(self.CreateRootRelativePath('Code/Sandbox/SDKs/Qt/%s' % platformDirectoryMapping[platform]))
+    # If the path was resolved, we still need to make sure the 3rd party is enabled based on the roles
+    if not enabled:
+        error_message = "Unable to resolve Qt because it is not enabled in Setup Assistant.  \nMake sure that at least " \
+                        "one of the following roles is enabled: [{}]".format(', '.join(roles))
+        raise Errors.WafError(error_message)
+
+    qtdir = os.path.join(qtdir, qt_platform_dir)
 
     paths = []
 
@@ -1022,7 +1070,7 @@ def find_qt5_binaries(self, platform):
                 except self.errors.WafError:
                     pass
                 else:
-                    cand = cmd
+                    cand = os.path.normpath(cmd)
 
         if cand:
             self.env.QMAKE = cand
@@ -1039,7 +1087,8 @@ def find_qt5_binaries(self, platform):
     if qmake_cache_key in bin_cache:
         self.env.QT_INSTALL_BINS = qtbin = bin_cache[qmake_cache_key]
     else:
-        self.env.QT_INSTALL_BINS = qtbin = self.cmd_and_log([self.env.QMAKE] + ['-query', 'QT_INSTALL_BINS']).strip() + os.sep
+        query_qt_bin_result = self.cmd_and_log([self.env.QMAKE] + ['-query', 'QT_INSTALL_BINS']).strip() + os.sep
+        self.env.QT_INSTALL_BINS = qtbin = os.path.normpath(query_qt_bin_result) + os.sep
         bin_cache[qmake_cache_key] = qtbin
 
     paths.insert(0, qtbin)
@@ -1066,12 +1115,12 @@ def find_qt5_binaries(self, platform):
 
         for f in lst:
             try:
-                ret = self.find_program(f, path_list=paths, silent_output=True)
+                ret = self.find_program(f, path_list=paths, silent_output=True, var=var)
             except self.errors.ConfigurationError:
                 pass
             else:
-                env[var] = ret
-                bin_cache[cache_key] = ret
+                env[var] = os.path.normpath(ret)
+                bin_cache[cache_key] = os.path.normpath(ret)
                 break
 
     find_bin(['uic-qt5', 'uic'], 'QT_UIC')
@@ -1103,6 +1152,9 @@ def find_qt5_binaries(self, platform):
     env.QT_LIB_DIR = _get_qtlib_subfolder('lib')
     env.QT_QML_DIR = _get_qtlib_subfolder('qml')
     env.QT_PLUGINS_DIR = _get_qtlib_subfolder('plugins')
+    if platform is not 'darwin_x64':
+        env.QT_RESOURCES_DIR = _get_qtlib_subfolder('resources')
+    env.QT_TRANSLATIONS_DIR = _get_qtlib_subfolder('translations')
 
     return True
 
@@ -1131,12 +1183,12 @@ def find_qt5_libraries(self):
     checked_linux = False
     checked_win_x64 = False
 
-    validated_platforms = self.get_available_platforms()
+    validated_platforms = self.get_enabled_target_platform_names()
     for validated_platform in validated_platforms:
 
-        is_platform_darwin = validated_platform in (['darwin_x64', 'ios', 'appletv'])
-        is_platform_linux = validated_platform in (['linux_x64_gcc'])
-        is_platform_win_x64 = validated_platform.startswith('win_x64')
+        is_platform_darwin = self.is_mac_platform(validated_platform)
+        is_platform_linux = self.is_linux_platform(validated_platform)
+        is_platform_win_x64 = self.is_windows_platform(validated_platform)
 
         for i in self.qt5_vars:
             uselib = i.upper()
@@ -1245,7 +1297,7 @@ def simplify_qt5_libs(self):
     # remove the qtcore ones from qtgui, etc
     env = self.env
     def process_lib(vars_, coreval):
-        validated_platforms = self.get_available_platforms()
+        validated_platforms = self.get_enabled_target_platform_names()
         for validated_platform in validated_platforms:
             for d in vars_:
                 var = d.upper()
@@ -1272,7 +1324,7 @@ def add_qt5_rpath(self):
     if getattr(Options.options, 'want_rpath', False):
         def process_rpath(vars_, coreval):
 
-            validated_platforms = self.get_available_platforms()
+            validated_platforms = self.get_enabled_target_platform_names()
             for validated_platform in validated_platforms:
                 for d in vars_:
                     var = d.upper()
@@ -1303,7 +1355,7 @@ def set_qt5_defines(self):
     if sys.platform != 'win32':
         return
 
-    validated_platforms = self.get_available_platforms()
+    validated_platforms = self.get_enabled_target_platform_names()
     for validated_platform in validated_platforms:
         for x in self.qt5_vars:
             y=x.replace('Qt5', 'Qt')[2:].upper()
@@ -1327,14 +1379,6 @@ def options(opt):
 
     opt.add_option('--translate', action="store_true", help="collect translation strings", dest="trans_qt5", default=False)
 
-SUPPORTED_QTLIB_PLATFORMS = ['win_x64_vs2013', 'win_x64_vs2015', 'darwin_x64', 'linux_x64']
-
-PLATFORM_TO_QTGA_SUBFOLDER = {
-    "win_x64_vs2013": ["win32/vc120/qtga.dll", "win32/vc120/qtgad.dll", "win32/vc120/qtgad.pdb"],
-    "win_x64_vs2015": ["win32/vc140/qtga.dll", "win32/vc140/qtgad.dll", "win32/vc140/qtgad.pdb"],
-    "darwin_x64": ["macx/libqtga.dylib", "macx/libqtga_debug.dylib"],
-    "linux_x64": []
-}
 
 IGNORE_QTLIB_PATTERNS = [
     # cmake Not needed
@@ -1363,20 +1407,6 @@ WINDOWS_RC_QT_DLLS = [
     "Qt5Quick",
     "Qt5Svg",
     "Qt5Widgets",
-]
-
-WINDOWS_LMBRSETUP_QT_DLLS = [
-    "Qt5Core",
-    "Qt5Gui",
-    "Qt5Network",
-    "Qt5Qml",
-    "Qt5Quick",
-    "Qt5Svg",
-    "Qt5Widgets",
-    "Qt5Concurrent",
-    "Qt5WinExtras",
-    "libEGL",
-    "libGLESv2"
 ]
 
 WINDOWS_MAIN_QT_DLLS = [
@@ -1441,12 +1471,12 @@ def qtlib_bootstrap(self, platform, configuration):
                 if os.path.exists(dst):
                     os.chmod(dst, stat.S_IWRITE)
             except Exception as err:
-                Logs.warn('[WARN] Unable to make target file {} writable {}'.format(dst, err.message))
+                Logs.warn('[WARN] Unable to make target file {} writable {}'.format(dst, err))
 
             try:
                 shutil.copy2(src, dst)
             except Exception as err:
-                Logs.warn('[WARN] Unable to copy {} to {}: {}'.format(src, dst, err.message))
+                Logs.warn('[WARN] Unable to copy {} to {}: {}'.format(src, dst, err))
 
             return 1
         else:
@@ -1463,15 +1493,10 @@ def qtlib_bootstrap(self, platform, configuration):
             copied += _copy_file(src_dll, dst_dll)
         return copied
 
-    def _copy_qtlib_folder(ctx, dst, current_platform, patterns, is_required_pattern):
+    def _copy_qtlib_folder(ctx, dst, platform_details, patterns, is_required_pattern):
 
         # Used to track number of files copied by this function
         num_files_copied = 0
-
-        # Create the qtlibs subfolder
-        dst_qtlib = os.path.normcase(os.path.join(dst, 'qtlibs'))
-        if not os.path.exists(dst_qtlib):
-            os.makedirs(dst_qtlib)
 
         # If qt fails to configure, the folder copies below will give meaningless errors.
         # Test for this condition and error out here
@@ -1479,12 +1504,17 @@ def qtlib_bootstrap(self, platform, configuration):
             Logs.warn('unable to find QT')
             return num_files_copied
 
+        # Create the qtlibs subfolder
+        dst_qtlib = os.path.normcase(os.path.join(dst, 'qtlibs'))
+        if not os.path.exists(dst_qtlib):
+            os.makedirs(dst_qtlib)
+
         # Copy the libs for qtlibs
         lib_pattern = patterns
         if 'lib' in patterns:
             lib_pattern = patterns['lib']
         num_files_copied += _copy_folder(ctx.env.QT_LIB_DIR, dst_qtlib, 'lib', lib_pattern, is_required_pattern)
-        
+
         # special setup for linux_x64 platform
         if platform == 'linux_x64':
             _prepare_lib_folder_for_linux(os.path.join(dst_qtlib, 'lib'))
@@ -1501,15 +1531,23 @@ def qtlib_bootstrap(self, platform, configuration):
             plugins_pattern = patterns['plugins']
         num_files_copied += _copy_folder(ctx.env.QT_PLUGINS_DIR, dst_qtlib, 'plugins', plugins_pattern, is_required_pattern)
 
-        # Copy the extra txt files
-        qt_base = os.path.normcase(ctx.Path('Code/Sandbox/SDKs/Qt'))
+        # Copy the license files
+        qt_base = os.path.normpath(ctx.ThirdPartyPath('qt', ''))
+        num_files_copied += _copy_file(os.path.join(qt_base, 'LICENSE'),
+                                   os.path.join(dst_qtlib, 'LICENSE'))
+        num_files_copied += _copy_file(os.path.join(qt_base, 'LICENSE.GPLV3'),
+                                   os.path.join(dst_qtlib, 'LICENSE.GPLV3'))
+        num_files_copied += _copy_file(os.path.join(qt_base, 'LICENSE.LGPLV3'),
+                                   os.path.join(dst_qtlib, 'LICENSE.LGPLV3'))
+        num_files_copied += _copy_file(os.path.join(qt_base, 'LGPL_EXCEPTION.TXT'),
+                                   os.path.join(dst_qtlib, 'LGPL_EXCEPTION.TXT'))
         num_files_copied += _copy_file(os.path.join(qt_base, 'QT-NOTICE.TXT'),
                                    os.path.join(dst_qtlib, 'QT-NOTICE.TXT'))
-        num_files_copied += _copy_file(os.path.join(qt_base, 'ThirdPartySoftware_Listing.txt'),
-                                   os.path.join(dst_qtlib, 'ThirdPartySoftware_Listing.txt'))
 
-        qt_tga_files = PLATFORM_TO_QTGA_SUBFOLDER.get(current_platform, [])
+        qt_tga_files = platform_details.attributes.get('qtga_subfolders', [])
+        
         qt_tga_src_root = os.path.normcase(ctx.Path('Tools/Redistributables/QtTgaImageFormatPlugin'))
+        
         for qt_tga_file in qt_tga_files:
 
             if not is_copy_pdbs and qt_tga_file.endswith('.pdb'):
@@ -1549,6 +1587,90 @@ def qtlib_bootstrap(self, platform, configuration):
 
         return num_files_copied
 
+    def _is_module_in_current_project_spec(module):
+
+        # No spec means build everything
+        if len(self.options.project_spec.strip()) == 0:
+            return True
+
+        # Get the list of the current project spec(s) that is being built
+        specs = [spec.strip() for spec in self.options.project_spec.split(',')]
+        has_module = False
+        for spec in specs:
+            # search each valid spec and see if the input module is defined
+            spec_def = self.loaded_specs_dict.get(spec, None)
+            if not spec_def:
+                continue
+            spec_modules = spec_def.get('modules', None)
+            if not spec_modules:
+                continue
+            if module in spec_modules:
+                has_module = True
+                break
+
+        return has_module
+
+    def _bootstrap_qtwebengine(ctx, dst, platform_details, patterns, is_required_pattern):
+        # Used to track number of files copied by this function
+        num_files_copied = 0
+
+        is_windows = platform_detail.attributes.get('is_windows', False)
+        if not is_windows:
+            return num_files_copied
+
+        # Write the qt.conf file. This is required so that Qt can find QtWebEngineProcess.exe
+        with open(os.path.join(dst, 'qt.conf'), 'w') as f:
+            f.write(QT_CONF)
+
+        # Create the qtlibs subfolder if required
+        dst_qtlib = os.path.normcase(os.path.join(dst, 'qtlibs'))
+        if not os.path.exists(dst_qtlib):
+            os.makedirs(dst_qtlib)
+
+        # If qt fails to configure, the folder copies below will give meaningless errors.
+        # Test for this condition and error out here
+        if not ctx.env.QT_BIN_DIR or not ctx.env.QT_RESOURCES_DIR or not ctx.env.QT_TRANSLATIONS_DIR:
+            Logs.warn('unable to find QT resources or translations')
+            return num_files_copied
+
+        # QtWebEngineProcess.exe
+        dst_qtbin = os.path.normcase(os.path.join(dst_qtlib, 'bin'))
+        if not os.path.exists(dst_qtbin):
+            os.makedirs(dst_qtbin)
+
+        qtwebengineprocess = 'QtWebEngineProcess' + ('d.exe' if is_debug else '.exe')
+
+        num_files_copied += _copy_file(os.path.join(ctx.env.QT_BIN_DIR, qtwebengineprocess),
+                                                os.path.join(dst_qtbin, qtwebengineprocess))
+
+        # QtWebEngineProcess dlls
+        num_files_copied += _copy_qt_dlls(self, dst_qtbin, QT5_WEBENGINE_DLLS)
+
+        # Write the QtWebEngineProcess qt.conf file. This is required so that QtWebEngineProcess.exe
+        # can find its dependencies and resources
+        with open(os.path.join(dst_qtbin, 'qt.conf'), 'w') as f:
+            f.write(QT_WEBENGINE_CONF)
+
+        # Resources and ICU data
+        resources_pattern = patterns
+        if 'resources' in patterns:
+            resources_pattern = patterns['resources']
+
+        num_files_copied += _copy_folder(ctx.env.QT_RESOURCES_DIR, dst_qtlib, 'resources', resources_pattern, is_required_pattern)
+
+        # Translations
+        dst_qttranslations = os.path.normcase(os.path.join(dst_qtlib, 'translations'))
+        if not os.path.exists(dst_qttranslations):
+            os.makedirs(dst_qttranslations)
+
+        translations_pattern = patterns
+        if 'translations' in patterns:
+            translations_pattern = patterns['translations']
+
+        num_files_copied += _copy_folder(ctx.env.QT_TRANSLATIONS_DIR, dst_qttranslations, 'qtwebengine_locales', translations_pattern, is_required_pattern)
+
+        return num_files_copied
+
     is_copy_pdbs = self.is_option_true('copy_3rd_party_pdbs')
 
     output_paths = self.get_output_folders(platform, configuration)
@@ -1563,8 +1685,13 @@ def qtlib_bootstrap(self, platform, configuration):
 
     # For windows, we will bootstrap copy the Qt Dlls to the main and rc subfolder
     # (for non-test and non-dedicated configurations)
-    if platform in ['win_x64_vs2015', 'win_x64_vs2013'] and configuration in \
-            ['debug', 'profile', 'debug_test', 'profile_test', 'debug_dedicated', 'profile_dedicated']:
+    platform_detail = self.get_target_platform_detail(platform)
+    configuration_detail = platform_detail.get_configuration(configuration)
+
+    is_monolithic = platform_detail.is_monolithic or configuration_detail.settings.is_monolithic
+    is_windows = platform_detail.attributes.get('is_windows', False)
+
+    if is_windows and not is_monolithic:
 
         copy_timer = Utils.Timer()
 
@@ -1574,11 +1701,18 @@ def qtlib_bootstrap(self, platform, configuration):
         # Copy all the dlls required by Qt
         # Copy to the current configuration's BinXXX folder
         files_copied = _copy_qt_dlls(self, output_path, WINDOWS_MAIN_QT_DLLS)
-        # Copy to the current configuration's BinXXX/rc folder
-        files_copied += _copy_qt_dlls(self, os.path.join(output_path, 'rc'), WINDOWS_RC_QT_DLLS)
-        # Copy to the LmbrSetup folder
-        files_copied += _copy_qt_dlls(self,
-            self.Path(self.get_lmbr_setup_tools_output_folder()), lmbr_setup_tools.LMBR_SETUP_QT_FILTERS['win']['Modules'])
+
+        # Copy specific files if we are building from the engine folder
+        if self.is_engine_local():
+
+            # Copy to the current configuration's BinXXX/rc folder if 'rc' is an included module in the current spec
+            if _is_module_in_current_project_spec('ResourceCompiler'):
+                files_copied += _copy_qt_dlls(self, os.path.join(output_path, 'rc'), WINDOWS_RC_QT_DLLS)
+
+            # Copy to the LmbrSetup folder if SetupAssistant is defined
+            if _is_module_in_current_project_spec('SetupAssistant') or _is_module_in_current_project_spec('SetupAssistantBatch'):
+                files_copied += _copy_qt_dlls(self,
+                    self.Path(self.get_lmbr_setup_tools_output_folder()), lmbr_setup_tools.LMBR_SETUP_QT_FILTERS['win']['Modules'])
 
         # Report the sync job, but only report the number of files if any were actually copied
         if files_copied > 0:
@@ -1589,7 +1723,8 @@ def qtlib_bootstrap(self, platform, configuration):
                 Logs.info('[INFO] Skipped qt dll copy to target folder. ({})'.format(str(copy_timer)))
 
     # Check if this is a platform that supports the qtlib folder synchronization
-    if platform in SUPPORTED_QTLIB_PLATFORMS:
+    platform_details = self.get_target_platform_detail(platform)
+    if platform_details.attributes.get('qt_supported', False):
 
         copy_timer = Utils.Timer()
 
@@ -1598,7 +1733,17 @@ def qtlib_bootstrap(self, platform, configuration):
 
         # Copy the entire qtlib folder to current output path
         # Contains lib, plugins and qml folders, and license information
-        files_copied = _copy_qtlib_folder(self, output_path, platform, ignore_lib_patterns, False)
+        files_copied = _copy_qtlib_folder(self,
+                                          output_path,
+                                          platform_details,
+                                          ignore_lib_patterns,
+                                          False)
+
+        files_copied = _bootstrap_qtwebengine(self,
+                                              output_path,
+                                              platform_details,
+                                              ignore_lib_patterns,
+                                              False)
 
         lmbr_configuration_key = 'debug' if is_debug else 'profile'
         lmbr_platform_key = ''
@@ -1611,8 +1756,10 @@ def qtlib_bootstrap(self, platform, configuration):
             Logs.error('Cannot find the current configuration ({}) to setup LmbrSetup folder.'.format(platform))
 
         files_copied += _copy_qtlib_folder(self,
-            self.Path(self.get_lmbr_setup_tools_output_folder()),
-            platform, lmbr_setup_tools.LMBR_SETUP_QT_FILTERS[lmbr_platform_key]['qtlibs'][lmbr_configuration_key], True)
+                                           self.Path(self.get_lmbr_setup_tools_output_folder()),
+                                           platform_details,
+                                           lmbr_setup_tools.LMBR_SETUP_QT_FILTERS[lmbr_platform_key]['qtlibs'][lmbr_configuration_key],
+                                           True)
 
         # Report the sync job, but only report the number of files if any were actually copied
         if files_copied > 0:
@@ -1624,6 +1771,13 @@ def qtlib_bootstrap(self, platform, configuration):
                           .format(str(copy_timer)))
 
 
-
-
-
+@lumberyard.multi_conf
+def generate_ib_profile_tool_elements(ctx):
+    qt_tool_elements = [
+        '<Tool Filename="moc" AllowIntercept="false" AllowRemote="true" AllowPredictedBatch="true" DeriveCaptionFrom="lastparam"/>',
+        '<Tool Filename="uic" AllowIntercept="false" AllowRemote="true" AllowPredictedBatch="true" DeriveCaptionFrom="lastparam"/>',
+        '<Tool Filename="rcc" AllowIntercept="false" AllowRemote="true" AllowPredictedBatch="true" DeriveCaptionFrom="lastparam"/>',
+        '<Tool Filename="link" AllowRemote="false" AllowIntercept="false" DeriveCaptionFrom="firstparam" IdentifyTaskOutput="true" AllowRestartOnLocal="false" VCCompiler="false"/>',
+        '<Tool Filename="lld-link" AllowRemote="false" AllowIntercept="false" DeriveCaptionFrom="firstparam" IdentifyTaskOutput="true" AllowRestartOnLocal="false" VCCompiler="false"/>'
+    ]
+    return qt_tool_elements

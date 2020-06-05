@@ -26,8 +26,16 @@
 #include "MergedMeshRenderNode.h"
 #include "MergedMeshGeometry.h"
 #include "ShadowCache.h"
+#include "Ocean.h"
+#include <PakLoadDataUtils.h>
 
 #include <AzCore/Component/TransformBus.h>
+
+#ifdef LY_TERRAIN_RUNTIME
+#include <Terrain/Bus/TerrainProviderBus.h>
+#endif
+#include <Terrain/ITerrainNode.h>
+#include <Terrain/Bus/LegacyTerrainBus.h>
 
 #define MAX_NODE_NUM 7
 
@@ -36,7 +44,7 @@ const float fObjectToNodeSizeRatio = 1.f / 8.f;
 const float fMinShadowCasterViewDist = 8.f;
 
 PodArray<COctreeNode*> COctreeNode::m_arrEmptyNodes;
-
+bool COctreeNode::m_removeVegetationCastersOneByOne = true;
 
 COctreeNode::~COctreeNode()
 {
@@ -67,7 +75,10 @@ COctreeNode::~COctreeNode()
 
     m_arrEmptyNodes.Delete(this);
 
-    GetObjManager()->GetArrStreamingNodeStack().Delete(this);
+    if (GetObjManager())
+    {
+        GetObjManager()->GetArrStreamingNodeStack().Delete(this);
+    }
 
     if (m_pRNTmpData)
     {
@@ -157,7 +168,7 @@ void COctreeNode::Render_Object_Nodes(bool bNodeCompletelyInFrustum, int nRender
     if (HasAnyRenderableCandidates(passInfo))
     {
         // when using the occlusion culler, push the work to the jobs doing the occlusion checks, else just compute in main thread
-        if (GetCVars()->e_StatObjBufferRenderTasks == 1 && passInfo.IsGeneralPass() && JobManager::InvokeAsJob("CheckOcclusion"))
+        if (GetCVars()->e_StatObjBufferRenderTasks == 1 && passInfo.IsGeneralPass())
         {
             GetObjManager()->PushIntoCullQueue(SCheckOcclusionJobData::CreateOctreeJobData(this, nRenderMask, rendItemSorter, &passInfo.GetCamera()));
         }
@@ -223,7 +234,6 @@ void COctreeNode::CompileObjects()
 
     m_bStaticInstancingIsDirty = true;
     CheckUpdateStaticInstancing();
-    m_lstVegetationsForRendering.Clear();
 
     float fObjMaxViewDistance = 0;
 
@@ -427,8 +437,6 @@ void COctreeNode::UpdateStaticInstancing()
 {
     FUNCTION_PROFILER_3DENGINE;
 
-    m_lstVegetationsForRendering.Clear();
-
     // clear
     if (m_pStaticInstancingInfo)
     {
@@ -570,8 +578,6 @@ void COctreeNode::UpdateStaticInstancing()
 void COctreeNode::ResetStaticInstancing()
 {
     FUNCTION_PROFILER_3DENGINE;
-
-    m_lstVegetationsForRendering.Clear();
 
     for (IRenderNode* pObj = m_arrObjects[eRNListType_Vegetation].m_pFirstNode, * pNext; pObj; pObj = pNext)
     {
@@ -772,11 +778,11 @@ void COctreeNode::FillShadowMapCastersList(const ShadowMapFrustumParams& params,
         if (pCaster->bCanExecuteAsRenderJob)
         {
             Get3DEngine()->CheckCreateRNTmpData(&pCaster->pNode->m_pRNTmpData, pCaster->pNode, *params.passInfo);
-            params.pFr->pJobExecutedCastersList->Add(pCaster->pNode);
+            params.pFr->m_jobExecutedCastersList.Add(pCaster->pNode);
         }
         else
         {
-            params.pFr->pCastersList->Add(pCaster->pNode);
+            params.pFr->m_castersList.Add(pCaster->pNode);
         }
     }
 
@@ -924,9 +930,29 @@ void COctreeNode::MoveObjectsIntoList(PodArray<SRNInfo>* plstResultEntities, con
                         continue;
                     }
                 }
+                else if (eRType == eERType_Vegetation)
+                {
+                    // Procedural "static" vegetation and dynamic vegetation are both considered dynamic objects
+                    // because they're spawned / despawned at runtime
+                    CVegetation* vegNode = static_cast<CVegetation*>(pObj);
+                    if ((pObj->GetRndFlags() & ERF_PROCEDURAL) || (vegNode->IsDynamic()))
+                    {
+                        continue;
+                    }
+                }
+                else if (eRType == eERType_MergedMesh)
+                {
+                    // Dynamic merged mesh nodes are considered dynamic objects because they're spawned / despawned at
+                    // runtime.  "Static" merged mesh nodes are *not* considered dynamic because they exist for the lifetime
+                    // of the level, even though they spawn / despawn instances within themselves at runtime.
+                    CMergedMeshRenderNode* mergedMeshNode = static_cast<CMergedMeshRenderNode*>(pObj);
+                    if (mergedMeshNode->HasDynamicInstances())
+                    {
+                        continue;
+                    }
+                }
                 else if (
                     eRType != eERType_Brush &&
-                    eRType != eERType_Vegetation &&
                     eRType != eERType_StaticMeshRenderComponent)
                 {
                     continue;
@@ -1119,15 +1145,17 @@ void COctreeNode::GetMemoryUsage(ICrySizer* pSizer) const
     }
 }
 
-void COctreeNode::UpdateTerrainNodes(CTerrainNode* pParentNode)
+void COctreeNode::UpdateTerrainNodes(ITerrainNode* pParentNode)
 {
     if (pParentNode != 0)
     {
         SetTerrainNode(pParentNode->FindMinNodeContainingBox(GetNodeBox()));
     }
-    else if (m_nSID >= 0 && GetTerrain() != 0)
+    else if (m_nSID >= 0)
     {
-        SetTerrainNode(GetTerrain()->FindMinNodeContainingBox(GetNodeBox()));
+        ITerrainNode* terrainNode = nullptr;
+        LegacyTerrain::LegacyTerrainDataRequestBus::BroadcastResult(terrainNode, &LegacyTerrain::LegacyTerrainDataRequests::FindMinNodeContainingBox, GetNodeBox());
+        SetTerrainNode(terrainNode);
     }
     else
     {
@@ -1143,11 +1171,37 @@ void COctreeNode::UpdateTerrainNodes(CTerrainNode* pParentNode)
     }
 }
 
-void C3DEngine::GetObjectsByTypeGlobal(PodArray<IRenderNode*>& lstObjects, EERType objType, const AABB* pBBox)
+void COctreeNode::PrepareForRemovalOfAllVegetationCasters()
+{
+    m_removeVegetationCastersOneByOne = false;
+}
+
+void COctreeNode::RemoveAllVegetationCasters()
+{
+    AZ_Assert(!m_removeVegetationCastersOneByOne, "This method should only be called when there was preparation to remove all vegetation casters.");
+
+    m_lstCasters.RemoveIf([](const SCasterInfo& caster) { return (caster.nRType == eERType_Vegetation) || (caster.nRType == eERType_MergedMesh); });
+
+    for (int i = 0; i < 8; i++)
+    {
+        if (m_arrChilds[i])
+        {
+            m_arrChilds[i]->RemoveAllVegetationCasters();
+        }
+    }
+
+    //Only the root node should clear the m_removeVegetationCastersOneByOne flag.
+    if (!m_pParent)
+    {
+        m_removeVegetationCastersOneByOne = true;
+    }
+}
+
+void C3DEngine::GetObjectsByTypeGlobal(PodArray<IRenderNode*>& lstObjects, EERType objType, const AABB* pBBox, ObjectTreeQueryFilterCallback filterCallback)
 {
     if (Get3DEngine()->IsObjectTreeReady())
     {
-        Get3DEngine()->GetObjectTree()->GetObjectsByType(lstObjects, objType, pBBox);
+        Get3DEngine()->GetObjectTree()->GetObjectsByType(lstObjects, objType, pBBox, filterCallback);
     }
 }
 
@@ -1444,11 +1498,11 @@ bool COctreeNode::GetShadowCastersTimeSliced(IRenderNode* pIgnoreNode, ShadowMap
                             if (pNode->CanExecuteRenderAsJob())
                             {
                                 Get3DEngine()->CheckCreateRNTmpData(&pNode->m_pRNTmpData, pNode, passInfo);
-                                pFrustum->pJobExecutedCastersList->Add(pNode);
+                                pFrustum->m_jobExecutedCastersList.Add(pNode);
                             }
                             else
                             {
-                                pFrustum->pCastersList->Add(pNode);
+                                pFrustum->m_castersList.Add(pNode);
                             }
                         }
                     }
@@ -1457,7 +1511,7 @@ bool COctreeNode::GetShadowCastersTimeSliced(IRenderNode* pIgnoreNode, ShadowMap
         }
 
         pFrustum->pShadowCacheData->mOctreePathNodeProcessed[nCurLevel] = true;
-        if (!pFrustum->pCastersList->empty() || !pFrustum->pJobExecutedCastersList->empty())
+        if (!pFrustum->m_castersList.IsEmpty() || !pFrustum->m_jobExecutedCastersList.IsEmpty())
         {
             --totalRemainingNodes;
         }
@@ -1546,7 +1600,15 @@ bool COctreeNode::RayObjectsIntersection2D(Vec3 vStart, Vec3 vEnd, Vec3& vCloses
     }
 
     const bool oceanEnabled = OceanToggle::IsActive() ? OceanRequest::OceanIsEnabled() : true;
-    const float fOceanLevel = OceanToggle::IsActive() ? OceanRequest::GetOceanLevel() : GetTerrain()->GetWaterLevel();
+    float fOceanLevel = WATER_LEVEL_UNKNOWN;
+    if (OceanToggle::IsActive())
+    {
+        fOceanLevel = OceanRequest::GetOceanLevel();
+    }
+    else
+    {
+        fOceanLevel = m_pOcean ? m_pOcean->GetWaterLevel() : WATER_LEVEL_UNKNOWN;
+    }
 
     ERNListType eListType = IRenderNode::GetRenderNodeListId(eERType);
 
@@ -1640,7 +1702,9 @@ bool COctreeNode::RayObjectsIntersection2D(Vec3 vStart, Vec3 vEnd, Vec3& vCloses
 
 void COctreeNode::GenerateStatObjAndMatTables(std::vector<IStatObj*>* pStatObjTable, std::vector<_smart_ptr<IMaterial> >* pMatTable, std::vector<IStatInstGroup*>* pStatInstGroupTable, SHotUpdateInfo* pExportInfo)
 {
-    COMPILE_TIME_ASSERT(eERType_TypesNum == 28);//if eERType number is changed, have to check this code.
+    //if eERType number is changed, have to check this code.
+    COMPILE_TIME_ASSERT(eERType_TypesNum == 28);
+
     AABB* pBox = (pExportInfo && !pExportInfo->areaBox.IsReset()) ? &pExportInfo->areaBox : NULL;
 
     if (pBox && !Overlap::AABB_AABB(GetNodeBox(), *pBox))
@@ -2069,7 +2133,7 @@ int COctreeNode::Load_T(T& f, int& nDataSize, std::vector<IStatObj*>* pStatObjTa
     }
 
     SOcTreeNodeChunk chunk;
-    if (!CTerrain::LoadDataFromFile(&chunk, 1, f, nDataSize, eEndian))
+    if (!PakLoadDataUtils::LoadDataFromFile(&chunk, 1, f, nDataSize, eEndian))
     {
         return 0;
     }
@@ -2092,7 +2156,7 @@ int COctreeNode::Load_T(T& f, int& nDataSize, std::vector<IStatObj*>* pStatObjTa
             pPtr++;
         }
 
-        if (!CTerrain::LoadDataFromFile(pPtr, chunk.nObjectsBlockSize, f, nDataSize, eEndian))
+        if (!PakLoadDataUtils::LoadDataFromFile(pPtr, chunk.nObjectsBlockSize, f, nDataSize, eEndian))
         {
             return 0;
         }
@@ -2274,9 +2338,17 @@ bool COctreeNode::HasAnyRenderableCandidates(const SRenderingPassInfo& passInfo)
     // This checks if anything will be rendered, assuming we pass occlusion checks
     // This is based on COctreeNode::RenderContentJobEntry's implementation,
     // if that would do nothing, we can skip the running of occlusion and rendering jobs for this node
+    const bool newTerrain = 
+#ifdef LY_TERRAIN_RUNTIME
+    Terrain::TerrainProviderRequestBus::HasHandlers() &&
+                              passInfo.RenderTerrain() && 
+                              m_arrObjects[eRNListType_TerrainSystem].m_pFirstNode != NULL;
+#else
+    false;
+#endif
     const bool bVegetation = passInfo.RenderVegetation() && m_arrObjects[eRNListType_Vegetation].m_pFirstNode != NULL;
     const bool bBrushes = passInfo.RenderBrushes() && m_arrObjects[eRNListType_Brush].m_pFirstNode != NULL;
     const bool bDecalsAndRoads = (passInfo.RenderDecals() || passInfo.RenderRoads()) && m_arrObjects[eRNListType_DecalsAndRoads].m_pFirstNode != NULL;
     const bool bUnknown = m_arrObjects[eRNListType_Unknown].m_pFirstNode != NULL;
-    return bVegetation || bBrushes || bDecalsAndRoads || bUnknown;
+    return newTerrain || bVegetation || bBrushes || bDecalsAndRoads || bUnknown;
 }

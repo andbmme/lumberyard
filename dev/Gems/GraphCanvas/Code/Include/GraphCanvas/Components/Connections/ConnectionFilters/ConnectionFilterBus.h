@@ -15,6 +15,9 @@
 #include <AzCore/EBus/EBus.h>
 #include <AzCore/Component/EntityId.h>
 
+#include <GraphCanvas/Types/Endpoint.h>
+#include <GraphCanvas/Editor/EditorTypes.h>
+
 namespace GraphCanvas
 {
     struct Connectability;
@@ -35,7 +38,7 @@ namespace GraphCanvas
             return m_entityId;
         }
 
-        virtual bool CanConnectWith(const AZ::EntityId& slotId, Connectability& connectability) const = 0;
+        virtual bool CanConnectWith(const Endpoint& endpoint, const ConnectionMoveType& moveType) const = 0;
 
     private:
 
@@ -53,6 +56,7 @@ namespace GraphCanvas
         //! Add a connection filter to the given slot.
         //! Params: ConnectionFilter* the filter to be added, ownership is taken by the Slot.
         virtual void AddFilter(ConnectionFilter*) = 0;
+        virtual bool CanConnectWith(const Endpoint& endpoint, const ConnectionMoveType& moveType) const = 0;
     };
 
     using ConnectionFilterRequestBus = AZ::EBus<ConnectionFilterRequests>;

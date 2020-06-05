@@ -23,6 +23,7 @@
 #include <ui_upload_packages.h>
 
 #include <AzToolsFramework/SourceControl/SourceControlAPI.h>
+#include <CloudCanvasPythonWorkerInterface.h>
 
 namespace DynamicContent
 {
@@ -32,7 +33,7 @@ namespace DynamicContent
     class QDynamicContentEditorMainWindow
         : public QMainWindow
         , public Ui_QDynamicContentEditorMainWindow
-        , private PythonWorkerEvents::Bus::Handler
+        , protected PythonWorkerEventsInterface
     {
         Q_OBJECT
 
@@ -92,8 +93,8 @@ namespace DynamicContent
             platformDisplayMap["es3"] = "Android";
             platformDisplayMap["ios"] = "iOS";
             platformDisplayMap["pc"] = "Windows";
-            platformDisplayMap["xboxone"] = "Xbox One";
-            platformDisplayMap["ps4"] = "PlayStation 4";
+            platformDisplayMap["xenia"] = "Xenia";
+            platformDisplayMap["provo"] = "Provo";
             platformDisplayMap["shared"] = "Shared";
             return platformDisplayMap;
         }
@@ -106,8 +107,8 @@ namespace DynamicContent
             for (auto platform : platformList)
             {
                 platformMap[platform].LicenseExists = true;
-                platformMap[platform].LargeSizeIconLink = QString("Editor/Icons/CloudCanvas/" + platform + "_16px.png");
-                platformMap[platform].SmallSizeIconLink = QString("Editor/Icons/CloudCanvas/" + platform + "_14px.png");
+                platformMap[platform].LargeSizeIconLink = QString("Editor/Icons/CloudCanvas/Platform/" + platform + "/" + platform + "_16px.png");
+                platformMap[platform].SmallSizeIconLink = QString("Editor/Icons/CloudCanvas/Platform/" + platform + "/" + platform + "_14px.png");
                 platformMap[platform].DisplayName = platformDisplayNames[platform];     
             }
             return platformMap;
@@ -142,7 +143,7 @@ namespace DynamicContent
 
     private:
         //////////////////////////////////////////////////////////////////////////
-        // PythonWorkerEvents
+        // PythonWorkerEventsInterface
         bool OnPythonWorkerOutput(PythonWorkerRequestId requestId, const QString& key, const QVariant& value) override;
         //////////////////////////////////////////////////////////////////////////
 

@@ -137,13 +137,22 @@ private: // member functions
 
     void OnExpandedStateActionsChanged();
 
+    void Expand(bool transferHover);
+    void Collapse(bool transferHover);
+
     bool HandleReleasedCommon(const AZ::Vector2& point);
-    void HandleCanvasReleasedCommon(AZ::EntityId entityId);
+    void HandleCanvasReleasedCommon(AZ::EntityId entityId, bool positionalInput);
 
     void TransferHoverToDescendant();
     AZ::EntityId FindFirstDescendantInteractable(AZ::EntityId parentEntityId);
     AZ::EntityId CreateContentParentInteractable();
     bool ContentIsAncestor(AZ::EntityId entityId);
+    bool ContentIsAncestor(AZ::EntityId entityId, AZ::EntityId contentId);
+    AZ::Outcome<void, AZStd::string> ValidateTypeIsEntityId(const AZ::Uuid& valueType);
+    AZ::Outcome<void, AZStd::string> ValidatePotentialContent(void* newValue, const AZ::Uuid& valueType);
+    AZ::Outcome<void, AZStd::string> ValidatePotentialExpandedParent(void* newValue, const AZ::Uuid& valueType);
+
+    bool IsNavigationSupported();
 
     // UiInteractableInterface
     UiInteractableStatesInterface::State ComputeInteractableState() override;

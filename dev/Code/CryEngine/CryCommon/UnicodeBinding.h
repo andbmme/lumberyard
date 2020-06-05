@@ -51,6 +51,12 @@
 #include <deque>                    // For std::deque.
 #include <type_traits>              // ... standard type-traits (as of C++11).
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#undef AZ_RESTRICTED_SECTION
+#define UNICODEBINDING_H_SECTION_1 1
+#define UNICODEBINDING_H_SECTION_2 2
+#endif
+
 // Forward declare the supported types.
 // Before actually instantiating a binding however, you need to have the full definition included.
 // Also, this allows us to work with QChar/QString as declared names without a dependency on Qt.
@@ -524,7 +530,27 @@ namespace Unicode
             }
             static size_t StrNLen(const T* ptr, size_t len) // Wide CRT strnlen.
             {
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION UNICODEBINDING_H_SECTION_1
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/UnicodeBinding_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/UnicodeBinding_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/UnicodeBinding_h_salem.inl"
+    #endif
+#endif
                 return ::wcsnlen(SafeCast<const wchar_t*>(ptr), len);
+#if defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION UNICODEBINDING_H_SECTION_2
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/UnicodeBinding_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/UnicodeBinding_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/UnicodeBinding_h_salem.inl"
+    #endif
+#endif
             }
         };
 

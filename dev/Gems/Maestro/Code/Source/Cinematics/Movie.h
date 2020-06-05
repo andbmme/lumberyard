@@ -53,7 +53,7 @@ public:
 
 private:
     typedef std::map<string, CLightAnimWrapper*> LightAnimWrapperCache;
-    static LightAnimWrapperCache ms_lightAnimWrapperCache;
+    static StaticInstance<LightAnimWrapperCache> ms_lightAnimWrapperCache;
     static AZStd::intrusive_ptr<IAnimSequence> ms_pLightAnimSet;
 
 private:
@@ -87,13 +87,9 @@ public:
     void SetUser(IMovieUser* pUser) { m_pUser = pUser; }
     IMovieUser* GetUser() { return m_pUser; }
 
-    bool Load(const char* pszFile, const char* pszMission);
-
     ISystem* GetSystem() { return m_pSystem; }
 
     IAnimSequence* CreateSequence(const char* sequence, bool bLoad = false, uint32 id = 0, SequenceType = kSequenceTypeDefault, AZ::EntityId entityId = AZ::EntityId());
-    IAnimSequence* LoadSequence(const char* pszFilePath);
-    IAnimSequence* LoadSequence(XmlNodeRef& xmlNode, bool bLoadEmpty = true);
 
     void AddSequence(IAnimSequence* pSequence);
     void RemoveSequence(IAnimSequence* pSequence);
@@ -141,9 +137,12 @@ public:
     void PostUpdate(const float dt);
     void Render();
 
-    void StartCapture(const ICaptureKey& key);
+    void EnableFixedStepForCapture(float step);
+    void DisableFixedStepForCapture();
+    void StartCapture(const ICaptureKey& key, int frame);
     void EndCapture();
     void ControlCapture();
+    bool IsCapturing() const;
 
     bool IsPlaying(IAnimSequence* seq) const;
 
@@ -162,8 +161,6 @@ public:
     void SetCallback(IMovieCallback* pCallback) { m_pCallback = pCallback; }
     IMovieCallback* GetCallback() { return m_pCallback; }
     void Callback(IMovieCallback::ECallbackReason Reason, IAnimNode* pNode);
-
-    void Serialize(XmlNodeRef& xmlNode, bool bLoading, bool bRemoveOldNodes = false, bool bLoadEmpty = true);
 
     const SCameraParams& GetCameraParams() const { return m_ActiveCameraParams; }
     void SetCameraParams(const SCameraParams& Params);
@@ -192,11 +189,6 @@ public:
     virtual void EnableBatchRenderMode(bool bOn) { m_bBatchRenderMode = bOn; }
     virtual bool IsInBatchRenderMode() const { return m_bBatchRenderMode; }
 
-    int GetEntityNodeParamCount() const;
-    CAnimParamType GetEntityNodeParamType(int index) const;
-    const char* GetEntityNodeParamName(int index) const;
-    IAnimNode::ESupportedParamFlags GetEntityNodeParamFlags(int index) const;
-
     ILightAnimWrapper* CreateLightAnimWrapper(const char* name) const;
 
     void SerializeNodeType(AnimNodeType& animNodeType, XmlNodeRef& xmlNode, bool bLoading, const uint version, int flags) override;
@@ -211,6 +203,8 @@ public:
     void LogUserNotificationMsg(const AZStd::string& msg) override;
     void ClearUserNotificationMsgs() override;
     const AZStd::string& GetUserNotificationMsgs() const override;
+
+    void OnSequenceActivated(IAnimSequence* sequence) override;
 
     static void Reflect(AZ::SerializeContext* serializeContext);
 
@@ -253,6 +247,12 @@ private:
 
     PlayingSequences m_playingSequences;
 
+    // A list of sequences that just got Activated. Queue them up here
+    // and process them in Update to see if the sequence should be auto-played.
+    // We don't want to auto-play OnActivate because of the timing of
+    // how entity ids get remapped in the editor and game.
+    AZStd::vector<IAnimSequence*> m_newlyActivatedSequences;
+
     typedef AZStd::vector<IMovieListener*> TMovieListenerVec;
     typedef AZStd::map<IAnimSequence*, TMovieListenerVec> TMovieListenerMap;
 
@@ -270,13 +270,20 @@ private:
     ESequenceStopBehavior m_sequenceStopBehavior;
 
     bool m_bStartCapture;
+    int m_captureFrame;
     bool m_bEndCapture;
     ICaptureKey m_captureKey;
     float m_fixedTimeStepBackUp;
+    float m_maxStepBackUp;
+    float m_smoothingBackUp;
+    float m_maxTimeStepForMovieSystemBackUp;
     ICVar* m_cvar_capture_file_format;
     ICVar* m_cvar_capture_frame_once;
     ICVar* m_cvar_capture_folder;
     ICVar* m_cvar_t_FixedStep;
+    ICVar* m_cvar_t_MaxStep;
+    ICVar* m_cvar_t_Smoothing;
+    ICVar* m_cvar_sys_maxTimeStepForMovieSystem;
     ICVar* m_cvar_capture_frames;
     ICVar* m_cvar_capture_file_prefix;
     ICVar* m_cvar_capture_buffer;

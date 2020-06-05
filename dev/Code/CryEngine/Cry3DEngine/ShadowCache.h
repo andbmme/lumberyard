@@ -17,6 +17,8 @@
 #include <platform.h>
 #include "../RenderDll/Common/Shadow_Renderer.h"
 
+struct ITerrainNode;
+
 class ShadowCache
     : public Cry3DEngineBase
 {
@@ -42,7 +44,8 @@ private:
     Matrix44 GetViewMatrix(const SRenderingPassInfo& passInfo);
 
     ILINE uint64 HashValue(uint64 value);
-    ILINE uint64 HashTerrainNode(const CTerrainNode* pNode, int lod);
+
+    ILINE uint64 HashTerrainNode(const ITerrainNode* pNode, int lod);
 
     CLightEntity* m_pLightEntity;
     ShadowMapFrustum::ShadowCacheData::eUpdateStrategy m_nUpdateStrategy;

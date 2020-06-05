@@ -10,7 +10,6 @@
 *
 */
 
-#include "precompiled.h"
 #include "UnaryOperator.h"
 
 namespace ScriptCanvas
@@ -37,7 +36,20 @@ namespace ScriptCanvas
 
         void UnaryOperator::ConfigureSlots()
         {
-            AddSlot(UnaryOperator::k_evaluateName, "Signal to perform the evaluation when desired.", ScriptCanvas::SlotType::ExecutionIn);
+            {
+                ExecutionSlotConfiguration slotConfiguration;
+
+                slotConfiguration.m_name = UnaryOperator::k_evaluateName;
+                slotConfiguration.m_toolTip = "Signal to perform the evaluation when desired.";
+                slotConfiguration.SetConnectionType(ConnectionType::Input);
+
+                AddSlot(slotConfiguration);
+            }
+        }
+
+        SlotId UnaryOperator::GetOutputSlotId() const
+        {
+            return GetSlotId(k_resultName);
         }
 
         void UnaryOperator::Reflect(AZ::ReflectContext* reflection)
@@ -52,7 +64,6 @@ namespace ScriptCanvas
                 {
                     editContext->Class<UnaryOperator>("UnaryOperator", "UnaryOperator")
                         ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
-                            ->Attribute(AZ::Edit::Attributes::Visibility, AZ::Edit::PropertyVisibility::ShowChildrenOnly)
                         ;
                 }
             }
@@ -62,11 +73,13 @@ namespace ScriptCanvas
         {
         }
 
-        void UnaryExpression::OnInputSignal(const SlotId& slot)
+        void UnaryExpression::OnInputSignal(const SlotId&)
         {
-            AZ_Assert(m_outputSlotIndex != -1, "m_outputSlotIndex was not configured to the index of the result slot");
-            const Datum output = Evaluate(m_inputData[k_datumIndex]);
-            PushOutput(output, m_slotContainer.m_slots[m_outputSlotIndex]);
+            const Datum output = Evaluate(*FindDatumByIndex(k_datumIndex));
+            if (auto slot = GetSlot(GetOutputSlotId()))
+            {
+                PushOutput(output, *slot);
+            }
 
             const bool* value = output.GetAs<bool>();
             if (value && *value)
@@ -81,16 +94,47 @@ namespace ScriptCanvas
 
         void UnaryExpression::ConfigureSlots()
         {
-            AddInputDatumSlot(UnaryExpression::k_valueName, "", AZStd::move(Data::Type::Boolean()), Datum::eOriginality::Original);
+            {
+                DataSlotConfiguration slotConfiguration;
 
-            SlotId slotId = AddOutputTypeSlot(UnaryExpression::k_resultName, "", Data::Type::Boolean(), OutputStorage::Optional);
-            const Slot* slot{};
-            GetValidSlotIndex(slotId, slot, m_outputSlotIndex);
+                slotConfiguration.m_name = UnaryExpression::k_valueName;
+                slotConfiguration.SetType(Data::Type::Boolean());
+                slotConfiguration.SetConnectionType(ConnectionType::Input);
+
+                AddSlot(slotConfiguration);
+            }
+
+            {
+                DataSlotConfiguration slotConfiguration;
+
+                slotConfiguration.m_name = UnaryExpression::k_resultName;
+                slotConfiguration.SetType(Data::Type::Boolean());
+                slotConfiguration.SetConnectionType(ConnectionType::Output);
+
+                AddSlot(slotConfiguration);
+            }
 
             UnaryOperator::ConfigureSlots();
 
-            AddSlot(k_onTrue, "Signaled if the result of the operation is true.", ScriptCanvas::SlotType::ExecutionOut);
-            AddSlot(k_onFalse, "Signaled if the result of the operation is false.", ScriptCanvas::SlotType::ExecutionOut);
+            {
+                ExecutionSlotConfiguration slotConfiguration;
+
+                slotConfiguration.m_name = k_onTrue;
+                slotConfiguration.m_toolTip = "Signaled if the result of the operation is true.";
+                slotConfiguration.SetConnectionType(ConnectionType::Output);
+
+                AddSlot(slotConfiguration);
+            }
+
+            {
+                ExecutionSlotConfiguration slotConfiguration;
+
+                slotConfiguration.m_name = k_onFalse;
+                slotConfiguration.m_toolTip = "Signaled if the result of the operation is false.";
+                slotConfiguration.SetConnectionType(ConnectionType::Output);
+
+                AddSlot(slotConfiguration);
+            }
 
             InitializeUnaryExpression();
 
@@ -108,7 +152,6 @@ namespace ScriptCanvas
                 {
                     editContext->Class<UnaryExpression>("UnaryExpression", "UnaryExpression")
                         ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
-                            ->Attribute(AZ::Edit::Attributes::Visibility, AZ::Edit::PropertyVisibility::ShowChildrenOnly)
                         ;
                 }
             }

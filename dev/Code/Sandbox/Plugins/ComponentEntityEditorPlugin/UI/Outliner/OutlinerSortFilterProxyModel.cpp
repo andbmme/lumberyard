@@ -9,11 +9,11 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
-#include "stdafx.h"
+#include "ComponentEntityEditorPlugin_precompiled.h"
 
 #include "OutlinerSortFilterProxyModel.hxx"
 
-#include <AzCore/Component/componentapplication.h>
+#include <AzCore/Component/ComponentApplication.h>
 #include <AzCore/Component/Entity.h>
 
 #include "OutlinerListModel.hxx"

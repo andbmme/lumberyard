@@ -82,7 +82,7 @@ public:                                                                         
 
 // game object extensions need more information than the generic interface can provide
 struct IGameObjectExtension;
-DECLARE_COMPONENT_POINTERS(IGameObjectExtension);
+DECLARE_SMART_POINTERS(IGameObjectExtension);
 
 struct IGameObjectExtensionCreatorBase
 {
@@ -137,8 +137,6 @@ struct IViewSystem;
 struct IVehicle;
 struct IVehicleSystem;
 struct IGameRulesSystem;
-struct IFlowSystem;
-struct IGameTokenSystem;
 struct IEffectSystem;
 struct IGameObject;
 struct IGameObjectExtension;
@@ -193,7 +191,7 @@ enum EGameStartFlags
 enum ESaveGameReason
 {
     eSGR_LevelStart,
-    eSGR_FlowGraph,
+    eSGR_Deprecated, // formerly SGR_FlowGraph
     eSGR_Command,
     eSGR_QuickSave
 };
@@ -464,6 +462,8 @@ enum EFRAMEWORKLISTENERPRIORITY
 struct IGameFrameworkListener
 {
     virtual ~IGameFrameworkListener() {}
+    //! Called before frame is created.
+    virtual void OnPreUpdate() { }
     //! Called after Render, before PostUpdate.
     virtual void OnPostUpdate(float fDeltaTime) { }
     //! Called before the game is saved.
@@ -580,7 +580,7 @@ struct IGameFramework
 
     // Description:
     //    Marks the game started.
-    virtual void MarkGameStarted() = 0;
+    virtual void MarkGameStarted(bool started) = 0;
 
     // Description:
     //      Check if the game is allowed to start the actual gameplay
@@ -655,16 +655,6 @@ struct IGameFramework
     //      Pointer to IGameRulesSystem interface.
     virtual IGameRulesSystem* GetIGameRulesSystem() = 0;
     // Description:
-    //      Returns a pointer to the IFlowSystem interface.
-    // Return Value:
-    //      Pointer to IFlowSystem interface.
-    virtual IFlowSystem* GetIFlowSystem() = 0;
-    // Description:
-    //      Returns a pointer to the IGameTokenSystem interface
-    // Return Value:
-    //      Pointer to IGameTokenSystem interface.
-    virtual IGameTokenSystem* GetIGameTokenSystem() = 0;
-    // Description:
     //      Returns a pointer to the IEffectSystem interface
     // Return Value:
     //      Pointer to IEffectSystem interface.
@@ -721,10 +711,6 @@ struct IGameFramework
     // Description:
     //      Pointer to IForceFeedbackSystem interface.
     virtual IForceFeedbackSystem* GetIForceFeedbackSystem() const = 0;
-
-    // Description:
-    //      Pointer to ICustomActionManager interface.
-    virtual ICustomActionManager* GetICustomActionManager() const = 0;
 
     // Description:
     //      Pointer to ICustomEventManager interface.
@@ -933,8 +919,6 @@ struct IGameFramework
 
     virtual IDebugHistoryManager* CreateDebugHistoryManager() = 0;
 
-    virtual void DumpMemInfo(const char* format, ...) PRINTF_PARAMS(2, 3) = 0;
-
     // Description:
     //      Check whether the client actor is using voice communication.
     virtual bool IsVoiceRecordingEnabled() = 0;
@@ -1056,9 +1040,18 @@ public:
     static const AZ::EBusAddressPolicy AddressPolicy = AZ::EBusAddressPolicy::Single;
 
     /*!
+    * Creates an IGameFramework instance, but does not initialize the framework or load the
+    * CryGame module like InitFramework. Needed to support legacy games that still call the
+    * DLL_EXPORT version of CreateGameFramework defined in CryAction/Main.cpp, which now in
+    * turn calls this EBus method directly.
+    * /return returns Pointer to the game framework if it was created, nullptr otherwise
+    */
+    virtual IGameFramework* CreateFramework() = 0;
+
+    /*!
     * Creates an IGameFramework instance, initialize the framework and load CryGame module
     * /param[in] startupParams various parameters related to game startup
-    * /return returns true if the game framework initialized, false if failed
+    * /return returns Pointer to the game framework if it was created and initialized, nullptr otherwise
     */
     virtual IGameFramework* InitFramework(SSystemInitParams& startupParams) = 0;
 

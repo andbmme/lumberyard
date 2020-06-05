@@ -29,13 +29,14 @@ namespace AZ
      * But the allocator utility system will use the system allocator.
      */
     class SystemAllocator
-        : public IAllocator
+        : public AllocatorBase
+        , public IAllocatorAllocate
     {
     public:
         AZ_TYPE_INFO(SystemAllocator, "{424C94D8-85CF-4E89-8CD6-AB5EC173E875}")
 
         SystemAllocator();
-        ~SystemAllocator();
+        ~SystemAllocator() override;
 
         /**
          * Description - configure the system allocator. By default
@@ -62,20 +63,22 @@ namespace AZ
                     : m_pageSize(m_defaultPageSize)
                     , m_poolPageSize(m_defaultPoolPageSize)
                     , m_isPoolAllocations(true)
-                    , m_numMemoryBlocks(0)
-                    , m_subAllocator(0)
+                    , m_numFixedMemoryBlocks(0)
+                    , m_subAllocator(nullptr)
+                    , m_systemChunkSize(0)
                 {}
                 static const int        m_defaultPageSize = AZ_TRAIT_OS_DEFAULT_PAGE_SIZE;
                 static const int        m_defaultPoolPageSize = 4 * 1024;
                 static const int        m_memoryBlockAlignment = m_defaultPageSize;
-                static const int        m_maxNumBlocks = 3;
+                static const int        m_maxNumFixedBlocks = 3;
                 unsigned int            m_pageSize;                                 ///< Page allocation size must be 1024 bytes aligned. (default m_defaultPageSize)
                 unsigned int            m_poolPageSize;                             ///< Page size used to small memory allocations. Must be less or equal to m_pageSize and a multiple of it. (default m_defaultPoolPageSize)
                 bool                    m_isPoolAllocations;                        ///< True (default) if we use pool for small allocations (< 256 bytes), otherwise false. IMPORTANT: Changing this to false will degrade performance!
-                int                     m_numMemoryBlocks;                          ///< Number of memory blocks to use.
-                void*                   m_memoryBlocks[m_maxNumBlocks];             ///< Pointers to provided memory blocks or NULL if you want the system to allocate them for you with the System Allocator.
-                size_t                  m_memoryBlocksByteSize[m_maxNumBlocks];     ///< Sizes of different memory blocks (MUST be multiple of m_pageSize), if m_memoryBlock is 0 the block will be allocated for you with the System Allocator.
+                int                     m_numFixedMemoryBlocks;                     ///< Number of memory blocks to use.
+                void*                   m_fixedMemoryBlocks[m_maxNumFixedBlocks];   ///< Pointers to provided memory blocks or NULL if you want the system to allocate them for you with the System Allocator.
+                size_t                  m_fixedMemoryBlocksByteSize[m_maxNumFixedBlocks]; ///< Sizes of different memory blocks (MUST be multiple of m_pageSize), if m_memoryBlock is 0 the block will be allocated for you with the System Allocator.
                 IAllocatorAllocate*     m_subAllocator;                             ///< Allocator that m_memoryBlocks memory was allocated from or should be allocated (if NULL).
+                size_t                  m_systemChunkSize;                          ///< Size of chunk to request from the OS when more memory is needed (defaults to m_pageSize)
             }                           m_heap;
             bool                        m_allocationRecords;    ///< True if we want to track memory allocations, otherwise false.
             unsigned char               m_stackRecordLevels;    ///< If stack recording is enabled, how many stack levels to record.
@@ -83,35 +86,40 @@ namespace AZ
 
         bool Create(const Descriptor& desc);
 
-        void Destroy();
+        void Destroy() override;
 
         //////////////////////////////////////////////////////////////////////////
         // IAllocator
+        AllocatorDebugConfig GetDebugConfig() override;
+        IAllocatorAllocate* GetSchema() override;
 
-        virtual const char*     GetName() const                 { return "SystemAllocator"; }
-        virtual const char*     GetDescription() const          { return "Fundamental generic memory allocator"; }
+        //////////////////////////////////////////////////////////////////////////
+        // IAllocatorAllocate
 
-        virtual pointer_type    Allocate(size_type byteSize, size_type alignment, int flags = 0, const char* name = 0, const char* fileName = 0, int lineNum = 0, unsigned int suppressStackRecord = 0);
-        virtual void            DeAllocate(pointer_type ptr, size_type byteSize = 0, size_type alignment = 0);
-        virtual pointer_type    ReAllocate(pointer_type ptr, size_type newSize, size_type newAlignment);
-        virtual size_type       Resize(pointer_type ptr, size_type newSize);
-        virtual size_type       AllocationSize(pointer_type ptr);
-        virtual void            GarbageCollect()                 { m_allocator->GarbageCollect(); }
+        pointer_type    Allocate(size_type byteSize, size_type alignment, int flags = 0, const char* name = 0, const char* fileName = 0, int lineNum = 0, unsigned int suppressStackRecord = 0) override;
+        void            DeAllocate(pointer_type ptr, size_type byteSize = 0, size_type alignment = 0) override;
+        pointer_type    ReAllocate(pointer_type ptr, size_type newSize, size_type newAlignment) override;
+        size_type       Resize(pointer_type ptr, size_type newSize) override;
+        size_type       AllocationSize(pointer_type ptr) override;
+        void            GarbageCollect() override                 { m_allocator->GarbageCollect(); }
 
-        virtual size_type       NumAllocatedBytes() const       { return m_allocator->NumAllocatedBytes(); }
-        virtual size_type       Capacity() const                { return m_allocator->Capacity(); }
+        size_type       NumAllocatedBytes() const override       { return m_allocator->NumAllocatedBytes(); }
+        size_type       Capacity() const override                { return m_allocator->Capacity(); }
         /// Keep in mind this operation will execute GarbageCollect to make sure it returns, max allocation. This function WILL be slow.
-        virtual size_type       GetMaxAllocationSize() const    { return m_allocator->GetMaxAllocationSize(); }
-        virtual size_type       GetUnAllocatedMemory(bool isPrint = false) const    { return m_allocator->GetUnAllocatedMemory(isPrint); }
-        virtual IAllocatorAllocate*  GetSubAllocator()          { return m_isCustom ? m_allocator : m_allocator->GetSubAllocator(); }
+        size_type       GetMaxAllocationSize() const override    { return m_allocator->GetMaxAllocationSize(); }
+        size_type       GetUnAllocatedMemory(bool isPrint = false) const override    { return m_allocator->GetUnAllocatedMemory(isPrint); }
+        IAllocatorAllocate*  GetSubAllocator() override          { return m_isCustom ? m_allocator : m_allocator->GetSubAllocator(); }
+
         //////////////////////////////////////////////////////////////////////////
 
     protected:
         SystemAllocator(const SystemAllocator&);
         SystemAllocator& operator=(const SystemAllocator&);
 
+        Descriptor                  m_desc;
         bool                        m_isCustom;
         IAllocatorAllocate*         m_allocator;
+        bool                        m_ownsOSAllocator;
     };
 }
 

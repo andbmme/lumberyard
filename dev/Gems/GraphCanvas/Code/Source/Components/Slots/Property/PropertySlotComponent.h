@@ -36,13 +36,19 @@ namespace GraphCanvas
         void Deactivate();
         ////
 
+        // Slot RequestBus
+        int GetLayoutPriority() const override;
+        void SetLayoutPriority(int priority) override;
+        ////
+
         // PropertySlotBus
         const AZ::Crc32& GetPropertyId() const;
         ////
 
     private:
-    
-        AZ::Entity* ConstructConnectionEntity(const Endpoint& sourceEndpoint, const Endpoint& targetEndpoint) const override;
+        PropertySlotComponent(const PropertySlotComponent&) = delete;
+        PropertySlotComponent& operator=(const PropertySlotComponent&) = delete;
+        AZ::Entity* ConstructConnectionEntity(const Endpoint& sourceEndpoint, const Endpoint& targetEndpoint, bool createModelConnection) override;
         
         AZ::Crc32 m_propertyId;
     };

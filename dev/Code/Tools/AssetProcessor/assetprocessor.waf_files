@@ -4,7 +4,7 @@
             "native/assetprocessor.h",
             "native/main.cpp"
         ],
-        
+
         "AssetManager": [
             "native/AssetManager/assetProcessorManager.cpp",
             "native/AssetManager/assetProcessorManager.h",
@@ -16,7 +16,13 @@
             "native/AssetManager/AssetRequestHandler.cpp",
             "native/AssetManager/AssetRequestHandler.h",
             "native/AssetManager/AssetCatalog.h",
-            "native/AssetManager/AssetCatalog.cpp"
+            "native/AssetManager/AssetCatalog.cpp",
+            "native/AssetManager/FileStateCache.h",
+            "native/AssetManager/FileStateCache.cpp",
+            "native/AssetManager/PathDependencyManager.h",
+            "native/AssetManager/PathDependencyManager.cpp",
+            "native/AssetManager/SourceFileRelocator.h",
+            "native/AssetManager/SourceFileRelocator.cpp"
         ],
 
         "connection": [
@@ -28,7 +34,12 @@
             "native/connection/connectionworker.cpp",
             "native/connection/connectionworker.h"
         ],
-        
+
+        "FileProcessor": [
+            "native/FileProcessor/FileProcessor.cpp",
+            "native/FileProcessor/FileProcessor.h"
+        ],
+
         "FileWatcher": [
             "native/FileWatcher/FileWatcher.cpp",
             "native/FileWatcher/FileWatcher.h",
@@ -51,7 +62,7 @@
             "native/AssetDatabase/AssetDatabase.h",
             "native/AssetDatabase/AssetDatabase.cpp"
         ],
-     
+
         "resourcecompiler": [
             "native/resourcecompiler/RCJobSortFilterProxyModel.cpp",
             "native/resourcecompiler/RCJobSortFilterProxyModel.h",
@@ -70,6 +81,7 @@
             "native/resourcecompiler/JobsModel.cpp",
             "native/resourcecompiler/JobsModel.h"
         ],
+
         "utilities": [
             "native/utilities/ApplicationManagerAPI.h",
             "native/utilities/ApplicationManager.cpp",
@@ -78,24 +90,37 @@
             "native/utilities/ApplicationServer.h",
             "native/utilities/BatchApplicationManager.cpp",
             "native/utilities/BatchApplicationManager.h",
+            "native/utilities/BuilderManager.h",
+            "native/utilities/BuilderConfigurationBus.h",
+            "native/utilities/BuilderConfigurationManager.cpp",
+            "native/utilities/BuilderConfigurationManager.h",
             "native/utilities/BuilderManager.cpp",
             "native/utilities/BuilderManager.inl",
-            "native/utilities/BuilderManager.h",
+            "native/utilities/LineByLineDependencyScanner.cpp",
+            "native/utilities/LineByLineDependencyScanner.h",
+            "native/utilities/MissingDependencyScanner.cpp",
+            "native/utilities/MissingDependencyScanner.h",
+            "native/utilities/PotentialDependencies.h",
             "native/utilities/PlatformConfiguration.cpp",
             "native/utilities/PlatformConfiguration.h",
+            "native/utilities/SpecializedDependencyScanner.h",
             "native/utilities/ThreadHelper.cpp",
             "native/utilities/ThreadHelper.h",
             "native/utilities/IniConfiguration.cpp",
             "native/utilities/IniConfiguration.h",
             "native/utilities/assetUtils.cpp",
             "native/utilities/assetUtils.h",
-            "native/utilities/assetUtilEBusHelper.h",
+            "native/utilities/AssetUtilEBusHelper.h",
             "native/utilities/ByteArrayStream.h",
             "native/utilities/ByteArrayStream.cpp",
             "native/utilities/AssetBuilderInfo.h",
             "native/utilities/AssetBuilderInfo.cpp",
             "native/utilities/CommunicatorTracePrinter.h",
-            "native/utilities/CommunicatorTracePrinter.cpp"
+            "native/utilities/CommunicatorTracePrinter.cpp",
+            "native/utilities/AssetServerHandler.h",
+            "native/utilities/AssetServerHandler.cpp",
+            "native/utilities/JobDiagnosticTracker.h",
+            "native/utilities/JobDiagnosticTracker.cpp"
         ]
 
     }

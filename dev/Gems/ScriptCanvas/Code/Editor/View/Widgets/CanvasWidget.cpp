@@ -13,20 +13,26 @@
 #include "precompiled.h"
 
 #include "CanvasWidget.h"
-
+// qpainter.h(465): warning C4251: 'QPainter::d_ptr': class 'QScopedPointer<QPainterPrivate,QScopedPointerDeleter<T>>' needs to have dll-interface to be used by clients of class 'QPainter'
+// qpainter.h(450): warning C4800: 'QFlags<QPainter::RenderHint>::Int': forcing value to bool 'true' or 'false' (performance warning)
+AZ_PUSH_DISABLE_WARNING(4251 4800, "-Wunknown-warning-option")
 #include <QVBoxLayout>
 #include <QLabel>
 #include <QGraphicsView>
 #include <QPushButton>
+AZ_POP_DISABLE_WARNING
 
 #include "Editor/View/Widgets/ui_CanvasWidget.h"
 
-#include <GraphCanvas/Widgets/CanvasGraphicsView/CanvasGraphicsView.h>
+#include <GraphCanvas/Widgets/GraphCanvasGraphicsView/GraphCanvasGraphicsView.h>
+#include <GraphCanvas/Widgets/MiniMapGraphicsView/MiniMapGraphicsView.h>
 #include <GraphCanvas/GraphCanvasBus.h>
 
 #include <Debugger/Bus.h>
 #include <Core/Graph.h>
 #include <Editor/View/Dialogs/Settings.h>
+#include <Editor/GraphCanvas/GraphCanvasEditorNotificationBusId.h>
+#include <Editor/Include/ScriptCanvas/Bus/EditorScriptCanvasBus.h>
 
 namespace ScriptCanvasEditor
 {
@@ -37,13 +43,14 @@ namespace ScriptCanvasEditor
             , ui(new Ui::CanvasWidget())
             , m_attached(false)
             , m_graphicsView(nullptr)
+            , m_miniMapView(nullptr)
         {
             ui->setupUi(this);
+            ui->m_debuggingControls->hide();
 
             SetupGraphicsView();
 
             connect(ui->m_debugAttach, &QPushButton::clicked, this, &CanvasWidget::OnClicked);
-            ui->m_debuggingControls->hide();
         }
 
         CanvasWidget::~CanvasWidget()
@@ -51,25 +58,65 @@ namespace ScriptCanvasEditor
             hide();
         }
 
-        void CanvasWidget::ShowScene(const AZ::EntityId& sceneId)
+        void CanvasWidget::ShowScene(const ScriptCanvas::ScriptCanvasId& scriptCanvasId)
         {
-            m_graphicsView->SetScene(sceneId);
+            EditorGraphRequestBus::Event(scriptCanvasId, &EditorGraphRequests::CreateGraphCanvasScene);
+
+            AZ::EntityId graphCanvasSceneId;
+            EditorGraphRequestBus::EventResult(graphCanvasSceneId, scriptCanvasId, &EditorGraphRequests::GetGraphCanvasGraphId);
+
+            m_graphicsView->SetScene(graphCanvasSceneId);
         }
 
         const GraphCanvas::ViewId& CanvasWidget::GetViewId() const
         {
-            return m_graphicsView->GetId();
+            return m_graphicsView->GetViewId();
         }
 
         void CanvasWidget::SetupGraphicsView()
         {
-            m_graphicsView = aznew GraphCanvas::CanvasGraphicsView();
+            const bool registerMenuActions = false;
+            m_graphicsView = aznew GraphCanvas::GraphCanvasGraphicsView(nullptr, registerMenuActions);
 
             AZ_Assert(m_graphicsView, "Could Canvas Widget unable to create CanvasGraphicsView object.");
             if (m_graphicsView)
             {
                 ui->verticalLayout->addWidget(m_graphicsView);
-                m_graphicsView->show();
+                m_graphicsView->show();                
+                m_graphicsView->SetEditorId(ScriptCanvasEditor::AssetEditorId);
+
+                // Temporary shortcut for docking the MiniMap. Removed until we fix up the MiniMap
+                /*
+                {
+                    QAction* action = new QAction(m_graphicsView);
+                    action->setShortcut(QKeySequence(Qt::Key_M));
+                    action->setShortcutContext(Qt::WidgetWithChildrenShortcut);
+
+                    connect(action, &QAction::triggered,
+                        [this]()
+                        {
+                            if (!m_graphicsView->rubberBandRect().isNull() || QApplication::mouseButtons() || m_graphicsView->GetIsEditing())
+                            {
+                                // Nothing to do.
+                                return;
+                            }
+
+                            if (m_miniMapView)
+                            {
+                                // Cycle the position.
+                                m_miniMapPosition = static_cast<MiniMapPosition>((m_miniMapPosition + 1) % MM_Position_Count);
+                            }
+                            else
+                            {
+                                m_miniMapView = aznew GraphCanvas::MiniMapGraphicsView(0 , false, m_graphicsView->GetScene(), m_graphicsView);
+                            }
+
+                            // Apply position.
+                            PositionMiniMap();
+                        });
+
+                    m_graphicsView->addAction(action);
+                }*/
             }
         }
 
@@ -78,56 +125,48 @@ namespace ScriptCanvasEditor
             ui->m_debugAttach->setText(m_attached ? "Debugging: On" : "Debugging: Off");
         }
 
+        void CanvasWidget::PositionMiniMap()
+        {
+            if (!(m_miniMapView && m_graphicsView))
+            {
+                // Nothing to do.
+                return;
+            }
+
+            const QRect& parentRect = m_graphicsView->frameGeometry();
+
+            if (m_miniMapPosition == MM_Upper_Left)
+            {
+                m_miniMapView->move(0, 0);
+            }
+            else if (m_miniMapPosition == MM_Upper_Right)
+            {
+                m_miniMapView->move(parentRect.width() - m_miniMapView->size().width(), 0);
+            }
+            else if (m_miniMapPosition == MM_Lower_Right)
+            {
+                m_miniMapView->move(parentRect.width() - m_miniMapView->size().width(), parentRect.height() - m_miniMapView->size().height());
+            }
+            else if (m_miniMapPosition == MM_Lower_Left)
+            {
+                m_miniMapView->move(0, parentRect.height() - m_miniMapView->size().height());
+            }
+
+            m_miniMapView->setVisible(m_miniMapPosition != MM_Not_Visible);
+        }
+
+        void CanvasWidget::resizeEvent(QResizeEvent *ev)
+        {
+            QWidget::resizeEvent(ev);
+
+            PositionMiniMap();
+        }
+
         void CanvasWidget::OnClicked()
         {
-            ScriptCanvas::Graph* graph{};
-            ScriptCanvas::GraphRequestBus::EventResult(graph, m_graphicsView->GetScene(), &ScriptCanvas::GraphRequests::GetGraph);
-            if (!graph)
-            {
-                return;
-            }
-
-            if (!m_attached)
-            {
-                ScriptCanvas::Debugger::NotificationBus::Handler::BusConnect();
-
-                ScriptCanvas::Debugger::ConnectionRequestBus::Broadcast(&ScriptCanvas::Debugger::ConnectionRequests::Attach, graph->GetUniqueId());
-            }
-            else
-            {
-                ScriptCanvas::Debugger::ConnectionRequestBus::Broadcast(&ScriptCanvas::Debugger::ConnectionRequests::Detach, graph->GetUniqueId());
-            }
         }
 
-        void CanvasWidget::OnAttach(const AZ::EntityId& graphId)
-        {
-            ScriptCanvas::Graph* graph{};
-            ScriptCanvas::GraphRequestBus::EventResult(graph, m_graphicsView->GetScene(), &ScriptCanvas::GraphRequests::GetGraph);
-            if (!graph  || graph->GetUniqueId() != graphId)
-            {
-                return;
-            }
-
-            m_attached = true;
-            ui->m_debugAttach->setText("Debugging: On");
-        }
-
-        void CanvasWidget::OnDetach(const AZ::EntityId& graphId)
-        {
-            ScriptCanvas::Graph* graph{};
-            ScriptCanvas::GraphRequestBus::EventResult(graph, m_graphicsView->GetScene(), &ScriptCanvas::GraphRequests::GetGraph);
-            if (!graph || graph->GetUniqueId() != graphId)
-            {
-                return;
-            }
-
-            m_attached = false;
-            ui->m_debugAttach->setText("Debugging: Off");
-
-            ScriptCanvas::Debugger::NotificationBus::Handler::BusDisconnect();
-        }
-
-        #include <Editor/View/Widgets/CanvasWidget.moc>
+#include <Editor/View/Widgets/CanvasWidget.moc>
 
     }
 }

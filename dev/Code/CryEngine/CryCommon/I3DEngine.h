@@ -9,7 +9,7 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
-// Original file Copyright Crytek GMBH or its affiliates, used under license.
+// Original file Copyright Crytek GMBH or its affiliates, used under license. 
 
 //  Description : 3dengine interface
 
@@ -19,9 +19,10 @@
 
 // The maximum number of unique surface types that can be used per node
 #define MMRM_MAX_SURFACE_TYPES 16
+#define COMPILED_OCTREE_FILE_NAME "terrain/terrain.dat"
 
 // !!! Do not add any headers here !!!
-#include "CryEngineDecalInfo.h"
+#include "CryEngineDecalInfo.h" 
 #include <IStatObj.h> // <> required for Interfuscator
 #include "IRenderer.h"
 #include <IProcess.h> // <> required for Interfuscator
@@ -47,7 +48,6 @@ struct IMaterial;
 struct SpawnParams;
 struct ForceObject;
 struct IRenderNode;
-struct CRNTmpData;
 struct IObjManager;
 struct IParticleManager;
 struct IDeferredPhysicsEventManager;
@@ -58,9 +58,24 @@ struct ITerrain;
 struct STerrainInfo;
 struct MacroTextureConfiguration;
 
+namespace LegacyProceduralVegetation
+{
+    class IVegetationPoolManager;
+}
+
+namespace LegacyTerrain
+{
+    struct MacroTextureConfiguration;
+}
+
 namespace ChunkFile
 {
     struct IChunkFileWriter;
+}
+
+namespace AZ
+{
+    class Aabb;
 }
 
 enum E3DEngineParameter
@@ -181,7 +196,7 @@ struct SGeometryDebugDrawInfo
     Matrix34 tm;        // Transformation Matrix
     ColorB   color;     // Optional color of the lines.
     ColorB   lineColor; // Optional color of the lines.
-
+    
     // Optional flags controlling how to render debug draw information.
     uint32   bNoCull  : 1;
     uint32   bNoLines : 1;
@@ -211,34 +226,28 @@ struct SFrameLodInfo
         nMaxLod = 6;
     }
 };
-
 struct SMeshLodInfo
 {
     static const int s_nMaxLodCount = 5;
-
     float fGeometricMean;
     uint nFaceCount;
     uint32 nFrameLodID;
-
     SMeshLodInfo()
     {
         Clear();
     }
-
     void Clear()
     {
         fGeometricMean = 0.f;
         nFaceCount = 0;
         nFrameLodID = 0;
     }
-
     void Merge(const SMeshLodInfo& lodInfo)
     {
         uint nTotalCount = nFaceCount + lodInfo.nFaceCount;
         if (nTotalCount > 0)
         {
             float fGeometricMeanTotal = 0.f;
-
             if (fGeometricMean > 0.f)
             {
                 fGeometricMeanTotal += logf(fGeometricMean) * nFaceCount;
@@ -247,13 +256,11 @@ struct SMeshLodInfo
             {
                 fGeometricMeanTotal += logf(lodInfo.fGeometricMean) * lodInfo.nFaceCount;
             }
-
             fGeometricMean = expf(fGeometricMeanTotal / (float)nTotalCount);
             nFaceCount = nTotalCount;
         }
     }
 };
-
 // Summary:
 //     Physics material enumerator, allows for 3dengine to get material id from game code.
 struct IPhysMaterialEnumerator
@@ -346,20 +353,31 @@ struct IStatInstGroup
         nID = -1;
     }
 
+    IStatObj* GetStatObj()
+    {
+        IStatObj* p = pStatObj;
+        return (IStatObj*)p;
+    }
+    const IStatObj* GetStatObj() const
+    {
+        const IStatObj* p = pStatObj;
+        return (const IStatObj*)p;
+    }
+
     _smart_ptr<IStatObj> pStatObj;
     char  szFileName[256];
-    bool    bHideability;
-    bool    bHideabilitySecondary;
+    bool  bHideability;
+    bool  bHideabilitySecondary;
     float fBending;
-    uint8   nCastShadowMinSpec;
-    bool    bRecvShadow;
-    bool    bDynamicDistanceShadows;
-    bool    bUseAlphaBlending;
+    uint8 nCastShadowMinSpec;
+    bool  bRecvShadow;
+    bool  bDynamicDistanceShadows;
+    bool  bUseAlphaBlending;
     float fSpriteDistRatio;
     float fLodDistRatio;
     float fShadowDistRatio;
     float fMaxViewDistRatio;
-    float   fBrightness;
+    float fBrightness;
     bool  bRandomRotation;
     int32 nRotationRangeToTerrainNormal;
     float fAlignToTerrainCoefficient;
@@ -423,7 +441,7 @@ struct IWaterVolume
     //DOC-IGNORE-END
 
     // Description:
-    //     Used to change the water level. Will assign a new Z value to all
+    //     Used to change the water level. Will assign a new Z value to all 
     //     vertices of the water geometry.
     // Arguments:
     //     vNewOffset - Position of the new water level
@@ -476,15 +494,15 @@ struct IVisArea
     virtual int GetVisFrameId() = 0;
 
     // Description:
-    //     Gets a list of all the VisAreas which are connected to the current one.
+    //     Gets a list of all the VisAreas which are connected to the current one. 
     // Arguments:
     //     pAreas               - Pointer to an array of IVisArea*
     //     nMaxConnNum          - The maximum of IVisArea to write in pAreas
     //     bSkipDisabledPortals - Ignore portals which are disabled
     // Return Value:
-    //     An integer which hold the amount of VisArea found to be connected. If
-    //     the return is equal to nMaxConnNum, it's possible that not all
-    //     connected VisAreas were returned due to the restriction imposed by the
+    //     An integer which hold the amount of VisArea found to be connected. If 
+    //     the return is equal to nMaxConnNum, it's possible that not all 
+    //     connected VisAreas were returned due to the restriction imposed by the 
     //     argument.
     // Summary:
     //     Gets all the areas which are connected to the current one.
@@ -522,27 +540,27 @@ struct IVisArea
     //     True if the VisArea is a portal, or false in the opposite case.
     virtual bool IsPortal() const = 0;
 
-    // Description:
-    //     Searches for a specified VisArea to see if it's connected to the current
+    // Description: 
+    //     Searches for a specified VisArea to see if it's connected to the current 
     //     VisArea.
     // Arguments:
     //     pAnotherArea         - A specified VisArea to find
     //     nMaxRecursion        - The maximum number of recursion to do while searching
     //     bSkipDisabledPortals - Will avoid searching disabled VisAreas
-    //       pVisitedAreas              - if not NULL - will get list of all visited areas
+    //         pVisitedAreas                - if not NULL - will get list of all visited areas
     // Return Value:
     //     True if the VisArea was found.
     // Summary:
     //     Searches for a specified VisArea.
     virtual bool FindVisArea(IVisArea* pAnotherArea, int nMaxRecursion, bool bSkipDisabledPortals) = 0;
 
-    // Description:
-    //     Searches for the surrounding VisAreas which connected to the current
+    // Description: 
+    //     Searches for the surrounding VisAreas which connected to the current 
     //     VisArea.
     // Arguments:
     //     nMaxRecursion        - The maximum number of recursion to do while searching
     //     bSkipDisabledPortals - Will avoid searching disabled VisAreas
-    //     pVisitedAreas        - if not NULL - will get list of all visited areas
+    //       pVisitedAreas        - if not NULL - will get list of all visited areas
     // Return Value:
     //     None.
     // Summary:
@@ -568,7 +586,7 @@ struct IVisArea
     // Return Value:
     //     Whether geom was clipped.
     virtual bool ClipToVisArea(bool bInside, Sphere& sphere, Vec3 const& vNormal) = 0;
-
+    
     // Summary:
     //     Gives back the axis aligned bounding box of VisArea.
     // Return Value:
@@ -596,9 +614,9 @@ struct IVisArea
 
 #include "OceanConstants.h"
 
-// float m_SortId       : offseted by +WATER_LEVEL_SORTID_OFFSET if the camera object line is crossing the water surface
+// float m_SortId        : offseted by +WATER_LEVEL_SORTID_OFFSET if the camera object line is crossing the water surface
 // : otherwise offseted by -WATER_LEVEL_SORTID_OFFSET
-#define WATER_LEVEL_SORTID_OFFSET           10000000
+#define WATER_LEVEL_SORTID_OFFSET            10000000
 
 #define DEFAULT_SID 0
 
@@ -627,22 +645,22 @@ enum EVoxelEditTarget
 enum EVoxelEditOperation
 {
     eveoNone = 0,
-    eveoPaintHeightPos,
-    eveoPaintHeightNeg,
+  eveoPaintHeightPos,
+  eveoPaintHeightNeg,
     eveoCreate,
     eveoSubstract,
     eveoMaterial,
-    eveoBaseColor,
+  eveoBaseColor,
     eveoBlurPos,
-    eveoBlurNeg,
+  eveoBlurNeg,
     eveoCopyTerrainPos,
-    eveoCopyTerrainNeg,
-    eveoPickHeight,
-    eveoIntegrateMeshPos,
-    eveoIntegrateMeshNeg,
-    eveoForceDepth,
-    eveoLimitLod,
-    eveoLast,
+  eveoCopyTerrainNeg,
+  eveoPickHeight,
+  eveoIntegrateMeshPos,
+  eveoIntegrateMeshNeg,
+  eveoForceDepth,
+  eveoLimitLod,
+  eveoLast,
 };
 
 #define COMPILED_VISAREA_MAP_FILE_NAME         "terrain\\indoor.dat"
@@ -663,11 +681,11 @@ enum EVoxelEditOperation
 
 struct SVisAreaManChunkHeader
 {
-    int8 nVersion;
-    int8 nDummy;
-    int8 nFlags;
-    int8 nFlags2;
-    int nChunkSize;
+  int8 nVersion;
+  int8 nDummy;
+  int8 nFlags;
+  int8 nFlags2;
+  int nChunkSize;
     int nVisAreasNum;
     int nPortalsNum;
     int nOcclAreasNum;
@@ -677,30 +695,150 @@ struct SVisAreaManChunkHeader
 
 struct SOcTreeNodeChunk
 {
-    int16 nChunkVersion;
-    int16 ucChildsMask;
-    AABB  nodeBox;
-    int32 nObjectsBlockSize;
+  int16    nChunkVersion;
+  int16 ucChildsMask;
+  AABB    nodeBox;
+  int32 nObjectsBlockSize;
 
-    AUTO_STRUCT_INFO
+  AUTO_STRUCT_INFO
 };
 
 struct SHotUpdateInfo
 {
-    SHotUpdateInfo()
+  SHotUpdateInfo()
+  {
+    nHeigtmap = 1;
+    nObjTypeMask = ~0;
+    pVisibleLayerMask = NULL;
+    pLayerIdTranslation = NULL;
+    areaBox.Reset();
+  }
+
+  uint32 nHeigtmap;
+  uint32 nObjTypeMask;
+  const uint8* pVisibleLayerMask;
+  const uint16* pLayerIdTranslation;
+  AABB areaBox;
+
+  AUTO_STRUCT_INFO
+};
+
+struct STerrainInfo
+{
+    //! Helper method.
+    //! Returns terrain size in meters.
+    int TerrainSize() const
     {
-        nHeigtmap = 1;
-        nObjTypeMask = ~0;
-        pVisibleLayerMask = NULL;
-        pLayerIdTranslation = NULL;
-        areaBox.Reset();
+        return nHeightMapSize_InUnits * nUnitSize_InMeters;
     }
 
-    uint32 nHeigtmap;
-    uint32 nObjTypeMask;
-    const uint8* pVisibleLayerMask;
-    const uint16* pLayerIdTranslation;
-    AABB areaBox;
+    //! Helper method.
+    void LoadTerrainSettings(int& unitSize, // in meters
+                             float& invUnitSize, // in 1/meters
+                             int& terrainSize, // in meters
+                             int& meterToUnitBitShift,
+                             int& terrainSizeDiv,
+                             int& sectorSize, // in meters
+                             int& sectorsTableSize, // sector width/height of the finest LOD level (sector count is the square of this value)
+                             int& unitToSectorBitShift) const
+    {
+        unitSize = nUnitSize_InMeters;
+        invUnitSize = 1.f / unitSize;
+        terrainSize = TerrainSize();
+        meterToUnitBitShift = 0;
+        {
+            int shift = 0;
+            while ((1 << shift) < unitSize)
+            {
+                shift++;
+            }
+            meterToUnitBitShift = shift;
+        }
+        terrainSizeDiv = (terrainSize >> meterToUnitBitShift) - 1;
+        sectorSize = nSectorSize_InMeters;
+        sectorsTableSize = nSectorsTableSize_InSectors;
+
+        unitToSectorBitShift = 0;
+        while (sectorSize >> unitToSectorBitShift > unitSize)
+        {
+            unitToSectorBitShift++;
+        }
+    }
+
+    int nHeightMapSize_InUnits;
+    int nUnitSize_InMeters;
+    int nSectorSize_InMeters;
+
+    int nSectorsTableSize_InSectors;
+    float fHeightmapZRatio;
+    float fOceanWaterLevel; //For file format compatibility purposes this is left here even though Terrain doesn't own Ocean/Water issues anymore.
+
+    AUTO_STRUCT_INFO
+};
+
+#define OCTREE_CHUNK_VERSION 29
+#define TERRAIN_NODE_CHUNK_VERSION 8
+
+struct STerrainChunkHeader
+{
+    int8 nVersion;
+    int8 nDummy;
+    int8 nFlags;
+    int8 nFlags2;
+    int32 nChunkSize;
+    STerrainInfo TerrainInfo;
+
+    AUTO_STRUCT_INFO
+};
+
+//==============================================================================================
+
+#define FILEVERSION_TERRAIN_TEXTURE_FILE 10
+
+// Summary:
+//   Common header for binary files used by 3dengine
+struct SCommonFileHeader
+{
+    char    signature[4];   // File signature, should be "CRY "
+    uint8   file_type;      // File type
+    uint8   flags;          // File common flags
+    uint16  version;        // File version
+
+    AUTO_STRUCT_INFO
+};
+
+// Summary:
+// Sub header for terrain texture file
+struct STerrainTextureFileHeader
+{
+    uint16  LayerCount;
+    uint16  Flags;
+    float   ColorMultiplier_deprecated;
+
+    AUTO_STRUCT_INFO
+};
+
+// Summary:
+//   Layer header for terrain texture file (for each layer)
+struct STerrainTextureLayerFileHeader
+{
+    uint16      SectorSizeInPixels; //
+    uint16      nReserved;          // ensure padding and for later usage
+    ETEX_Format eTexFormat;         // typically eTF_BC3
+    uint32      SectorSizeInBytes;  // redundant information for more convenient loading code
+
+    AUTO_STRUCT_INFO
+};
+
+struct STerrainNodeChunk
+{
+    int16   nChunkVersion;
+    int16 bHasHoles;
+    AABB    boxHeightmap;
+    float fOffset;
+    float fRange;
+    int     nSize;
+    int     nSurfaceTypesNum;
 
     AUTO_STRUCT_INFO
 };
@@ -730,11 +868,11 @@ struct IVisAreaManager
     virtual int GetCompiledDataSize(SHotUpdateInfo* pExportInfo = NULL) = 0;
 
     // Summary:
-    //   Returns the accumulated number of visareas and portals.
+    //     Returns the accumulated number of visareas and portals.
     virtual int GetNumberOfVisArea() const = 0;
 
     // Summary:
-    //   Returns the visarea interface based on the id (0..GetNumberOfVisArea()) it can be a visarea or a portal.
+    //     Returns the visarea interface based on the id (0..GetNumberOfVisArea()) it can be a visarea or a portal.
     virtual IVisArea* GetVisAreaById(int nID) const = 0;
 
     virtual void AddListener(IVisAreaCallback* pListener) = 0;
@@ -758,12 +896,19 @@ struct IVisAreaManager
     // Summary:
     //   Removes all vis areas in a region of the level.
     virtual void ClearRegion(const AABB& region) = 0;
-    // </interfuscator:shuffle>
+
+    virtual void GetObjectsByType(PodArray<IRenderNode*>& lstObjects, EERType objType, const AABB* pBBox, ObjectTreeQueryFilterCallback filterCallback = nullptr) = 0;
+    virtual void GetObjectsByFlags(uint dwFlags, PodArray<IRenderNode*>& lstObjects) = 0;
+
+    virtual void GetObjects(PodArray<IRenderNode*>& lstObjects, const AABB* pBBox) = 0;
+
+    virtual bool IsOutdoorAreasVisible() = 0;
 };
 
+
 // Summary:
-//   Manages simple pre-merged mesh instances into pre-baked sectors
-//
+//     Manages simple pre-merged mesh instances into pre-baked sectors
+// 
 struct IMergedMeshesManager
 {
     enum CLUSTER_FLAGS
@@ -771,29 +916,37 @@ struct IMergedMeshesManager
         // Uses the samples themselves to calculate the bounds of the areacluster
         // If not set, it will use the bounds of the patches to calculate the cluster
         CLUSTER_BOUNDARY_FROM_SAMPLES = 1 << 0,
-        // Create the cluster-area boundary by computing the convex hull of either
+        // Create the cluster-area boundary by computing the convex hull of either 
         // the samples or the bounds of the patches via graham scan
         CLUSTER_CONVEXHULL_GRAHAMSCAN = 1 << 1,
-        // Create the cluster-area boundary by computing the convex hull of either
-        // the samples or the bounds of the patches via giftwrapping (also knows as
-        // Jarvis march).
-        // Note: this might not be as stable as the graham scan method above,
-        // especially in terms of collinear points or otherwise degenerate data.
+        // Create the cluster-area boundary by computing the convex hull of either 
+        // the samples or the bounds of the patches via giftwrapping (also knows as 
+        // Jarvis march). 
+        // Note: this might not be as stable as the graham scan method above, 
+        // especially in terms of collinear points or otherwise degenerate data. 
         CLUSTER_CONVEXHULL_GIFTWRAP = 1 << 2,
-    };
+    }; 
 
-    struct SInstanceSector
+    struct SInstanceSector 
     {
-        DynArray<uint8> data;   // memory stream of internally compiled data
-        string id;                          // unique identifier string identifing this sector
+        DynArray<uint8> data;   // memory stream of internally compiled data 
+        string id;                            // unique identifier string identifing this sector
     };
 
-    struct SMeshAreaCluster
+    struct SMeshAreaCluster 
     {
         // The extents (in worldspace) of the cluster
-        AABB extents;
-        // The vertices of the boundary points (in the xy-plane, worldspace) of this
+        AABB extents; 
+        // The vertices of the boundary points (in the xy-plane, worldspace) of this 
         DynArray<Vec2> boundary_points;
+    };
+
+    struct SInstanceSample
+    {
+        Vec3  pos;
+        Quat  q;
+        uint32 instGroupId;
+        uint8 scale;
     };
 
     // <interfuscator:shuffle>
@@ -802,66 +955,66 @@ struct IMergedMeshesManager
     ///////////////////////////////////////////////////////////////////////////////////////
     // Compilation
     // Summary:
-    //   Returns the compiled instance sectors as a null-terminated pointer array. Returns false on error.
+    //     Returns the compiled instance sectors as a null-terminated pointer array. Returns false on error.
     // Note:
-    //      The caller is responsible for freeing the allocated memory (both the array and the sectors)
+    //        The caller is responsible for freeing the allocated memory (both the array and the sectors)
     virtual bool CompileSectors(DynArray<SInstanceSector>& pSectors, std::vector<struct IStatInstGroup*>* pVegGroupTable) = 0;
 
     ///////////////////////////////////////////////////////////////////////////////////////
     // Compilation
     // Summary:
-    //   Returns a list of cluster hulls
+    //     Returns a list of cluster hulls 
     // Note:
-    //      The caller is responsible for freeing the allocated memory (both the cluster array and the contents)
+    //        The caller is responsible for freeing the allocated memory (both the cluster array and the contents)
     virtual bool CompileAreas(DynArray<SMeshAreaCluster>& clusters, int flags) = 0;
 
 
     ///////////////////////////////////////////////////////////////////////////////////////
     // Compilation
     // Summary:
-    //  Query the sample density grid. Returns the number of surface types filled into the surface types list
+    //    Query the sample density grid. Returns the number of surface types filled into the surface types list
     virtual size_t QueryDensity(const Vec3 &pos, ISurfaceType * (&surfaceTypes)[MMRM_MAX_SURFACE_TYPES], float (&density)[MMRM_MAX_SURFACE_TYPES]) = 0;
 
     ///////////////////////////////////////////////////////////////////////////////////////
     // Compilation
     // Summary:
-    //  Fill in the density values
+    //    Fill in the density values 
     virtual void CalculateDensity() = 0;
 
     ///////////////////////////////////////////////////////////////////////////////////////
     // Compilation
     // Summary:
-    //   Returns the list of merged mesh geometry currently active. Returns false on error.
+    //     Returns the list of merged mesh geometry currently active. Returns false on error.
     virtual bool GetUsedMeshes(DynArray<string>& pMeshNames) = 0;
 
     ///////////////////////////////////////////////////////////////////////////////////////
     // Statistics
     // Summary:
-    //   Returns the current memory footprint in vram (accumulated vertex and indexbuffer size in bytes)
-    virtual size_t CurrentSizeInVram() const = 0;
+    //     Returns the current memory footprint in vram (accumulated vertex and indexbuffer size in bytes)
+    virtual size_t CurrentSizeInVram() const = 0; 
 
     // Summary:
-    //   Returns the current memory footprint in main memory (the accumulated footprint of all merged instances)
+    //     Returns the current memory footprint in main memory (the accumulated footprint of all merged instances)
     virtual size_t CurrentSizeInMainMem() const = 0;
 
     // Summary:
-    //   Returns the memory footprint of the prebaked geometry in bytes
+    //     Returns the memory footprint of the prebaked geometry in bytes
     virtual size_t GeomSizeInMainMem() const = 0;
 
     // Summary:
-    //   Returns the size of the instance map in bytes
+    //     Returns the size of the instance map in bytes
     virtual size_t InstanceSize() const = 0;
 
     // Summary:
-    //   Returns the size of animated instances if they have spines
+    //     Returns the size of animated instances if they have spines
     virtual size_t SpineSize() const = 0;
 
     // Summary:
-    //   The instance count
-    virtual size_t InstanceCount() const = 0;
+    //     The instance count 
+    virtual size_t InstanceCount() const = 0; 
 
     // Summary:
-    //   The number of visible instances last frame
+    //     The number of visible instances last frame
     virtual size_t VisibleInstances() const = 0;
     // </interfuscator:shuffle>
 
@@ -872,6 +1025,8 @@ struct IMergedMeshesManager
     virtual int GetCompiledDataSize(uint32 index) = 0;
 
     virtual bool GetCompiledData(uint32 index, byte* pData, int nSize, string* pName, std::vector<struct IStatInstGroup*>** ppStatInstGroupTable) = 0;
+
+    virtual IRenderNode* AddDynamicInstance(const SInstanceSample&, IRenderNode** ppNode, bool bRegister) = 0;
 };
 
 struct IFoliage
@@ -959,15 +1114,15 @@ struct SSkyLightRenderParams
 
 struct SVisAreaInfo
 {
-    float fHeight;
-    Vec3 vAmbientColor;
-    bool bAffectedByOutLights;
-    bool bIgnoreSkyColor;
-    bool bSkyOnly;
-    float fViewDistRatio;
-    bool bDoubleSide;
-    bool bUseDeepness;
-    bool bUseInIndoors;
+  float fHeight;
+  Vec3 vAmbientColor;
+  bool bAffectedByOutLights;
+  bool bIgnoreSkyColor;
+  bool bSkyOnly;
+  float fViewDistRatio;
+  bool bDoubleSide;
+  bool bUseDeepness;
+  bool bUseInIndoors;
     bool bOceanIsVisible;
     bool bIgnoreGI;
     bool bIgnoreOutdoorAO;
@@ -987,8 +1142,6 @@ struct SDebugFPSInfo
     float fMaxFPS;
 };
 
-// Summary:
-//   Common scene rain parameters shared across engine and editor
 struct SRainParams
 {
     SRainParams()
@@ -1007,9 +1160,9 @@ struct SRainParams
     {
     }
 
-    Matrix44    matOccTrans;                // Transformation matrix for rendering into a new occ map
-    Matrix44    matOccTransRender;  // Transformation matrix for rendering occluded rain using current occ map
-    Quat            qRainRotation;          // Quaternion for the scene's rain entity rotation
+    Matrix44        matOccTrans;          // Transformation matrix for rendering into a new occ map    
+    Matrix44        matOccTransRender;    // Transformation matrix for rendering occluded rain using current occ map
+    Quat            qRainRotation;        // Quaternion for the scene's rain entity rotation
     AABB            areaAABB;
 
     Vec3            vWorldPos;
@@ -1019,34 +1172,37 @@ struct SRainParams
     float           fCurrentAmount;
     float           fRadius;
 
-    float           fFakeGlossiness;
-    float           fFakeReflectionAmount;
+    // Deferred rain params
+    float           fFakeGlossiness; // unused
+    float           fFakeReflectionAmount; // unused
     float           fDiffuseDarkening;
-
     float           fRainDropsAmount;
     float           fRainDropsSpeed;
     float           fRainDropsLighting;
-
     float           fMistAmount;
     float           fMistHeight;
-
     float           fPuddlesAmount;
     float           fPuddlesMaskAmount;
     float           fPuddlesRippleAmount;
-    float           fSplashesAmount;
+    float            fSplashesAmount;
 
     int             nUpdateFrameID;
+
     bool            bApplyOcclusion;
     bool            bIgnoreVisareas;
     bool            bDisableOcclusion;
 
+// Summary:
+//     Common scene rain parameters shared across engine and editor
     bool            bApplySkyColor;
     float           fSkyColorWeight;
+
+    // Bus ID to listen to
 };
 
-struct SSnowParams
+struct SSnowParams 
 {
-    SSnowParams()
+    SSnowParams() 
         : m_vWorldPos(0, 0, 0)
         , m_fRadius(0.0)
         , m_fSnowAmount(0.0)
@@ -1070,6 +1226,7 @@ struct SSnowParams
     float m_fFrostAmount;
     float m_fSurfaceFreezing;
 
+    
     // Snowfall params.
     int m_nSnowFlakeCount;
     float m_fSnowFlakeSize;
@@ -1077,7 +1234,7 @@ struct SSnowParams
     float m_fSnowFallGravityScale;
     float m_fSnowFallWindScale;
     float m_fSnowFallTurbulence;
-    float m_fSnowFallTurbulenceFreq;
+    float m_fSnowFallTurbulenceFreq; 
 };
 
 
@@ -1106,6 +1263,29 @@ protected:
 };
 
 #pragma pack(push, 16)
+
+struct SFogVolumeData
+{
+    AABB avgAABBox;
+    ColorF fogColor;
+    int m_volumeType;
+    Vec3 m_heightFallOffBasePoint;
+    float m_densityOffset;
+    Vec3 m_heightFallOffDirScaled;
+    float m_globalDensity;
+   
+    SFogVolumeData() : 
+        avgAABBox(AABB::RESET),
+        m_globalDensity(0.0f),
+        m_densityOffset(0.0f),
+        m_volumeType(0),
+        m_heightFallOffBasePoint(Vec3(0, 0, 0)),
+        m_heightFallOffDirScaled(Vec3(0, 0, 0)),
+        fogColor(ColorF(1.0f, 1.0f, 1.0f, 1.0f))
+    {
+    }
+
+};
 
 // Summary:
 //     Light volumes data
@@ -1142,11 +1322,80 @@ struct SLightVolume
 
 #pragma pack(pop)
 
+struct CRNTmpData
+{
+    struct SRNUserData
+    {
+        int m_narrDrawFrames[MAX_RECURSION_LEVELS];
+        SLodDistDissolveTransitionState lodDistDissolveTransitionState;
+        Matrix34 objMat;
+        OcclusionTestClient m_OcclState;
+        struct IFoliage* m_pFoliage;
+        struct IClipVolume* m_pClipVolume;
+        SBending m_Bending;
+        SBending m_BendingPrev;
+        Vec3 vCurrentWind;
+        uint32 nBendingLastFrame : 29;
+        uint32 bWindCurrent : 1;
+        uint32 bBendingSet : 1;
+        uint16 nCubeMapId;
+        uint16 nCubeMapIdCacheClearCounter;
+        uint8 nWantedLod;
+        CRenderObject* m_pRenderObject[MAX_STATOBJ_LODS_NUM];
+        CRenderObject* m_arrPermanentRenderObjects[MAX_STATOBJ_LODS_NUM];
+    } userData;
+
+    CRNTmpData() { memset(this, 0, sizeof(*this)); assert((void*)this == (void*)&this->userData); nPhysAreaChangedProxyId = ~0; }
+    CRNTmpData* pNext, * pPrev;
+    CRNTmpData** pOwnerRef;
+    uint32 nFrameInfoId;
+    uint32 nPhysAreaChangedProxyId;
+
+    void Unlink()
+    {
+        if (!pNext || !pPrev)
+        {
+            return;
+        }
+        pNext->pPrev = pPrev;
+        pPrev->pNext = pNext;
+        pNext = pPrev = NULL;
+    }
+
+    void Link(CRNTmpData* Before)
+    {
+        if (pNext || pPrev)
+        {
+            return;
+        }
+        pNext = Before->pNext;
+        Before->pNext->pPrev = this;
+        Before->pNext = this;
+        pPrev = Before;
+    }
+
+    int Count()
+    {
+        int nCounter = 0;
+        for (CRNTmpData* pElem = pNext; pElem != this; pElem = pElem->pNext)
+        {
+            nCounter++;
+        }
+        return nCounter;
+    }
+
+    void OffsetPosition(const Vec3& delta)
+    {
+        userData.objMat.SetTranslation(userData.objMat.GetTranslation() + delta);
+    }
+};
+
+
 // Summary:
 //     Interface to the 3d Engine.
 struct I3DEngine
     : public IProcess
-{
+{    
     struct SObjectsStreamingStatus
     {
         int nReady;
@@ -1156,6 +1405,7 @@ struct I3DEngine
         int nAllocatedBytes;
         int nMemRequired;
         int nMeshPoolSize; // in MB
+
     };
 
     struct OceanAnimationData
@@ -1186,7 +1436,7 @@ struct I3DEngine
         eStreamingSubsystem_Audio,
     };
 
-    using LoadStaticObjectAsyncResult = std::function<void(_smart_ptr<IStatObj>)>;
+    using LoadStaticObjectAsyncResult = AZStd::function<void(_smart_ptr<IStatObj>)>;
 
     struct StaticObjectAsyncLoadRequest
     {
@@ -1208,6 +1458,7 @@ struct I3DEngine
         float intensity = 0.0f;
     };
 
+
     // <interfuscator:shuffle>
     // Summary:
     //     Initializes the 3D Engine.
@@ -1217,6 +1468,7 @@ struct I3DEngine
     //     Only call once, after creating the instance.
     virtual bool Init() = 0;
 
+
     // Summary:
     //     Sets the path used to load levels.
     // See Also:
@@ -1225,10 +1477,12 @@ struct I3DEngine
     //     szFolderName - Should contains the folder to be used
     virtual void SetLevelPath(const char* szFolderName) = 0;
 
+    virtual bool CheckMinSpec(uint32 nMinSpec) = 0;
+
     virtual void PrepareOcclusion(const CCamera& rCamera) = 0;
     virtual void EndOcclusion() = 0;
     // Description:
-    //     Will load a level from the folder specified with SetLevelPath. If a
+    //     Will load a level from the folder specified with SetLevelPath. If a 
     //     level is already loaded, the resources will be deleted before.
     // See Also:
     //     SetLevelPath
@@ -1236,13 +1490,13 @@ struct I3DEngine
     //     szFolderName - Name of the subfolder to load
     //     szMissionName - Name of the mission
     // Return Value:
-    //     A boolean which indicate the result of the function; true is
+    //     A boolean which indicate the result of the function; true is 
     //     succeed, or false if failed.
     // Summary:
     //     Load a level.
     virtual bool LoadLevel(const char* szFolderName, const char* szMissionName) = 0;
     virtual bool InitLevelForEditor(const char* szFolderName, const char* szMissionName) = 0;
-
+    virtual bool LevelLoadingInProgress() = 0;
     // Summary:
     //     Handles any work needed at start of new frame.
     // Notes:
@@ -1255,7 +1509,7 @@ struct I3DEngine
     // See Also:
     //    LoadLevel
     // Summary:
-    //    Pre-caches some resources need for rendering.
+    //      Pre-caches some resources need for rendering.
     virtual void PostLoadLevel() = 0;
 
     // Description:
@@ -1322,28 +1576,32 @@ struct I3DEngine
     // See Also:
     //     IStatObj
     // Arguments:
-    //     szFileName - CGF Filename - should not be 0 or ""
-    //     szGeomName - Optional name of geometry inside CGF.
-    //     ppSubObject - [Out]Optional Out parameter,Pointer to the
-    //      nLoadingFlags - Zero or a bitwise combination of the flags from ELoadingFlags,
-    //                                      defined in IMaterial.h, under the interface IMaterialManager.
+    //     fileName - CGF Filename - should not be 0 or ""
+    //     geomName - Optional name of geometry inside CGF.
+    //     subObject - [Out]Optional Out parameter,Pointer to the
+    //     loadingFlags - Zero or a bitwise combination of the flags from ELoadingFlags, defined in IMaterial.h, under the interface IMaterialManager.
+    //     data - Raw buffer contain CGF data.
+    //     dataSize - Size of the raw data buffer.
     // Return Value:
     //     A pointer to an object derived from IStatObj.
-    virtual IStatObj* LoadStatObjUnsafeManualRef(const char* szFileName, const char* szGeomName = NULL, /*[Out]*/ IStatObj::SSubObject** ppSubObject = NULL, bool bUseStreaming = true, unsigned long nLoadingFlags = 0) = 0;
+    virtual IStatObj* LoadStatObjUnsafeManualRef(const char* fileName, const char* geomName = nullptr, /*[Out]*/ IStatObj::SSubObject** subObject = nullptr, 
+        bool useStreaming = true, unsigned long loadingFlags = 0, const void* data = nullptr, int dataSize = 0) = 0;
 
     // Summary:
     //     Loads a static object from a CGF file.  Increments the static object's reference counter.  This method is threadsafe.  Not suitable for preloading
     // See Also:
     //     IStatObj
     // Arguments:
-    //     szFileName - CGF Filename - should not be 0 or ""
-    //     szGeomName - Optional name of geometry inside CGF.
-    //     ppSubObject - [Out]Optional Out parameter,Pointer to the
-    //      nLoadingFlags - Zero or a bitwise combination of the flags from ELoadingFlags,
-    //                                      defined in IMaterial.h, under the interface IMaterialManager.
+    //     fileName - CGF Filename - should not be 0 or "", even if data is provided.
+    //     geomName - Optional name of geometry inside CGF.
+    //     subObject - [Out]Optional Out parameter,Pointer to the
+    //     loadingFlags - Zero or a bitwise combination of the flags from ELoadingFlags, defined in IMaterial.h, under the interface IMaterialManager.
+    //     data - Raw buffer contain CGF data.
+    //     dataSize - Size of the raw data buffer.
     // Return Value:
     //     A smart pointer to an object derived from IStatObj.
-    virtual _smart_ptr<IStatObj> LoadStatObjAutoRef(const char* szFileName, const char* szGeomName = NULL, /*[Out]*/ IStatObj::SSubObject** ppSubObject = NULL, bool bUseStreaming = true, unsigned long nLoadingFlags = 0) = 0;
+    virtual _smart_ptr<IStatObj> LoadStatObjAutoRef(const char* fileName, const char* geomName = nullptr, /*[Out]*/ IStatObj::SSubObject** subObject = nullptr, 
+        bool useStreaming = true, unsigned long loadingFlags = 0, const void* data = nullptr, int dataSize = 0) = 0;
 
     // Summary:
     //     Flushes queued async mesh loads.
@@ -1374,7 +1632,17 @@ struct I3DEngine
     // Return Value:
     //     A pointer to an object derived from IStatObj.
     virtual IStatObj* FindStatObjectByFilename(const char* filename) = 0;
-    
+
+    // Summary:
+    //     Returns pointer to the IVegetationPoolManager singleton.
+    // See Also:
+    //     IVegetationPool
+    // Arguments:
+    //     void
+    // Return Value:
+    //     A pointer to the IVegetationPoolManager singleton.
+    virtual LegacyProceduralVegetation::IVegetationPoolManager& GetIVegetationPoolManager() = 0;
+
     //Summary:
     //      Creates a deformable render node
     //See Also:
@@ -1395,8 +1663,6 @@ struct I3DEngine
     //      None
     virtual void DestroyDeformableNode( IDeformableNode* node) = 0;
 
-    virtual void ResetCoverageBufferSignalVariables() = 0;
-
     // Summary:
     //     Gets gsm range
     // Return Value:
@@ -1408,6 +1674,8 @@ struct I3DEngine
     // Return Value:
     //     An integer representing the gsm range step
     virtual const float GetGSMRangeStep() = 0;
+
+    virtual float GetTerrainDetailMaterialsViewDistRatio() const = 0;
 
     // Summary:
     //     Gets the amount of loaded objects.
@@ -1425,10 +1693,10 @@ struct I3DEngine
     virtual void GetObjectsStreamingStatus(SObjectsStreamingStatus& outStatus) = 0;
 
     // Summary:
-    //      Gets stats on the streaming bandwidth requests from subsystems
+    //        Gets stats on the streaming bandwidth requests from subsystems
     // Arguments:
-    //      subsystem - the streaming subsystem we want bandwidth data for
-    //      outData - structure containing the bandwidth data for the subsystem requested
+    //        subsystem - the streaming subsystem we want bandwidth data for
+    //        outData - structure containing the bandwidth data for the subsystem requested
     virtual void GetStreamingSubsystemData(int subsystem, SStremaingBandwidthData& outData) = 0;
 
     // Summary:
@@ -1451,6 +1719,37 @@ struct I3DEngine
     // End Confetti//////////////////////////////
     //////////////////////////////////////////////
 
+    // Summary:
+    //     Offers same functionality as Cry3DEngineBase::MakeSystemMaterialFromShader
+    virtual _smart_ptr<IMaterial> MakeSystemMaterialFromShaderHelper(const char* sShaderName, SInputShaderResources* Res = NULL) = 0;
+
+    virtual bool CheckMinSpecHelper(uint32 nMinSpec) = 0;
+
+    virtual void OnCasterDeleted(IShadowCaster* pCaster) = 0;
+
+    // Summary:
+    //     Loads and instantiate the Octree from the data available in pData stream.
+    // Return Value:
+    //     true if the octree and its data were created successfully.
+    virtual bool SetOctreeCompiledData(byte* pData, int nDataSize, std::vector<IStatObj*>** ppStatObjTable, std::vector<_smart_ptr<IMaterial>>** ppMatTable, bool bHotUpdate = false, SHotUpdateInfo* pExportInfo = nullptr, bool loadTerrainMacroTexture = false) = 0;
+
+    // Summary:
+    //     Writes the octree data into the pData stream.
+    // Return Value:
+    //     true if the octree data was copied into pData.
+    virtual bool GetOctreeCompiledData(byte* pData, int nDataSize, std::vector<IStatObj*>** ppStatObjTable, std::vector<_smart_ptr<IMaterial>>** ppMatTable, std::vector<struct IStatInstGroup*>** ppStatInstGroupTable, EEndian eEndian, SHotUpdateInfo* pExportInfo = nullptr) = 0;
+
+    // Summary:
+    //     Traverses the Octree and calculates the size in bytes of the smallest buffer that can fit the serializable octree data.
+    // Return Value:
+    //     number of bytes.
+    virtual int GetOctreeCompiledDataSize(SHotUpdateInfo* pExportInfo = nullptr) = 0;
+
+    virtual void GetStatObjAndMatTables(DynArray<IStatObj*>* pStatObjTable, DynArray<_smart_ptr<IMaterial>>* pMatTable, DynArray<IStatInstGroup*>* pStatInstGroupTable, uint32 nObjTypeMask) = 0;
+
+    virtual IRenderNode* AddVegetationInstance(int nStaticGroupID, const Vec3& vPos, const float fScale, uint8 ucBright, uint8 angle, uint8 angleX = 0, uint8 angleY = 0) = 0;
+
+
 #ifndef _RELEASE
     enum EDebugDrawListAssetTypes
     {
@@ -1467,12 +1766,12 @@ struct I3DEngine
         const char* pClassName;
         const char* pFileName;
         IRenderNode* pRenderNode;
-        uint32  numTris;
-        uint32  numVerts;
-        uint32  texMemory;
-        uint32  meshMemory;
+        uint32    numTris;
+        uint32    numVerts;
+        uint32    texMemory;
+        uint32    meshMemory;
         EDebugDrawListAssetTypes type;
-        const AABB*         pBox;
+        const AABB*            pBox;
         const Matrix34* pMat;
     };
 
@@ -1488,11 +1787,11 @@ struct I3DEngine
     virtual void UnRegisterEntityDirect(IRenderNode* pEntity) = 0;
     virtual void UnRegisterEntityAsJob(IRenderNode* pEnt) = 0;
     // Summary:
-    //     Returns whether a world pos is under water.
+    //       Returns whether a world pos is under water.
     virtual bool IsUnderWater(const Vec3& vPos) const = 0;
-
+  
     // Summary:
-    //     Returns whether ocean volume is visible or not.
+    //       Returns whether ocean volume is visible or not.
     virtual void SetOceanRenderFlags(uint8 nFlags) = 0;
     virtual uint8 GetOceanRenderFlags() const = 0;
     virtual uint32 GetOceanVisiblePixelsCount() const = 0;
@@ -1520,29 +1819,29 @@ struct I3DEngine
     // Notes:
     //     This function will take into account just the global water level.
     // Return Value:
-    //     A float value which indicate the water level. In case no water was
-    //     found at the specified location, the value WATER_LEVEL_UNKNOWN will
+    //     A float value which indicate the water level. In case no water was 
+    //     found at the specified location, the value WATER_LEVEL_UNKNOWN will 
     //     be returned.
     virtual float GetWaterLevel() = 0;
 
     // Summary:
     //     Gets the closest walkable bottom z straight beneath the given reference position.
-    //              - Use with caution the accurate query - SLOW
-    // Notes:
+    //                - Use with caution the accurate query - SLOW
+    // Notes:    
     //     This function will take into account both the global water level and any water volume present.
     //     Function is provided twice for performance with diff. arguments.
     // Arguments:
     //     pvPos - Desired position to inspect the water level
     //     pent - Pointer to return the physical entity to test against (optional)
     // Return Value:
-    //     A float value which indicate the water level. In case no water was
-    //     found at the specified location, the value WATER_LEVEL_UNKNOWN will
+    //     A float value which indicate the water level. In case no water was 
+    //     found at the specified location, the value WATER_LEVEL_UNKNOWN will 
     //     be returned.
     virtual float GetWaterLevel(const Vec3* pvPos, IPhysicalEntity* pent = NULL, bool bAccurate = false) = 0;
 
     // Summary:
     //     Gets the ocean water level for a specified position.
-    //              - Use with caution the accurate query - SLOW
+    //                - Use with caution the accurate query - SLOW
     // Notes:
     //     This function only takes into account ocean water.
     // Arguments:
@@ -1553,9 +1852,6 @@ struct I3DEngine
 
     // Summary:
     //     Gets caustics parameters.
-    // Return Value:
-    //     A Vec4 value which constains:
-    //     x = unused, y = distance attenuation, z = caustics multiplier, w = caustics darkening multiplier
     virtual CausticsParams GetCausticsParams() const = 0;
     
     // Summary:
@@ -1565,7 +1861,7 @@ struct I3DEngine
     // Summary:
     //     Gets HDR setup parameters.
     // Return Value:
-    virtual void GetHDRSetupParams  (Vec4 pParams[5]) const = 0;
+    virtual void GetHDRSetupParams    (Vec4 pParams[5]) const = 0; 
 
     // Summary:
     //     Removes all particles and decals from the world.
@@ -1593,7 +1889,7 @@ struct I3DEngine
     virtual Vec3 GetSunAnimColor() = 0;
 
     // Summary:
-    //     Sets the current sun animated color.
+    //     Sets the current sky brightening multiplier.
     virtual void SetSunAnimColor(const Vec3& color) = 0;
 
     // Summary:
@@ -1601,13 +1897,11 @@ struct I3DEngine
     virtual float GetSunAnimSpeed() = 0;
 
     // Summary:
-    //     Sets the current sun animation speed.
     virtual void SetSunAnimSpeed(float sunAnimSpeed) = 0;
 
     // Summary:
     //     Gets the current sun animation phase.
     virtual AZ::u8 GetSunAnimPhase() = 0;
-
     // Summary:
     //     Sets the current sun animation phase.
     virtual void SetSunAnimPhase(AZ::u8 sunAnimPhase) = 0;
@@ -1629,28 +1923,28 @@ struct I3DEngine
     virtual bool GetRainParams(SRainParams& rainParams) = 0;
 
     // Summary:
-    //      Sets current snow surface parameters.
+    //        Sets current snow surface parameters.
     virtual void SetSnowSurfaceParams(const Vec3& vCenter, float fRadius, float fSnowAmount, float fFrostAmount, float fSurfaceFreezing) = 0;
 
     // Summary:
-    //      Gets current snow surface parameters.
+    //        Gets current snow surface parameters.
     virtual bool GetSnowSurfaceParams(Vec3& vCenter, float& fRadius, float& fSnowAmount, float& fFrostAmount, float& fSurfaceFreezing) = 0;
 
     // Summary:
-    //      Sets current snow parameters.
+    //        Sets current snow parameters.
     virtual void SetSnowFallParams(int nSnowFlakeCount, float fSnowFlakeSize, float fSnowFallBrightness, float fSnowFallGravityScale, float fSnowFallWindScale, float fSnowFallTurbulence, float fSnowFallTurbulenceFreq) = 0;
 
     // Summary:
-    //      Gets current snow parameters.
+    //        Gets current snow parameters.
     virtual bool GetSnowFallParams(int& nSnowFlakeCount, float& fSnowFlakeSize, float& fSnowFallBrightness, float& fSnowFallGravityScale, float& fSnowFallWindScale, float& fSnowFallTurbulence, float& fSnowFallTurbulenceFreq) = 0;
 
     // Summary:
     //     Sets the view distance scale.
     // Arguments:
     //     fScale - may be between 0 and 1, 1.f = Unmodified view distance set by level designer, value of 0.5 will reduce it twice
-    // Notes:
-    //     This value will be reset automatically to 1 on next level loading.
-    virtual void SetMaxViewDistanceScale(float fScale) = 0;
+  // Notes:
+  //     This value will be reset automatically to 1 on next level loading.
+  virtual void SetMaxViewDistanceScale(float fScale) = 0;
 
     // Summary:
     //     Gets the view distance.
@@ -1697,11 +1991,32 @@ struct I3DEngine
 
     virtual void GetPrecacheRoundIds(int pRoundIds[MAX_STREAM_PREDICTION_ZONES]) = 0;
 
-    virtual void TraceFogVolumes(const Vec3& worldPos, ColorF& fogVolumeContrib, const SRenderingPassInfo& passInfo) = 0;
+    virtual void TraceFogVolumes(const Vec3& vPos, const AABB& objBBox, SFogVolumeData& fogVolData, const SRenderingPassInfo& passInfo, bool fogVolumeShadingQuality) = 0;
 
+    // Summary:
+    //     Fills up the minimum required data to be able to load the legacy terrain.
+    // Notes:
+    // Arguments:
+    //     fileHandle: [out] It is the responsibility of the caller to close this file handle
+    //                 via GetPak()->FClose(fileHandle);
+    //     terrainInfo: [out]
+    //     surfaceTypesXmlNode: [out]
+    // Return Value:
+    //     Returns the number of bytes available to read from the current position of @fileHandle.
+    virtual int GetLegacyTerrainLevelData(AZ::IO::HandleType& fileHandle, STerrainInfo& terrainInfo
+                                          , bool& bSectorPalettes, EEndian& eEndian
+                                          , XmlNodeRef& surfaceTypesXmlNode) = 0;
+
+    // Summary:
+    //     Same as above but fetches and seeks data using a pointer to octree data.
+    virtual int GetLegacyTerrainLevelData(uint8*& octreeData, STerrainInfo& terrainInfo
+                                          , bool& bSectorPalettes, EEndian& eEndian) = 0;
+
+    //! LUMBERYARD_DEPRECATED(LY-107351) Use LegacyTerrain::LegacyTerrainDataRequestBus::ReadMacroTextureFile instead
     // Attempts to import a macro texture file at filepath, and fills out the provided configuration with data from the file. Returns true if successful.
-    virtual bool ReadMacroTextureFile(const char* filepath, MacroTextureConfiguration& configuration) const = 0;
+    virtual bool ReadMacroTextureFile(const char* filepath, LegacyTerrain::MacroTextureConfiguration& configuration) const = 0;
 
+    //! LUMBERYARD_DEPRECATED(LY-107351) Use AzFramework::Terrain::TerrainDataRequestBus::GetHeight*(Sampler::BILINEAR) instead.
     // Summary:
     //     Gets the interpolated terrain elevation for a specified location.
     // Notes:
@@ -1713,6 +2028,7 @@ struct I3DEngine
     //     A float which indicate the elevation level.
     virtual float GetTerrainElevation(float x, float y, int nSID = DEFAULT_SID) = 0;
 
+    //! LUMBERYARD_DEPRECATED(LY-107351) Use AzFramework::Terrain::TerrainDataRequestBus::GetHeight(Sampler::CLAMP) instead.
     // Summary:
     //     Gets the terrain elevation for a specified location.
     // Notes:
@@ -1724,6 +2040,32 @@ struct I3DEngine
     //     A float which indicate the elevation level.
     virtual float GetTerrainZ(int x, int y) = 0;
 
+    //! LUMBERYARD_DEPRECATED(LY-107351) Use AzFramework::Terrain::TerrainDataRequestBus instead.
+    // Summary:
+    //     Gets the terrain slope for a specified location.
+    // Notes:
+    //     Only values between 0 and WORLD_SIZE.
+    //     Otherwise returns 0.
+    // Arguments:
+    //     x - X coordinate of the location
+    //     y - Y coordinate of the location
+    // Return Value:
+    //     A float which indicate the slope (a value between 0f and 255.0f).
+    virtual float GetTerrainSlope(int x, int y) = 0;
+
+    //! LUMBERYARD_DEPRECATED(LY-107351) Use LegacyTerrain::LegacyTerrainDataRequests::GetTerrainSurfaceId() instead.
+    // Summary:
+    //     Gets the terrain surfaceid.
+    // Notes:
+    //     Only values between 0 and WORLD_SIZE.
+    // Arguments:
+    //     x - X coordinate of the location
+    //     y - Y coordinate of the location
+    // Return Value:
+    //     An int which indicates the surface id
+    virtual int GetTerrainSurfaceId(int x, int y) = 0;
+
+    //! LUMBERYARD_DEPRECATED(LY-107351) Use AzFramework::Terrain::TerrainDataRequestBus::GetIsHoleFromFloats instead.
     // Summary:
     //     Gets the terrain hole flag for a specified location.
     // Notes:
@@ -1732,9 +2074,10 @@ struct I3DEngine
     //     x - X coordinate of the location
     //     y - Y coordinate of the location
     // Return Value:
-    //     A bool which indicate is there hole or not.
+    //     A bool which indicate is there's hole or not.
     virtual bool GetTerrainHole(int x, int y) = 0;
 
+    //! LUMBERYARD_DEPRECATED(LY-107351) Use AzFramework::Terrain::TerrainDataRequestBus::GetNormalFromFloats instead.
     // Summary:
     //     Gets the terrain surface normal for a specified location.
     // Arguments:
@@ -1745,6 +2088,7 @@ struct I3DEngine
     //     A terrain surface normal.
     virtual Vec3 GetTerrainSurfaceNormal(Vec3 vPos) = 0;
 
+    //! LUMBERYARD_DEPRECATED(LY-107351) Use AzFramework::Terrain::TerrainDataRequestBus::GetTerrainGridResolution instead.
     // Summary:
     //     Gets the unit size of the terrain
     // Notes:
@@ -1753,6 +2097,7 @@ struct I3DEngine
     //     A int value representing the terrain unit size in meters.
     virtual int   GetHeightMapUnitSize() = 0;
 
+    //! LUMBERYARD_DEPRECATED(LY-107351) Use AzFramework::Terrain::TerrainDataRequestBus::GetTerrainAabb instead.
     // Summary:
     //     Gets the size of the terrain
     // Notes:
@@ -1761,6 +2106,7 @@ struct I3DEngine
     //     An int representing the terrain size in meters.
     virtual int   GetTerrainSize() = 0;
 
+    //! LUMBERYARD_DEPRECATED(LY-107351) Use LegacyTerrain::LegacyTerrainDataRequestBus::GetTerrainSectorSize instead.
     // Summary:
     //     Gets the size of the terrain sectors
     // Notes:
@@ -1774,31 +2120,40 @@ struct I3DEngine
     // Internal functions, mostly used by the editor, which won't be documented for now
 
     // Summary:
-    //      Removes all static objects on the map (for editor)
+    //        Removes all static objects on the map (for editor)
     virtual void RemoveAllStaticObjects(int nSID = DEFAULT_SID) = 0;
 
+    //! LUMBERYARD_DEPRECATED(LY-107351) Use LegacyTerrain::LegacyTerrainDataRequestBus::SetTerrainSectorTexture instead.
     // Summary:
-    //      Sets terrain sector texture id, and disable streaming on this sector
-    virtual void SetTerrainSectorTexture(const int nTexSectorX, const int nTexSectorY, unsigned int textureId) = 0;
+    //        Sets terrain sector texture id, and disable streaming on this sector
+    virtual void SetTerrainSectorTexture(const int nTexSectorX, const int nTexSectorY, unsigned int textureId, unsigned int textureSizeX, unsigned int textureSizeY) = 0;
 
+    //! LUMBERYARD_DEPRECATED(LY-107351) Use LegacyTerrain::LegacyTerrainDataRequests::GetTerrainSectorSize
     // Summary:
-    //      Returns size of smallest terrain texture node (last leaf) in meters
+    //        Returns size of smallest terrain texture node (last leaf) in meters
     virtual int GetTerrainTextureNodeSizeMeters() = 0;
 
+    //! LUMBERYARD_DEPRECATED(LY-107351) Use AzFramework::Terrain::TerrainDataRequestBus instead.
+    //Summary:
+    //      Returns boolean indicating if the terrain surface is being shown.
+    virtual bool IsTerrainActive() = 0;
+
     // Summary:
-    //      Sets group parameters
+    //        Sets group parameters
     virtual bool SetStatInstGroup(int nGroupId, const IStatInstGroup& siGroup, int nSID = 0) = 0;
 
     // Summary:
-    //      Gets group parameters
+    //        Gets group parameters
     virtual bool GetStatInstGroup(int nGroupId, IStatInstGroup& siGroup, int nSID = 0) = 0;
 
+    //! LUMBERYARD_DEPRECATED(LY-107351) Will be deleted in an upcoming release.
     // Summary:
-    //      Sets burbed out flag
+    //        Sets burbed out flag
     virtual void SetTerrainBurnedOut(int x, int y, bool bBurnedOut) = 0;
 
+    //! LUMBERYARD_DEPRECATED(LY-107351) Will be deleted in an upcoming release.
     // Summary:
-    //      Gets burbed out flag
+    //        Gets burbed out flag
     virtual bool IsTerrainBurnedOut(int x, int y) = 0;
 
     //DOC-IGNORE-END
@@ -1827,20 +2182,28 @@ struct I3DEngine
 
     //DOC-IGNORE-BEGIN
     //Internal functions
-
+    
     // Summary:
-    //   Allows to enable fog in editor
+    //     Allows to enable fog in editor
     virtual void SetupDistanceFog() = 0;
 
     // Summary:
-    //   Loads environment settings for specified mission
+    //     Loads environment settings for specified mission
     virtual void LoadMissionDataFromXMLNode(const char* szMissionName) = 0;
 
     virtual void LoadEnvironmentSettingsFromXML(XmlNodeRef pInputNode, int nSID = DEFAULT_SID) = 0;
 
+    //! LUMBERYARD_DEPRECATED(LY-107351) Use LegacyTerrain::LegacyTerrainDataRequestBus::LoadTerrainSurfacesFromXML instead.
     // Summary:
-    //   Loads detail texture and detail object settings from XML doc (load from current LevelData.xml if pDoc is 0)
+    //     Loads detail texture and detail object settings from XML doc (load from current LevelData.xml if pDoc is 0)
     virtual void    LoadTerrainSurfacesFromXML(XmlNodeRef pDoc, bool bUpdateTerrain, int nSID = DEFAULT_SID) = 0;
+
+    // Summary:
+    //      This one is called by the editor when the terrain editing tools are not being built.
+    //      This is the case when the game developers are using external tools to author terrain.
+    //      The Octree data and the terrain heightmap data are stored in the same file.
+    //      This method makes sure only the non-terrain data of the Octree is loaded.
+    virtual bool LoadCompiledOctreeForEditor() = 0;
 
     //DOC-IGNORE-END
 
@@ -1849,15 +2212,15 @@ struct I3DEngine
     //  virtual void SetSunDir( const Vec3& vNewSunDir ) = 0;
 
     // Summary:
-    //      Return non-normalized direction to the sun
+    //        Return non-normalized direction to the sun
     virtual Vec3 GetSunDir()  const = 0;
 
     // Summary:
-    //      Return normalized direction to the sun
+    //        Return normalized direction to the sun
     virtual Vec3 GetSunDirNormalized()  const = 0;
 
     // Summary:
-    //      Return realtime (updated every frame with real sun position) normalized direction to the scene
+    //        Return realtime (updated every frame with real sun position) normalized direction to the scene
     virtual Vec3 GetRealtimeSunDirNormalized()  const = 0;
 
     //Internal function used by 3d engine and renderer
@@ -1887,9 +2250,8 @@ struct I3DEngine
     // Return Value:
     //   scalar value
     virtual float GetSSAOContrast() const = 0;
-
     // Summary:
-    //   Frees entity render info.
+    //     Frees entity render info.
     virtual void FreeRenderNodeState(IRenderNode* pEntity) = 0;
 
     // Summary:
@@ -1910,9 +2272,16 @@ struct I3DEngine
     virtual void DisplayInfo(float& fTextPosX, float& fTextPosY, float& fTextStepY, const bool bEnhanced) = 0;
 
     // Summary:
+    //   Displays CPU and GPU memory usage statistics on screen
+    virtual void DisplayMemoryStatistics() = 0;
+
+    // Summary:
     //   Draws text right aligned at the y pixel precision.
     virtual void DrawTextRightAligned(const float x, const float y, const char* format, ...) PRINTF_PARAMS(4, 5) = 0;
     virtual void DrawTextRightAligned(const float x, const float y, const float scale, const ColorF& color, const char* format, ...) PRINTF_PARAMS(6, 7) = 0;
+
+    virtual void DrawBBoxHelper(const Vec3& vMin, const Vec3& vMax, ColorB col = Col_White) = 0;
+    virtual void DrawBBoxHelper(const AABB& box, ColorB col = Col_White) = 0;
 
     // Summary:
     //   Enables or disables portal at a specified position.
@@ -1924,17 +2293,17 @@ struct I3DEngine
 
     //DOC-IGNORE-BEGIN
     // Summary:
-    //   Counts memory usage
+    //     Counts memory usage
     virtual void GetMemoryUsage(ICrySizer* pSizer) const = 0;
 
     // Summary:
-    //   Counts resource memory usage
+    //     Counts resource memory usage
     // Arguments:
-    //      cstAABB - Use the whole level AABB if you want to grab the resources
-    //              from the whole level.  For height level, use something BIG
-    //                          (ie: +-FLT_MAX)
+    //        cstAABB - Use the whole level AABB if you want to grab the resources
+    //              from the whole level.  For height level, use something BIG 
+    //                            (ie: +-FLT_MAX)
     // See also:
-    //      ITerrain::GetTerrainSize().
+    //        ITerrain::GetTerrainSize().
     virtual void GetResourceMemoryUsage(ICrySizer* pSizer, const AABB& cstAABB) = 0;
     //DOC-IGNORE-END
 
@@ -1956,11 +2325,11 @@ struct I3DEngine
     //   Updates the VisArea
     // Arguments:
     //   pArea -
-    //   pPoints -
+    //   pPoints - 
     //   nCount -
     //   szName -
-    //   info   -
-    //   bReregisterObjects -
+    //     info    -
+    //     bReregisterObjects -
     virtual void UpdateVisArea(IVisArea* pArea, const Vec3* pPoints, int nCount, const char* szName, const SVisAreaInfo& info, bool bReregisterObjects) = 0;
 
     // Summary:
@@ -1981,7 +2350,7 @@ struct I3DEngine
     // Return Value:
     //   A pointer to a newly created ClipVolume object
     virtual IClipVolume* CreateClipVolume() = 0;
-
+        
     // Summary:
     //   Deletes a ClipVolume.
     // Arguments:
@@ -2004,33 +2373,33 @@ struct I3DEngine
     virtual IRenderNode* CreateRenderNode(EERType type) = 0;
 
     // Summary:
-    //   Delete RenderNode object.
+    //     Delete RenderNode object.
     virtual void DeleteRenderNode(IRenderNode* pRenderNode) = 0;
 
     // Summary:
-    //   Set global wind vector.
+    //     Set global wind vector.
     virtual void SetWind(const Vec3& vWind) = 0;
 
     // Summary:
-    //   Gets wind direction and force, averaged within a box.
+    //     Gets wind direction and force, averaged within a box.
     virtual Vec3 GetWind(const AABB& box, bool bIndoors) const = 0;
 
     // Summary:
-    //   Gets the global wind vector.
+    //     Gets the global wind vector.
     virtual Vec3 GetGlobalWind(bool bIndoors) const = 0;
 
     // Summary:
-    //   Gets wind direction and forace at the sample points provided.
-    // Note: the positions defining the samples will be overwritten
+    //     Gets wind direction and forace at the sample points provided. 
+    // Note: the positions defining the samples will be overwritten 
     // with the accumulated wind influences.
     virtual bool SampleWind(Vec3* pSamples, int nSamples, const AABB& volume, bool bIndoors) const = 0;
 
     // Description:
     //   Gets the VisArea which is present at a specified point.
     // Arguments:
-    //   vPos:
+    //     vPos: 
     // Return Value:
-    //   VisArea containing point, if any. 0 otherwise.
+    //     VisArea containing point, if any. 0 otherwise.
     virtual IVisArea* GetVisAreaFromPos(const Vec3& vPos) = 0;
 
     // Description:
@@ -2039,19 +2408,19 @@ struct I3DEngine
     //   box: Volume to test for intersection.
     //   pNodeCache (out, optional): Set to a cached pointer, for quicker calls to ClipToVisAreas.
     // Return Value:
-    //   Whether box intersects any vis areas.
-    virtual bool IntersectsVisAreas(const AABB& box, void** pNodeCache = 0) = 0;
+    //     Whether box intersects any vis areas.
+    virtual    bool IntersectsVisAreas(const AABB& box, void** pNodeCache = 0) = 0;    
 
     // Description:
     //   Clips geometry against the boundaries of VisAreas.
     // Arguments:
     //   pInside: Vis Area to clip inside of. If 0, clip outside all Vis Areas.
-    //   sphere -
-    //   vNormal -
-    //   pNodeChache -
+    //     sphere -
+    //     vNormal -
+    //     pNodeChache -
     // Return Value:
-    //   Whether it was clipped
-    virtual bool ClipToVisAreas(IVisArea* pInside, Sphere& sphere, Vec3 const& vNormal, void* pNodeCache = 0) = 0;
+    //     Whether it was clipped
+    virtual    bool ClipToVisAreas(IVisArea* pInside, Sphere& sphere, Vec3 const& vNormal, void* pNodeCache = 0) = 0;    
 
     // Summary:
     //   Enables or disables ocean rendering.
@@ -2060,15 +2429,15 @@ struct I3DEngine
     virtual void EnableOceanRendering(bool bOcean) = 0;
 
     // Description:
-    //    Register a texture load handler
+    //      Register a texture load handler
     virtual void AddTextureLoadHandler(ITextureLoadHandler* pHandler) = 0;
 
     // Description
-    //    Unregister a texture load handler
+    //      Unregister a texture load handler
     virtual void RemoveTextureLoadHandler(ITextureLoadHandler* pHandler) = 0;
 
     // Description:
-    //    Get a texture load handler for a given extension
+    //      Get a texture load handler for a given extension
     virtual ITextureLoadHandler* GetTextureLoadHandlerForImage(const char* ext) = 0;
     // Summary:
     //   Creates a new light source.
@@ -2099,18 +2468,18 @@ struct I3DEngine
     // Description:
     //   Reloading the heightmap will resets all decals and particles.
     // Notes:
-    //   In future will restore deleted vegetations
+    //     In future will restore deleted vegetations
     // Returns:
     //   success
     virtual bool RestoreTerrainFromDisk(int nSID = 0) = 0;
 
     //DOC-IGNORE-BEGIN
-    // tmp
+  // tmp
     virtual const char* GetFilePath(const char* szFileName) { return GetLevelFilePath(szFileName); }
     //DOC-IGNORE-END
 
     // Summary:
-    //   Post processing effects interfaces.
+    //     Post processing effects interfaces.
     virtual class IPostEffectGroupManager* GetPostEffectGroups() const = 0;
     virtual class IPostEffectGroup* GetPostEffectBaseGroup() const = 0;
 
@@ -2134,31 +2503,33 @@ struct I3DEngine
     virtual void SetRecomputeCachedShadows(uint nUpdateStrategy = 0) = 0;
 
     // Summary:
-    //   In debug mode check memory heap and makes assert, do nothing in release
+    //     In debug mode check memory heap and makes assert, do nothing in release
     virtual void CheckMemoryHeap() = 0;
 
+    //! LUMBERYARD_DEPRECATED(LY-107351) Use LegacyTerrain::LegacyTerrainDataRequestBus::CloseTerrainTextureFile instead.
     // Summary:
-    //   Closes terrain texture file handle and allows to replace/update it.
+    //     Closes terrain texture file handle and allows to replace/update it.
     virtual void CloseTerrainTextureFile(int nSID = DEFAULT_SID) = 0;
-
+    
     // Summary:
-    //   Removes all decals attached to specified entity.
+    //     Removes all decals attached to specified entity.
     virtual void DeleteEntityDecals(IRenderNode* pEntity) = 0;
 
     // Summary:
-    //   Finishes objects geometery generation/loading.
-    virtual void CompleteObjectsGeometry() = 0;
-
-    // Summary:
-    //   Disables CGFs unloading.
+    //     Disables CGFs unloading.
     virtual void LockCGFResources() = 0;
 
     // Summary:
-    //   Enables CGFs unloading (this is default state), this function will also release all not used CGF's.
+    //     Enables CGFs unloading (this is default state), this function will also release all not used CGF's.
     virtual void UnlockCGFResources() = 0;
 
     // Summary:
-    //   Creates static object containing empty IndexedMesh.
+    //     Release all unused CGFs.
+    virtual void FreeUnusedCGFResources() = 0;
+
+
+    // Summary:
+    //     Creates static object containing empty IndexedMesh.
     virtual IStatObj* CreateStatObj() = 0;
     virtual IStatObj* CreateStatObjOptionalIndexedMesh(bool createIndexedMesh) = 0;
 
@@ -2167,29 +2538,17 @@ struct I3DEngine
     virtual IIndexedMesh* CreateIndexedMesh() = 0;
 
     // Summary:
-    //   Paints voxel shape.
-    virtual void Voxel_Paint(Vec3 vPos, float fRadius, int nSurfaceTypeId, Vec3 vBaseColor, EVoxelEditOperation eOperation, EVoxelBrushShape eShape, EVoxelEditTarget eTarget, PodArray<IRenderNode*>* pBrushes, float fMinVoxelSize) = 0;
-
-    // Description:
-    //   Gets list of voxel objects that will be affected by paint operation, IMemoryBlock will contain array of IVoxelObject pointers.
-    virtual IMemoryBlock* Voxel_GetObjects(Vec3 vPos, float fRadius, int nSurfaceTypeId, EVoxelEditOperation eOperation, EVoxelBrushShape eShape, EVoxelEditTarget eTarget) = 0;
-
-    // Summary:
-    //  Setups voxel flags.
-    virtual void Voxel_SetFlags(bool bPhysics, bool bSimplify, bool bShadows, bool bMaterials) = 0;
-
-    // Summary:
     //   Updates rendering mesh in the stat obj associated with pPhysGeom.
     // Notes:
     //  Creates or clones the object if necessary.
     virtual IStatObj* UpdateDeformableStatObj(IGeometry* pPhysGeom, bop_meshupdate* pLastUpdate = 0, IFoliage* pSrcFoliage = 0) = 0;
 
     // Summary:
-    //   Saves/loads state of engine objects.
+    //     Saves/loads state of engine objects.
     virtual void SerializeState(TSerialize ser) = 0;
-
+    
     // Summary:
-    //   Cleanups after save/load.
+    //     Cleanups after save/load.    
     virtual void PostSerialize(bool bReading) = 0;
 
     // Description:
@@ -2207,23 +2566,23 @@ struct I3DEngine
     //////////////////////////////////////////////////////////////////////////
     // CGF Loader.
     //////////////////////////////////////////////////////////////////////////
-    // Description:
+  // Description:
     // Creates a chunkfile content instance
-    // Returns 'NULL' if the memory for the instance could not be allocated
+  // Returns 'NULL' if the memory for the instance could not be allocated
     virtual CContentCGF* CreateChunkfileContent(const char* filename) = 0;
 
-    // Description:
+  // Description:
     // Deletes the chunkfile content instance
     virtual void ReleaseChunkfileContent(CContentCGF*) = 0;
 
-    // Description:
-    // Loads the contents of a chunkfile into the given CContentCGF.
-    // Returns 'false' on error.
+  // Description:
+    // Loads the contents of a chunkfile into the given CContentCGF. 
+  // Returns 'false' on error.
     virtual bool LoadChunkFileContent(CContentCGF* pCGF, const char* filename, bool bNoWarningMode = false, bool bCopyChunkFile = true) = 0;
 
-    // Description:
-    // Loads the contents of a chunkfile into the given CContentCGF.
-    // Returns 'false' on error.
+  // Description:
+    // Loads the contents of a chunkfile into the given CContentCGF. 
+  // Returns 'false' on error.
     virtual bool LoadChunkFileContentFromMem(CContentCGF* pCGF, const void* pData, size_t nDataLen, uint32 nLoadingFlags, bool bNoWarningMode = false, bool bCopyChunkFile = true) = 0;
 
     // Description:
@@ -2237,42 +2596,53 @@ struct I3DEngine
     {
         eChunkFileFormat_0x745,
         eChunkFileFormat_0x746,
-    };
+    };    
     virtual ChunkFile::IChunkFileWriter* CreateChunkFileWriter(EChunkFileFormat eFormat, ICryPak* pPak, const char* filename) const = 0;
     virtual void ReleaseChunkFileWriter(ChunkFile::IChunkFileWriter* p) const = 0;
 
-    //////////////////////////////////////////////////////////////////////////
+    // Description:
+    //      Returns true if the ocean was created successfully.
+    virtual bool CreateOcean(_smart_ptr<IMaterial> pTerrainWaterMat, float waterLevel) = 0;
 
     // Description:
-    //    Returns interface to terrain engine
+    //      Deletes the ocean if it exists, otherwise does nothing.
+    virtual void DeleteOcean() = 0;
+
+    // Description:
+    //      Changes ocean material if the ocean exists.
+    virtual void ChangeOceanMaterial(_smart_ptr<IMaterial> pMat) = 0;
+
+    // Description:
+    //      Changes ocean water level if the ocean exists.
+    virtual void ChangeOceanWaterLevel(float fWaterLevel) = 0;
+
+    virtual void InitMaterialDefautMappingAxis(_smart_ptr<IMaterial> pMat) = 0;
+
+    //! LUMBERYARD_DEPRECATED(LY-107351) Use AzFramework::Terrain::TerrainDataRequestBus or LegacyTerrain::LegacyTerrainDataRequestBus
+    // Description:
+    //      Returns interface to terrain engine
     virtual ITerrain* GetITerrain() = 0;
 
     // Description:
-    //    Creates terrain engine
-    virtual ITerrain* CreateTerrain(const STerrainInfo& TerrainInfo) = 0;
-
-    // Description:
-    //    Deletes terrain
-    virtual void DeleteTerrain() = 0;
-
-    // Description:
-    //    Returns interface to visarea manager.
+    //      Returns interface to visarea manager.
     virtual IVisAreaManager* GetIVisAreaManager() = 0;
 
     // Description:
-    //    Returns interface to the mergedmeshes subsystem
+    //      Returns interface to the mergedmeshes subsystem
     virtual IMergedMeshesManager* GetIMergedMeshesManager() = 0;
 
     // Description:
-    //    Places camera into every visarea or every manually set pre-cache points and render the scenes.
+    //      Places camera into every visarea or every manually set pre-cache points and render the scenes.
     virtual void PrecacheLevel(bool bPrecacheAllVisAreas, Vec3* pPrecachePoints, int nPrecachePointsNum) = 0;
 
     // Description:
-    //    Proposes 3dengine to load on next frame all shaders and textures synchronously.
+    //      Proposes 3dengine to load on next frame all shaders and textures synchronously.
     virtual void ProposeContentPrecache() = 0;
+    
+
 
     // Description:
-    //    Returns TOD interface.
+    //      Returns TOD interface.
     virtual ITimeOfDay* GetTimeOfDay() = 0;
 
     // Description:
@@ -2310,27 +2680,27 @@ struct I3DEngine
     virtual void GetCustomShadowMapFrustums(struct ShadowMapFrustum*& arrFrustums, int& nFrustumCount) = 0;
 
     // Description:
-    //      Saves pStatObj to a stream.
+    //        Saves pStatObj to a stream. 
     // Notes:
-    //      Full mesh for generated ones, path/geom otherwise
+    //        Full mesh for generated ones, path/geom otherwise
     virtual int SaveStatObj(IStatObj* pStatObj, TSerialize ser) = 0;
     // Description:
-    //      Loads statobj from a stream
+    //        Loads statobj from a stream
     virtual IStatObj* LoadStatObj(TSerialize ser) = 0;
 
     // Description:
-    //      Returns true if input line segment intersect clouds sprites.
+    //        Returns true if input line segment intersect clouds sprites.
     virtual bool CheckIntersectClouds(const Vec3& p1, const Vec3& p2) = 0;
 
     // Description:
-    //      Removes references to RenderMesh
+    //        Removes references to RenderMesh
     virtual void OnRenderMeshDeleted(IRenderMesh* pRenderMesh) = 0;
 
-    //   Used to highlight an object under the reticule
+    //     Used to highlight an object under the reticule
     virtual void DebugDraw_UpdateDebugNode() = 0;
 
     // Description:
-    //   Used by editor during AO computations
+    //     Used by editor during AO computations
     virtual bool RayObjectsIntersection2D(Vec3 vStart, Vec3 vEnd, Vec3& vHitPoint, EERType eERType) = 0;
 
 
@@ -2338,24 +2708,33 @@ struct I3DEngine
     //    Used by editor during object alignment
     virtual bool RenderMeshRayIntersection(IRenderMesh* pRenderMesh, SRayHitInfo& hitInfo, _smart_ptr<IMaterial> pCustomMtl = 0) = 0;
 
+    virtual void CheckCreateRNTmpData(CRNTmpData** ppInfo, IRenderNode* pRNode, const SRenderingPassInfo& passInfo) = 0;
 
     // Description:
-    //   Frees lod transition state
+    //     Frees lod transition state
     virtual void FreeRNTmpData(CRNTmpData** ppInfo) = 0;
 
+    virtual bool IsTerrainSyncLoad() = 0;
+
     // Description:
-    //   Call function 2 times (first to get the size then to fill in the data)
+    //     Returns true if the Octree is ready.
+    virtual bool IsObjectTreeReady() = 0;
+
+    virtual IOctreeNode* GetIObjectTree() = 0;
+
+    // Description:
+    //     Call function 2 times (first to get the size then to fill in the data)
     // Arguments:
     //   pObjects - 0 if only the count is required
     // Return Value:
     //   Count returned
     virtual uint32 GetObjectsByType(EERType objType, IRenderNode** pObjects = 0) = 0;
-    virtual uint32 GetObjectsByTypeInBox(EERType objType, const AABB& bbox, IRenderNode** pObjects = 0) = 0;
+    virtual uint32 GetObjectsByTypeInBox(EERType objType, const AABB& bbox, IRenderNode** pObjects = 0, ObjectTreeQueryFilterCallback filterCallback = nullptr) = 0;
     virtual uint32 GetObjectsInBox(const AABB& bbox, IRenderNode** pObjects = 0) = 0;
     virtual uint32 GetObjectsByFlags(uint dwFlag, IRenderNode** pObjects = 0) = 0;
 
     // variant which takes a POD array which is resized in the function itself
-    virtual void GetObjectsByTypeInBox(EERType objType, const AABB& bbox, PodArray<IRenderNode*>* pLstObjects) = 0;
+    virtual void GetObjectsByTypeInBox(EERType objType, const AABB& bbox, PodArray<IRenderNode*>* pLstObjects, ObjectTreeQueryFilterCallback filterCallback = nullptr) = 0;
 
     // Called from editor whenever an object is modified by the user
     virtual void OnObjectModified(IRenderNode* pRenderNode, uint dwFlags) = 0;
@@ -2371,7 +2750,7 @@ struct I3DEngine
     virtual IOpticsManager* GetOpticsManager() = 0;
 
     // Description:
-    //      Syncs and performs outstanding operations for the Asyncrhon ProcessStreaming Update
+    //        Syncs and performs outstanding operations for the Asyncrhon ProcessStreaming Update
     virtual void SyncProcessStreamingUpdate() = 0;
 
     // Set Callback for Editor to store additional information in Minimap tool
@@ -2394,15 +2773,14 @@ struct I3DEngine
 
     virtual IDeferredPhysicsEventManager* GetDeferredPhysicsEventManager() = 0;
 
+    //! LUMBERYARD_DEPRECATED(LY-107351) Use LegacyTerrain::LegacyTerrainDataRequestBus::IsTerrainTextureStreamingInProgress
     // Return true if terrain texture streaming takes place
     virtual bool IsTerrainTextureStreamingInProgress() const = 0;
+
     virtual void SetStreamableListener(IStreamedObjectListener* pListener) = 0;
 
     // following functions are used by SRenderingPassInfo
     virtual CCamera* GetRenderingPassCamera(const CCamera& rCamera) = 0;
-
-
-#if defined(FEATURE_SVO_GI)
 
     struct SSvoStaticTexInfo
     {
@@ -2414,24 +2792,15 @@ struct I3DEngine
         // SVO data pools
         ITexture* pTexTree;
         ITexture* pTexOpac;
-#ifdef FEATURE_SVO_GI_ALLOW_HQ
-        ITexture* pTexTris;
         ITexture* pTexRgb0;
         ITexture* pTexRgb1;
         ITexture* pTexDynl;
         ITexture* pTexRgb2;
         ITexture* pTexRgb3;
-        ITexture* pTexRgb4;
         ITexture* pTexNorm;
         ITexture* pTexAldi;
 
-        // mesh tracing data atlases
-        ITexture* pTexTriA;
-        ITexture* pTexTexA;
-        ITexture* pTexIndA;
-
         ITexture* pGlobalSpecCM;
-#endif
 
         float fGlobalSpecCM_Mult;
         int nTexDimXY;
@@ -2439,14 +2808,6 @@ struct I3DEngine
         int nBrickSize;
         bool bSvoReady;
         bool bSvoFreeze;
-        Sphere helperInfo;
-
-#define SVO_MAX_PORTALS 16
-        Vec4 arrPortalsPos[SVO_MAX_PORTALS];
-        Vec4 arrPortalsDir[SVO_MAX_PORTALS];
-
-        Vec3 vSkyColorTop;
-        Vec3 vSkyColorBottom;
     };
 
     struct SLightTI
@@ -2458,7 +2819,7 @@ struct I3DEngine
         class ITexture* pCM;
     };
 
-    virtual bool GetSvoStaticTextures(I3DEngine::SSvoStaticTexInfo& svoInfo, PodArray<I3DEngine::SLightTI>* pLightsTI_S, PodArray<I3DEngine::SLightTI>* pLightsTI_D) = 0;
+    virtual void GetSvoStaticTextures(I3DEngine::SSvoStaticTexInfo& svoInfo, PodArray<I3DEngine::SLightTI>* pLightsTI_S, PodArray<I3DEngine::SLightTI>* pLightsTI_D) = 0;
 
     struct SSvoNodeInfo
     {
@@ -2467,10 +2828,7 @@ struct I3DEngine
         int nAtlasOffset;
     };
 
-    virtual void GetSvoBricksForUpdate(PodArray<SSvoNodeInfo>& arrNodeInfo, float fNodeSize, PodArray<SVF_P3F_C4B_T2F>* pVertsOut) = 0;
-
-#endif
-
+    virtual void GetSvoBricksForUpdate(PodArray<SSvoNodeInfo>& arrNodeInfo, bool getDynamic) = 0;
 
 #if defined(USE_GEOM_CACHES)
     // Summary:
@@ -2498,6 +2856,24 @@ struct I3DEngine
     // Arguments:
     //     szBinaryStream - decoded stream + size
     virtual IStatObj* LoadDesignerObject(int nVersion, const char* szBinaryStream, int size) = 0;
+
+    // Summary:
+    //     Makes sure all queued culling jobs are completely finished.
+    // This is useful when adding or removing Components that trigger AZ::Job creation
+    // like the terrain system. It is important to complete those jobs before removing
+    // such type of components.
+    virtual void WaitForCullingJobsCompletion() = 0;
+
+    // Summary:
+    //     Clips a triangle across four planes. More triangles may be created if clipping is actually
+    //     needed.
+    // Arguments:
+    //     lstInds - Original index list for the first three vertices in @posBuffer (The triangle that will be clipped).
+    //     pPlanes - The four planes that will be used to clip the triangle.
+    //     posBuffer - [InOut] the vertex position of the input triangle and the new vertices are appended at the end when
+    //                 clipping occurs.
+    //     lstClippedInds - [Out] the new list if indices is appended to this array.
+    virtual void ClipTriangleHelper(const PodArray<vtx_idx>& lstInds, const Plane pPlanes[4], PodArray<Vec3>& posBuffer, PodArray<vtx_idx>& lstClippedInds) const = 0;
 
     // </interfuscator:shuffle>
 };
@@ -2539,13 +2915,16 @@ struct SRenderingPassInfo
         GEOM_CACHES = BIT(17),
         DISABLE_RENDER_CHUNK_MERGE = BIT(18),
         GPU_PARTICLE_COLLISION_CUBEMAP = BIT(19),
+#if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
+        RENDER_SCENE_TO_TEXTURE = BIT(20),
+#endif // if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
 
         // below are precombined flags
         STATIC_OBJECTS = BRUSHES | VEGETATION,
         DEFAULT_FLAGS = SHADOWS | BRUSHES | VEGETATION | ENTITIES | TERRAIN | WATEROCEAN | PARTICLES | DECALS | TERRAIN_DETAIL_MATERIALS | MERGED_MESHES | ROADS | WATER_VOLUMES | CLOUDS | GEOM_CACHES,
         DEFAULT_RECURSIVE_FLAGS = BRUSHES | VEGETATION | ENTITIES | TERRAIN | WATEROCEAN | PARTICLES | DECALS | TERRAIN_DETAIL_MATERIALS | MERGED_MESHES | ROADS | WATER_VOLUMES | CLOUDS | GEOM_CACHES
     };
-
+    
     // creating function for RenderingPassInfo, the create functions will fetch all other necessary
     // information like thread id/frame id, etc
     static SRenderingPassInfo CreateGeneralPassRenderingInfo(const CCamera& rCamera, uint32 nRenderingFlags = DEFAULT_FLAGS, bool bAuxWindow = false);
@@ -2553,8 +2932,8 @@ struct SRenderingPassInfo
     static SRenderingPassInfo CreateShadowPassRenderingInfo(const CCamera& rCamera, int nLightFlags, int nShadowMapLod, bool bExtendedLod, bool bIsMGPUCopy, uint32* pShadowGenMask, uint32 nSide, uint32 nShadowFrustumID, uint32 nRenderingFlags = DEFAULT_FLAGS);
     static SRenderingPassInfo CreateTempRenderingInfo(const CCamera& rCamera, const SRenderingPassInfo& rPassInfo);
     static SRenderingPassInfo CreateTempRenderingInfo(uint32 nRenderingFlags, const SRenderingPassInfo& rPassInfo);
-
-    // state getter
+    
+    // state getter    
     bool IsGeneralPass() const;
 
     bool IsRecursivePass() const;
@@ -2565,6 +2944,9 @@ struct SRenderingPassInfo
     EShadowMapType GetShadowMapType() const;
     bool IsDisableRenderChunkMerge() const;
     bool IsGPUParticleCubemapPass() const;
+#if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
+    bool IsRenderSceneToTexturePass() const;
+#endif // if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
 
     bool IsAuxWindow() const;
 
@@ -2670,20 +3052,20 @@ inline bool SRenderingPassInfo::IsGeneralPass() const
 
 ///////////////////////////////////////////////////////////////////////////////
 inline bool SRenderingPassInfo::IsRecursivePass() const
-{
-    return m_nRenderStackLevel > 0;
+{ 
+    return m_nRenderStackLevel > 0; 
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-inline uint32 SRenderingPassInfo::GetRecursiveLevel() const
-{
-    return m_nRenderStackLevel;
+inline uint32 SRenderingPassInfo::GetRecursiveLevel() const 
+{ 
+    return m_nRenderStackLevel; 
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-inline bool SRenderingPassInfo::IsShadowPass() const
-{
-    return static_cast<EShadowMapType>(m_eShadowMapRendering) != SHADOW_MAP_NONE;
+inline bool SRenderingPassInfo::IsShadowPass() const 
+{ 
+    return static_cast<EShadowMapType>(m_eShadowMapRendering) != SHADOW_MAP_NONE; 
 }
 
 inline bool SRenderingPassInfo::IsGPUParticleCubemapPass() const
@@ -2691,28 +3073,36 @@ inline bool SRenderingPassInfo::IsGPUParticleCubemapPass() const
     return (m_nRenderingFlags & GPU_PARTICLE_COLLISION_CUBEMAP) != 0;
 }
 
+#if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
+///////////////////////////////////////////////////////////////////////////////
+inline bool SRenderingPassInfo::IsRenderSceneToTexturePass() const
+{
+    return (m_nRenderingFlags & RENDER_SCENE_TO_TEXTURE) != 0;
+}
+#endif // if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
+
 ///////////////////////////////////////////////////////////////////////////////
 inline bool SRenderingPassInfo::IsCachedShadowPass() const
 {
-    return IsShadowPass() &&
-           (GetShadowMapType() == SRenderingPassInfo::SHADOW_MAP_CACHED ||
-            GetShadowMapType() == SRenderingPassInfo::SHADOW_MAP_CACHED_MGPU_COPY);
+    return IsShadowPass() && 
+        (GetShadowMapType() == SRenderingPassInfo::SHADOW_MAP_CACHED || 
+         GetShadowMapType() == SRenderingPassInfo::SHADOW_MAP_CACHED_MGPU_COPY);
 }
 ///////////////////////////////////////////////////////////////////////////////
-inline SRenderingPassInfo::EShadowMapType SRenderingPassInfo::GetShadowMapType() const
+inline SRenderingPassInfo::EShadowMapType SRenderingPassInfo::GetShadowMapType() const 
 {
     assert(IsShadowPass());
-    return static_cast<EShadowMapType>(m_eShadowMapRendering);
+    return static_cast<EShadowMapType>(m_eShadowMapRendering); 
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-inline bool SRenderingPassInfo::IsAuxWindow() const
-{
+inline bool SRenderingPassInfo::IsAuxWindow() const 
+{ 
     return m_bAuxWindow != 0;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-inline threadID SRenderingPassInfo::ThreadID() const
+inline threadID SRenderingPassInfo::ThreadID() const 
 {
     return m_nThreadID;
 }
@@ -2730,12 +3120,12 @@ inline uint32 SRenderingPassInfo::GetMainFrameID() const
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-inline const CCamera& SRenderingPassInfo::GetCamera() const
-{
+inline const CCamera& SRenderingPassInfo::GetCamera() const 
+{ 
     assert(m_pCamera != NULL);
-    return *m_pCamera;
+    return *m_pCamera; 
 }
-
+    
 ///////////////////////////////////////////////////////////////////////////////
 inline bool SRenderingPassInfo::IsCameraUnderWater() const
 {
@@ -2961,7 +3351,7 @@ inline void SRenderingPassInfo::InitRenderingFlags(uint32 nRenderingFlags)
     {
         m_nRenderingFlags &= ~SRenderingPassInfo::MERGED_MESHES;
     }
-
+    
     if (pDefaultMaterial->GetIVal() != 0 || pDetailMaterial->GetIVal() == 0)
     {
         m_nRenderingFlags &= ~SRenderingPassInfo::TERRAIN_DETAIL_MATERIALS;
@@ -2995,7 +3385,7 @@ inline SRenderingPassInfo SRenderingPassInfo::CreateGeneralPassRenderingInfo(con
 inline SRenderingPassInfo SRenderingPassInfo::CreateRecursivePassRenderingInfo(const CCamera& rCamera, uint32 nRenderingFlags)
 {
     static ICVar* pRecursionViewDistRatio = gEnv->pConsole->GetCVar("e_RecursionViewDistRatio");
-
+    
     SRenderingPassInfo passInfo;
     passInfo.m_nRenderStackLevel = 1;
     passInfo.SetCamera(rCamera);
@@ -3075,7 +3465,7 @@ struct SRendItemSorter
     // Deferred PreProcess needs a special ordering, use these to prefix the values
     // to ensure the deferred shading pass is after all LPV objects
     enum EDeferredPreprocess
-    {
+    {        
         eLPVPass = 0,
         eDeferredShadingPass = BIT(30)
     };
@@ -3088,12 +3478,12 @@ struct SRendItemSorter
 
     void IncreaseOctreeCounter()    { nValue += eOctreeNodeCounter; }
     void IncreaseObjectCounter()    { nValue += eObjectCounter; }
-    void IncreaseGroupCounter()     { nValue += eGroupCounter; }
+    void IncreaseGroupCounter()        { nValue += eGroupCounter; }
+    
+    void IncreaseParticleCounter()    { nValue += eParticleCounter; }    
+    uint32 ParticleCounter() const    { return nValue & ~eRecursivePassMask; }
 
-    void IncreaseParticleCounter()  { nValue += eParticleCounter; }
-    uint32 ParticleCounter() const  { return nValue & ~eRecursivePassMask; }
-
-    uint32 ShadowFrustumID() const  { return nValue  & ~eRecursivePassMask; }
+    uint32 ShadowFrustumID() const    { return nValue  & ~eRecursivePassMask; }
 
     uint32 GetValue() const { return nValue; }
 
@@ -3151,7 +3541,7 @@ inline SRendItemSorter SRendItemSorter::CreateRendItemSorter(const SRenderingPas
 ///////////////////////////////////////////////////////////////////////////////
 inline SRendItemSorter SRendItemSorter::CreateShadowPassRendItemSorter(const SRenderingPassInfo& passInfo)
 {
-    SRendItemSorter rendItemSorter;
+    SRendItemSorter rendItemSorter;    
     rendItemSorter.nValue = passInfo.ShadowFrustumID();
     rendItemSorter.nValue |= passInfo.IsRecursivePass() ? eRecursivePassMask : 0;
     return rendItemSorter;
@@ -3162,7 +3552,7 @@ inline SRendItemSorter SRendItemSorter::CreateParticleRendItemSorter(const SRend
 {
     SRendItemSorter rendItemSorter;
     rendItemSorter.nValue = 0;
-    rendItemSorter.nValue |= passInfo.IsRecursivePass() ? eRecursivePassMask : 0;
+    rendItemSorter.nValue |= passInfo.IsRecursivePass() ? eRecursivePassMask : 0;    
     return rendItemSorter;
 }
 
@@ -3171,7 +3561,7 @@ inline SRendItemSorter SRendItemSorter::CreateDeferredPreProcessRendItemSorter(c
 {
     SRendItemSorter rendItemSorter;
     rendItemSorter.nValue = 0;
-    rendItemSorter.nValue |= passInfo.IsRecursivePass() ? eRecursivePassMask : 0;
+    rendItemSorter.nValue |= passInfo.IsRecursivePass() ? eRecursivePassMask : 0;    
     rendItemSorter.nValue |= deferredPrerocessType;
     return rendItemSorter;
 }
@@ -3183,6 +3573,52 @@ inline SRendItemSorter SRendItemSorter::CreateDefaultRendItemSorter()
     rendItemSorter.nValue = 0;
     return rendItemSorter;
 }
+
+//Legacy Bus for communicating with SVOGI from the legacy engine code.
+class SVOGILegacyRequests
+    : public AZ::EBusTraits
+{
+public:
+    //////////////////////////////////////////////////////////////////////////
+    // EBusTraits overrides
+    static const AZ::EBusHandlerPolicy HandlerPolicy = AZ::EBusHandlerPolicy::Single;
+    static const AZ::EBusAddressPolicy AddressPolicy = AZ::EBusAddressPolicy::Single;
+    using MutexType = AZStd::recursive_mutex;
+//    static const bool LocklessDispatch = true;
+    //////////////////////////////////////////////////////////////////////////
+
+    //////////////////////////////////////////////////////////////////////////
+    // Triggers an update of voxel data. 
+    virtual void UpdateVoxelData() = 0;
+
+    //////////////////////////////////////////////////////////////////////////
+    // Triggers an update of voxel data to GPU.
+    virtual void UpdateRenderData() = 0;
+
+    //////////////////////////////////////////////////////////////////////////
+    // Called at framestart
+    virtual void OnFrameStart(const SRenderingPassInfo& passInfo) = 0;
+
+    //////////////////////////////////////////////////////////////////////////
+    // Gets the textures bound for GI plus lighting data.
+    virtual void GetSvoStaticTextures(I3DEngine::SSvoStaticTexInfo& svoInfo, PodArray<I3DEngine::SLightTI>* pLightsTI_S, PodArray<I3DEngine::SLightTI>* pLightsTI_D) = 0;
+
+    //////////////////////////////////////////////////////////////////////////
+    // Generates a list of bricks that need to be updated in compute shaders.
+    virtual void GetSvoBricksForUpdate(PodArray<I3DEngine::SSvoNodeInfo>& arrNodeInfo, bool getDynamic) = 0;
+
+    //////////////////////////////////////////////////////////////////////////
+    // Causes the GI system to free all voxel data. 
+    virtual void ReleaseData() = 0;
+
+    //////////////////////////////////////////////////////////////////////////
+    // Register and unregister a mutex to protect assets during rendering.
+    virtual void RegisterMutex(AZStd::mutex* mutex) = 0;
+    virtual void UnregisterMutex() = 0;
+    
+};
+using SVOGILegacyRequestBus = AZ::EBus<SVOGILegacyRequests>;
+
 
 #endif // CRYINCLUDE_CRYCOMMON_I3DENGINE_H
 

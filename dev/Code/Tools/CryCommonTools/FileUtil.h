@@ -16,12 +16,16 @@
 #pragma once
 
 #include <AzFramework/IO/LocalFileIO.h>
+#include <AzCore/IO/SystemFile.h>
 
 #include <AzCore/PlatformIncl.h>
 
-#if defined(AZ_PLATFORM_APPLE)
+#if AZ_TRAIT_OS_PLATFORM_APPLE || defined(AZ_PLATFORM_LINUX)
 #include <utime.h>
 #endif
+#if defined(AZ_PLATFORM_LINUX)
+#include "Linux64Specific.h"
+#endif // defined(AZ_PLATFORM_LINUX)
 
 namespace FileUtil
 {
@@ -35,9 +39,9 @@ namespace FileUtil
     //
     //  This result is also confirmed in the MSDN documentation on how
     //  to convert a time_t value to a win32 FILETIME.
-    #define SECS_BETWEEN_EPOCHS (__int64(11644473600))
+    #define SECS_BETWEEN_EPOCHS 11644473600ll
     /* 10^7 */
-    #define SECS_TO_100NS (__int64(10000000))
+    #define SECS_TO_100NS 10000000ll
 
     // Find all files matching filespec.
     bool ScanDirectory(const string& path, const string& filespec, std::vector<string>& files, bool recursive, const string& dirToIgnore);
@@ -50,7 +54,7 @@ namespace FileUtil
     // converts the FILETIME to the C Timestamp (compatible with dbghelp.dll)
     inline DWORD FiletimeToUnixTime(const FILETIME& ft)
     {
-        return (DWORD)((((__int64&)ft) / SECS_TO_100NS) - SECS_BETWEEN_EPOCHS);
+        return (DWORD)((((int64&)ft) / SECS_TO_100NS) - SECS_BETWEEN_EPOCHS);
     }
 
     // converts the FILETIME to 64bit C timestamp
@@ -63,7 +67,7 @@ namespace FileUtil
     // converts the C Timestamp (compatible with dbghelp.dll) to FILETIME
     inline FILETIME UnixTimeToFiletime(DWORD nCTime)
     {
-        const __int64 time = (nCTime + SECS_BETWEEN_EPOCHS) * SECS_TO_100NS;
+        const int64 time = (nCTime + SECS_BETWEEN_EPOCHS) * SECS_TO_100NS;
         return (FILETIME&)time;
     }
     
@@ -147,9 +151,9 @@ namespace FileUtil
 
     inline FILETIME GetLastWriteFileTime(const char* filename)
     {          
-        FILETIME timeModify;
-#if defined(AZ_PLATFORM_WINDOWS)		
-        GetFileTimes(filename, nullptr, nullptr, &timeModify);		
+        FILETIME timeModify = GetInvalidFileTime();
+#if defined(AZ_PLATFORM_WINDOWS)
+        GetFileTimes(filename, nullptr, nullptr, &timeModify);
 #else
         AZ::u64 modTime = 0;
         GetFileTimes(filename, nullptr, nullptr, &modTime);
@@ -282,7 +286,7 @@ namespace FileUtil
         return false;
     }
 
-    inline __int64 GetFileSize(const char* const filename)
+    inline uint64 GetFileSize(const char* const filename)
     {
         AZ::u64 fileSize = AZ::IO::SystemFile::Length(filename);
         return fileSize >= 0? fileSize : -1;

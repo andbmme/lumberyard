@@ -1,0 +1,183 @@
+
+/*
+* All or portions of this file Copyright (c) Amazon.com, Inc. or its affiliates or
+* its licensors.
+*
+* For complete copyright and license terms please see the LICENSE at the root of this
+* distribution (the "License"). All use of this software is governed by the License,
+* or, if provided, by the license below or the license accompanying this file. Do not
+* remove or modify any license notices. This file is distributed on an "AS IS" BASIS,
+* WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+*
+*/
+
+AzQtComponents--Card
+{
+    margin: 0px;
+    padding: 0px;
+}
+
+AzQtComponents--Card *
+{
+    background-color: #555555;
+}
+
+AzQtComponents--Card[hideFrame=true]
+{
+    border: 1px transparent rgba(0, 0, 0, 0);
+}
+
+AzQtComponents--CardNotification #HeaderFrame,
+AzQtComponents--CardNotification #Icon,
+AzQtComponents--CardNotification #Title
+{
+    background-color: #444444;
+    border: none;
+}
+
+/**
+ * CardHeader is a QFrame with a QHBoxLayout that contains the following children:
+ * #Expander: a QCheckBox used as a "tree expander".
+ * #Icon: a QLabel displaying an icon. The icon is set from c++.
+ * #Title: a QLabel displaying text.
+ * #ContextMenu: a QPushButton used to launch a context menu.
+ */
+
+AzQtComponents--CardHeader
+{
+    margin: 0px;
+    padding: 0px;
+    border-top-left-radius: 2px;
+    border-top-right-radius: 2px;
+}
+
+AzQtComponents--CardHeader *
+{
+    background-color: #555555;
+}
+
+AzQtComponents--CardHeader #Background
+{
+    margin: 0px 6px 0px 6px;
+    padding: 0px;
+    border: none;
+    background-image: none;
+    background-color: transparent;
+}
+
+.primaryCardHeader
+{
+    background-color: #333333;
+}
+
+.secondaryCardHeader
+{
+    background-color: #555555;
+}
+
+AzQtComponents--CardHeader #Background[warning=true]
+{
+    margin: 0px;
+    background-repeat: repeat-x;
+    background-image: url(:/Cards/img/UI20/Cards/error-conclict-state.svg);
+}
+
+AzQtComponents--CardHeader #Background[warning=false]
+{
+    background-image: none;
+}
+
+AzQtComponents--CardHeader #Background[readOnly=true]
+{
+    background-repeat: repeat-xy;
+}
+
+AzQtComponents--CardHeader #Background[readOnly=false]
+{
+    background-image: none;
+}
+
+AzQtComponents--CardHeader #Title
+{
+    height: 16px;
+    margin: 0px 2px 0px 2px;
+    font-weight: bold;
+    background-color: transparent;
+}
+
+AzQtComponents--CardHeader #Expander
+{
+    width: 16px;
+    height: 16px;
+    qproperty-flat: true;
+    border: none;
+    color: transparent;
+    background-color: transparent;
+    selection-color: transparent;
+    selection-background-color: transparent;
+    image: none;
+}
+
+AzQtComponents--CardHeader #Expander:enabled:checked
+{
+    width: 8px;
+    height: 8px;
+    padding: 0px 4px 0px 4px;
+    margin: 4px 2px 4px 2px;
+    image: url(:/Cards/img/UI20/Cards/caret_down.svg);
+}
+
+AzQtComponents--CardHeader #Expander:enabled:!checked
+{
+    margin: 4px 2px 4px 2px;
+    image: url(:/Cards/img/UI20/Cards/group_closed.png);
+}
+
+AzQtComponents--CardHeader #Icon,
+AzQtComponents--CardHeader #WarningIcon
+{
+    width: 16px;
+    height: 16px;
+    margin: 4px 2px 4px 2px;
+    border: none;
+    background-color: transparent;
+}
+
+AzQtComponents--CardHeader #ContextMenu
+{
+    width: 24px;
+    margin: 4px 2px 4px 2px;
+    qproperty-flat: true;
+    border: none;
+    color: transparent;
+    background-color: transparent;
+    selection-color: transparent;
+    selection-background-color: transparent;
+    image: url(:/Cards/img/UI20/Cards/menu_ico.svg);
+}
+
+AzQtComponents--CardHeader #Help
+{
+    width: 16px;
+    margin: 4px 2px 4px 2px;
+    qproperty-flat: true;
+    border: none;
+    color: transparent;
+    background-color: transparent;
+    selection-color: transparent;
+    selection-background-color: transparent;
+    image: url(:/Cards/img/UI20/Cards/help.svg);
+}
+
+.separator
+{
+    color: #999999;
+}
+
+AzQtComponents--Card #SeparatorContainer
+{
+    margin-left: 2px;
+    margin-right: 2px;
+    border: none;
+    background-color: #555555;
+}

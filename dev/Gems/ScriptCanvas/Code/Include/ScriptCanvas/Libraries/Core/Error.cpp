@@ -10,7 +10,6 @@
 *
 */
 
-#include "precompiled.h"
 #include "Error.h"
 
 #include <ScriptCanvas/Core/Graph.h>
@@ -25,14 +24,35 @@ namespace ScriptCanvas
         {
             void Error::OnInit()
             {
-                AddSlot("In", "", SlotType::ExecutionIn);
-                AddSlot("This", "", SlotType::DataOut); // \todo for testing only, we need to ability to arbitrarily connect nodes themeselve to slots (as input to function call or error handling) or directly (as the flow of execution with arrows if easier to read...)
-                AddInputDatumSlot("Description", "", AZStd::move(Data::Type::String()), Datum::eOriginality::Copy);
+                {
+                    ExecutionSlotConfiguration slotConfiguration("In", ConnectionType::Input);
+                    AddSlot(slotConfiguration);
+                }
+
+                {
+                    DynamicDataSlotConfiguration slotConfiguration;
+
+                    slotConfiguration.m_name = "This";
+                    slotConfiguration.m_dynamicDataType = DynamicDataType::Any;
+                    slotConfiguration.SetConnectionType(ConnectionType::Output);
+
+                    AddSlot(slotConfiguration); // \todo for testing only, we need to ability to arbitrarily connect nodes themeselve to slots (as input to function call or error handling) or directly (as the flow of execution with arrows if easier to read...)
+                }
+
+                {
+                    DataSlotConfiguration slotConfiguration;
+
+                    slotConfiguration.m_name = "Description";
+                    slotConfiguration.SetConnectionType(ConnectionType::Input);
+                    slotConfiguration.ConfigureDatum(AZStd::move(Datum(AZStd::move(Data::Type::String()), Datum::eOriginality::Copy)));
+
+                    AddSlot(slotConfiguration);
+                }
             }
 
             void Error::OnInputSignal(const SlotId&)
             {
-                const Datum* input = GetInput(GetSlotId("Description"));
+                const Datum* input = FindDatum(GetSlotId("Description"));
                 if (const Data::StringType* desc = input ? input->GetAs<Data::StringType>() : nullptr)
                 {
                     SCRIPTCANVAS_REPORT_ERROR((*this), desc->data());

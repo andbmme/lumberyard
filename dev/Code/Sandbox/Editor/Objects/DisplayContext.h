@@ -72,7 +72,9 @@ struct SANDBOX_API DisplayContext
     IIconManager* pIconManager;
     I3DEngine* engine;
     CCamera*    camera;
+    AZ_PUSH_DISABLE_DLL_EXPORT_MEMBER_WARNING
     AABB    box;    // Bounding box of volume that need to be repainted.
+    AZ_POP_DISABLE_DLL_EXPORT_MEMBER_WARNING
     int flags;
 
     //! Ctor.
@@ -106,6 +108,8 @@ struct SANDBOX_API DisplayContext
     void DrawQuadGradient(const Vec3& p1, const Vec3& p2, const Vec3& p3, const Vec3& p4, ColorB firstColor, ColorB secondColor);
     // Draw 3D Triangle.
     void DrawTri(const Vec3& p1, const Vec3& p2, const Vec3& p3);
+    void DrawTriangles(const AZStd::vector<Vec3>& vertices, const ColorB& color);
+    void DrawTrianglesIndexed(const AZStd::vector<Vec3>& vertices, const AZStd::vector<vtx_idx>& indices, const ColorB& color);
     // Draw wireframe box.
     void DrawWireBox(const Vec3& min, const Vec3& max);
     // Draw filled box
@@ -115,6 +119,7 @@ struct SANDBOX_API DisplayContext
     void DrawLine(const Vec3& p1, const Vec3& p2);
     void DrawLine(const Vec3& p1, const Vec3& p2, const ColorF& col1, const ColorF& col2);
     void DrawLine(const Vec3& p1, const Vec3& p2, const QColor& rgb1, const QColor& rgb2);
+    void DrawLines(const AZStd::vector<Vec3>& vertices, const ColorF& color);
     void DrawPolyLine(const Vec3* pnts, int numPoints, bool cycled = true);
 
     // Vera, Confetti
@@ -199,12 +204,15 @@ struct SANDBOX_API DisplayContext
     void DrawWireSphere(const Vec3& pos, float radius);
     void DrawWireSphere(const Vec3& pos, const Vec3 radius);
 
+    void DrawWireDisk(const Vec3& pos, const Vec3& dir, float radius);
+
     void PushMatrix(const Matrix34& tm);
     void PopMatrix();
     const Matrix34& GetMatrix();
 
     // Draw special 3D objects.
-    void DrawBall(const Vec3& pos, float radius);
+    void DrawBall(const Vec3& pos, float radius, bool drawShaded = true);
+    void DrawDisk(const Vec3& pos, const Vec3& dir, float radius);
 
     //! Draws 3d arrow.
     void DrawArrow(const Vec3& src, const Vec3& trg, float fHeadScale = 1, bool b2SidedArrow = false);
@@ -266,6 +274,7 @@ private:
 
     void InternalDrawLine(const Vec3& v0, const ColorB& colV0, const Vec3& v1, const ColorB& colV1);
 
+    AZ_PUSH_DISABLE_DLL_EXPORT_MEMBER_WARNING
     ColorB m_color4b;
     uint32 m_renderState;
     float m_thickness;
@@ -285,6 +294,7 @@ private:
         float color[4];
     };
     std::vector<STextureLabel> m_textureLabels;
+    AZ_POP_DISABLE_DLL_EXPORT_MEMBER_WARNING
 };
 
 #endif // CRYINCLUDE_EDITOR_OBJECTS_DISPLAYCONTEXT_H

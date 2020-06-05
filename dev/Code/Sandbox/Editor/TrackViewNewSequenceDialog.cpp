@@ -26,11 +26,6 @@ namespace
         const char*    name;
         SequenceType   type;
     };
-
-    seqTypeComboPair g_seqTypeComboPairs[] = {
-        { "Object Entity Sequence (Legacy)", SequenceType::Legacy },
-        { "Component Entity Sequence (PREVIEW)", SequenceType::SequenceComponent }
-    };
 }
 
 // TrackViewNewSequenceDialog dialog
@@ -53,17 +48,11 @@ CTVNewSequenceDialog::~CTVNewSequenceDialog()
 
 void CTVNewSequenceDialog::OnInitDialog()
 {
-    // Fill in seq type combo box
-    for (int i = 0; i < arraysize(g_seqTypeComboPairs); ++i)
-    {
-        ui->m_seqNodeTypeCombo->addItem(tr(g_seqTypeComboPairs[i].name));
-    }
-    ui->m_seqNodeTypeCombo->setCurrentIndex(static_cast<int>(SequenceType::SequenceComponent));         // default choice is the Director Component Entity
 }
 
 void CTVNewSequenceDialog::OnOK()
 {
-    m_sequenceType = static_cast<SequenceType>(ui->m_seqNodeTypeCombo->currentIndex());
+    m_sequenceType = SequenceType::SequenceComponent;
 
     m_sequenceName = ui->NAME->text();
 

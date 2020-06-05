@@ -17,6 +17,7 @@
 #include <AzCore/Serialization/SerializeContext.h>
 #include <AzCore/Component/ComponentApplicationBus.h>
 #include <AzCore/Component/Entity.h>
+#include <AzCore/Debug/AssetTracking.h>
 
 namespace AZ
 {
@@ -32,22 +33,29 @@ namespace AZ
         AZ::AssetTypeInfoBus::MultiHandler::BusConnect(AZ::AzTypeInfo<AZ::DynamicSliceAsset>::Uuid());
     }
 
+    SliceAssetHandler::~SliceAssetHandler()
+    {
+        AZ::AssetTypeInfoBus::MultiHandler::BusDisconnect();
+    }
+
     //=========================================================================
     // CreateAsset
     //=========================================================================
     Data::AssetPtr SliceAssetHandler::CreateAsset(const Data::AssetId& id, const Data::AssetType& type)
     {
-        (void)id;
-        (void)type;
         AZ_Assert(type == AzTypeInfo<SliceAsset>::Uuid() || type == AzTypeInfo<DynamicSliceAsset>::Uuid(), "This handler deals only with SliceAsset type!");
+        
+        Data::AssetPtr newPtr = nullptr;
         if (type == AzTypeInfo<DynamicSliceAsset>::Uuid())
         {
-            return aznew DynamicSliceAsset();
+            newPtr = aznew DynamicSliceAsset(id);
         }
-        else
+        else if (type == AzTypeInfo<SliceAsset>::Uuid())
         {
-            return aznew SliceAsset();
+            newPtr = aznew SliceAsset(id);
         }
+
+        return newPtr;
     }
 
     //=========================================================================
@@ -93,6 +101,7 @@ namespace AZ
     //=========================================================================
     bool SliceAssetHandler::LoadAssetData(const Data::Asset<Data::AssetData>& asset, const char* assetPath, const AZ::Data::AssetFilterCB& assetLoadFilterCB)
     {
+        AZ_ASSET_NAMED_SCOPE("SliceAsset: %s", assetPath);
         AZ::IO::FileIOBase* fileIO = AZ::IO::FileIOBase::GetInstance();
         if (fileIO)
         {

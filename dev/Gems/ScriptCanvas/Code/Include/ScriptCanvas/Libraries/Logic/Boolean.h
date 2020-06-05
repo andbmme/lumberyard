@@ -42,16 +42,11 @@ namespace ScriptCanvas
                             editContext->Class<Boolean>("Boolean", "A boolean value (true/false)")
                                 ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
                                 ->Attribute(AZ::Edit::Attributes::Icon, "Editor/Icons/ScriptCanvas/Boolean.png")
-                                ->Attribute(AZ::Edit::Attributes::Visibility, AZ::Edit::PropertyVisibility::ShowChildrenOnly)
                                 ;
                         }
                     }
                 }
 
-                void Visit(NodeVisitor& visitor) const override 
-                { 
-                    visitor.Visit(*this); 
-                }
             };
         }
     }

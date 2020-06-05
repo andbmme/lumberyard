@@ -12,7 +12,10 @@
 
 // include required headers
 #include "Matrix4.h"
-#include "Quaternion.h"
+#include <AzCore/Math/VectorFloat.h>
+#include <AzCore/Math/Matrix4x4.h>
+#include <AzCore/Math/Quaternion.h>
+#include <MCore/Source/AzCoreConversions.h>
 
 
 namespace MCore
@@ -87,7 +90,7 @@ namespace MCore
     {
         Matrix r;
 
-    #if (defined(MCORE_SSE_ENABLED) && defined(MCORE_MATRIX_ROWMAJOR))
+    #if (AZ_TRAIT_USE_PLATFORM_SIMD && defined(MCORE_MATRIX_ROWMAJOR))
         const float* m = right.m16;
         const float* n = m16;
         float* t = r.m16;
@@ -212,7 +215,7 @@ namespace MCore
 
     Matrix& Matrix::operator *= (const Matrix& right)
     {
-    #if (defined(MCORE_SSE_ENABLED) && defined(MCORE_MATRIX_ROWMAJOR))
+    #if (AZ_TRAIT_USE_PLATFORM_SIMD && defined(MCORE_MATRIX_ROWMAJOR))
         const float* m = right.m16;
         const float* n = m16;
         float* t = this->m16;
@@ -591,6 +594,20 @@ namespace MCore
     }
 
 
+    AZ::Vector3 Matrix::ExtractScale()
+    {
+        const AZ::Vector4 x = GetRow4D(0);
+        const AZ::Vector4 y = GetRow4D(1);
+        const AZ::Vector4 z = GetRow4D(2);
+        const AZ::VectorFloat lengthX = x.GetLength();
+        const AZ::VectorFloat lengthY = y.GetLength();
+        const AZ::VectorFloat lengthZ = z.GetLength();
+        SetRow(0, x / lengthX);
+        SetRow(1, y / lengthY);
+        SetRow(2, z / lengthZ);
+
+        return AZ::Vector3(lengthX, lengthY, lengthZ);
+    }
 
     void Matrix::RotateX(float angle)
     {
@@ -674,7 +691,7 @@ namespace MCore
 
     void Matrix::MultMatrix(const Matrix& right)
     {
-    #if (defined(MCORE_SSE_ENABLED) && defined(MCORE_MATRIX_ROWMAJOR))
+    #if (AZ_TRAIT_USE_PLATFORM_SIMD && defined(MCORE_MATRIX_ROWMAJOR))
         const float* m = right.m16;
         const float* n = m16;
         float* t = this->m16;
@@ -760,13 +777,13 @@ namespace MCore
 
     // init from position, rotation, scale and shear
     // use this to reconstruct a matrix that has been decomposed using the DecomposeQRGramSchmidt method
-    void Matrix::InitFromPosRotScaleShear(const AZ::Vector3& pos, const Quaternion& rot, const AZ::Vector3& scale, const AZ::Vector3& shear)
+    void Matrix::InitFromPosRotScaleShear(const AZ::Vector3& pos, const AZ::Quaternion& rot, const AZ::Vector3& scale, const AZ::Vector3& shear)
     {
         // convert quat to matrix
-        const float xx = rot.x * rot.x;
-        const float xy = rot.x * rot.y, yy = rot.y * rot.y;
-        const float xz = rot.x * rot.z, yz = rot.y * rot.z, zz = rot.z * rot.z;
-        const float xw = rot.x * rot.w, yw = rot.y * rot.w, zw = rot.z * rot.w, ww = rot.w * rot.w;
+        const float xx = rot.GetX() * rot.GetX();
+        const float xy = rot.GetX() * rot.GetY(), yy = rot.GetY() * rot.GetY();
+        const float xz = rot.GetX() * rot.GetZ(), yz = rot.GetY() * rot.GetZ(), zz = rot.GetZ() * rot.GetZ();
+        const float xw = rot.GetX() * rot.GetW(), yw = rot.GetY() * rot.GetW(), zw = rot.GetZ() * rot.GetW(), ww = rot.GetW() * rot.GetW();
         TMAT(0, 0) = +xx - yy - zz + ww;
         TMAT(0, 1) = +xy + zw + xy + zw;
         TMAT(0, 2) = +xz - yw + xz - yw;
@@ -821,12 +838,12 @@ namespace MCore
 
     // init from position, rotation, scale, scale rotation
     // use this to reconstruct a matrix decomposed using the MatrixDecomposer class using polar decomposition
-    void Matrix::InitFromPosRotScaleScaleRot(const AZ::Vector3& pos, const Quaternion& rot, const AZ::Vector3& scale, const Quaternion& scaleRot)
+    void Matrix::InitFromPosRotScaleScaleRot(const AZ::Vector3& pos, const AZ::Quaternion& rot, const AZ::Vector3& scale, const AZ::Quaternion& scaleRot)
     {
-        float xx = scaleRot.x * scaleRot.x;
-        float xy = scaleRot.x * scaleRot.y, yy = scaleRot.y * scaleRot.y;
-        float xz = scaleRot.x * scaleRot.z, yz = scaleRot.y * scaleRot.z, zz = scaleRot.z * scaleRot.z;
-        float xw = scaleRot.x * scaleRot.w, yw = scaleRot.y * scaleRot.w, zw = scaleRot.z * scaleRot.w, ww = scaleRot.w * scaleRot.w;
+        float xx = scaleRot.GetX() * scaleRot.GetX();
+        float xy = scaleRot.GetX() * scaleRot.GetY(), yy = scaleRot.GetY() * scaleRot.GetY();
+        float xz = scaleRot.GetX() * scaleRot.GetZ(), yz = scaleRot.GetY() * scaleRot.GetZ(), zz = scaleRot.GetZ() * scaleRot.GetZ();
+        float xw = scaleRot.GetX() * scaleRot.GetW(), yw = scaleRot.GetY() * scaleRot.GetW(), zw = scaleRot.GetZ() * scaleRot.GetW(), ww = scaleRot.GetW() * scaleRot.GetW();
 
         // init on the inversed scale rotation
         TMAT(0, 0) = +xx - yy - zz + ww;
@@ -890,16 +907,16 @@ namespace MCore
         }
 
         // apply regular rotation
-        xx = rot.x * rot.x;
-        xy = rot.x * rot.y;
-        yy = rot.y * rot.y;
-        xz = rot.x * rot.z;
-        yz = rot.y * rot.z;
-        zz = rot.z * rot.z;
-        xw = rot.x * rot.w;
-        yw = rot.y * rot.w;
-        zw = rot.z * rot.w;
-        ww = rot.w * rot.w;
+        xx = rot.GetX() * rot.GetX();
+        xy = rot.GetX() * rot.GetY();
+        yy = rot.GetY() * rot.GetY();
+        xz = rot.GetX() * rot.GetZ();
+        yz = rot.GetY() * rot.GetZ();
+        zz = rot.GetZ() * rot.GetZ();
+        xw = rot.GetX() * rot.GetW();
+        yw = rot.GetY() * rot.GetW();
+        zw = rot.GetZ() * rot.GetW();
+        ww = rot.GetW() * rot.GetW();
 
 #ifdef MCORE_MATRIX_ROWMAJOR
         r33[0][0] = +xx - yy - zz + ww;
@@ -949,7 +966,7 @@ namespace MCore
 
 
     // init from pos/rot/scale
-    void Matrix::InitFromPosRotScale(const AZ::Vector3& pos, const Quaternion& rot, const AZ::Vector3& scale)
+    void Matrix::InitFromPosRotScale(const AZ::Vector3& pos, const AZ::Quaternion& rot, const AZ::Vector3& scale)
     {
         // init on a scale + translation matrix
         TMAT(0, 0) = scale.GetX();
@@ -969,12 +986,12 @@ namespace MCore
         TMAT(3, 2) = pos.GetZ();
         TMAT(3, 3) = 1.0f;
 
-        // multiply it with a rotation matrix built from the quaternion
+        // multiply it with a rotation matrix built from the AZ::Quaternion
         // don't rotate the translation part
-        const float xx = rot.x * rot.x;
-        const float xy = rot.x * rot.y, yy = rot.y * rot.y;
-        const float xz = rot.x * rot.z, yz = rot.y * rot.z, zz = rot.z * rot.z;
-        const float xw = rot.x * rot.w, yw = rot.y * rot.w, zw = rot.z * rot.w, ww = rot.w * rot.w;
+        const float xx = rot.GetX() * rot.GetX();
+        const float xy = rot.GetX() * rot.GetY(), yy = rot.GetY() * rot.GetY();
+        const float xz = rot.GetX() * rot.GetZ(), yz = rot.GetY() * rot.GetZ(), zz = rot.GetZ() * rot.GetZ();
+        const float xw = rot.GetX() * rot.GetW(), yw = rot.GetY() * rot.GetW(), zw = rot.GetZ() * rot.GetW(), ww = rot.GetW() * rot.GetW();
 
         float r33[3][3];
     #ifdef MCORE_MATRIX_ROWMAJOR
@@ -1021,7 +1038,7 @@ namespace MCore
 
 
     // init from pos/rot/scale with parent scale compensation
-    void Matrix::InitFromNoScaleInherit(const AZ::Vector3& pos, const Quaternion& rot, const AZ::Vector3& scale, const AZ::Vector3& invParentScale)
+    void Matrix::InitFromNoScaleInherit(const AZ::Vector3& pos, const AZ::Quaternion& rot, const AZ::Vector3& scale, const AZ::Vector3& invParentScale)
     {
         // init on a scale + translation matrix
         TMAT(0, 0) = scale.GetX();
@@ -1041,12 +1058,12 @@ namespace MCore
         TMAT(3, 2) = pos.GetZ();
         TMAT(3, 3) = 1.0f;
 
-        // multiply it with a rotation matrix built from the quaternion
+        // multiply it with a rotation matrix built from the AZ::Quaternion
         // don't rotate the translation part
-        const float xx = rot.x * rot.x;
-        const float xy = rot.x * rot.y, yy = rot.y * rot.y;
-        const float xz = rot.x * rot.z, yz = rot.y * rot.z, zz = rot.z * rot.z;
-        const float xw = rot.x * rot.w, yw = rot.y * rot.w, zw = rot.z * rot.w, ww = rot.w * rot.w;
+        const float xx = rot.GetX() * rot.GetX();
+        const float xy = rot.GetX() * rot.GetY(), yy = rot.GetY() * rot.GetY();
+        const float xz = rot.GetX() * rot.GetZ(), yz = rot.GetY() * rot.GetZ(), zz = rot.GetZ() * rot.GetZ();
+        const float xw = rot.GetX() * rot.GetW(), yw = rot.GetY() * rot.GetW(), zw = rot.GetZ() * rot.GetW(), ww = rot.GetW() * rot.GetW();
 
         float r33[3][3];
     #ifdef MCORE_MATRIX_ROWMAJOR
@@ -1103,12 +1120,12 @@ namespace MCore
     }
 
 
-    void Matrix::InitFromPosRot(const AZ::Vector3& pos, const Quaternion& rot)
+    void Matrix::InitFromPosRot(const AZ::Vector3& pos, const AZ::Quaternion& rot)
     {
-        const float xx = rot.x * rot.x;
-        const float xy = rot.x * rot.y, yy = rot.y * rot.y;
-        const float xz = rot.x * rot.z, yz = rot.y * rot.z, zz = rot.z * rot.z;
-        const float xw = rot.x * rot.w, yw = rot.y * rot.w, zw = rot.z * rot.w, ww = rot.w * rot.w;
+        const float xx = rot.GetX() * rot.GetX();
+        const float xy = rot.GetX() * rot.GetY(), yy = rot.GetY() * rot.GetY();
+        const float xz = rot.GetX() * rot.GetZ(), yz = rot.GetY() * rot.GetZ(), zz = rot.GetZ() * rot.GetZ();
+        const float xw = rot.GetX() * rot.GetW(), yw = rot.GetY() * rot.GetW(), zw = rot.GetZ() * rot.GetW(), ww = rot.GetW() * rot.GetW();
 
         TMAT(0, 0) = +xx - yy - zz + ww;
         TMAT(0, 1) = +xy + zw + xy + zw;
@@ -1130,7 +1147,7 @@ namespace MCore
 
     /*
     // optimized routine for handling scale rotation, rotation, scale and translation
-    void Matrix::Set(const Quaternion& scaleRot, const Quaternion& rotation, const Vector3& scale, const Vector3& translation)
+    void Matrix::Set(const AZ::Quaternion& scaleRot, const AZ::Quaternion& rotation, const Vector3& scale, const Vector3& translation)
     {
         float xx=scaleRot.x*scaleRot.x;
         float xy=scaleRot.x*scaleRot.y, yy=scaleRot.y*scaleRot.y;
@@ -1233,7 +1250,7 @@ namespace MCore
 
     void Matrix::MultMatrix4x3(const Matrix& right)
     {
-    #if (defined(MCORE_SSE_ENABLED) && defined(MCORE_MATRIX_ROWMAJOR))
+    #if (AZ_TRAIT_USE_PLATFORM_SIMD && defined(MCORE_MATRIX_ROWMAJOR))
         const float* m = right.m16;
         const float* n = m16;
         float* t = this->m16;
@@ -1323,7 +1340,7 @@ namespace MCore
     // *this = left * right
     void Matrix::MultMatrix(const Matrix& left, const Matrix& right)
     {
-    #if (defined(MCORE_SSE_ENABLED) && defined(MCORE_MATRIX_ROWMAJOR))
+    #if (AZ_TRAIT_USE_PLATFORM_SIMD && defined(MCORE_MATRIX_ROWMAJOR))
         const float* m = right.m16;
         const float* n = left.m16;
         float* t = this->m16;
@@ -1410,7 +1427,7 @@ namespace MCore
 
     void Matrix::MultMatrix4x3(const Matrix& left, const Matrix& right)
     {
-    #if (defined(MCORE_SSE_ENABLED) && defined(MCORE_MATRIX_ROWMAJOR))
+    #if (AZ_TRAIT_USE_PLATFORM_SIMD && defined(MCORE_MATRIX_ROWMAJOR))
         const float* m = right.m16;
         const float* n = left.m16;
         float* t = this->m16;
@@ -1532,8 +1549,8 @@ namespace MCore
         MMAT(v, 2, 2) = TMAT(2, 2);
         MMAT(v, 2, 3) = TMAT(3, 2);
         MMAT(v, 3, 0) = TMAT(0, 3);
-        MMAT(v, 3, 1) = TMAT(3, 1);
-        MMAT(v, 3, 2) = TMAT(3, 2);
+        MMAT(v, 3, 1) = TMAT(1, 3);
+        MMAT(v, 3, 2) = TMAT(2, 3);
         MMAT(v, 3, 3) = TMAT(3, 3);
 
         *this = v;
@@ -2210,12 +2227,12 @@ namespace MCore
 
 
 
-    void Matrix::SetRotationMatrix(const Quaternion& rotation)
+    void Matrix::SetRotationMatrix(const AZ::Quaternion& rotation)
     {
-        const float xx = rotation.x * rotation.x;
-        const float xy = rotation.x * rotation.y, yy = rotation.y * rotation.y;
-        const float xz = rotation.x * rotation.z, yz = rotation.y * rotation.z, zz = rotation.z * rotation.z;
-        const float xw = rotation.x * rotation.w, yw = rotation.y * rotation.w, zw = rotation.z * rotation.w, ww = rotation.w * rotation.w;
+        const float xx = rotation.GetX() * rotation.GetX();
+        const float xy = rotation.GetX() * rotation.GetY(), yy = rotation.GetY() * rotation.GetY();
+        const float xz = rotation.GetX() * rotation.GetZ(), yz = rotation.GetY() * rotation.GetZ(), zz = rotation.GetZ() * rotation.GetZ();
+        const float xw = rotation.GetX() * rotation.GetW(), yw = rotation.GetY() * rotation.GetW(), zw = rotation.GetZ() * rotation.GetW(), ww = rotation.GetW() * rotation.GetW();
 
         TMAT(0, 0) = +xx - yy - zz + ww;
         TMAT(0, 1) = +xy + zw + xy + zw;
@@ -2238,7 +2255,7 @@ namespace MCore
 
 
     // simple decompose a matrix into translation and rotation
-    void Matrix::Decompose(AZ::Vector3* outTranslation, MCore::Quaternion* outRotation) const
+    void Matrix::Decompose(AZ::Vector3* outTranslation, AZ::Quaternion* outRotation) const
     {
         // make a copy of the matrix
         Matrix mat(*this);
@@ -2251,8 +2268,8 @@ namespace MCore
         // extract the translation from the matrix
         *outTranslation = mat.GetTranslation();
 
-        // convert the normalized 3x3 rotation part into a quaternion
-        outRotation->FromMatrix(mat);
+        // convert the normalized 3x3 rotation part into a AZ::Quaternion
+        *outRotation = MCore::MCoreMatrixToQuaternion(*this);
     }
 
 
@@ -2354,28 +2371,28 @@ namespace MCore
 
 
     //
-    void Matrix::DecomposeQRGramSchmidt(AZ::Vector3& translation, Quaternion& rot, AZ::Vector3& scale, AZ::Vector3& shear) const
+    void Matrix::DecomposeQRGramSchmidt(AZ::Vector3& translation, AZ::Quaternion& rot, AZ::Vector3& scale, AZ::Vector3& shear) const
     {
         Matrix rotMatrix;
         DecomposeQRGramSchmidt(translation, rotMatrix, scale, shear);
-        rot.FromMatrix(rotMatrix);
+        rot = MCore::MCoreMatrixToQuaternion(*this);
     }
 
     //
-    void Matrix::DecomposeQRGramSchmidt(AZ::Vector3& translation, Quaternion& rot, AZ::Vector3& scale) const
+    void Matrix::DecomposeQRGramSchmidt(AZ::Vector3& translation, AZ::Quaternion& rot, AZ::Vector3& scale) const
     {
         Matrix rotMatrix;
         DecomposeQRGramSchmidt(translation, rotMatrix, scale);
-        rot.FromMatrix(rotMatrix);
+        rot = MCore::MCoreMatrixToQuaternion(rotMatrix);
     }
 
 
     //
-    void Matrix::DecomposeQRGramSchmidt(AZ::Vector3& translation, Quaternion& rot) const
+    void Matrix::DecomposeQRGramSchmidt(AZ::Vector3& translation, AZ::Quaternion& rot) const
     {
         Matrix rotMatrix;
         DecomposeQRGramSchmidt(translation, rotMatrix);
-        rot.FromMatrix(rotMatrix);
+        rot = MCore::MCoreMatrixToQuaternion(rotMatrix);
     }
 
 
@@ -2567,7 +2584,7 @@ namespace MCore
 
     /*
     // init from pos/rot/scale/shear
-    void Matrix::Set(const Vector3& translation, const Quaternion& rotation, const Vector3& scale, const Vector3& shear)
+    void Matrix::Set(const Vector3& translation, const AZ::Quaternion& rotation, const Vector3& scale, const Vector3& shear)
     {
         // convert quat to matrix
         const float xx=rotation.x*rotation.x;
@@ -2621,7 +2638,7 @@ namespace MCore
     //-------------------------------------------------------
     /*
     // decompose using QR decomposition (householder)
-    void Matrix::DecomposeQRHouseHolder(Vector3& outTranslation, Quaternion& outRotation, Vector3& outScale, Vector3& outShear)
+    void Matrix::DecomposeQRHouseHolder(Vector3& outTranslation, AZ::Quaternion& outRotation, Vector3& outScale, Vector3& outShear)
     {
         // extract translation
         outTranslation = GetTranslation();
@@ -2642,14 +2659,14 @@ namespace MCore
         outShear.y = MMAT(R, 0, 2) * invScaleX;
         outShear.z = MMAT(R, 1, 2) / outScale.y;
 
-        // convert the rotation into a quaternion
+        // convert the rotation into a AZ::Quaternion
         outRotation.FromMatrix( Q );
     }
 
 
 
     // decompose using QR decomposition
-    void Matrix::DecomposeQRHouseHolder(Vector3& outTranslation, Quaternion& outRotation, Vector3& outScale)
+    void Matrix::DecomposeQRHouseHolder(Vector3& outTranslation, AZ::Quaternion& outRotation, Vector3& outScale)
     {
         // extract translation
         outTranslation = GetTranslation();
@@ -2664,13 +2681,13 @@ namespace MCore
         // extract scale
         outScale.Set( MMAT(R,0,0), MMAT(R,1,1), MMAT(R,2,2) );
 
-        // convert the rotation into a quaternion
+        // convert the rotation into a AZ::Quaternion
         outRotation.FromMatrix( Q );
     }
 
 
     // decompose using QR decomposition
-    void Matrix::DecomposeQRHouseHolder(Vector3& outTranslation, Quaternion& outRotation)
+    void Matrix::DecomposeQRHouseHolder(Vector3& outTranslation, AZ::Quaternion& outRotation)
     {
         // extract translation
         outTranslation = GetTranslation();
@@ -2682,7 +2699,7 @@ namespace MCore
         DecomposeQRHouseHolder(Q, R);
         SetTranslation( outTranslation );
 
-        // convert the rotation into a quaternion
+        // convert the rotation into a AZ::Quaternion
         outRotation.FromMatrix( Q );
     }
 

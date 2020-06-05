@@ -26,8 +26,10 @@ def build(bld):
         platforms       = ['all'],
         configurations  = ['all'],
         pch             = 'StdAfx.cpp',
-        defines         = ['ENGINE_EXPORTS'],
         use             = ['AzCore'],
+        includes        = [bld.Path('Code/CryEngine/CryCommon')
+                          ],
+        defines         = ['ENGINE_EXPORTS', 'USE_CRY_NEW_AND_DELETE'],
 
         # Platform Specific
         uselib              = ['FREETYPE2'],
@@ -41,7 +43,6 @@ def build(bld):
         darwin_cxxflags             = ['-Wno-deprecated-register'],
         ios_cxxflags                = ['-Wno-deprecated-register'],
         appletv_cxxflags            = ['-Wno-deprecated-register'],
-        android_armv7_clang_cxxflags= ['-Wno-deprecated-register'],
 
 
         # Testing

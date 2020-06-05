@@ -19,13 +19,13 @@ if not '.c' in TaskGen.task_gen.mappings:
 
 class cxx(Task.Task):
 	"Compile C++ files into object files"
-	run_str = '${CXX} ${ARCH_ST:ARCH} ${CXXFLAGS} ${CPPFLAGS} ${FRAMEWORKPATH_ST:FRAMEWORKPATH} ${CPPPATH_ST:INCPATHS} ${DEFINES_ST:DEFINES} ${CXX_SRC_F}${SRC} ${CXX_TGT_F}${TGT}'
+	run_str = '${CXX} ${ARCH_ST:ARCH} ${CXXFLAGS} ${CPPFLAGS} ${FRAMEWORKPATH_ST:FRAMEWORKPATH} ${CPPPATH_ST:INCPATHS} ${SYSTEM_CPPPATH_ST:SYSTEM_INCPATHS} ${DEFINES_ST:DEFINES} ${CXX_SRC_F}${SRC} ${CXX_TGT_F}${TGT}'
 	vars	= ['CXXDEPS'] # unused variable to depend on, just in case
 	scan	= c_preproc.scan
 
 class old_cxxprogram(link_task):
 	"Link object files into a c++ program"
-	run_str = '${LINK_CXX} ${CXXLNK_TGT_F}${TGT[0].abspath()} ${LINKFLAGS} ${CXXLNK_SRC_F}${SRC} ${RPATH_ST:RPATH} ${FRAMEWORKPATH_ST:FRAMEWORKPATH} ${FRAMEWORK_ST:FRAMEWORK} ${ARCH_ST:ARCH} ${STLIB_MARKER} ${STLIBPATH_ST:STLIBPATH} ${STLIB_ST:STLIB} ${SHLIB_MARKER} ${LIBPATH_ST:LIBPATH} ${LIB_ST:LIB}'
+	run_str = '${LINK_CXX} ${CXXLNK_TGT_F}${TGT[0].abspath()} ${LINKFLAGS} ${CXXLNK_SRC_F}${SRC} ${RPATH_ST:RPATH} ${FRAMEWORKPATH_ST:FRAMEWORKPATH} ${FRAMEWORK_ST:FRAMEWORK} ${ARCH_ST:ARCH} ${STLIB_MARKER} ${STLIBPATH_ST:STLIBPATH} ${STLIB_ST:STLIB} ${SHLIB_MARKER} ${LIBPATH_ST:LIBPATH} ${LIB_ST:LIB} ${STUB_ST:STUB}'
 	vars	= ['LINKDEPS']
 	ext_out = ['.bin']
 	inst_to = '${BINDIR}'

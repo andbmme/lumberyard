@@ -17,11 +17,20 @@
 #include "Algorithm.h"
 #include "System.h"
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/ImageHandler_cpp_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/ImageHandler_cpp_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/ImageHandler_cpp_salem.inl"
+    #endif
+#endif
 
-#if !(defined(ANDROID) || defined(IOS) || defined(APPLETV) || defined(LINUX)) // Rally US1050 - Compile libtiff for Android and IOS
-    #include "../../../SDKs/tiff/libtiff/tiffio.h"
+#if !(defined(ANDROID) || defined(IOS) || defined(APPLETV) || defined(LINUX)) && AZ_LEGACY_CRYSYSTEM_TRAIT_IMAGEHANDLER_TIFFIO // Rally US1050 - Compile libtiff for Android and IOS
+    #include <libtiff/tiffio.h>
 
-AZ_STATIC_ASSERT(sizeof(thandle_t) >= sizeof(AZ::IO::HandleType), "Platform defines thandle_t to be smaller than required");
+static_assert(sizeof(thandle_t) >= sizeof(AZ::IO::HandleType), "Platform defines thandle_t to be smaller than required");
 #endif
 
 namespace

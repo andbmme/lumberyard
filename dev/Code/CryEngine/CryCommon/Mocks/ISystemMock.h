@@ -105,18 +105,20 @@ public:
         IZLibDecompressor * ());
     MOCK_METHOD0(GetLZ4Decompressor,
         ILZ4Decompressor * ());
+    MOCK_METHOD0(GetZStdDecompressor,
+        IZStdDecompressor * ());
     MOCK_METHOD0(GetPerfHUD,
         ICryPerfHUD * ());
     MOCK_METHOD0(GetPlatformOS,
         IPlatformOS * ());
     MOCK_METHOD0(GetINotificationNetwork,
         INotificationNetwork * ());
-    MOCK_METHOD0(GetIHardwareMouse,
-        IHardwareMouse * ());
     MOCK_METHOD0(GetIDialogSystem,
         IDialogSystem * ());
-    MOCK_METHOD0(GetIFlowSystem,
-        IFlowSystem * ());
+    MOCK_METHOD0(GetIViewSystem,
+        IViewSystem * ());
+    MOCK_METHOD0(GetILevelSystem,
+        ILevelSystem * ());
     MOCK_METHOD0(GetIBudgetingSystem,
         IBudgetingSystem * ());
     MOCK_METHOD0(GetINameTable,
@@ -199,8 +201,7 @@ public:
         ISystem::ILoadingProgressListener * ());
     MOCK_METHOD1(SetIGame,
         void(IGame * pGame));
-    MOCK_METHOD1(SetIFlowSystem,
-        void(IFlowSystem * pFlowSystem));
+
     MOCK_METHOD1(SetIDialogSystem,
         void(IDialogSystem * pDialogSystem));
     MOCK_METHOD1(SetIMaterialEffects,
@@ -231,8 +232,8 @@ public:
         bool(const char* szMODName));
     MOCK_CONST_METHOD0(IsMinimalMode,
         bool());
-    MOCK_METHOD2(CreateXmlNode,
-        XmlNodeRef(const char*, bool));
+    MOCK_METHOD3(CreateXmlNode,
+        XmlNodeRef(const char*, bool, bool));
     MOCK_METHOD4(LoadXmlFromBuffer,
         XmlNodeRef(const char*, size_t, bool, bool));
     MOCK_METHOD2(LoadXmlFromFile,
@@ -289,10 +290,6 @@ public:
         void());
     MOCK_METHOD3(LoadConfiguration,
         void(const char*, ILoadConfigurationEntrySink*, bool));
-    MOCK_CONST_METHOD0(GetGraphicsSettingsMap,
-        AZStd::unordered_map<AZStd::string, CVarInfo>*());
-    MOCK_METHOD1(SetGraphicsSettingsMap,
-        void(AZStd::unordered_map<AZStd::string, CVarInfo>*));
 
     MOCK_METHOD1(GetConfigSpec,
         ESystemConfigSpec(bool));
@@ -336,6 +333,10 @@ public:
         bool());
     MOCK_METHOD1(SetAssertVisible,
         void(bool bAssertVisble));
+    MOCK_METHOD1(SetConsoleDrawEnabled,
+        void(bool enabled));
+    MOCK_METHOD1(SetUIDrawEnabled,
+        void(bool enabled));
     MOCK_METHOD0(GetApplicationInstance,
         int());
     MOCK_METHOD0(GetCurrentUpdateTimeStats,
@@ -352,8 +353,8 @@ public:
         void(const char* szParam));
     MOCK_METHOD0(GetITestSystem,
         ITestSystem * ());
-    MOCK_METHOD0(ExecuteCommandLine,
-        void());
+    MOCK_METHOD1(ExecuteCommandLine,
+        void(bool));
     MOCK_METHOD1(GetUpdateStats,
         void(SSystemUpdateStats & stats));
     MOCK_METHOD0(DumpMemoryCoverage,
@@ -362,8 +363,6 @@ public:
         ESystemGlobalState(void));
     MOCK_METHOD1(SetSystemGlobalState,
         void(ESystemGlobalState systemGlobalState));
-    MOCK_METHOD1(AddPlatformOSCreateFlag,
-        void(uint8 createFlag));
     MOCK_METHOD5(AsyncMemcpy,
         void(void* dst, const void* src, size_t size, int nFlags, volatile int* sync));
 

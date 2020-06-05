@@ -1,0 +1,31 @@
+{
+    "attributes"    : {
+        "is_windows"            : true,
+        "qt_supported"          : true
+    },
+    "settings"      : {
+        "Visual Studio" :
+        [
+            {
+                "long_form"         : "--generate-vs-solution-automatically",
+                "attribute"         : "generate_vs_solution_automatically",
+                "default_value"     : "True",
+                "description"       : "Option to generate a visual studio solution automatically after every configure"
+            }
+        ]
+    },
+    "env" : {
+        "DEFINES": [
+            "_WIN32",
+            "_WIN64",
+            "NOMINMAX"
+        ],
+        "LINKFLAGS": [
+            "/MACHINE:X64"
+        ],
+        "ARFLAGS": [
+            "/MACHINE:X64"
+        ]
+    }
+}
+

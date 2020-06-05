@@ -21,6 +21,7 @@
 #include <AzQtComponents/Components/DockTabWidget.h>
 #include <AzQtComponents/Components/StyledDockWidget.h>
 #include <AzToolsFramework/UI/PropertyEditor/PropertyEditorAPI.h>
+#include <AzToolsFramework/ComponentMode/EditorComponentModeBus.h>
 
 #include <QObject>
 #include <QVector>
@@ -36,7 +37,13 @@
 
 class QMainWindow;
 struct ViewLayoutState;
-class FancyDocking;
+
+namespace AzQtComponents
+{
+    class StyledDockWidget;
+    class FancyDocking;
+
+} // namespace AzQtComponents
 
 typedef AZStd::function<QWidget*()> ViewPaneFactory;
 
@@ -45,7 +52,7 @@ class DockWidget
 {
     Q_OBJECT
 public:
-    explicit DockWidget(QWidget* widget, QtViewPane* pane, QSettings* settings, QMainWindow* parent, FancyDocking* advancedDockManager);
+    explicit DockWidget(QWidget* widget, QtViewPane* pane, QSettings* settings, QMainWindow* parent, AzQtComponents::FancyDocking* advancedDockManager);
 
     QString PaneName() const;
     void RestoreState(bool forceDefault = false);
@@ -64,7 +71,7 @@ private:
     QSettings* const m_settings;
     QMainWindow* const m_mainWindow;
     QtViewPane* const m_pane;
-    FancyDocking* m_advancedDockManager;
+    AzQtComponents::FancyDocking* m_advancedDockManager;
 };
 
 struct QtViewPane
@@ -198,6 +205,7 @@ public:
     bool DeserializeLayout(const XmlNodeRef& parentNode);
 
     static QtViewPaneManager* instance();
+    static bool exists();
 
     /**
      * Returns the known view panes (regardless of them being open or not).
@@ -218,13 +226,18 @@ signals:
     void registeredPanesChanged();
 
 private:
-
+    friend class DockWidget;
     ViewLayoutState GetLayout() const;
     bool RestoreLayout(const ViewLayoutState& state);
     void SaveStateToLayout(const ViewLayoutState& state, const QString& layoutName);
 
+#if AZ_TRAIT_OS_PLATFORM_APPLE
+    QDockWidget* ShowFakeNonDockableDockWidget(AzQtComponents::StyledDockWidget* dockWidget, QtViewPane* pane);
+#endif
+
     bool ClosePane(QtViewPane* pane, QtViewPane::CloseModes closeModes = QtViewPane::CloseMode::None);
     int NextAvailableId();
+    AZ_PUSH_DISABLE_DLL_EXPORT_MEMBER_WARNING
     QtViewPanes m_registeredPanes;
     QByteArray m_defaultMainWindowState;
     QByteArray m_loadedMainWindowState;
@@ -232,9 +245,15 @@ private:
     QSettings* m_settings;
     QList<int> m_knownIdsSet; // Semantically a set, but QList is faster for small collections than QSet
     bool m_restoreInProgress;
+    QMap<QString, QRect> m_fakeDockWidgetGeometries;
 
     bool m_enableLegacyCryEntities;
-    FancyDocking* m_advancedDockManager;
+    QPointer<AzQtComponents::FancyDocking> m_advancedDockManager;
+
+    using EditorComponentModeNotificationBusImpl = AzToolsFramework::ComponentModeFramework::EditorComponentModeNotificationBusImpl;
+    EditorComponentModeNotificationBusImpl m_componentModeNotifications; /**< Helper for EditorComponentModeNotificationBus so 
+                                                                           *  QtViewPaneManager does not need to inherit directly from it. */
+    AZ_POP_DISABLE_DLL_EXPORT_MEMBER_WARNING
 };
 
 template<class TWidget>
@@ -262,7 +281,7 @@ void UnregisterQtViewPane()
 template<typename TWidget>
 TWidget* FindViewPane(const QString& name)
 {
-    QtViewPane* pane = QtViewPaneManager::instance()->GetPane(name);
+    QtViewPane* pane = QtViewPaneManager::exists() ? QtViewPaneManager::instance()->GetPane(name) : nullptr;
     return pane ? qobject_cast<TWidget*>(pane->Widget()) : nullptr;
 }
 

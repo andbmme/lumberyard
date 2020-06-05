@@ -36,9 +36,9 @@ namespace ScriptCanvasEditor
             ScriptCanvasEditor::GeneralGraphEventBus::Handler::BusDisconnect();
         }
 
-        void LogPanel::OnBuildGameEntity(const AZStd::string& name, const AZ::EntityId& editGraphId, const AZ::EntityId& runtimeGraphId)
+        void LogPanel::OnBuildGameEntity(const AZStd::string& name, const AZ::EntityId& editGraphId, const ScriptCanvas::ScriptCanvasId& scriptCanvasId)
         {
-            m_runtimeGraphId = runtimeGraphId;
+            m_scriptCanvasId = scriptCanvasId;
 
             AZStd::intrusive_ptr<Settings> settings = AZ::UserSettings::CreateFind<Settings>(AZ::Crc32(editGraphId.ToString().c_str()), AZ::UserSettings::CT_LOCAL);
             if (settings->m_enableLogging)
@@ -50,7 +50,7 @@ namespace ScriptCanvasEditor
 
         QWidget* LogPanel::CreateTab(const AzToolsFramework::LogPanel::TabSettings& settings)
         {
-            return new LogTab(this, m_runtimeGraphId, settings);
+            return new LogTab(this, m_scriptCanvasId, settings);
         }
 
         LogPanelWidget::LogPanelWidget(QWidget* parent)
@@ -67,7 +67,7 @@ namespace ScriptCanvasEditor
 
         }
 
-        LogTab::LogTab(QWidget* pParent, const AZ::EntityId& runtimeGraphId, const AzToolsFramework::LogPanel::TabSettings& in_settings)
+        LogTab::LogTab(QWidget* pParent, const ScriptCanvas::ScriptCanvasId& scriptCanvasId, const AzToolsFramework::LogPanel::TabSettings& in_settings)
             : AzToolsFramework::LogPanel::BaseLogView(pParent)
         {
 
@@ -79,53 +79,13 @@ namespace ScriptCanvasEditor
 
             ConnectModelToView(new AzToolsFramework::LogPanel::RingBufferLogDataModel(m_ptrLogView));
 
-            ScriptCanvas::LogNotificationBus::Handler::BusConnect(runtimeGraphId);
+            ScriptCanvas::LogNotificationBus::Handler::BusConnect(scriptCanvasId);
             Clear();
         }
 
         LogTab::~LogTab()
         {
             ScriptCanvas::LogNotificationBus::Handler::BusDisconnect();
-        }
-
-        void LogTab::OnNodeSignalOutput(const AZStd::string& sourceNodeName, const AZStd::string& targetNodeName, const AZStd::string& slotName)
-        {
-            if (slotName.empty())
-            {
-                AzToolsFramework::Logging::LogLine line(AZStd::string::format("From: %s To: %s", sourceNodeName.c_str(), targetNodeName.c_str()).c_str(), "Output", AzToolsFramework::Logging::LogLine::TYPE_MESSAGE, QDateTime::currentMSecsSinceEpoch());
-                m_bufferedLines.push(line);
-            }
-            else
-            {
-                AzToolsFramework::Logging::LogLine line(AZStd::string::format("From: %s To: %s (Slot: %s)", sourceNodeName.c_str(), targetNodeName.c_str(), slotName.c_str()).c_str(), "Output", AzToolsFramework::Logging::LogLine::TYPE_MESSAGE, QDateTime::currentMSecsSinceEpoch());
-                m_bufferedLines.push(line);
-            }
-
-            CommitAddedLines();
-        }
-
-        void LogTab::OnNodeSignalInput(const AZ::Uuid& nodeId, const AZStd::string& name, const AZStd::string& slotName)
-        {
-            if (slotName.empty())
-            {
-                AzToolsFramework::Logging::LogLine line(AZStd::string::format("%s", name.c_str()).c_str(), "Input", AzToolsFramework::Logging::LogLine::TYPE_MESSAGE, QDateTime::currentMSecsSinceEpoch());
-                m_bufferedLines.push(line);
-            }
-            else
-            {
-                AzToolsFramework::Logging::LogLine line(AZStd::string::format("%s (Slot: %s)", name.c_str(), slotName.c_str()).c_str(), "Input", AzToolsFramework::Logging::LogLine::TYPE_MESSAGE, QDateTime::currentMSecsSinceEpoch());
-                m_bufferedLines.push(line);
-            }
-
-            CommitAddedLines();
-        }
-
-        void LogTab::OnNodeInputChanged(const AZStd::string& sourceNodeName, const AZStd::string& objectName, const AZStd::string& slotName)
-        {
-            AzToolsFramework::Logging::LogLine line(AZStd::string::format("%s (%s) : %s", sourceNodeName.c_str(), objectName.c_str(), slotName.c_str()).c_str(), "Input Change", AzToolsFramework::Logging::LogLine::TYPE_MESSAGE, QDateTime::currentMSecsSinceEpoch());
-
-            m_bufferedLines.push(line);
-            CommitAddedLines();
         }
 
         void LogTab::LogMessage(const AZStd::string& message)

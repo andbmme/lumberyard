@@ -14,8 +14,6 @@
 // Description : Common math class
 
 
-#ifndef CRYINCLUDE_CRYCOMMON_CRY_MATH_H
-#define CRYINCLUDE_CRYCOMMON_CRY_MATH_H
 #pragma once
 
 //========================================================================================
@@ -226,20 +224,63 @@ ILINE f32 pow_tpl(f32 x, f32 y) {return (f32) pow((f64)x, (f64)y); }
 ILINE f64 pow_tpl(f64 x, f64 y) {return pow(x, y); }
 
 #if defined(_CPU_SSE)
-ILINE f32 sqrt_tpl(f32 op) { __m128 s = _mm_sqrt_ss(_mm_set_ss(op));    float r; _mm_store_ss(&r, s);   return r; }
-ILINE f64 sqrt_tpl(f64 op) { return sqrt(op); }
+ILINE f32 sqrt_tpl(f32 op)
+{
+    __m128 s = _mm_sqrt_ss(_mm_set_ss(op));
+    float r;
+    _mm_store_ss(&r, s);
+    return r;
+}
+ILINE f64 sqrt_tpl(f64 op)
+{
+    return sqrt(op);
+}
 
-ILINE f32 sqrt_fast_tpl(f32 op) { __m128 s = _mm_sqrt_ss(_mm_set_ss(op));   float r; _mm_store_ss(&r, s);   return r; }
-ILINE f64 sqrt_fast_tpl(f64 op) { return sqrt(op); }
+ILINE f32 sqrt_fast_tpl(f32 op)
+{
+    return sqrt_tpl(op);
+}
+ILINE f64 sqrt_fast_tpl(f64 op)
+{
+    return sqrt_tpl(op);
+}
 
-ILINE f32 isqrt_tpl(f32 op) { __m128 s = _mm_rsqrt_ss(_mm_set_ss(op));  float r; _mm_store_ss(&r, s);   return r * (1.5f - op * r * r * 0.5f); }
-ILINE f64 isqrt_tpl(f64 op) {   return 1.0 / sqrt(op); }
+ILINE f32 isqrt_tpl(f32 op)
+{
+    __m128 value = _mm_set_ss(op);
+    __m128 oneHalf = _mm_set_ss(0.5f);
+    __m128 threeHalfs = _mm_set_ss(1.5f);
+    __m128 simdRecipSqrt = _mm_rsqrt_ss(value);
+    __m128 inverseMult = _mm_mul_ps(_mm_mul_ss(_mm_mul_ss(value, simdRecipSqrt), simdRecipSqrt), oneHalf);
+    __m128 inverseInner = _mm_sub_ps(threeHalfs, inverseMult);
+    __m128 newtonIteration1 = _mm_mul_ss(simdRecipSqrt, inverseInner);
+    float r;
+    _mm_store_ss(&r, newtonIteration1);
+    return r;
+}
+ILINE f64 isqrt_tpl(f64 op)
+{
+    return 1.0 / sqrt(op);
+}
 
-ILINE f32 isqrt_fast_tpl(f32 op) { __m128 s = _mm_rsqrt_ss(_mm_set_ss(op)); float r; _mm_store_ss(&r, s);   return r * (1.5f - op * r * r * 0.5f); }
-ILINE f64 isqrt_fast_tpl(f64 op) { return 1.0 / sqrt(op); }
+ILINE f32 isqrt_fast_tpl(f32 op)
+{
+    return isqrt_tpl(op);
+}
+ILINE f64 isqrt_fast_tpl(f64 op)
+{
+    return isqrt_tpl(op);
+}
 
-ILINE f32 isqrt_safe_tpl(f32 op2) { f32 op = op2 + +FLT_MIN;  __m128 s = _mm_rsqrt_ss(_mm_set_ss(op));    float r; _mm_store_ss(&r, s);   return r * (1.5f - op * r * r * 0.5f); }
-ILINE f64 isqrt_safe_tpl(f64 op) { return 1.0 / sqrt(op + DBL_MIN); }
+ILINE f32 isqrt_safe_tpl(f32 value)
+{
+    return isqrt_tpl(value + (std::numeric_limits<f32>::min)());
+}
+
+ILINE f64 isqrt_safe_tpl(f64 value)
+{
+    return isqrt_tpl(value + (std::numeric_limits<f64>::min)());
+}
 #elif defined (__ARM_NEON__)
 #include "arm_neon.h"
 
@@ -497,7 +538,13 @@ ILINE int ilog2(uint64 x)   // if x==1<<i (i=0..63), returns i
 {
 #if defined(CRY_PLATFORM_X64)
 # if defined(AZ_RESTRICTED_PLATFORM)
-#  include AZ_RESTRICTED_FILE(Cry_Math_h)
+#  if defined(AZ_PLATFORM_XENIA)
+#   include "Xenia/Cry_Math_h_xenia.inl"
+#  elif defined(AZ_PLATFORM_PROVO)
+#   include "Provo/Cry_Math_h_provo.inl"
+#  elif defined(AZ_PLATFORM_SALEM)
+#   include "Salem/Cry_Math_h_salem.inl"
+#  endif
 # endif
 # if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
 #  undef AZ_RESTRICTED_SECTION_IMPLEMENTED
@@ -692,5 +739,3 @@ inline void GetBasisVectors(const Vec3& n, Vec3& b1, Vec3& b2)
     b1 = Vec3(1.0f - n.x * n.x * a, b, -n.x);
     b2 = Vec3(b, 1.0f - n.y * n.y * a, -n.y);
 }
-
-#endif // CRYINCLUDE_CRYCOMMON_CRY_MATH_H

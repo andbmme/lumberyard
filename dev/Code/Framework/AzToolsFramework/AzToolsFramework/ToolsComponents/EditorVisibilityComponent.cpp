@@ -13,6 +13,9 @@
 #include "EditorVisibilityComponent.h"
 
 #include <AzCore/Serialization/EditContext.h>
+#include <AzToolsFramework/API/ToolsApplicationAPI.h>
+#include <AzToolsFramework/Entity/EditorEntityHelpers.h>
+#include <AzToolsFramework/Viewport/ViewportMessages.h>
 
 namespace AzToolsFramework
 {
@@ -26,13 +29,12 @@ namespace AzToolsFramework
                     ->Field("VisibilityFlag", &EditorVisibilityComponent::m_visibilityFlag)
                     ;
 
-                AZ::EditContext* ptrEdit = serializeContext->GetEditContext();
-                if (ptrEdit)
+                if (AZ::EditContext* editContext = serializeContext->GetEditContext())
                 {
-                    ptrEdit->Class<EditorVisibilityComponent>("Visibility", "Edit-time entity visibility")
+                    editContext->Class<EditorVisibilityComponent>("Visibility", "Edit-time entity visibility")
                         ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
                             ->Attribute(AZ::Edit::Attributes::Visibility, AZ::Edit::PropertyVisibility::Hide)
-                            ->Attribute(AZ::Edit::Attributes::SliceFlags, AZ::Edit::SliceFlags::NotPushable)    
+                            ->Attribute(AZ::Edit::Attributes::SliceFlags, AZ::Edit::SliceFlags::NotPushable)
                             ->Attribute(AZ::Edit::Attributes::HideIcon, true);
                 }
             }
@@ -57,36 +59,9 @@ namespace AzToolsFramework
 
         void EditorVisibilityComponent::Init()
         {
-            // Current visibility isn't saved to disk. Initialize it with the visibility flag's value.
-            m_currentVisibility = m_visibilityFlag;
-
             // We connect to the bus here because we need to be able to respond even if the entity and component are not active
             // This is a special case for certain EditorComponents only!
             EditorVisibilityRequestBus::Handler::BusConnect(GetEntityId());
-        }
-
-        void EditorVisibilityComponent::Activate()
-        {
-            EditorComponentBase::Activate();
-        }
-
-        void EditorVisibilityComponent::Deactivate()
-        {
-            EditorComponentBase::Deactivate();
-        }
-
-        void EditorVisibilityComponent::SetCurrentVisibility(bool visibility)
-        {
-            if (m_currentVisibility != visibility)
-            {
-                m_currentVisibility = visibility;
-                EBUS_EVENT_ID(GetEntityId(), EditorVisibilityNotificationBus, OnEntityVisibilityChanged, m_currentVisibility);
-            }
-        }
-
-        bool EditorVisibilityComponent::GetCurrentVisibility()
-        {
-            return m_currentVisibility;
         }
 
         void EditorVisibilityComponent::SetVisibilityFlag(bool flag)
@@ -94,13 +69,29 @@ namespace AzToolsFramework
             if (m_visibilityFlag != flag)
             {
                 m_visibilityFlag = flag;
-                EBUS_EVENT_ID(GetEntityId(), EditorVisibilityNotificationBus, OnEntityVisibilityFlagChanged, m_visibilityFlag);
+
+                AzToolsFramework::ToolsApplicationRequestBus::Broadcast(
+                    &AzToolsFramework::ToolsApplicationRequestBus::Events::AddDirtyEntity, m_entity->GetId());
+
+                // notify individual entities connected to this bus
+                EditorEntityVisibilityNotificationBus::Event(
+                    m_entity->GetId(), &EditorEntityVisibilityNotifications::OnEntityVisibilityFlagChanged, flag);
             }
         }
 
         bool EditorVisibilityComponent::GetVisibilityFlag()
         {
             return m_visibilityFlag;
+        }
+
+        void EditorVisibilityComponent::SetCurrentVisibility(const bool visibility)
+        {
+            SetEntityVisibility(GetEntityId(), visibility);
+        }
+
+        bool EditorVisibilityComponent::GetCurrentVisibility()
+        {
+            return IsEntityVisible(GetEntityId());
         }
     } // namespace Components
 } // namespace AzToolsFramework

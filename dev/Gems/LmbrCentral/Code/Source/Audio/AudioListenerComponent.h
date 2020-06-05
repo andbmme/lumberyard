@@ -34,6 +34,7 @@ namespace LmbrCentral
      *  This feature is not yet available in Wwise middleware, but it is on their
      *  roadmap (WG-21449).
      */
+
     class AudioListenerComponent
         : public AZ::Component
         , private AZ::TransformNotificationBus::MultiHandler
@@ -55,6 +56,7 @@ namespace LmbrCentral
          */
         void SetRotationEntity(const AZ::EntityId entityId) override;
         void SetPositionEntity(const AZ::EntityId entityId) override;
+        void SetListenerEnabled(bool enabled) override;
 
         /*!
          * AZ::TransformNotificationBus::MultiHandler
@@ -93,9 +95,10 @@ namespace LmbrCentral
         AZ::Transform m_transform;
         AZ::EntityId m_currentRotationEntity;
         AZ::EntityId m_currentPositionEntity;
-        Audio::TAudioObjectID m_listenerObjectId;
+        Audio::TAudioObjectID m_listenerObjectId = INVALID_AUDIO_OBJECT_ID;
 
         //! Serialized data
+        bool m_defaultListenerState = true;
         AZ::EntityId m_rotationEntity;
         AZ::EntityId m_positionEntity;
         AZ::Vector3 m_fixedOffset = AZ::Vector3::CreateZero();

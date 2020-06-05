@@ -18,6 +18,8 @@
 #include <Editor/Assets/ScriptCanvasAssetHolder.h>
 #include <ScriptCanvas/Assets/ScriptCanvasAssetHandler.h>
 #include <ScriptCanvas/Bus/EditorScriptCanvasBus.h>
+#include <ScriptCanvas/Variable/VariableBus.h>
+#include <ScriptCanvas/Variable/VariableData.h>
 
 namespace ScriptCanvasEditor
 {
@@ -30,11 +32,7 @@ namespace ScriptCanvasEditor
     will remove the reference from the EditorScriptCanvasComponent, but not the reference from the MainWindow allowing the
     ScriptCanvas graph to still be modified while open
 
-    Furthermore this component is responsible for invoking the ScriptCanvasEditor Graph Compile call in order to turn the loaded asset data
-    in a runtime ScriptCanvas Graph. In the future this will create a runtime ScriptCanvas GraphAsset that executes in a VM.
-
-    Finally per graph instance properties values are stored on the EditorScriptCanvasComponent and injected into the runtime ScriptCanvas graph
-    as part of the Compile function
+    Finally per graph instance variables values are stored on the EditorScriptCanvasComponent and injected into the runtime ScriptCanvas component in BuildGameEntity
     */
     class EditorScriptCanvasComponent
         : public AzToolsFramework::Components::EditorComponentBase
@@ -42,6 +40,8 @@ namespace ScriptCanvasEditor
         , private EditorContextMenuRequestBus::Handler
         , private AzFramework::AssetCatalogEventBus::Handler
         , private EditorScriptCanvasAssetNotificationBus::Handler
+        , private EditorScriptCanvasComponentLoggingBus::Handler
+        , private EditorScriptCanvasComponentRequestBus::Handler
     {
     public:
         AZ_COMPONENT(EditorScriptCanvasComponent, "{C28E2D29-0746-451D-A639-7F113ECF5D72}", AzToolsFramework::Components::EditorComponentBase);
@@ -62,18 +62,30 @@ namespace ScriptCanvasEditor
         void BuildGameEntity(AZ::Entity* gameEntity) override;
         void SetPrimaryAsset(const AZ::Data::AssetId&) override;
         //=====================================================================
-        AZ::Data::Asset<ScriptCanvasAsset> GetAsset() const override;
+
+        //=====================================================================
+        // EditorScriptCanvasComponentLoggingBus
+        AZ::NamedEntityId FindNamedEntityId() const override { return GetNamedEntityId(); }
+        ScriptCanvas::GraphIdentifier GetGraphIdentifier() const override;
+        //=====================================================================
 
         //=====================================================================
         // EditorScriptCanvasRequestBus
         void SetName(const AZStd::string& name) override { m_name = name; }
         const AZStd::string& GetName() const { return m_name; };
         AZ::EntityId GetEditorEntityId() const { return GetEntity() ? GetEntityId() : AZ::EntityId(); }
+        AZ::NamedEntityId GetNamedEditorEntityId() const override { return GetEntity() ? GetNamedEntityId() : AZ::NamedEntityId(); }
+        AZ::Data::Asset<ScriptCanvasAsset> GetAsset() const override;        
+        //=====================================================================
+        
+        //=====================================================================
+        // EditorScriptCanvasComponentRequestBus
+        void SetAssetId(const AZ::Data::AssetId& assetId) override;
         //=====================================================================
 
         //=====================================================================
         // EditorContextMenuRequestBus
-        AZ::EntityId GetGraphId() const override;
+        ScriptCanvas::ScriptCanvasId GetScriptCanvasId() const override;
         //=====================================================================
         AZ::EntityId GetGraphEntityId() const;
 
@@ -115,8 +127,24 @@ namespace ScriptCanvasEditor
         void OnScriptCanvasAssetReloaded(const AZ::Data::Asset<ScriptCanvasAsset>& asset);
         //=====================================================================
 
+        void AddVariable(AZStd::string_view varName, const ScriptCanvas::GraphVariable& varDatum);
+        void AddNewVariables(const ScriptCanvas::VariableData& graphVarData);
+        void RemoveVariable(const ScriptCanvas::VariableId& varId);
+        void RemoveOldVariables(const ScriptCanvas::VariableData& graphVarData);
+        bool UpdateVariable(const ScriptCanvas::GraphVariable& graphDatum, ScriptCanvas::GraphVariable& updateDatum, ScriptCanvas::GraphVariable& originalDatum);
+        void LoadVariables(AZ::Entity* scriptCanvasEntity);
+        void ClearVariables();
+
+    private:
+        AZ::Data::AssetId m_previousAssetId;
+
         AZStd::string m_name;
         ScriptCanvasAssetHolder m_scriptCanvasAssetHolder;
-    };
+        
+        ScriptCanvas::EditableVariableData m_editableData;
 
+        //< Contains a mapping of the EntityId value from the ScriptCanvasAsset stored as an AZ::u64 so that it does not get remapped
+        //< to itself stored as an EntityId
+        AZStd::unordered_map<AZ::u64, AZ::EntityId> m_variableEntityIdMap; 
+    };
 }

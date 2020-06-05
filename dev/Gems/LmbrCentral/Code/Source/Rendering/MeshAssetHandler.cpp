@@ -12,11 +12,11 @@
 
 #include "LmbrCentral_precompiled.h"
 
-#include <AzCore/std/parallel/conditional_variable.h>
 #include <AzCore/IO/GenericStreams.h>
 #include <AzFramework/Asset/SimpleAsset.h>
 #include <AzFramework/Asset/AssetCatalogBus.h>
 #include <AzFramework/StringFunc/StringFunc.h>
+#include <AzCore/std/parallel/binary_semaphore.h>
 
 #include <LmbrCentral/Rendering/MeshAsset.h>
 #include "MeshAssetHandler.h"
@@ -26,14 +26,14 @@
 namespace LmbrCentral
 {   
     //////////////////////////////////////////////////////////////////////////
-    const AZStd::string MeshAssetHandlerBase::s_assetAliasToken = "@assets@/";
+    const AZStd::string MeshAssetHandlerHelper::s_assetAliasToken = "@assets@/";
 
-    MeshAssetHandlerBase::MeshAssetHandlerBase()
+    MeshAssetHandlerHelper::MeshAssetHandlerHelper()
         : m_asyncLoadCvar(nullptr)
     {
     }
 
-    void MeshAssetHandlerBase::StripAssetAlias(const char*& assetPath)
+    void MeshAssetHandlerHelper::StripAssetAlias(const char*& assetPath)
     {
         const size_t assetAliasTokenLen = s_assetAliasToken.size() - 1;
         if (0 == strncmp(assetPath, s_assetAliasToken.c_str(), assetAliasTokenLen))
@@ -42,7 +42,7 @@ namespace LmbrCentral
         }
     }
 
-    ICVar* MeshAssetHandlerBase::GetAsyncLoadCVar()
+    ICVar* MeshAssetHandlerHelper::GetAsyncLoadCVar()
     {
         if (!m_asyncLoadCvar)
         {
@@ -56,7 +56,7 @@ namespace LmbrCentral
     // Static Mesh Asset Handler
     //////////////////////////////////////////////////////////////////////////
 
-    void AsyncStatObjLoadCallback(const AZ::Data::Asset<MeshAsset>& asset, AZStd::condition_variable* loadVariable, _smart_ptr<IStatObj> statObj)
+    void AsyncStatObjLoadCallback(const AZ::Data::Asset<MeshAsset>& asset, _smart_ptr<IStatObj> statObj)
     {
         if (statObj)
         {
@@ -65,13 +65,11 @@ namespace LmbrCentral
         else
         {
 #if defined(AZ_ENABLE_TRACING)
-            AZStd::string assetDescription = asset.GetId().ToString<AZStd::string>();
+            AZStd::string assetDescription = asset.ToString<AZStd::string>();
             AZ::Data::AssetCatalogRequestBus::BroadcastResult(assetDescription, &AZ::Data::AssetCatalogRequestBus::Events::GetAssetPathById, asset.GetId());
-            AZ_Error("MeshAssetHandler", false, "Failed to load mesh asset \"%s\".", assetDescription.c_str());
+            AZ_Error("MeshAssetHandler", false, "Failed to load mesh asset %s", assetDescription.c_str());
 #endif // AZ_ENABLE_TRACING
         }
-
-        loadVariable->notify_one();
     }
 
     MeshAssetHandler::~MeshAssetHandler()
@@ -110,19 +108,23 @@ namespace LmbrCentral
             ICVar* cvar = GetAsyncLoadCVar();
             if (!cvar || cvar->GetIVal() == 0)
             {
-                AZStd::mutex loadMutex;
-                AZStd::condition_variable loadVariable;
-
-                auto callback = [&asset, &loadVariable](IStatObj* obj)
+                if (gEnv->mMainThreadId != CryGetCurrentThreadId())
                 {
-                    AsyncStatObjLoadCallback(asset, &loadVariable, obj);
-                };
+                    AZStd::binary_semaphore signaller;
 
-                AZStd::unique_lock<AZStd::mutex> loadLock(loadMutex);
-                gEnv->p3DEngine->LoadStatObjAsync(callback, assetPath);
+                    auto callback = [&asset, &signaller](IStatObj* obj)
+                    {
+                        AsyncStatObjLoadCallback(asset, obj);
+                        signaller.release();
+                    };
 
-                // Block the job thread on a signal variable until notified of completion (by the main thread).
-                loadVariable.wait(loadLock);
+                    gEnv->p3DEngine->LoadStatObjAsync(callback, assetPath);
+                    signaller.acquire();
+                }
+                else
+                {
+                    AsyncStatObjLoadCallback(asset, gEnv->p3DEngine->LoadStatObjAutoRef(assetPath));
+                }
             }
             else
             {
@@ -157,10 +159,15 @@ namespace LmbrCentral
         assetTypes.push_back(AZ::AzTypeInfo<MeshAsset>::Uuid());
     }
 
+    void MeshAssetHandler::ProcessQueuedAssetRequests()
+    {
+        gEnv->p3DEngine->ProcessAsyncStaticObjectLoadRequests();
+    }
+
     void MeshAssetHandler::Register()
     {
         AZ_Assert(AZ::Data::AssetManager::IsReady(), "Asset manager isn't ready!");
-        AZ::Data::AssetManager::Instance().RegisterHandler(this, AZ::AzTypeInfo<MeshAsset>::Uuid());
+        AZ::Data::AssetManager::Instance().RegisterLegacyHandler(this, AZ::AzTypeInfo<MeshAsset>::Uuid(), AZStd::this_thread::get_id());
 
         AZ::AssetTypeInfoBus::Handler::BusConnect(AZ::AzTypeInfo<MeshAsset>::Uuid());
     }
@@ -209,7 +216,7 @@ namespace LmbrCentral
     // Skinned Mesh Asset Handler
     //////////////////////////////////////////////////////////////////////////
     
-    void AsyncCharacterInstanceLoadCallback(const AZ::Data::Asset<CharacterDefinitionAsset>& asset, AZStd::condition_variable* loadVariable, ICharacterInstance* instance)
+    void AsyncCharacterInstanceLoadCallback(const AZ::Data::Asset<CharacterDefinitionAsset>& asset, ICharacterInstance* instance)
     {
         if (instance)
         {
@@ -218,13 +225,11 @@ namespace LmbrCentral
         else
         {
 #if defined(AZ_ENABLE_TRACING)
-            AZStd::string assetDescription = asset.GetId().ToString<AZStd::string>();
+            AZStd::string assetDescription = asset.ToString<AZStd::string>();
             AZ::Data::AssetCatalogRequestBus::BroadcastResult(assetDescription, &AZ::Data::AssetCatalogRequestBus::Events::GetAssetPathById, asset.GetId());
-            AZ_Error("MeshAssetHandler", false, "Failed to load character instance asset \"%s\".", asset.GetId().ToString<AZStd::string>().c_str());
+            AZ_Error("MeshAssetHandler", false, "Failed to load character instance asset %s", asset.GetId().ToString<AZStd::string>().c_str());
 #endif // AZ_ENABLE_TRACING
         }
-
-        loadVariable->notify_one();
     }
 
     CharacterDefinitionAssetHandler::~CharacterDefinitionAssetHandler()
@@ -250,6 +255,11 @@ namespace LmbrCentral
 
     bool CharacterDefinitionAssetHandler::LoadAssetData(const AZ::Data::Asset<AZ::Data::AssetData>& asset, const char* assetPath, const AZ::Data::AssetFilterCB& /*assetLoadFilterCB*/)
     {
+        if (!gEnv->pCharacterManager)
+        {
+            return false;
+        }
+
         AZ_Assert(asset.GetType() == AZ::AzTypeInfo<CharacterDefinitionAsset>::Uuid(), "Invalid asset type! We only load 'CharacterDefinitionAsset'");
         if (CharacterDefinitionAsset* meshAsset = asset.GetAs<CharacterDefinitionAsset>())
         {
@@ -263,19 +273,25 @@ namespace LmbrCentral
             ICVar* cvar = GetAsyncLoadCVar();
             if (!cvar || cvar->GetIVal() == 0)
             {
-                AZStd::mutex loadMutex;
-                AZStd::condition_variable loadVariable;
-
-                auto callback = [&asset, &loadVariable](ICharacterInstance* instance)
+                // only queue this if we're not on the main thread
+                if (gEnv->mMainThreadId != CryGetCurrentThreadId())
                 {
-                    AsyncCharacterInstanceLoadCallback(asset, &loadVariable, instance);
-                };
+                    AZStd::binary_semaphore signaller;
 
-                AZStd::unique_lock<AZStd::mutex> loadLock(loadMutex);
-                gEnv->pCharacterManager->CreateInstanceAsync(callback, assetPath);
+                    auto callback = [&asset, &signaller](ICharacterInstance* instance)
+                    {
+                        AsyncCharacterInstanceLoadCallback(asset, instance);
+                        signaller.release();
+                    };
 
-                // Block the job thread on a signal variable until notified of completion (by the main thread).
-                loadVariable.wait(loadLock);
+                    
+                    gEnv->pCharacterManager->CreateInstanceAsync(callback, assetPath);
+                    signaller.acquire();
+                }
+                else
+                {
+                    AsyncCharacterInstanceLoadCallback(asset, gEnv->pCharacterManager->CreateInstance(assetPath));
+                }
             }
             else
             {
@@ -288,9 +304,9 @@ namespace LmbrCentral
                 else
                 {
 #if defined(AZ_ENABLE_TRACING)
-                    AZStd::string assetDescription = asset.GetId().ToString<AZStd::string>();
+                    AZStd::string assetDescription = asset.ToString<AZStd::string>();
                     EBUS_EVENT_RESULT(assetDescription, AZ::Data::AssetCatalogRequestBus, GetAssetPathById, asset.GetId());
-                    AZ_Error("MeshAssetHandler", false, "Failed to load character instance asset \"%s\".", asset.GetId().ToString<AZStd::string>().c_str());
+                    AZ_Error("MeshAssetHandler", false, "Failed to load character instance asset %s", asset.GetId().ToString<AZStd::string>().c_str());
 #endif // AZ_ENABLE_TRACING
                 }
             }
@@ -311,10 +327,15 @@ namespace LmbrCentral
         assetTypes.push_back(AZ::AzTypeInfo<CharacterDefinitionAsset>::Uuid());
     }
 
+    void CharacterDefinitionAssetHandler::ProcessQueuedAssetRequests()
+    {
+        gEnv->pCharacterManager->ProcessAsyncLoadRequests();
+    }
+
     void CharacterDefinitionAssetHandler::Register()
     {
         AZ_Assert(AZ::Data::AssetManager::IsReady(), "Asset manager isn't ready!");
-        AZ::Data::AssetManager::Instance().RegisterHandler(this, AZ::AzTypeInfo<CharacterDefinitionAsset>::Uuid());
+        AZ::Data::AssetManager::Instance().RegisterLegacyHandler(this, AZ::AzTypeInfo<CharacterDefinitionAsset>::Uuid(), AZStd::this_thread::get_id());
 
         AZ::AssetTypeInfoBus::Handler::BusConnect(AZ::AzTypeInfo<CharacterDefinitionAsset>::Uuid());
     }
@@ -346,7 +367,7 @@ namespace LmbrCentral
 
     const char* CharacterDefinitionAssetHandler::GetBrowserIcon() const
     {
-        return "Editor/Icons/Components/SkinnedMesh.png";
+        return "Editor/Icons/Components/SkinnedMesh.svg";
     }
 
     AZ::Uuid CharacterDefinitionAssetHandler::GetComponentTypeId() const
@@ -405,9 +426,9 @@ namespace LmbrCentral
             else
             {
 #if defined(AZ_ENABLE_TRACING)
-                AZStd::string assetDescription = asset.GetId().ToString<AZStd::string>();
+                AZStd::string assetDescription = asset.ToString<AZStd::string>();
                 AZ::Data::AssetCatalogRequestBus::BroadcastResult(assetDescription, &AZ::Data::AssetCatalogRequestBus::Events::GetAssetPathById, asset.GetId());
-                AZ_Error("GeomCacheAssetHandler", false, "Failed to load geom cache asset \"%s\".", assetDescription.c_str());
+                AZ_Error("GeomCacheAssetHandler", false, "Failed to load geom cache asset %s", assetDescription.c_str());
 #endif // AZ_ENABLE_TRACING
             }
 

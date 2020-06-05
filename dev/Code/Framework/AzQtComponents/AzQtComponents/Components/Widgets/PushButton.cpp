@@ -12,6 +12,8 @@
 
 #include <AzQtComponents/Components/Widgets/PushButton.h>
 #include <AzQtComponents/Components/Style.h>
+#include <AzQtComponents/Components/ConfigHelpers.h>
+#include <AzCore/Casting/numeric_cast.h>
 
 #include <QStyleFactory>
 
@@ -25,10 +27,14 @@
 #include <QImage>
 #include <QPixmapCache>
 
+#include <QtWidgets/private/qstyle_p.h>
+#include <QtWidgets/private/qstylehelper_p.h>
+
 namespace AzQtComponents
 {
 
 static QString g_smallIconClass = QStringLiteral("SmallIcon");
+static QString g_attachedButtonClass = QStringLiteral("AttachedButton");
 
 void PushButton::applyPrimaryStyle(QPushButton* button)
 {
@@ -40,25 +46,39 @@ void PushButton::applySmallIconStyle(QToolButton* button)
     Style::addClass(button, g_smallIconClass);
 }
 
+void PushButton::applyAttachedStyle(QToolButton* button)
+{
+    Style::addClass(button, g_attachedButtonClass);
+}
+
+template <typename Button>
+bool buttonHasMenu(Button* button)
+{
+    if (button != nullptr)
+    {
+        return button->menu();
+    }
+
+    return false;
+}
+
 bool PushButton::polish(Style* style, QWidget* widget, const PushButton::Config& config)
 {
     QToolButton* toolButton = qobject_cast<QToolButton*>(widget);
-    if (style->hasClass(widget, g_smallIconClass) && (toolButton != nullptr))
+    QPushButton* pushButton = qobject_cast<QPushButton*>(widget);
+
+    if ((style->hasClass(widget, g_smallIconClass) && (toolButton != nullptr)) || (style->hasClass(widget, g_attachedButtonClass) && (pushButton != nullptr)))
     {
-        toolButton->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Maximum);
+        widget->setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Maximum);
 
-        toolButton->setMaximumSize(config.smallIcon.width + (toolButton->menu() != nullptr ? config.smallIcon.arrowWidth : 0), config.smallIcon.frame.height);
+        bool hasMenu = buttonHasMenu(toolButton) || buttonHasMenu(pushButton);
+        widget->setMaximumSize(config.smallIcon.width + (hasMenu ? config.smallIcon.arrowWidth : 0), config.smallIcon.frame.height);
 
-        QObject::connect(style, &Style::settingsReloaded, toolButton, [toolButton]() {
-            // since we are setting the size policy and size in here, when the settings are reloaded, we
-            // have to re-polish the tool button
-            toolButton->style()->unpolish(toolButton);
-            toolButton->style()->polish(toolButton);
-        });
+        style->repolishOnSettingsChange(widget);
 
         return true;
     }
-    else if (qobject_cast<QPushButton*>(widget) != nullptr)
+    else if (pushButton != nullptr)
     {
         widget->setMaximumHeight(config.defaultFrame.height);
         return true;
@@ -75,6 +95,10 @@ int PushButton::buttonMargin(const Style* style, const QStyleOption* option, con
     {
         return config.smallIcon.frame.margin;
     }
+    else if (style->hasClass(widget, g_attachedButtonClass))
+    {
+        return 0; // TODO
+    }
     
     return config.defaultFrame.margin;
 }
@@ -83,7 +107,7 @@ QSize PushButton::sizeFromContents(const Style* style, QStyle::ContentsType type
 {
     QSize sz = style->QProxyStyle::sizeFromContents(type, option, size, widget);
 
-    if (style->hasClass(widget, g_smallIconClass))
+    if (style->hasClass(widget, g_smallIconClass) || style->hasClass(widget, g_attachedButtonClass))
     {
         sz.setHeight(config.smallIcon.frame.height);
     }
@@ -99,9 +123,34 @@ QSize PushButton::sizeFromContents(const Style* style, QStyle::ContentsType type
     return sz;
 }
 
+int PushButton::menuButtonIndicatorWidth(const Style* style, const QStyleOption* option, const QWidget* widget, const Config& config)
+{
+    Q_UNUSED(style);
+    Q_UNUSED(option);
+
+    int size = -1;
+    if (auto pushButton = qobject_cast<const QPushButton*>(widget))
+    {
+        size = config.dropdownButton.menuIndicatorWidth;
+    }
+    return size;
+}
+
 bool PushButton::drawPushButtonBevel(const Style* style, const QStyleOption* option, QPainter* painter, const QWidget* widget, const PushButton::Config& config)
 {
     Q_UNUSED(style);
+
+    const auto* button = qobject_cast<const QPushButton*>(widget);
+    if (!button || button->isFlat())
+    {
+        return false;
+    }
+
+    // Do not draw the bevel for icon buttons
+    if (!button->icon().isNull() && button->text().isEmpty())
+    {
+        return false;
+    }
 
     QRectF r = option->rect.adjusted(0, 0, -1, -1);
 
@@ -109,8 +158,9 @@ bool PushButton::drawPushButtonBevel(const Style* style, const QStyleOption* opt
 
     QColor gradientStartColor;
     QColor gradientEndColor;
-    const QPushButton* button = qobject_cast<const QPushButton*>(widget);
-    bool isDefault = (button != nullptr) ? button->isDefault() : false;
+    const auto* buttonOption = qstyleoption_cast<const QStyleOptionButton*>(option);
+
+    bool isDefault = buttonOption && (buttonOption->features & QStyleOptionButton::DefaultButton);
     const bool isPrimary = isDefault || (style->hasClass(widget, QLatin1String("Primary")));
     bool isDisabled = !(option->state & QStyle::State_Enabled);
 
@@ -118,34 +168,55 @@ bool PushButton::drawPushButtonBevel(const Style* style, const QStyleOption* opt
 
     selectColors(option, isPrimary ? config.primary : config.secondary, isDisabled, gradientStartColor, gradientEndColor);
 
-    if (widget->hasFocus())
+    if (option->state & QStyle::State_HasFocus)
     {
         border = config.focusedBorder;
     }
 
-    float radius = isSmallIconButton ? config.smallIcon.frame.radius : config.defaultFrame.radius;
+    float radius = aznumeric_cast<float>(isSmallIconButton ? config.smallIcon.frame.radius : config.defaultFrame.radius);
     drawFilledFrame(painter, r, gradientStartColor, gradientEndColor, border, radius);
+
+    if (buttonOption->features & QStyleOptionButton::HasMenu)
+    {
+        const int mbi = style->pixelMetric(QStyle::PM_MenuButtonIndicator, buttonOption, widget);
+        QRect arrowRect(0, 0, mbi, mbi);
+        QRect contentRect = option->rect.adjusted(0, 0, -1, -1); // As above
+        arrowRect.moveCenter(contentRect.center());
+        arrowRect.moveRight(contentRect.right() - (config.dropdownButton.menuIndicatorPadding + border.thickness));
+
+        QStyleOptionButton downArrow = *buttonOption;
+        downArrow.rect = arrowRect;
+        style->drawPrimitive(QStyle::PE_IndicatorArrowDown, &downArrow, painter, widget);
+    }
 
     return true;
 }
 
 bool PushButton::drawToolButton(const Style* style, const QStyleOptionComplex* option, QPainter* painter, const QWidget* widget, const PushButton::Config& config)
 {
+    if (style->hasClass(widget, g_attachedButtonClass))
+    {
+        return false;
+    }
+
     if (style->hasClass(widget, g_smallIconClass))
     {
         drawSmallIconButton(style, option, painter, widget, config);
         return true;
     }
 
-    return false;
+    const bool drawFrame = false;
+    drawSmallIconButton(style, option, painter, widget, config, drawFrame);
+    return true;
 }
 
-bool PushButton::drawIndicatorArrow(const Style* style, const QStyleOption* option, QPainter* painter, const QWidget* widget, const Config& config)
+bool PushButton::drawIndicatorArrowDown(const Style* style, const QStyleOption* option, QPainter* painter, const QWidget* widget, const Config& config)
 {
-    Q_UNUSED(style);
-    Q_UNUSED(option);
-    Q_UNUSED(painter);
-    Q_UNUSED(config);
+    auto pushButton = qobject_cast<const QPushButton*>(widget);
+    if (!pushButton)
+    {
+        return false;
+    }
 
     // If it's got the small icon class, arrow drawing is already done in drawToolButton
     if (style->hasClass(widget, g_smallIconClass))
@@ -153,57 +224,111 @@ bool PushButton::drawIndicatorArrow(const Style* style, const QStyleOption* opti
         return true;
     }
 
-    return false;
+    QIcon::Mode mode = option->state & QStyle::State_Enabled
+                        ? QIcon::Normal
+                        : QIcon::Disabled;
+
+    const auto pixmap = style->generatedIconPixmap(mode, config.dropdownButton.indicatorArrowDown, option);
+    painter->drawPixmap(option->rect, pixmap, pixmap.rect());
+
+    return true;
 }
 
-bool PushButton::drawPushButtonFocusRect(const Style* /*style*/, const QStyleOption* /*option*/, QPainter* /*painter*/, const QWidget* /*widget*/, const PushButton::Config& /*config*/)
+bool PushButton::drawPushButtonFocusRect(const Style* /*style*/, const QStyleOption* /*option*/, QPainter* /*painter*/, const QWidget* widget, const PushButton::Config& /*config*/)
 {
+    const auto* button = qobject_cast<const QPushButton*>(widget);
+    if (!button || button->isFlat())
+    {
+        return false;
+    }
+
     // no frame; handled when the bevel is drawn
 
     return true;
 }
 
+QPixmap PushButton::generatedIconPixmap(QIcon::Mode iconMode, const QPixmap& pixmap, const QStyleOption* option, const Config& config)
+{
+    Q_UNUSED(option);
+
+    if (iconMode == QIcon::Normal)
+    {
+        return pixmap;
+    }
+
+    QColor color;
+    switch(iconMode)
+    {
+        case QIcon::Disabled:
+        {
+            color = config.iconButton.disabledColor;
+            break;
+        }
+        case QIcon::Active:
+        {
+            color = config.iconButton.activeColor;
+            break;
+        }
+        case QIcon::Selected:
+        {
+            color = config.iconButton.selectedColor;
+            break;
+        }
+        default:
+        {
+            return pixmap;
+        }
+    }
+
+    QImage image = pixmap.toImage().convertToFormat(QImage::Format_ARGB32);
+    for (int y=0; y < image.height(); ++y)
+    {
+        auto scanLine = reinterpret_cast<QRgb*>(image.scanLine(y));
+
+        for (int x=0; x < image.width(); ++x)
+        {
+            QRgb pixel = *scanLine;
+            color.setAlpha(qAlpha(pixel));
+            *scanLine = color.rgba();
+            ++scanLine;
+        }
+    }
+
+    return QPixmap::fromImage(image);
+}
+
 static void ReadFrame(QSettings& settings, const QString& name, PushButton::Frame& frame)
 {
     settings.beginGroup(name);
-    frame.height = settings.value("Height", frame.height).toInt();
-    frame.radius = settings.value("Radius", frame.radius).toInt();
-    frame.margin = settings.value("Margin", frame.margin).toInt();
+    ConfigHelpers::read<int>(settings, QStringLiteral("Height"), frame.height);
+    ConfigHelpers::read<int>(settings, QStringLiteral("Radius"), frame.radius);
+    ConfigHelpers::read<int>(settings, QStringLiteral("Margin"), frame.margin);
     settings.endGroup();
-}
-
-static void ReadColor(QSettings& settings, const QString& name, QColor& color)
-{
-    // only overwrite the value if it's set; otherwise, it'll stay the default
-    if (settings.contains(name))
-    {
-        color = QColor(settings.value(name).toString());
-    }
 }
 
 static void ReadGradient(QSettings& settings, const QString& name, PushButton::Gradient& gradient)
 {
     settings.beginGroup(name);
-    ReadColor(settings, "Start", gradient.start);
-    ReadColor(settings, "End", gradient.end);
+    ConfigHelpers::read<QColor>(settings, QStringLiteral("Start"), gradient.start);
+    ConfigHelpers::read<QColor>(settings, QStringLiteral("End"), gradient.end);
     settings.endGroup();
 }
 
 static void ReadButtonColorSet(QSettings& settings, const QString& name, PushButton::ColorSet& colorSet)
 {
     settings.beginGroup(name);
-    ReadGradient(settings, "Disabled", colorSet.disabled);
-    ReadGradient(settings, "Sunken", colorSet.sunken);
-    ReadGradient(settings, "Hovered", colorSet.hovered);
-    ReadGradient(settings, "Normal", colorSet.normal);
+    ReadGradient(settings, QStringLiteral("Disabled"), colorSet.disabled);
+    ReadGradient(settings, QStringLiteral("Sunken"), colorSet.sunken);
+    ReadGradient(settings, QStringLiteral("Hovered"), colorSet.hovered);
+    ReadGradient(settings, QStringLiteral("Normal"), colorSet.normal);
     settings.endGroup();
 }
 
 static void ReadBorder(QSettings& settings, const QString& name, PushButton::Border& border)
 {
     settings.beginGroup(name);
-    border.thickness = settings.value("Thickness", border.thickness).toInt();
-    ReadColor(settings, "Color", border.color);
+    ConfigHelpers::read<int>(settings, QStringLiteral("Thickness"), border.thickness);
+    ConfigHelpers::read<QColor>(settings, QStringLiteral("Color"), border.color);
     settings.endGroup();
 }
 
@@ -211,25 +336,43 @@ static void ReadSmallIcon(QSettings& settings, const QString& name, PushButton::
 {
     settings.beginGroup(name);
     ReadFrame(settings, "Frame", smallIcon.frame);
-    ReadColor(settings, "EnabledArrowColor", smallIcon.enabledArrowColor);
-    ReadColor(settings, "DisabledArrowColor", smallIcon.disabledArrowColor);
-    smallIcon.width = settings.value("Width", smallIcon.width).toInt();
-    smallIcon.arrowWidth = settings.value("ArrowWidth", smallIcon.arrowWidth).toInt();
+    ConfigHelpers::read<QColor>(settings, QStringLiteral("EnabledArrowColor"), smallIcon.enabledArrowColor);
+    ConfigHelpers::read<QColor>(settings, QStringLiteral("DisabledArrowColor"), smallIcon.disabledArrowColor);
+    ConfigHelpers::read<int>(settings, QStringLiteral("Width"), smallIcon.width);
+    ConfigHelpers::read<int>(settings, QStringLiteral("ArrowWidth"), smallIcon.arrowWidth);
     settings.endGroup();
+}
+
+static void ReadIconButton(QSettings& settings, const QString& name, PushButton::IconButton& iconButton)
+{
+    ConfigHelpers::GroupGuard group(&settings, name);
+    ConfigHelpers::read<QColor>(settings, QStringLiteral("ActiveColor"), iconButton.activeColor);
+    ConfigHelpers::read<QColor>(settings, QStringLiteral("DisabledColor"), iconButton.disabledColor);
+    ConfigHelpers::read<QColor>(settings, QStringLiteral("SelectedColor"), iconButton.selectedColor);
+}
+
+static void ReadDropdownButton(QSettings& settings, const QString& name, PushButton::DropdownButton& dropdownButton)
+{
+    ConfigHelpers::GroupGuard group(&settings, name);
+    ConfigHelpers::read<QPixmap>(settings, QStringLiteral("IndicatorArrowDown"), dropdownButton.indicatorArrowDown);
+    ConfigHelpers::read<int>(settings, QStringLiteral("MenuIndicatorWidth"), dropdownButton.menuIndicatorWidth);
+    ConfigHelpers::read<int>(settings, QStringLiteral("MenuIndicatorPadding"), dropdownButton.menuIndicatorPadding);
 }
 
 PushButton::Config PushButton::loadConfig(QSettings& settings)
 {
     Config config = defaultConfig();
 
-    ReadButtonColorSet(settings, "PrimaryColorSet", config.primary);
-    ReadButtonColorSet(settings, "SecondaryColorSet", config.secondary);
+    ReadButtonColorSet(settings, QStringLiteral("PrimaryColorSet"), config.primary);
+    ReadButtonColorSet(settings, QStringLiteral("SecondaryColorSet"), config.secondary);
 
-    ReadBorder(settings, "Border", config.defaultBorder);
-    ReadBorder(settings, "DisabledBorder", config.disabledBorder);
-    ReadBorder(settings, "FocusedBorder", config.focusedBorder);
-    ReadFrame(settings, "DefaultFrame", config.defaultFrame);
-    ReadSmallIcon(settings, "SmallIcon", config.smallIcon);
+    ReadBorder(settings, QStringLiteral("Border"), config.defaultBorder);
+    ReadBorder(settings, QStringLiteral("DisabledBorder"), config.disabledBorder);
+    ReadBorder(settings, QStringLiteral("FocusedBorder"), config.focusedBorder);
+    ReadFrame(settings, QStringLiteral("DefaultFrame"), config.defaultFrame);
+    ReadSmallIcon(settings, QStringLiteral("SmallIcon"), config.smallIcon);
+    ReadIconButton(settings, QStringLiteral("IconButton"), config.iconButton);
+    ReadDropdownButton(settings, QStringLiteral("DropdownButton"), config.dropdownButton);
 
     return config;
 }
@@ -283,10 +426,18 @@ PushButton::Config PushButton::defaultConfig()
     config.smallIcon.width = 24;
     config.smallIcon.arrowWidth = 10;
 
+    config.iconButton.activeColor = QColor("#00A1C9");
+    config.iconButton.disabledColor = QColor("#AAAAAA");
+    config.iconButton.selectedColor = QColor("#FFFFFF");
+
+    config.dropdownButton.indicatorArrowDown = QPixmap(QStringLiteral(":/stylesheet/img/UI20/dropdown-button-arrow.svg"));
+    config.dropdownButton.menuIndicatorWidth = 16;
+    config.dropdownButton.menuIndicatorPadding = 4;
+
     return config;
 }
 
-void PushButton::drawSmallIconButton(const Style* style, const QStyleOption* option, QPainter* painter, const QWidget* widget, const PushButton::Config& config)
+void PushButton::drawSmallIconButton(const Style* style, const QStyleOption* option, QPainter* painter, const QWidget* widget, const PushButton::Config& config, bool drawFrame)
 {
     // Draws the icon and the arrow drop down together, as per the spec, which calls for no separating borders
     // between the icon and the arrow.
@@ -334,7 +485,10 @@ void PushButton::drawSmallIconButton(const Style* style, const QStyleOption* opt
             totalArea = buttonArea.united(menuArea);
         }
 
-        drawSmallIconFrame(style, option, totalArea, painter, config);
+        if (drawFrame)
+        {
+            drawSmallIconFrame(style, option, totalArea, painter, config);
+        }
 
         drawSmallIconLabel(style, buttonOption, bflags, buttonArea, painter, widget, config);
 
@@ -360,7 +514,7 @@ void PushButton::drawSmallIconFrame(const Style* style, const QStyleOption* opti
 
     selectColors(option, config.secondary, isDisabled, gradientStartColor, gradientEndColor);
 
-    float radius = config.smallIcon.frame.radius;
+    float radius = aznumeric_cast<float>(config.smallIcon.frame.radius);
     drawFilledFrame(painter, frame, gradientStartColor, gradientEndColor, border, radius);
 }
 
@@ -375,53 +529,57 @@ void PushButton::drawSmallIconLabel(const Style* style, const QStyleOptionToolBu
     style->drawControl(QStyle::CE_ToolButtonLabel, &label, painter, widget);
 }
 
-static QPixmap initializeDownArrowPixmap(const QColor& arrowColor)
+static QRect defaultArrowRect()
 {
-    // use the arrow stored in Qt in the fusion style
-    QString arrowFileName = QLatin1String(":/qt-project.org/styles/commonstyle/images/fusion_arrow.png");
+    static const QRect rect {0, 0, qRound(QStyleHelper::dpiScaled(14)), qRound(QStyleHelper::dpiScaled(8))};
+    return rect;
+}
 
-    QImage image(arrowFileName);
+static QPixmap initializeDownArrowPixmap(const QColor& arrowColor, Qt::ArrowType type = Qt::DownArrow, const QRect& rect = defaultArrowRect())
+{
+    const int arrowWidth = aznumeric_cast<int>(QStyleHelper::dpiScaled(14));
+    const int arrowHeight = aznumeric_cast<int>(QStyleHelper::dpiScaled(8));
 
-    Q_ASSERT(image.format() == QImage::Format_ARGB32);
+    const int arrowMax = qMin(arrowHeight, arrowWidth);
+    const int rectMax = qMin(rect.height(), rect.width());
+    const int size = qMin(arrowMax, rectMax);
 
-    int width = image.width();
-    int height = image.height();
-    int source = arrowColor.rgba();
+    QPixmap cachePixmap;
+    cachePixmap = styleCachePixmap(rect.size());
+    cachePixmap.fill(Qt::transparent);
+    QPainter cachePainter(&cachePixmap);
 
-    unsigned char sourceRed = qRed(source);
-    unsigned char sourceGreen = qGreen(source);
-    unsigned char sourceBlue = qBlue(source);
+    QRectF arrowRect;
+    arrowRect.setWidth(size);
+    arrowRect.setHeight(arrowHeight * size / arrowWidth);
+    if (type == Qt::LeftArrow || type == Qt::RightArrow)
+        arrowRect = arrowRect.transposed();
+    arrowRect.moveTo((rect.width() - arrowRect.width()) / 2.0,
+                     (rect.height() - arrowRect.height()) / 2.0);
 
-    // we only care about the alpha channel, because it's got the arrow info
-    // apply the input color to everything but the alpha
-    for (int y = 0; y < height; ++y)
-    {
-        QRgb* data = reinterpret_cast<QRgb*>(image.scanLine(y));
-        for (int x = 0; x < width; x++) {
-            QRgb col = data[x];
-            unsigned char red = sourceRed;
-            unsigned char green = sourceGreen;
-            unsigned char blue = sourceBlue;
-            unsigned char alpha = qAlpha(col);
-            data[x] = qRgba(red, green, blue, alpha);
-        }
+    QPolygonF triangle;
+    triangle.reserve(3);
+    switch (type) {
+        case Qt::DownArrow:
+            triangle << arrowRect.topLeft() << arrowRect.topRight() << QPointF(arrowRect.center().x(), arrowRect.bottom());
+            break;
+        case Qt::RightArrow:
+            triangle << arrowRect.topLeft() << arrowRect.bottomLeft() << QPointF(arrowRect.right(), arrowRect.center().y());
+            break;
+        case Qt::LeftArrow:
+            triangle << arrowRect.topRight() << arrowRect.bottomRight() << QPointF(arrowRect.left(), arrowRect.center().y());
+            break;
+        default:
+            triangle << arrowRect.bottomLeft() << arrowRect.bottomRight() << QPointF(arrowRect.center().x(), arrowRect.top());
+            break;
     }
 
-    // pre-multiply the alpha, so that it works when we paint it
-    image = image.convertToFormat(QImage::Format_ARGB32_Premultiplied);
+    cachePainter.setPen(Qt::NoPen);
+    cachePainter.setBrush(arrowColor);
+    cachePainter.setRenderHint(QPainter::Antialiasing);
+    cachePainter.drawPolygon(triangle);
 
-    // the original image is pointing up, so we do a rotation
-    int rotation = 180;
-    if (rotation != 0)
-    {
-        QTransform transform;
-        transform.translate(-image.width() / 2, -image.height() / 2);
-        transform.rotate(rotation);
-        transform.translate(image.width() / 2, image.height() / 2);
-        image = image.transformed(transform);
-    }
-
-    return QPixmap::fromImage(image);
+    return cachePixmap;
 }
 
 static void drawArrow(const Style* style, QPainter* painter, const QRect& rect, const QColor& arrowColor)

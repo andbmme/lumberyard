@@ -10,28 +10,7 @@
 *
 */
 
-#include "EMotionFX_precompiled.h"
-
 #include <AzTest/AzTest.h>
 
-class EMotionFXTest
-    : public ::testing::Test
-{
-protected:
-    void SetUp() override
-    {
-
-    }
-
-    void TearDown() override
-    {
-
-    }
-};
-
-TEST_F(EMotionFXTest, ExampleTest)
-{
-    ASSERT_TRUE(true);
-}
-
-AZ_UNIT_TEST_HOOK();
+AZ_UNIT_TEST_HOOK(/*nullptr*/); // The nullptr would disable the default environment, which will fail the test on errors etc.
+AZ_INTEG_TEST_HOOK();

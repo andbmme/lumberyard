@@ -160,6 +160,10 @@ public:
 
     virtual ISplineInterpolator* GetSpline();
 
+    //! Overrides CVariableTypeInfo to keep m_pSpline in sync with CVariableTypeInfo::m_pData
+    //! when Set(value) functions are called
+    void OnSetValue(bool bRecursive) override;
+
 private:
     ISplineInterpolator* m_pSpline;
 };
@@ -199,9 +203,11 @@ protected:
     Vars    m_Vars;
 };
 
+AZ_PUSH_DISABLE_DLL_EXPORT_BASECLASS_WARNING
 struct EDITOR_CORE_API CUIEnumsDBList
     : IVarEnumList
 {
+AZ_POP_DISABLE_DLL_EXPORT_BASECLASS_WARNING
     CUIEnumsDatabase_SEnum const* m_pEnumList;
 
     CUIEnumsDBList(CUIEnumsDatabase_SEnum const* pEnumList);

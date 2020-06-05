@@ -1,0 +1,8 @@
+{
+    "auto": {
+         "Editor/View/EditCtrls": [                        
+            "Editor/Static/Include/ScriptCanvas/View/EditCtrls/GenericLineEditCtrl.h",
+            "Editor/Static/Source/View/EditCtrls/GenericLineEditCtrl.cpp"
+        ]
+    }
+}

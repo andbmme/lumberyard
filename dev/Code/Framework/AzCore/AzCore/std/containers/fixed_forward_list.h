@@ -13,6 +13,7 @@
 #define AZSTD_FIXED_SLIST_H 1
 
 #include <AzCore/std/containers/forward_list.h>
+#include <AzCore/std/allocator_static.h>
 
 namespace AZStd
 {
@@ -46,6 +47,8 @@ namespace AZStd
             : base_type(first, last)   {}
         AZ_FORCE_INLINE fixed_forward_list(const this_type& rhs)
             : base_type(rhs)   {}
+        AZ_FORCE_INLINE fixed_forward_list(std::initializer_list<T> list)
+            : base_type(list) {}
         AZ_FORCE_INLINE this_type& operator=(const this_type& rhs)
         {
             if (this != &rhs)

@@ -10,8 +10,6 @@
 *
 */
 
-#include "TestTypes.h"
-
 #include <AzCore/Math/Vector2.h>
 #include <AzCore/Math/Vector3.h>
 #include <AzCore/Math/Aabb.h>
@@ -24,6 +22,7 @@
 #include <AzCore/Math/Color.h>
 #include <AzCore/Math/Spline.h>
 #include <AzCore/Math/IntersectSegment.h>
+#include <AzCore/UnitTest/TestTypes.h>
 
 #include <AzCore/Math/Sfmt.h>
 #include <AzCore/Math/Uuid.h>
@@ -398,6 +397,49 @@ namespace UnitTest
         AZ_TEST_ASSERT(!Vector2(infinity, infinity).IsFinite());
     }
 
+    TEST(MATH_Vector2, Angle_Test)
+    {
+        using Vec2CalcFunc = float(Vector2::*)(const Vector2&) const;
+        auto angleTest = [](Vec2CalcFunc func, const Vector2& self, const Vector2& other, const float target)
+        {
+            const float epsilon = 0.01f;
+            float value = (self.*func)(other);
+            AZ_TEST_ASSERT(IsClose(value, target, epsilon));
+        };
+
+        const Vec2CalcFunc angleFuncs[2] = { &Vector2::Angle, &Vector2::AngleSafe };
+        for (Vec2CalcFunc angleFunc : angleFuncs)
+        {
+            angleTest(angleFunc, Vector2{ 1.0f, 0.0f }, Vector2{ 0.0f, 1.0f }, AZ::Constants::HalfPi);
+            angleTest(angleFunc, Vector2{ 42.0f, 0.0f }, Vector2{ 0.0f, 23.0f }, AZ::Constants::HalfPi);
+            angleTest(angleFunc, Vector2{ 1.0f, 0.0f }, Vector2{ -1.0f, 0.0f }, AZ::Constants::Pi);
+            angleTest(angleFunc, Vector2{ 1.0f, 0.0f }, Vector2{ 1.0f, 1.0f }, AZ::Constants::QuarterPi);
+            angleTest(angleFunc, Vector2{ 1.0f, 0.0f }, Vector2{ 1.0f, 0.0f }, 0.f);
+            angleTest(angleFunc, Vector2{ 1.0f, 1.0f }, Vector2{ -1.0f, -1.0f }, AZ::Constants::Pi);
+        }
+
+        const Vec2CalcFunc angleDegFuncs[2] = { &Vector2::AngleDeg, &Vector2::AngleSafeDeg };
+        for (Vec2CalcFunc angleDegFunc : angleDegFuncs)
+        {
+            angleTest(angleDegFunc, Vector2{ 1.0f, 0.0f }, Vector2{ 0.0f, 1.0f }, 90.f);
+            angleTest(angleDegFunc, Vector2{ 42.0f, 0.0f }, Vector2{ 0.0f, 23.0f }, 90.f);
+            angleTest(angleDegFunc, Vector2{ 1.0f, 0.0f }, Vector2{ -1.0f, 0.0f }, 180.f);
+            angleTest(angleDegFunc, Vector2{ 1.0f, 0.0f }, Vector2{ 1.0f, 1.0f }, 45.f);
+            angleTest(angleDegFunc, Vector2{ 1.0f, 0.0f }, Vector2{ 1.0f, 0.0f }, 0.f);
+            angleTest(angleDegFunc, Vector2{ 1.0f, 1.0f }, Vector2{ -1.0f, -1.0f }, 180.f);
+        }
+
+        const Vec2CalcFunc angleSafeFuncs[2] = { &Vector2::AngleSafe, &Vector2::AngleSafeDeg };
+        for (Vec2CalcFunc angleSafeFunc : angleSafeFuncs)
+        {
+            angleTest(angleSafeFunc, Vector2{ 0.0f, 0.0f }, Vector2{ 0.0f, 1.0f }, 0.f);
+            angleTest(angleSafeFunc, Vector2{ 0.0f, 0.0f }, Vector2{ 0.0f, 0.0f }, 0.f);
+            angleTest(angleSafeFunc, Vector2{ 1.0f, 0.0f }, Vector2{ 0.0f, 0.0f }, 0.f);
+            angleTest(angleSafeFunc, Vector2{ 0.0f, 0.0f }, Vector2{ 0.0f, 323432.0f }, 0.f);
+            angleTest(angleSafeFunc, Vector2{ 323432.0f, 0.0f }, Vector2{ 0.0f, 0.0f }, 0.f);
+        }
+    }
+
     TEST(MATH_Vector3, Test)
     {
         //constructors
@@ -668,6 +710,14 @@ namespace UnitTest
         AZ_TEST_ASSERT(Vector3(1.0f, 2.0f, 0.0f).IsPerpendicular(Vector3(0.0f, 0.0f, 1.0f)));
         AZ_TEST_ASSERT(!Vector3(1.0f, 2.0f, 0.0f).IsPerpendicular(Vector3(0.0f, 1.0f, 1.0f)));
 
+        //GetOrthogonalVector
+        v1 = Vector3(1.0f, 2.0f, 3.0f);
+        v2 = v1.GetOrthogonalVector();
+        AZ_TEST_ASSERT(v1.IsPerpendicular(v2));
+        v1 = Vector3::CreateAxisX();
+        v2 = v1.GetOrthogonalVector();
+        AZ_TEST_ASSERT(v1.IsPerpendicular(v2));
+
         //Project
         v1.Set(0.5f, 0.5f, 0.5f);
         v1.Project(Vector3(0.0f, 2.0f, 1.0f));
@@ -689,6 +739,49 @@ namespace UnitTest
         //v1.SwapEndian();
         //v1.SwapEndian();
         //AZ_TEST_ASSERT(v1==Vector3(1.0f,2.0f,3.0f));
+    }
+
+    TEST(MATH_Vector3, Angle_Test)
+    {
+        using Vec3CalcFunc = VectorFloat(Vector3::*)(const Vector3&) const;
+        auto angleTest = [](Vec3CalcFunc func, const Vector3& self, const Vector3& other, const VectorFloat target)
+        {
+            const float epsilon = 0.01f;
+            VectorFloat value = (self.*func)(other);
+            AZ_TEST_ASSERT(IsClose(value, target, epsilon));
+        };
+
+        const Vec3CalcFunc angleFuncs[2] = { &Vector3::Angle, &Vector3::AngleSafe };
+        for (Vec3CalcFunc angleFunc : angleFuncs)
+        {
+            angleTest(angleFunc, Vector3{ 1.0f, 0.0f, 0.0f }, Vector3{ 0.0f, 1.0f, 0.0f }, AZ::Constants::HalfPi);
+            angleTest(angleFunc, Vector3{ 42.0f, 0.0f, 0.0f }, Vector3{ 0.0f, 23.0f, 0.0f }, AZ::Constants::HalfPi);
+            angleTest(angleFunc, Vector3{ 1.0f, 0.0f, 0.0f }, Vector3{ -1.0f, 0.0f, 0.0f }, AZ::Constants::Pi);
+            angleTest(angleFunc, Vector3{ 1.0f, 0.0f, 0.0f }, Vector3{ 1.0f, 1.0f, 0.0f }, AZ::Constants::QuarterPi);
+            angleTest(angleFunc, Vector3{ 1.0f, 0.0f, 0.0f }, Vector3{ 1.0f, 0.0f, 0.0f }, 0.f);
+            angleTest(angleFunc, Vector3{ 1.0f, 1.0f, 0.0f }, Vector3{ -1.0f, -1.0f, 0.0f }, AZ::Constants::Pi);
+        }
+
+        const Vec3CalcFunc angleDegFuncs[2] = { &Vector3::AngleDeg, &Vector3::AngleSafeDeg };
+        for (Vec3CalcFunc angleDegFunc : angleDegFuncs)
+        {
+            angleTest(angleDegFunc, Vector3{ 1.0f, 0.0f, 0.0f }, Vector3{ 0.0f, 1.0f, 0.0f }, 90.f);
+            angleTest(angleDegFunc, Vector3{ 42.0f, 0.0f, 0.0f }, Vector3{ 0.0f, 23.0f, 0.0f }, 90.f);
+            angleTest(angleDegFunc, Vector3{ 1.0f, 0.0f, 0.0f }, Vector3{ -1.0f, 0.0f, 0.0f }, 180.f);
+            angleTest(angleDegFunc, Vector3{ 1.0f, 0.0f, 0.0f }, Vector3{ 1.0f, 1.0f, 0.0f }, 45.f);
+            angleTest(angleDegFunc, Vector3{ 1.0f, 0.0f, 0.0f }, Vector3{ 1.0f, 0.0f, 0.0f }, 0.f);
+            angleTest(angleDegFunc, Vector3{ 1.0f, 1.0f, 0.0f }, Vector3{ -1.0f, -1.0f, 0.0f }, 180.f);
+        }
+
+        const Vec3CalcFunc angleSafeFuncs[2] = { &Vector3::AngleSafe, &Vector3::AngleSafeDeg };
+        for (Vec3CalcFunc angleSafeFunc : angleSafeFuncs)
+        {
+            angleTest(angleSafeFunc, Vector3{ 0.0f, 0.0f, 0.0f }, Vector3{ 0.0f, 1.0f, 0.0f }, 0.f);
+            angleTest(angleSafeFunc, Vector3{ 0.0f, 0.0f, 0.0f }, Vector3{ 0.0f, 0.0f, 0.0f }, 0.f);
+            angleTest(angleSafeFunc, Vector3{ 1.0f, 0.0f, 0.0f }, Vector3{ 0.0f, 0.0f, 0.0f }, 0.f);
+            angleTest(angleSafeFunc, Vector3{ 0.0f, 0.0f, 0.0f }, Vector3{ 0.0f, 323432.0f, 0.0f }, 0.f);
+            angleTest(angleSafeFunc, Vector3{ 323432.0f, 0.0f, 0.0f }, Vector3{ 0.0f, 0.0f, 0.0f }, 0.f);
+        }
     }
 
     TEST(MATH_Vector3, CompareTest)
@@ -794,6 +887,9 @@ namespace UnitTest
         AZ_TEST_ASSERT(Vector4(1.0f, 2.0f, 3.0f, 4.0f).IsGreaterEqualThan(Vector4(0.0f, 1.0f, 2.0f, 3.0f)));
         AZ_TEST_ASSERT(!Vector4(1.0f, 2.0f, 3.0f, 4.0f).IsGreaterEqualThan(Vector4(0.0f, 3.0f, 2.0f, 3.0f)));
         AZ_TEST_ASSERT(Vector4(1.0f, 2.0f, 3.0f, 4.0f).IsGreaterEqualThan(Vector4(0.0f, 2.0f, 2.0f, 3.0f)));
+
+        //lerp
+        AZ_TEST_ASSERT(Vector4(4.0f, 5.0f, 6.0f, 7.0f).Lerp(Vector4(5.0f, 10.0f, 2.0f, 1.0f), 0.5f) == Vector4(4.5f, 7.5f, 4.0f, 4.0f));
 
         //dot product
         AZ_TEST_ASSERT_FLOAT_CLOSE(Vector4(1.0f, 2.0f, 3.0f, 4.0f).Dot(Vector4(-1.0f, 5.0f, 3.0f, 2.0f)), 26.0f);
@@ -1770,177 +1866,6 @@ namespace UnitTest
         AZ_TEST_ASSERT(m2.GetRow(2).IsClose(Vector3(-3.0f, 6.0f, -3.0f)));
     }
 
-    TEST(MATH_Quaternion, Test)
-    {
-        //constructors
-        AZ::Quaternion q1(0.0f, 0.0f, 0.0f, 1.0f);
-        AZ_TEST_ASSERT((q1.GetX() == 0.0f) && (q1.GetY() == 0.0f) && (q1.GetZ() == 0.0f) && (q1.GetW() == 1.0f));
-        AZ::Quaternion q2(5.0f);
-        AZ_TEST_ASSERT((q2.GetX() == 5.0f) && (q2.GetY() == 5.0f) && (q2.GetZ() == 5.0f) && (q2.GetW() == 5.0f));
-        AZ::Quaternion q3(1.0f, 2.0f, 3.0f, 4.0f);
-        AZ_TEST_ASSERT((q3.GetX() == 1.0f) && (q3.GetY() == 2.0f) && (q3.GetZ() == 3.0f) && (q3.GetW() == 4.0f));
-        AZ::Quaternion q4 = AZ::Quaternion::CreateFromVector3AndValue(Vector3(1.0f, 2.0f, 3.0f), 4.0f);
-        AZ_TEST_ASSERT((q4.GetX() == 1.0f) && (q4.GetY() == 2.0f) && (q4.GetZ() == 3.0f) && (q4.GetW() == 4.0f));
-        float values[4] = { 10.0f, 20.0f, 30.0f, 40.0f };
-        AZ::Quaternion q5 = AZ::Quaternion::CreateFromFloat4(values);
-        AZ_TEST_ASSERT((q5.GetX() == 10.0f) && (q5.GetY() == 20.0f) && (q5.GetZ() == 30.0f) && (q5.GetW() == 40.0f));
-        AZ::Quaternion q6 = AZ::Quaternion::CreateFromTransform(Transform::CreateRotationX(DegToRad(60.0f)));
-        AZ_TEST_ASSERT(q6.IsClose(AZ::Quaternion(0.5f, 0.0f, 0.0f, 0.866f)));
-        AZ::Quaternion q7 = AZ::Quaternion::CreateFromMatrix3x3(Matrix3x3::CreateRotationX(DegToRad(120.0f)));
-        AZ_TEST_ASSERT(q7.IsClose(AZ::Quaternion(0.866f, 0.0f, 0.0f, 0.5f)));
-        AZ::Quaternion q8 = AZ::Quaternion::CreateFromMatrix4x4(Matrix4x4::CreateRotationX(DegToRad(-60.0f)));
-        AZ_TEST_ASSERT(q8.IsClose(AZ::Quaternion(-0.5f, 0.0f, 0.0f, 0.866f)));
-        AZ::Quaternion q9 = AZ::Quaternion::CreateFromVector3(Vector3(1.0f, 2.0f, 3.0f));
-        AZ_TEST_ASSERT((q9.GetX() == 1.0f) && (q9.GetY() == 2.0f) && (q9.GetZ() == 3.0f) && (q9.GetW() == 0.0f));
-        AZ::Quaternion q10 = AZ::Quaternion::CreateFromAxisAngle(Vector3::CreateAxisZ(), DegToRad(45.0f));
-        AZ_TEST_ASSERT(q10.IsClose(AZ::Quaternion::CreateRotationZ(DegToRad(45.0f))));
-
-        //Create functions
-        AZ_TEST_ASSERT(AZ::Quaternion::CreateIdentity() == AZ::Quaternion(0.0f, 0.0f, 0.0f, 1.0f));
-        AZ_TEST_ASSERT(AZ::Quaternion::CreateZero() == AZ::Quaternion(0.0f));
-        AZ_TEST_ASSERT(AZ::Quaternion::CreateRotationX(DegToRad(60.0f)).IsClose(AZ::Quaternion(0.5f, 0.0f, 0.0f, 0.866f)));
-        AZ_TEST_ASSERT(AZ::Quaternion::CreateRotationY(DegToRad(60.0f)).IsClose(AZ::Quaternion(0.0f, 0.5f, 0.0f, 0.866f)));
-        AZ_TEST_ASSERT(AZ::Quaternion::CreateRotationZ(DegToRad(60.0f)).IsClose(AZ::Quaternion(0.0f, 0.0f, 0.5f, 0.866f)));
-
-        //test shortest arc
-        Vector3 v1 = Vector3(1.0f, 2.0f, 3.0f).GetNormalized();
-        Vector3 v2 = Vector3(-2.0f, 7.0f, -1.0f).GetNormalized();
-        q3 = AZ::Quaternion::CreateShortestArc(v1, v2); //q3 should transform v1 into v2
-        AZ_TEST_ASSERT(v2.IsClose(q3 * v1));
-        q4 = AZ::Quaternion::CreateShortestArc(Vector3(1.0f, 0.0f, 0.0f), Vector3(0.0f, 1.0f, 0.0f));
-        AZ_TEST_ASSERT((q4 * Vector3(0.0f, 0.0f, 1.0f)).IsClose(Vector3(0.0f, 0.0f, 1.0f)));  //perpendicular vector should be unaffected
-        AZ_TEST_ASSERT((q4 * Vector3(0.0f, -1.0f, 0.0f)).IsClose(Vector3(1.0f, 0.0f, 0.0f))); //make sure we rotate the right direction, i.e. actually shortest arc
-
-        //Get/Set
-        q1.SetX(10.0f);
-        AZ_TEST_ASSERT(q1.GetX() == 10.0f);
-        q1.SetY(11.0f);
-        AZ_TEST_ASSERT(q1.GetY() == 11.0f);
-        q1.SetZ(12.0f);
-        AZ_TEST_ASSERT(q1.GetZ() == 12.0f);
-        q1.SetW(13.0f);
-        AZ_TEST_ASSERT(q1.GetW() == 13.0f);
-        q1.Set(15.0f);
-        AZ_TEST_ASSERT(q1 == AZ::Quaternion(15.0f));
-        q1.Set(2.0f, 3.0f, 4.0f, 5.0f);
-        AZ_TEST_ASSERT(q1 == AZ::Quaternion(2.0f, 3.0f, 4.0f, 5.0f));
-        q1.Set(Vector3(5.0f, 6.0f, 7.0f), 8.0f);
-        AZ_TEST_ASSERT(q1 == AZ::Quaternion(5.0f, 6.0f, 7.0f, 8.0f));
-        q1.Set(values);
-        AZ_TEST_ASSERT((q1.GetX() == 10.0f) && (q1.GetY() == 20.0f) && (q1.GetZ() == 30.0f) && (q1.GetW() == 40.0f));
-
-        //GetElement/SetElement
-        q1.SetElement(0, 1.0f);
-        q1.SetElement(1, 2.0f);
-        q1.SetElement(2, 3.0f);
-        q1.SetElement(3, 4.0f);
-        AZ_TEST_ASSERT(q1.GetElement(0) == 1.0f);
-        AZ_TEST_ASSERT(q1.GetElement(1) == 2.0f);
-        AZ_TEST_ASSERT(q1.GetElement(2) == 3.0f);
-        AZ_TEST_ASSERT(q1.GetElement(3) == 4.0f);
-
-        //index operators
-        q1.Set(1.0f, 2.0f, 3.0f, 4.0f);
-        AZ_TEST_ASSERT(q1(0) == 1.0f);
-        AZ_TEST_ASSERT(q1(1) == 2.0f);
-        AZ_TEST_ASSERT(q1(2) == 3.0f);
-        AZ_TEST_ASSERT(q1(3) == 4.0f);
-
-        //IsIdentity
-        q1.Set(0.0f, 0.0f, 0.0f, 1.0f);
-        AZ_TEST_ASSERT(q1.IsIdentity());
-
-        //conjugate
-        q1.Set(1.0f, 2.0f, 3.0f, 4.0f);
-        AZ_TEST_ASSERT(q1.GetConjugate() == AZ::Quaternion(-1.0f, -2.0f, -3.0f, 4.0f));
-
-        //inverse
-        q1 = AZ::Quaternion::CreateRotationX(DegToRad(25.0f)) * AZ::Quaternion::CreateRotationY(DegToRad(70.0f));
-        AZ_TEST_ASSERT((q1 * q1.GetInverseFast()).IsClose(AZ::Quaternion::CreateIdentity()));
-        q2 = q1;
-        q2.InvertFast();
-        AZ_TEST_ASSERT(q1.GetX() == -q2.GetX());
-        AZ_TEST_ASSERT(q1.GetY() == -q2.GetY());
-        AZ_TEST_ASSERT(q1.GetZ() == -q2.GetZ());
-        AZ_TEST_ASSERT(q1.GetW() == q2.GetW());
-        AZ_TEST_ASSERT((q1 * q2).IsClose(AZ::Quaternion::CreateIdentity()));
-
-        q1.Set(1.0f, 2.0f, 3.0f, 4.0f);
-        AZ_TEST_ASSERT((q1 * q1.GetInverseFull()).IsClose(AZ::Quaternion::CreateIdentity()));
-
-        //dot product
-        AZ_TEST_ASSERT_FLOAT_CLOSE(AZ::Quaternion(1.0f, 2.0f, 3.0f, 4.0f).Dot(AZ::Quaternion(-1.0f, 5.0f, 3.0f, 2.0f)), 26.0f);
-
-        //length
-        AZ_TEST_ASSERT_FLOAT_CLOSE(AZ::Quaternion(-1.0f, 2.0f, 1.0f, 3.0f).GetLengthSq(), 15.0f);
-        AZ_TEST_ASSERT_FLOAT_CLOSE(AZ::Quaternion(-4.0f, 2.0f, 0.0f, 4.0f).GetLength(), 6.0f);
-
-        //normalize
-        AZ_TEST_ASSERT(AZ::Quaternion(0.0f, -4.0f, 2.0f, 4.0f).GetNormalized().IsClose(AZ::Quaternion(0.0f, -0.666f, 0.333f, 0.666f)));
-        q1.Set(2.0f, 0.0f, 4.0f, -4.0f);
-        q1.Normalize();
-        AZ_TEST_ASSERT(q1.IsClose(AZ::Quaternion(0.333f, 0.0f, 0.666f, -0.666f)));
-        q1.Set(2.0f, 0.0f, 4.0f, -4.0f);
-        float length = q1.NormalizeWithLength();
-        AZ_TEST_ASSERT_FLOAT_CLOSE(length, 6.0f);
-        AZ_TEST_ASSERT(q1.IsClose(AZ::Quaternion(0.333f, 0.0f, 0.666f, -0.666f)));
-
-        //interpolation
-        AZ_TEST_ASSERT(AZ::Quaternion(1.0f, 2.0f, 3.0f, 4.0f).Lerp(AZ::Quaternion(2.0f, 3.0f, 4.0f, 5.0f), 0.5f).IsClose(AZ::Quaternion(1.5f, 2.5f, 3.5f, 4.5f)));
-        AZ_TEST_ASSERT(AZ::Quaternion::CreateRotationX(DegToRad(10.0f)).Slerp(AZ::Quaternion::CreateRotationY(DegToRad(60.0f)), 0.5f).IsClose(AZ::Quaternion(0.045f, 0.259f, 0.0f, 0.965f)));
-        AZ_TEST_ASSERT(AZ::Quaternion::CreateRotationX(DegToRad(10.0f)).Squad(AZ::Quaternion::CreateRotationY(DegToRad(60.0f)), AZ::Quaternion::CreateRotationZ(DegToRad(35.0f)), AZ::Quaternion::CreateRotationX(DegToRad(80.0f)), 0.5f).IsClose(AZ::Quaternion(0.2f, 0.132f, 0.083f, 0.967f)));
-
-        //close
-        AZ_TEST_ASSERT(AZ::Quaternion(1.0f, 2.0f, 3.0f, 4.0f).IsClose(AZ::Quaternion(1.0f, 2.0f, 3.0f, 4.0f)));
-        AZ_TEST_ASSERT(!AZ::Quaternion(1.0f, 2.0f, 3.0f, 4.0f).IsClose(AZ::Quaternion(1.0f, 2.0f, 3.0f, 5.0f)));
-        AZ_TEST_ASSERT(AZ::Quaternion(1.0f, 2.0f, 3.0f, 4.0f).IsClose(AZ::Quaternion(1.0f, 2.0f, 3.0f, 4.4f), 0.5f));
-
-        //operators
-        AZ_TEST_ASSERT((-AZ::Quaternion(1.0f, 2.0f, 3.0f, 4.0f)) == AZ::Quaternion(-1.0f, -2.0f, -3.0f, -4.0f));
-        AZ_TEST_ASSERT((AZ::Quaternion(1.0f, 2.0f, 3.0f, 4.0f) + AZ::Quaternion(2.0f, 3.0f, 5.0f, -1.0f)).IsClose(AZ::Quaternion(3.0f, 5.0f, 8.0f, 3.0f)));
-        AZ_TEST_ASSERT((AZ::Quaternion(1.0f, 2.0f, 3.0f, 4.0f) - AZ::Quaternion(2.0f, 3.0f, 5.0f, -1.0f)).IsClose(AZ::Quaternion(-1.0f, -1.0f, -2.0f, 5.0f)));
-        AZ_TEST_ASSERT((AZ::Quaternion(1.0f, 2.0f, 3.0f, 4.0f) * AZ::Quaternion(2.0f, 3.0f, 5.0f, -1.0f)).IsClose(AZ::Quaternion(8.0f, 11.0f, 16.0f, -27.0f)));
-        AZ_TEST_ASSERT((AZ::Quaternion(1.0f, 2.0f, 3.0f, 4.0f) * 2.0f).IsClose(AZ::Quaternion(2.0f, 4.0f, 6.0f, 8.0f)));
-        AZ_TEST_ASSERT((2.0f * AZ::Quaternion(1.0f, 2.0f, 3.0f, 4.0f)).IsClose(AZ::Quaternion(2.0f, 4.0f, 6.0f, 8.0f)));
-        AZ_TEST_ASSERT((AZ::Quaternion(1.0f, 2.0f, 3.0f, 4.0f) / 2.0f).IsClose(AZ::Quaternion(0.5f, 1.0f, 1.5f, 2.0f)));
-        q1.Set(1.0f, 2.0f, 3.0f, 4.0f);
-        q1 += AZ::Quaternion(5.0f, 6.0f, 7.0f, 8.0f);
-        AZ_TEST_ASSERT(q1.IsClose(AZ::Quaternion(6.0f, 8.0f, 10.0f, 12.0f)));
-        q1 -= AZ::Quaternion(3.0f, -1.0f, 5.0f, 7.0f);
-        AZ_TEST_ASSERT(q1.IsClose(AZ::Quaternion(3.0f, 9.0f, 5.0f, 5.0f)));
-        q1.Set(1.0f, 2.0f, 3.0f, 4.0f);
-        q1 *= AZ:: Quaternion(2.0f, 3.0f, 5.0f, -1.0f);
-        AZ_TEST_ASSERT(q1.IsClose(AZ::Quaternion(8.0f, 11.0f, 16.0f, -27.0f)));
-        q1 *= 2.0f;
-        AZ_TEST_ASSERT(q1.IsClose(AZ::Quaternion(16.0f, 22.0f, 32.0f, -54.0f)));
-        q1 /= 4.0f;
-        AZ_TEST_ASSERT(q1.IsClose(AZ::Quaternion(4.0f, 5.5f, 8.0f, -13.5f)));
-
-        //operator==
-        q3.Set(1.0f, 2.0f, 3.0f, 4.0f);
-        AZ_TEST_ASSERT(q3 == AZ::Quaternion(1.0f, 2.0f, 3.0f, 4.0));
-        AZ_TEST_ASSERT(!(q3 == AZ::Quaternion(1.0f, 2.0f, 3.0f, 5.0f)));
-        AZ_TEST_ASSERT(q3 != AZ::Quaternion(1.0f, 2.0f, 3.0f, 5.0f));
-        AZ_TEST_ASSERT(!(q3 != AZ::Quaternion(1.0f, 2.0f, 3.0f, 4.0f)));
-
-        //vector transform
-        AZ_TEST_ASSERT((AZ::Quaternion::CreateRotationX(DegToRad(45.0f)) * Vector3(4.0f, 1.0f, 0.0f)).IsClose(Vector3(4.0f, 0.707f, 0.707f)));
-
-        //GetImaginary
-        q1.Set(21.0f, 22.0f, 23.0f, 24.0f);
-        AZ_TEST_ASSERT(q1.GetImaginary() == Vector3(21.0f, 22.0f, 23.0f));
-
-        //GetAngle
-        q1 = AZ::Quaternion::CreateRotationX(DegToRad(35.0f));
-        AZ_TEST_ASSERT(q1.GetAngle().IsClose(DegToRad(35.0f)));
-
-        //make sure that our transformations concatenate in the correct order
-        q1 = AZ::Quaternion::CreateRotationZ(DegToRad(90.0f));
-        q2 = AZ::Quaternion::CreateRotationX(DegToRad(90.0f));
-        Vector3 v = (q2 * q1) * Vector3(1.0f, 0.0f, 0.0f);
-        AZ_TEST_ASSERT(v.IsClose(Vector3(0.0f, 0.0f, 1.0f)));
-    }
-
     TEST(MATH_Aabb, Test)
     {
         //CreateNull
@@ -2083,6 +2008,58 @@ namespace UnitTest
         AZ_TEST_ASSERT(aabb.GetDistance(Vector3(2.0f, 0.0f, 0.0f)).IsClose(1.0f));
         // make sure a point inside the box returns zero, even if that point isn't the center.
         AZ_TEST_ASSERT(aabb.GetDistance(Vector3(0.5f, 0.0f, 0.0f)).IsClose(0.0f));
+
+        //GetDistanceSq
+        aabb.Set(Vector3(-1.0f), Vector3(1.0f));
+        AZ_TEST_ASSERT(aabb.GetDistanceSq(Vector3(0.0f, 3.0f, 0.0f)).IsClose(4.0f));
+        // make sure a point inside the box returns zero, even if that point isn't the center.
+        AZ_TEST_ASSERT(aabb.GetDistanceSq(Vector3(0.0f, 0.5f, 0.0f)).IsClose(0.0f));
+
+        //GetMaxDistance
+        aabb.Set(Vector3(-1.0f), Vector3(1.0f));
+        // The max distance for all of the following should be the square root of (4^2 + 3^2 + 2^2)
+        AZ_TEST_ASSERT(aabb.GetMaxDistance(Vector3( 3.0f,  2.0f,  1.0f)).IsClose(std::sqrtf(16.0f + 9.0f + 4.0f)));
+        AZ_TEST_ASSERT(aabb.GetMaxDistance(Vector3( 3.0f,  2.0f, -1.0f)).IsClose(std::sqrtf(16.0f + 9.0f + 4.0f)));
+        AZ_TEST_ASSERT(aabb.GetMaxDistance(Vector3( 3.0f, -2.0f,  1.0f)).IsClose(std::sqrtf(16.0f + 9.0f + 4.0f)));
+        AZ_TEST_ASSERT(aabb.GetMaxDistance(Vector3( 3.0f, -2.0f, -1.0f)).IsClose(std::sqrtf(16.0f + 9.0f + 4.0f)));
+        AZ_TEST_ASSERT(aabb.GetMaxDistance(Vector3(-3.0f,  2.0f,  1.0f)).IsClose(std::sqrtf(16.0f + 9.0f + 4.0f)));
+        AZ_TEST_ASSERT(aabb.GetMaxDistance(Vector3(-3.0f,  2.0f, -1.0f)).IsClose(std::sqrtf(16.0f + 9.0f + 4.0f)));
+        AZ_TEST_ASSERT(aabb.GetMaxDistance(Vector3(-3.0f, -2.0f,  1.0f)).IsClose(std::sqrtf(16.0f + 9.0f + 4.0f)));
+        AZ_TEST_ASSERT(aabb.GetMaxDistance(Vector3(-3.0f, -2.0f, -1.0f)).IsClose(std::sqrtf(16.0f + 9.0f + 4.0f)));
+        // make sure points inside the box return a correct max distance as well - sqrt of (1.5^2 + 1.5^2 + 1.5^2)
+        AZ_TEST_ASSERT(aabb.GetMaxDistance(Vector3( 0.5f,  0.5f,  0.5f)).IsClose(std::sqrtf(2.25f + 2.25f + 2.25f)));
+        AZ_TEST_ASSERT(aabb.GetMaxDistance(Vector3( 0.5f,  0.5f, -0.5f)).IsClose(std::sqrtf(2.25f + 2.25f + 2.25f)));
+        AZ_TEST_ASSERT(aabb.GetMaxDistance(Vector3( 0.5f, -0.5f,  0.5f)).IsClose(std::sqrtf(2.25f + 2.25f + 2.25f)));
+        AZ_TEST_ASSERT(aabb.GetMaxDistance(Vector3( 0.5f, -0.5f, -0.5f)).IsClose(std::sqrtf(2.25f + 2.25f + 2.25f)));
+        AZ_TEST_ASSERT(aabb.GetMaxDistance(Vector3(-0.5f,  0.5f,  0.5f)).IsClose(std::sqrtf(2.25f + 2.25f + 2.25f)));
+        AZ_TEST_ASSERT(aabb.GetMaxDistance(Vector3(-0.5f,  0.5f, -0.5f)).IsClose(std::sqrtf(2.25f + 2.25f + 2.25f)));
+        AZ_TEST_ASSERT(aabb.GetMaxDistance(Vector3(-0.5f, -0.5f,  0.5f)).IsClose(std::sqrtf(2.25f + 2.25f + 2.25f)));
+        AZ_TEST_ASSERT(aabb.GetMaxDistance(Vector3(-0.5f, -0.5f, -0.5f)).IsClose(std::sqrtf(2.25f + 2.25f + 2.25f)));
+        // make sure the center returns our minimal max distance (1^2 + 1^2 + 1^2)
+        AZ_TEST_ASSERT(aabb.GetMaxDistance(Vector3(0.0f, 0.0f, 0.0f)).IsClose(std::sqrtf(1.0f + 1.0f + 1.0f)));
+
+        //GetMaxDistanceSq
+        aabb.Set(Vector3(-1.0f), Vector3(1.0f));
+        // The max distance for all of the following should be (4^2 + 3^2 + 2^2)
+        AZ_TEST_ASSERT(aabb.GetMaxDistanceSq(Vector3( 3.0f,  2.0f,  1.0f)).IsClose(16.0f + 9.0f + 4.0f));
+        AZ_TEST_ASSERT(aabb.GetMaxDistanceSq(Vector3( 3.0f,  2.0f, -1.0f)).IsClose(16.0f + 9.0f + 4.0f));
+        AZ_TEST_ASSERT(aabb.GetMaxDistanceSq(Vector3( 3.0f, -2.0f,  1.0f)).IsClose(16.0f + 9.0f + 4.0f));
+        AZ_TEST_ASSERT(aabb.GetMaxDistanceSq(Vector3( 3.0f, -2.0f, -1.0f)).IsClose(16.0f + 9.0f + 4.0f));
+        AZ_TEST_ASSERT(aabb.GetMaxDistanceSq(Vector3(-3.0f,  2.0f,  1.0f)).IsClose(16.0f + 9.0f + 4.0f));
+        AZ_TEST_ASSERT(aabb.GetMaxDistanceSq(Vector3(-3.0f,  2.0f, -1.0f)).IsClose(16.0f + 9.0f + 4.0f));
+        AZ_TEST_ASSERT(aabb.GetMaxDistanceSq(Vector3(-3.0f, -2.0f,  1.0f)).IsClose(16.0f + 9.0f + 4.0f));
+        AZ_TEST_ASSERT(aabb.GetMaxDistanceSq(Vector3(-3.0f, -2.0f, -1.0f)).IsClose(16.0f + 9.0f + 4.0f));
+        // make sure points inside the box return a correct max distance as well: (1.5^2 + 1.5^2 + 1.5^2)
+        AZ_TEST_ASSERT(aabb.GetMaxDistanceSq(Vector3( 0.5f,  0.5f,  0.5f)).IsClose(2.25f + 2.25f + 2.25f));
+        AZ_TEST_ASSERT(aabb.GetMaxDistanceSq(Vector3( 0.5f,  0.5f, -0.5f)).IsClose(2.25f + 2.25f + 2.25f));
+        AZ_TEST_ASSERT(aabb.GetMaxDistanceSq(Vector3( 0.5f, -0.5f,  0.5f)).IsClose(2.25f + 2.25f + 2.25f));
+        AZ_TEST_ASSERT(aabb.GetMaxDistanceSq(Vector3( 0.5f, -0.5f, -0.5f)).IsClose(2.25f + 2.25f + 2.25f));
+        AZ_TEST_ASSERT(aabb.GetMaxDistanceSq(Vector3(-0.5f,  0.5f,  0.5f)).IsClose(2.25f + 2.25f + 2.25f));
+        AZ_TEST_ASSERT(aabb.GetMaxDistanceSq(Vector3(-0.5f,  0.5f, -0.5f)).IsClose(2.25f + 2.25f + 2.25f));
+        AZ_TEST_ASSERT(aabb.GetMaxDistanceSq(Vector3(-0.5f, -0.5f,  0.5f)).IsClose(2.25f + 2.25f + 2.25f));
+        AZ_TEST_ASSERT(aabb.GetMaxDistanceSq(Vector3(-0.5f, -0.5f, -0.5f)).IsClose(2.25f + 2.25f + 2.25f));
+        // make sure the center returns our minimal max distance (1^2 + 1^2 + 1^2)
+        AZ_TEST_ASSERT(aabb.GetMaxDistanceSq(Vector3(0.0f, 0.0f, 0.0f)).IsClose(1.0f + 1.0f + 1.0f));
 
         //GetClamped
         aabb.Set(Vector3(0.0f), Vector3(2.0f));
@@ -2383,6 +2360,16 @@ namespace UnitTest
         const float infinity = std::numeric_limits<float>::infinity();
         pl.Set(infinity, infinity, infinity, infinity);
         AZ_TEST_ASSERT(!pl.IsFinite());
+    }
+
+    TEST(MATH_Plane, CreateFromVectorCoefficients_IsEquivalentToCreateFromCoefficients)
+    {
+        Plane planeFromCoefficients = Plane::CreateFromCoefficients(1.0, 2.0, 3.0, 4.0);
+
+        Vector4 coefficients(1.0, 2.0, 3.0, 4.0);
+        Plane planeFromVectorCoefficients = Plane::CreateFromVectorCoefficients(coefficients);
+
+        EXPECT_EQ(planeFromVectorCoefficients, planeFromCoefficients);
     }
 
     TEST(MATH_Intersection, ClosestSegmentSegment)
@@ -2744,13 +2731,11 @@ namespace UnitTest
                     EXPECT_TRUE(raySplineQueryResult.m_splineAddress.m_segmentFraction == 0.5f);
                 }
 
-                // note: current error case - unexpected result
-                // internally GetNearestAddress treats ray as line segment - direction not respected - should update?
-                //{
-                //    RaySplineQueryResult raySplineQueryResult = linearSpline.GetNearestAddressRay(Vector3(-2.5f, 2.5f, 0.0f), Vector3(1.0f, 0.0f, 0.0f));
-                //    EXPECT_TRUE(raySplineQueryResult.m_splineAddress.m_segmentIndex == 3);
-                //    EXPECT_TRUE(raySplineQueryResult.m_splineAddress.m_segmentFraction == 0.5f);
-                //}
+                {
+                    RaySplineQueryResult raySplineQueryResult = linearSpline.GetNearestAddressRay(Vector3(-2.5f, 2.5f, 0.0f), Vector3(1.0f, 0.0f, 0.0f));
+                    EXPECT_TRUE(raySplineQueryResult.m_splineAddress.m_segmentIndex == 3);
+                    EXPECT_TRUE(raySplineQueryResult.m_splineAddress.m_segmentFraction == 0.5f);
+                }
             }
         }
 
@@ -4115,14 +4100,40 @@ namespace UnitTest
 
                 {
                     SplineAddress splineAddress = bezierSpline.GetAddressByFraction(1.0f);
-                    EXPECT_TRUE(splineAddress.m_segmentIndex == 3);
-                    EXPECT_TRUE(splineAddress.m_segmentFraction == 1.0f);
+                    EXPECT_EQ(3, splineAddress.m_segmentIndex);
+                    EXPECT_FLOAT_EQ(1.0f, splineAddress.m_segmentFraction);
+                }
+
+                {
+                    SplineAddress splineAddress = bezierSpline.GetAddressByFraction(0.6f);
+                    EXPECT_EQ(2, splineAddress.m_segmentIndex);
+                    EXPECT_FLOAT_EQ(0.4f, splineAddress.m_segmentFraction);
                 }
 
                 {
                     SplineAddress splineAddress = bezierSpline.GetAddressByFraction(0.5f);
-                    EXPECT_TRUE(splineAddress.m_segmentIndex == 2);
-                    EXPECT_FLOAT_EQ(0.0f, splineAddress.m_segmentFraction);
+                    // Due to /fp:fast differences in VS2019, the number of segments the Spline Address
+                    // returns either be 1 or 2.
+                    // To workaround this issue, the segment fraction is used to determine if the spline address is near
+                    // the end of the second segment
+                    EXPECT_GE(splineAddress.m_segmentIndex, 1);
+                    EXPECT_LE(splineAddress.m_segmentIndex, 2);
+
+                    // The following performs a check to validate spline address is "near" two segments
+                    // in length
+                    switch (splineAddress.m_segmentIndex)
+                    {
+                    case 1:
+                        // When the segment index is 1, the percentage along segment index 1 should be close to 100%
+                        EXPECT_FLOAT_EQ(1.0f, splineAddress.m_segmentFraction);
+                        break;
+                    case 2:
+                        // When the segment index is 2, the percentage along segment index 2 should be close to 0%
+                        EXPECT_FLOAT_EQ(0.0f, splineAddress.m_segmentFraction);
+                        break;
+                    default:
+                        ADD_FAILURE() << "The four vertex Bezier Spline that has been split in half should be close to two segments in length";
+                    }
                 }
             }
         }
@@ -5556,143 +5567,6 @@ namespace UnitTest
         }
     }
 
-    class MATH_UuidTest
-        : public AllocatorsFixture
-    {
-        static const int numUuid  = 2000;
-        Uuid* m_array;
-    public:
-        void SetUp() override
-        {
-            AllocatorsFixture::SetUp();
-
-            m_array = (Uuid*)azmalloc(sizeof(Uuid) * numUuid, AZStd::alignment_of<Uuid>::value);
-        }
-        void TearDown() override
-        {
-            azfree(m_array);
-
-            AllocatorsFixture::TearDown();
-        }
-        void run()
-        {
-            Uuid defId;
-            defId.data[0] = 0xb5;
-            defId.data[1] = 0x70;
-            defId.data[2] = 0x0f;
-            defId.data[3] = 0x2e;
-            defId.data[4] = 0x66;
-            defId.data[5] = 0x1b;
-            defId.data[6] = 0x4a;
-            defId.data[7] = 0xc0;
-            defId.data[8] = 0x93;
-            defId.data[9] = 0x35;
-            defId.data[10] = 0x81;
-            defId.data[11] = 0x7c;
-            defId.data[12] = 0xb4;
-            defId.data[13] = 0xc0;
-            defId.data[14] = 0x9c;
-            defId.data[15] = 0xcb;
-
-            // null
-            Uuid id = Uuid::CreateNull();
-            AZ_TEST_ASSERT(id.IsNull());
-
-            const char idStr1[] = "{B5700F2E-661B-4AC0-9335-817CB4C09CCB}";
-            const char idStr2[] = "{B5700F2E661B4AC09335817CB4C09CCB}";
-            const char idStr3[] = "B5700F2E-661B-4AC0-9335-817CB4C09CCB";
-            const char idStr4[] = "B5700F2E661B4AC09335817CB4C09CCB";
-
-            // create from string
-            id = Uuid::CreateString(idStr1);
-            AZ_TEST_ASSERT(id == defId);
-            id = Uuid::CreateString(idStr2);
-            AZ_TEST_ASSERT(id == defId);
-            id = Uuid::CreateString(idStr3);
-            AZ_TEST_ASSERT(id == defId);
-            id = Uuid::CreateString(idStr4);
-            AZ_TEST_ASSERT(id == defId);
-
-            // variant
-            AZ_TEST_ASSERT(id.GetVariant() == Uuid::VAR_RFC_4122);
-            // version
-            AZ_TEST_ASSERT(id.GetVersion() == Uuid::VER_RANDOM);
-
-            // tostring
-            char buffer[39];
-            id = Uuid::CreateString(idStr1);
-            AZ_TEST_ASSERT(id.ToString(buffer, 39, true, true) == 39);
-            AZ_TEST_ASSERT(strcmp(buffer, idStr1) == 0);
-            AZ_TEST_ASSERT(id.ToString(buffer, 35, true, false) == 35);
-            AZ_TEST_ASSERT(strcmp(buffer, idStr2) == 0);
-            AZ_TEST_ASSERT(id.ToString(buffer, 37, false, true) == 37);
-            AZ_TEST_ASSERT(strcmp(buffer, idStr3) == 0);
-            AZ_TEST_ASSERT(id.ToString(buffer, 33, false, false) == 33);
-            AZ_TEST_ASSERT(strcmp(buffer, idStr4) == 0);
-
-            AZ_TEST_ASSERT(id.ToString<AZStd::string>() == AZStd::string(idStr1));
-            AZ_TEST_ASSERT(id.ToString<AZStd::string>(true, false) == AZStd::string(idStr2));
-            AZ_TEST_ASSERT(id.ToString<AZStd::string>(false, true) == AZStd::string(idStr3));
-            AZ_TEST_ASSERT(id.ToString<AZStd::string>(false, false) == AZStd::string(idStr4));
-
-            AZStd::string str1;
-            id.ToString(str1);
-            AZ_TEST_ASSERT(str1 == AZStd::string(idStr1));
-            id.ToString(str1, true, false);
-            AZ_TEST_ASSERT(str1 == AZStd::string(idStr2));
-            id.ToString(str1, false, true);
-            AZ_TEST_ASSERT(str1 == AZStd::string(idStr3));
-            id.ToString(str1, false, false);
-            AZ_TEST_ASSERT(str1 == AZStd::string(idStr4));
-
-            // operators
-            Uuid idBigger("C5700F2E661B4ac09335817CB4C09CCB");
-            AZ_TEST_ASSERT(id < idBigger);
-            AZ_TEST_ASSERT(id != idBigger);
-            AZ_TEST_ASSERT(idBigger > id);
-
-            // hash
-            AZStd::hash<AZ::Uuid> hash;
-            size_t hashVal = hash(id);
-            AZ_TEST_ASSERT(hashVal != 0);
-
-            // test the hashing and equal function in a unordered container
-            typedef AZStd::unordered_set<AZ::Uuid> UuidSetType;
-            UuidSetType uuidSet;
-            uuidSet.insert(id);
-            AZ_TEST_ASSERT(uuidSet.find(id) != uuidSet.end());
-
-            // check uniqueness (very quick and basic)
-            for (int i = 0; i < numUuid; ++i)
-            {
-                m_array[i] = Uuid::Create();
-            }
-
-            for (int i = 0; i < numUuid; ++i)
-            {
-                Uuid uniqueToTest = Uuid::Create();
-                for (int j = 0; j < numUuid; ++j)
-                {
-                    AZ_TEST_ASSERT(m_array[j] != uniqueToTest);
-                }
-            }
-
-            // test the name function
-            Uuid uuidName = Uuid::CreateName("BlaBla");
-            // check variant
-            AZ_TEST_ASSERT(uuidName.GetVariant() == Uuid::VAR_RFC_4122);
-            // check version
-            AZ_TEST_ASSERT(uuidName.GetVersion() == Uuid::VER_NAME_SHA1);
-            // check id
-            AZ_TEST_ASSERT(uuidName == Uuid::CreateName("BlaBla"));
-        }
-    };
-
-    TEST_F(MATH_UuidTest, Test)
-    {
-        run();
-    }
-
     TEST(MATH_Color, Construction)
     {
         // Default constructor
@@ -6124,6 +5998,16 @@ namespace UnitTest
 
     }
 
+    TEST(MATH_Color, Lerp)
+    {
+        Color colorSrc(1.0f, 0.0f, 0.2f, 0.8f);
+        Color colorDest(0.0f, 1.0f, 0.8f, 0.2f);
+
+        AZ_TEST_ASSERT(colorSrc.Lerp(colorDest, 0.0f) == colorSrc);
+        EXPECT_TRUE(colorSrc.Lerp(colorDest, 0.5f).IsClose(Color(0.5f, 0.5f, 0.5f, 0.5f), 0.00001f));
+        AZ_TEST_ASSERT(colorSrc.Lerp(colorDest, 1.0f) == colorDest);
+    }
+
     TEST(MATH_Color, DotProduct)
     {
         Color color1(0.6f, 0.4f, 0.3f, 0.1f);
@@ -6234,8 +6118,7 @@ namespace UnitTest
         // Float
         const float epsilonF = std::numeric_limits<float>::epsilon();
         const float doesntMatterF = std::numeric_limits<float>::signaling_NaN();
-        // volatile keyword required here to prevent spurious vs2013 compile error about division by 0
-        volatile float lowerF = 2.3f, upperF = 2.3f;
+        float lowerF = 2.3f, upperF = 2.3f;
         EXPECT_EQ(0.0f, AZ::LerpInverse(lowerF, upperF, doesntMatterF));
         EXPECT_EQ(0.0f, AZ::LerpInverse(0.0f, 0.5f * epsilonF, doesntMatterF));
         EXPECT_EQ(0.0f, AZ::LerpInverse(0.0f, 5.0f * epsilonF, 0.0f));
@@ -6246,8 +6129,7 @@ namespace UnitTest
         // Double
         const double epsilonD = std::numeric_limits<double>::epsilon();
         const double doesntMatterD = std::numeric_limits<double>::signaling_NaN();
-        // volatile keyword required here to prevent spurious vs2013 compile error about division by 0
-        volatile double lowerD = 2.3, upperD = 2.3;
+        double lowerD = 2.3, upperD = 2.3;
         EXPECT_EQ(0.0, AZ::LerpInverse(lowerD, upperD, doesntMatterD));
         EXPECT_EQ(0.0, AZ::LerpInverse(0.0, 0.5 * epsilonD, doesntMatterD));
         EXPECT_EQ(0.0, AZ::LerpInverse(0.0, 5.0 * epsilonD, 0.0));

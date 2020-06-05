@@ -16,6 +16,8 @@
 #include "StandardHeaders.h"
 #include "Attribute.h"
 #include "Vector.h"
+#include "StringConversions.h"
+#include <MCore/Source/AttributeAllocator.h>
 
 
 namespace MCore
@@ -27,6 +29,8 @@ namespace MCore
     class MCORE_API AttributeQuaternion
         : public Attribute
     {
+        AZ_CLASS_ALLOCATOR(AttributeQuaternion, AttributeAllocator, 0)
+
         friend class AttributeFactory;
     public:
         enum
@@ -36,19 +40,17 @@ namespace MCore
 
         static AttributeQuaternion* Create();
         static AttributeQuaternion* Create(float x, float y, float z, float w);
-        static AttributeQuaternion* Create(const Quaternion& value);
+        static AttributeQuaternion* Create(const AZ::Quaternion& value);
 
         MCORE_INLINE uint8* GetRawDataPointer()                     { return reinterpret_cast<uint8*>(&mValue); }
-        MCORE_INLINE uint32 GetRawDataSize() const                  { return sizeof(Quaternion); }
-        bool GetSupportsRawDataPointer() const override             { return true; }
+        MCORE_INLINE uint32 GetRawDataSize() const                  { return sizeof(AZ::Quaternion); }
 
         // adjust values
-        MCORE_INLINE const Quaternion& GetValue() const             { return mValue; }
-        MCORE_INLINE void SetValue(const Quaternion& value)         { mValue = value; }
+        MCORE_INLINE const AZ::Quaternion& GetValue() const             { return mValue; }
+        MCORE_INLINE void SetValue(const AZ::Quaternion& value)         { mValue = value; }
 
         // overloaded from the attribute base class
         Attribute* Clone() const override                           { return AttributeQuaternion::Create(mValue); }
-        Attribute* CreateInstance(void* destMemory) override        { return new(destMemory) AttributeQuaternion(); }
         const char* GetTypeString() const override                  { return "AttributeQuaternion"; }
         bool InitFrom(const Attribute* other) override
         {
@@ -59,31 +61,33 @@ namespace MCore
             mValue = static_cast<const AttributeQuaternion*>(other)->GetValue();
             return true;
         }
-        bool InitFromString(const String& valueString) override
+        bool InitFromString(const AZStd::string& valueString) override
         {
-            if (valueString.CheckIfIsValidVector4() == false)
+            AZ::Vector4 vec4;
+            if (!AzFramework::StringFunc::LooksLikeVector4(valueString.c_str(), &vec4))
             {
                 return false;
             }
-            const AZ::Vector4 vec = valueString.ToVector4();
-            mValue.Set(vec.GetX(), vec.GetY(), vec.GetZ(), vec.GetW());
+            mValue.Set(vec4.GetX(), vec4.GetY(), vec4.GetZ(), vec4.GetW());
             return true;
         }
-        bool ConvertToString(String& outString) const override      { outString.FromVector4(AZ::Vector4(mValue.x, mValue.y, mValue.z, mValue.w)); return true; }
+        bool ConvertToString(AZStd::string& outString) const override      { AZStd::to_string(outString, mValue); return true; }
         uint32 GetClassSize() const override                        { return sizeof(AttributeQuaternion); }
         uint32 GetDefaultInterfaceType() const override             { return ATTRIBUTE_INTERFACETYPE_DEFAULT; }
 
     private:
-        Quaternion  mValue;     /**< The Quaternion value. */
+        AZ::Quaternion  mValue;     /**< The Quaternion value. */
 
         AttributeQuaternion()
-            : Attribute(TYPE_ID)                { mValue.Identity(); }
-        AttributeQuaternion(const Quaternion& value)
+            : Attribute(TYPE_ID)
+            , mValue(AZ::Quaternion::CreateIdentity())
+        {}
+        AttributeQuaternion(const AZ::Quaternion& value)
             : Attribute(TYPE_ID)
             , mValue(value) {}
         ~AttributeQuaternion() { }
 
-        uint32 GetDataSize() const override                         { return sizeof(Quaternion); }
+        uint32 GetDataSize() const override                         { return sizeof(AZ::Quaternion); }
 
         // read from a stream
         bool ReadData(MCore::Stream* stream, MCore::Endian::EEndianType streamEndianType, uint8 version) override
@@ -91,8 +95,8 @@ namespace MCore
             MCORE_UNUSED(version);
 
             // read the value
-            Quaternion streamValue;
-            if (stream->Read(&streamValue, sizeof(Quaternion)) == 0)
+            AZ::Quaternion streamValue;
+            if (stream->Read(&streamValue, sizeof(AZ::Quaternion)) == 0)
             {
                 return false;
             }
@@ -103,17 +107,5 @@ namespace MCore
             return true;
         }
 
-        // write to a stream
-        bool WriteData(MCore::Stream* stream, MCore::Endian::EEndianType targetEndianType) const override
-        {
-            Quaternion streamValue = mValue;
-            Endian::ConvertQuaternionTo(&streamValue, targetEndianType);
-            if (stream->Write(&streamValue, sizeof(Quaternion)) == 0)
-            {
-                return false;
-            }
-
-            return true;
-        }
     };
 }   // namespace MCore

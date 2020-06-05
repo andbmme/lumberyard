@@ -40,6 +40,8 @@ namespace AZ
         : public ComponentBus
     {
     public:
+        AZ_RTTI(TransformInterface, "{8DD8A4E2-7F61-4A36-9169-A31F03E25FEB}");
+
         //////////////////////////////////////////////////////////////////////////
         // EBusTraits overrides - application is a singleton.
         /**
@@ -368,7 +370,7 @@ namespace AZ
 
         /**
          * Get angles in radian for each principle axis around which the local transform is
-         * rotated in the order of z-axis and y-axis and then x-axis.
+         * rotated in the order of x-axis and y-axis and then z-axis.
          * @return A value of type Vector3 indicating how much in radian is rotated around each principle axis.
          */
         virtual AZ::Vector3 GetLocalRotation() { return AZ::Vector3(FLT_MAX); }
@@ -554,6 +556,11 @@ namespace AZ
          * @return True if the transform is static, false if the transform is movable.
          */
         virtual bool IsStaticTransform() = 0;
+        /**
+         * Set the transform to isStatic. This is needed to set a layer as static.
+         * A static transform is unmovable and does not respond to requests that would move it.
+         */
+        virtual void SetIsStaticTransform(bool /* isStatic */) {}
 
         /**
          * Returns whether position of transform is interpolated via network sync.
@@ -599,11 +606,19 @@ namespace AZ
         virtual void OnTransformChanged(const Transform& /*local*/, const Transform& /*world*/)     { }
 
         /**
-        * Signals that the static flag on the transfrom has changed. This should only be needed during editing.
-        * @param isStatic A boolean that indicates whether the transfrom is static or not.
+        * Signals that the static flag on the transform has changed. This should only be needed during editing.
+        * @param isStatic A boolean that indicates whether the transform is static or not.
         */
         virtual void OnStaticChanged( bool /*isStatic*/) { }
 
+        /**
+         * Called right before a parent change, to allow listeners to prevent the entity's parent from changing.
+         * @param parentCanChange A reference used to track if the parent can change. A result parameter is used
+         *                        instead of a return value because this is a multi-handler.
+         * @param oldParent The entity ID of the old parent. The entity ID is invalid if there was no old parent.
+         * @param newParent The entity ID of the new parent. The entity ID is invalid if there is no new parent.
+        */
+        virtual void CanParentChange(bool &parentCanChange, EntityId oldParent, EntityId newParent) { (void)parentCanChange; (void)oldParent; (void)newParent; }
 
         /**
          * Signals that the parent of the entity changed.
@@ -612,6 +627,14 @@ namespace AZ
          * @param newParent The entity ID of the new parent. The entity ID is invalid if there is no new parent.
          */
         virtual void OnParentChanged(EntityId oldParent, EntityId newParent)    { (void)oldParent; (void)newParent; }
+
+        /**
+         * Signals that the transform of the parent of the entity is about to change. Some components will need adjusting before this happens.
+         * To find if an entity ID is valid, use AZ::EntityId::IsValid().
+         * @param oldTransform The transform of the old parent. 
+         * @param newTransform The transform of the new parent. 
+         */
+        virtual void OnParentTransformWillChange(AZ::Transform oldTransform, AZ::Transform newTransform) { (void)oldTransform; (void)newTransform; }
 
         /**
          * Signals that a child was added to the entity.
@@ -800,6 +823,7 @@ namespace AZ
     typedef AZ::EBus<TransformHierarchyInformation> TransformHierarchyInformationBus;
 
     /// @endcond
+
 }
 
 /// @deprecated Use AZ::EditorTransformComponentTypeId.

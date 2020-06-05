@@ -9,21 +9,37 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
+#include <API/EditorAssetSystemAPI.h>
+
+#include <AzCore/Asset/AssetManagerBus.h>
 #include <AzCore/Math/Crc.h>
+#include <AzCore/std/containers/vector.h>
+
+#include <AzFramework/StringFunc/StringFunc.h>
 
 #include <AzToolsFramework/UI/UICore/QTreeViewStateSaver.hxx>
 #include <AzToolsFramework/AssetBrowser/Views/AssetBrowserTreeView.h>
 #include <AzToolsFramework/AssetBrowser/Views/EntryDelegate.h>
+#include <AzToolsFramework/AssetBrowser/Entries/AssetBrowserEntryCache.h>
 #include <AzToolsFramework/AssetBrowser/AssetBrowserBus.h>
 #include <AzToolsFramework/AssetBrowser/AssetBrowserFilterModel.h>
 #include <AzToolsFramework/AssetBrowser/AssetBrowserModel.h>
+#include <AzToolsFramework/AssetBrowser/Entries/SourceAssetBrowserEntry.h>
+#include <AzToolsFramework/AssetBrowser/Entries/ProductAssetBrowserEntry.h>
+#include <AzToolsFramework/Thumbnails/SourceControlThumbnail.h>
+#include <AzToolsFramework/Thumbnails/ThumbnailerBus.h>
+#include <AzToolsFramework/Metrics/LyEditorMetricsBus.h>
 
+AZ_PUSH_DISABLE_WARNING(4244 4251 4800, "-Wunknown-warning-option") // conversion from 'int' to 'float', possible loss of data, needs to have dll-interface to be used by clients of class
+                                                                    // 'QFlags<QPainter::RenderHint>::Int': forcing value to bool 'true' or 'false' (performance warning)
 #include <QMenu>
 #include <QHeaderView>
 #include <QMouseEvent>
 #include <QCoreApplication>
 #include <QPen>
 #include <QPainter>
+#include <QTimer>
+AZ_POP_DISABLE_WARNING
 
 namespace AzToolsFramework
 {
@@ -31,62 +47,68 @@ namespace AzToolsFramework
     {
         AssetBrowserTreeView::AssetBrowserTreeView(QWidget* parent)
             : QTreeViewWithStateSaving(parent)
-            , m_assetBrowserModel(nullptr)
-            , m_assetBrowserSortFilterProxyModel(nullptr)
             , m_delegate(new EntryDelegate(this))
+            , m_scTimer(new QTimer(this))
         {
             setSortingEnabled(true);
-            setItemDelegate(m_delegate.data());
+            setItemDelegate(m_delegate);
             header()->hide();
             setContextMenuPolicy(Qt::CustomContextMenu);
 
             setMouseTracking(true);
 
             connect(this, &QTreeView::customContextMenuRequested, this, &AssetBrowserTreeView::OnContextMenu);
-            connect(this, &QTreeView::expanded, [&](const QModelIndex& index)
+            connect(this, &QTreeView::expanded, this, [&](const QModelIndex& index)
                 {
                     if (!m_sendMetrics || !index.isValid())
                     {
                         return;
                     }
-                    auto data = index.data(AssetBrowserModel::Roles::EntryRole);
-                    if (data.canConvert<const AssetBrowserEntry*>())
+                    if (auto source = GetEntryFromIndex<SourceAssetBrowserEntry>(index))
                     {
-                        auto entry = qvariant_cast<const AssetBrowserEntry*>(data);
-                        auto source = azrtti_cast<const SourceAssetBrowserEntry*>(entry);
-                        if (source)
-                        {
-                            EditorMetricsEventsBus::Broadcast(&EditorMetricsEventsBusTraits::AssetBrowserAction,
-                                AssetBrowserActionType::SourceExpanded, source->GetSourceUuid(),  source->GetExtension().c_str(), source->GetChildCount());
-                        }
+                        EditorMetricsEventsBus::Broadcast(&EditorMetricsEventsBusTraits::AssetBrowserAction,
+                            AssetBrowserActionType::SourceExpanded, source->GetSourceUuid(),  source->GetExtension().c_str(), source->GetChildCount());
                     }
                 });
-            connect(this, &QTreeView::collapsed, [&](const QModelIndex& index)
+            connect(this, &QTreeView::collapsed, this, [&](const QModelIndex& index)
                 {
                     if (!m_sendMetrics || !index.isValid())
                     {
                         return;
                     }
-                    auto data = index.data(AssetBrowserModel::Roles::EntryRole);
-                    if (data.canConvert<const AssetBrowserEntry*>())
+                    if (auto source = GetEntryFromIndex<SourceAssetBrowserEntry>(index))
                     {
-                        auto entry = qvariant_cast<const AssetBrowserEntry*>(data);
-                        auto source = azrtti_cast<const SourceAssetBrowserEntry*>(entry);
-                        if (source)
-                        {
-                            EditorMetricsEventsBus::Broadcast(&EditorMetricsEventsBusTraits::AssetBrowserAction,
-                                AssetBrowserActionType::SourceCollapsed, source->GetSourceUuid(), source->GetExtension().c_str(), source->GetChildCount());
-                        }
+                        EditorMetricsEventsBus::Broadcast(&EditorMetricsEventsBusTraits::AssetBrowserAction,
+                            AssetBrowserActionType::SourceCollapsed, source->GetSourceUuid(), source->GetExtension().c_str(), source->GetChildCount());
                     }
                 });
+            connect(m_scTimer, &QTimer::timeout, this, &AssetBrowserTreeView::OnUpdateSCThumbnailsList);
+
+            AssetBrowserViewRequestBus::Handler::BusConnect();
+            AssetBrowserComponentNotificationBus::Handler::BusConnect();
         }
 
-        AssetBrowserTreeView::~AssetBrowserTreeView() = default;
+        AssetBrowserTreeView::~AssetBrowserTreeView()
+        {
+            AssetBrowserViewRequestBus::Handler::BusDisconnect();
+            AssetBrowserComponentNotificationBus::Handler::BusDisconnect();
+        }
+
+        void AssetBrowserTreeView::SetName(const QString& name)
+        {
+            m_name = name;
+
+            bool isAssetBrowserComponentReady = false;
+            AssetBrowserComponentRequestBus::BroadcastResult(isAssetBrowserComponentReady, &AssetBrowserComponentRequests::AreEntriesReady);
+            if (isAssetBrowserComponentReady)
+            {
+                OnAssetBrowserComponentReady();
+            }
+        }
 
         void AssetBrowserTreeView::LoadState(const QString& name)
         {
             Q_ASSERT(model());
-
             m_sendMetrics = false; // do not send metrics events when loading tree state
             auto crc = AZ::Crc32(name.toUtf8().data());
             InitializeTreeViewSaving(crc);
@@ -123,64 +145,66 @@ namespace AzToolsFramework
             SelectProduct(QModelIndex(), assetID);
         }
 
-        void AssetBrowserTreeView::drawBranches(QPainter* painter, const QRect& rect, const QModelIndex& index) const
+        void AssetBrowserTreeView::SelectFileAtPath(const AZStd::string& assetPath)
         {
-            QTreeView::drawBranches(painter, rect, index);
-
-            auto data = index.data(AssetBrowserModel::Roles::EntryRole);
-            if (data.canConvert<const AssetBrowserEntry*>())
+            if (assetPath.empty())
             {
-                auto entry = qvariant_cast<const AssetBrowserEntry*>(data);
-                if (azrtti_istypeof<const ProductAssetBrowserEntry*>(entry))
-                {
-                    painter->save();
-                    painter->setRenderHint(QPainter::RenderHint::Antialiasing, false);
+                return;
+            }
 
-                    // Model index used to walk up the tree to get information about ancestors
-                    // for determining where to draw branch lines and when to draw connecting lines
-                    // between parents and uncles.
-                    QModelIndex ancestorIndex = index.parent();
+            auto path = AZStd::string(assetPath);
+            if (!AzFramework::StringFunc::Path::Normalize(path))
+            {
+                return;
+            }
 
-                    // Compute the depth of the current entity in the hierarchy to determine where to draw the branch lines
-                    int depth = 1;
-                    while (ancestorIndex.isValid())
-                    {
-                        ancestorIndex = ancestorIndex.parent();
-                        ++depth;
-                    }
+            auto entryCache = EntryCache::GetInstance();
 
-                    QColor whiteColor(255, 255, 255);
+            // Find the fileId associated with this assetPath
+            AZStd::unordered_map<AZStd::string, AZ::s64>::const_iterator itFileId = entryCache->m_absolutePathToFileId.find(path);
+            if (itFileId == entryCache->m_absolutePathToFileId.end())
+            {
+                return;
+            }
 
-                    QPen pen;
-                    pen.setColor(whiteColor);
-                    pen.setWidthF(2.5f);
-                    painter->setPen(pen);
+            // Find the assetBrowserEntry associated with this fileId
+            AZStd::unordered_map<AZ::s64, AssetBrowserEntry*>::const_iterator itABEntry = entryCache->m_fileIdMap.find(itFileId->second);
+            if (itABEntry == entryCache->m_fileIdMap.end())
+            {
+                return;
+            }
 
-                    style()->standardPalette().background();
+            // Get all entries in the AssetBrowser-relative path-to-product
+            AZStd::vector<AZStd::string> entries;
+            AssetBrowserEntry* entry = itABEntry->second;
+            do 
+            {
+                entries.push_back(entry->GetName());
+                entry = entry->GetParent();
+            } while (entry->GetParent() != nullptr);
 
-                    QRect entryRect = visualRect(index);
+            // Entries are in reverse order, so fix this
+            AZStd::reverse(entries.begin(), entries.end());
 
-                    int totalIndent = indentation() * (depth - 1) - (indentation() / 2);
+            SelectEntry(QModelIndex(), entries);
+        }
 
-                    int x = totalIndent;
-                    int midY = entryRect.y() + (entryRect.height() / 2);
+        void AssetBrowserTreeView::ClearFilter()
+        {
+            emit ClearStringFilter();
+            emit ClearTypeFilter();
+            m_assetBrowserSortFilterProxyModel->FilterUpdatedSlotImmediate();
+        }
 
-                    // draw horizontal line
-                    painter->drawLine(x, midY, x + (indentation()), midY);
-
-                    // number of children the parent has
-                    int rowCount = m_assetBrowserSortFilterProxyModel->rowCount(index.parent());
-                    // is it last child of the parent
-                    bool isLast = (rowCount == (index.row() + 1));
-
-                    int y1 = entryRect.y();
-                    // if item is last draw vertical line to the center of the item, else to the whole height of the item to connect with item below
-                    int y2 = isLast ? (midY) : (entryRect.y() + entryRect.height());
-                    // draw vertical line
-                    painter->drawLine(x, y1, x, y2);
-
-                    painter->restore();
-                }
+        void AssetBrowserTreeView::OnAssetBrowserComponentReady()
+        {
+            if (!m_name.isEmpty())
+            {
+                m_sendMetrics = false; // do not send metrics events when loading tree state
+                auto crc = AZ::Crc32(m_name.toUtf8().data());
+                InitializeTreeViewSaving(crc);
+                ApplyTreeViewSnapshot();
+                m_sendMetrics = true;
             }
         }
 
@@ -188,10 +212,10 @@ namespace AzToolsFramework
         {
             if (m_sendMetrics && currentIndex().isValid())
             {
-                auto data = currentIndex().data(AssetBrowserModel::Roles::EntryRole);
-                if (data.canConvert<const AssetBrowserEntry*>())
+                auto role_data = currentIndex().data(AssetBrowserModel::Roles::EntryRole);
+                if (role_data.canConvert<const AssetBrowserEntry*>())
                 {
-                    auto entry = qvariant_cast<const AssetBrowserEntry*>(data);
+                    auto entry = qvariant_cast<const AssetBrowserEntry*>(role_data);
                     auto source = azrtti_cast<const SourceAssetBrowserEntry*>(entry);
                     if (source)
                     {
@@ -234,9 +258,52 @@ namespace AzToolsFramework
             m_delegate->SetThumbnailContext(thumbnailContext);
         }
 
-        void AssetBrowserTreeView::SetShowSourceControlIcons(bool showSourceControlsIcons) const
+        void AssetBrowserTreeView::SetShowSourceControlIcons(bool showSourceControlsIcons)
         {
             m_delegate->SetShowSourceControlIcons(showSourceControlsIcons);
+            if (showSourceControlsIcons)
+            {
+                m_scTimer->start(m_scUpdateInterval);
+            }
+            else
+            {
+                m_scTimer->stop();
+            }
+        }
+
+        void AssetBrowserTreeView::UpdateAfterFilter(bool hasFilter, bool selectFirstValidEntry)
+        {
+            // Flag our default expansion state so that we expand down to source entries after filtering
+            m_expandToEntriesByDefault = hasFilter;
+            // Then ask our state saver to apply its current snapshot again, falling back on asking us if entries should be expanded or not
+            m_treeStateSaver->ApplySnapshot();
+
+            // If we're filtering for a valid entry, select the first valid entry
+            if (hasFilter && selectFirstValidEntry)
+            {
+                QModelIndex curIndex = m_assetBrowserSortFilterProxyModel->index(0, 0);
+                while (curIndex.isValid())
+                {
+                    if (GetEntryFromIndex<SourceAssetBrowserEntry>(curIndex))
+                    {
+                        setCurrentIndex(curIndex);
+                        break;
+                    }
+
+                    curIndex = indexBelow(curIndex);
+                }
+            }
+        }
+
+        bool AssetBrowserTreeView::IsIndexExpandedByDefault(const QModelIndex& index) const
+        {
+            if (!m_expandToEntriesByDefault)
+            {
+                return false;
+            }
+
+            // Expand until we get to source entries, we don't want to go beyond that
+            return GetEntryFromIndex<SourceAssetBrowserEntry>(index) == nullptr;
         }
 
         bool AssetBrowserTreeView::SelectProduct(const QModelIndex& idxParent, AZ::Data::AssetId assetID)
@@ -245,9 +312,7 @@ namespace AzToolsFramework
             for (int idx = 0; idx < elements; ++idx)
             {
                 auto rowIdx = model()->index(idx, 0, idxParent);
-                auto modelIdx = m_assetBrowserSortFilterProxyModel->mapToSource(rowIdx);
-                auto assetEntry = static_cast<AssetBrowserEntry*>(modelIdx.internalPointer());
-                auto productEntry = azrtti_cast<ProductAssetBrowserEntry*>(assetEntry);
+                auto productEntry = GetEntryFromIndex<ProductAssetBrowserEntry>(rowIdx);
                 if (productEntry && productEntry->GetAssetId() == assetID)
                 {
                     selectionModel()->clear();
@@ -264,6 +329,51 @@ namespace AzToolsFramework
             return false;
         }
 
+        bool AssetBrowserTreeView::SelectEntry(const QModelIndex& idxParent, const AZStd::vector<AZStd::string>& entries, const uint32_t entryPathIndex)
+        {
+            if (entries.empty())
+            {
+                return false;
+            }
+
+            // The entry name being queried at this depth in the Asset Browser hierarchy
+            const AZStd::string& entry = entries.at(entryPathIndex);
+            int elements = model()->rowCount(idxParent);
+            for (int idx = 0; idx < elements; ++idx)
+            {
+                auto rowIdx = model()->index(idx, 0, idxParent);
+                auto rowEntry = GetEntryFromIndex<AssetBrowserEntry>(rowIdx);
+
+                // Check if this entry name matches the query
+                if (rowEntry && AzFramework::StringFunc::Equal(entry.c_str(), rowEntry->GetName().c_str(), true))
+                {
+                    // Final entry found - set it as the selected element
+                    if (entryPathIndex == entries.size() - 1)
+                    {
+                        selectionModel()->clear();
+                        selectionModel()->select(rowIdx, QItemSelectionModel::Select);
+                        setCurrentIndex(rowIdx);
+                        return true;
+                    }
+
+                    // If this isn't the final entry, it needs to be a folder for the path to be valid (otherwise, early out)
+                    if (rowEntry->GetEntryType() == AssetBrowserEntry::AssetEntryType::Folder)
+                    {
+                        // Folder found - if the final entry is found, expand this folder so the final entry is viewable in the Asset Browser (otherwise, early out)
+                        if (SelectEntry(rowIdx, entries, entryPathIndex + 1))
+                        {
+                            expand(rowIdx);
+                            return true;
+                        }
+                    }
+                    
+                    return false;
+                }
+            }
+
+            return false;
+        }
+
         void AssetBrowserTreeView::selectionChanged(const QItemSelection& selected, const QItemSelection& deselected)
         {
             QTreeView::selectionChanged(selected, deselected);
@@ -272,13 +382,16 @@ namespace AzToolsFramework
 
         void AssetBrowserTreeView::setModel(QAbstractItemModel* model)
         {
-            m_assetBrowserSortFilterProxyModel = static_cast<AssetBrowserFilterModel*>(model);
-            m_assetBrowserModel = static_cast<AssetBrowserModel*>(m_assetBrowserSortFilterProxyModel->sourceModel());
+            m_assetBrowserSortFilterProxyModel = qobject_cast<AssetBrowserFilterModel*>(model);
+            AZ_Assert(m_assetBrowserSortFilterProxyModel, "Expecting AssetBrowserFilterModel");
+            m_assetBrowserModel = qobject_cast<AssetBrowserModel*>(m_assetBrowserSortFilterProxyModel->sourceModel());
             QTreeViewWithStateSaving::setModel(model);
         }
 
-        void AssetBrowserTreeView::OnContextMenu(const QPoint&)
+        void AssetBrowserTreeView::OnContextMenu(const QPoint& point)
         {
+            AZ_UNUSED(point);
+
             auto selectedAssets = GetSelectedAssets();
             if (selectedAssets.size() != 1)
             {
@@ -291,6 +404,36 @@ namespace AzToolsFramework
             if (!menu.isEmpty())
             {
                 menu.exec(QCursor::pos());
+            }
+        }
+
+        void AssetBrowserTreeView::OnUpdateSCThumbnailsList()
+        {
+            using namespace Thumbnailer;
+
+            // get top and bottom indexes and find all entries in-between
+            QModelIndex topIndex = indexAt(rect().topLeft());
+            QModelIndex bottomIndex = indexAt(rect().bottomLeft());
+
+            while (topIndex.isValid())
+            {
+                auto sourceIndex = m_assetBrowserSortFilterProxyModel->mapToSource(topIndex);
+                const auto assetEntry = static_cast<AssetBrowserEntry*>(sourceIndex.internalPointer());
+                if (const auto sourceEntry = azrtti_cast<SourceAssetBrowserEntry*>(assetEntry))
+                {
+                    const SharedThumbnailKey key = sourceEntry->GetSourceControlThumbnailKey();
+                    if (key->UpdateThumbnail())
+                    {
+                        // UpdateThumbnail returns true if it started an actual Source Control operation.
+                        // To avoid flooding source control, we'll only allow one of these per check.
+                        return;
+                    }
+                }
+                topIndex = indexBelow(topIndex);
+                if (topIndex == bottomIndex)
+                {
+                    break;
+                }
             }
         }
     } // namespace AssetBrowser

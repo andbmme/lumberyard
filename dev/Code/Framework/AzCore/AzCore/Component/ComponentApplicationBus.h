@@ -10,16 +10,11 @@
 *
 */
 
-/** @file
- * Header file that defines event buses for the component application interface.
- */
-
-#ifndef AZCORE_COMPONENT_APPLICATION_BUS_H
-#define AZCORE_COMPONENT_APPLICATION_BUS_H
+#pragma once
 
 #include <AzCore/EBus/EBus.h>
 #include <AzCore/Component/EntityId.h>
-#include <AzCore/std/parallel/mutex.h> // For recursive_mutex due to GetSerializeContext().
+#include <AzCore/std/parallel/mutex.h>
 #include <AzCore/std/string/osstring.h>
 
 namespace AZ
@@ -35,6 +30,10 @@ namespace AZ
 
     class Component;
 
+    class SerializeContext;
+    class BehaviorContext;
+    class JsonRegistrationContext;
+
     namespace Internal
     {
         class ComponentFactoryInterface;
@@ -44,37 +43,6 @@ namespace AZ
     {
         class DrillerManager;
     }
-
-    /**
-     * Event bus for dispatching component application events to listeners.
-     */
-    class ComponentApplicationEvents
-        : public AZ::EBusTraits
-    {
-    public:
-
-        /**
-         * Destroys a component application event bus.
-         */
-        virtual ~ComponentApplicationEvents() {}
-
-        /**
-         * Notifies listeners that an entity was added to the application.
-         * @param entity The entity that was added to the application.
-         */
-        virtual void OnEntityAdded(AZ::Entity* entity) { (void)entity; }
-
-        /**
-         * Notifies listeners that an entity was removed from the application.
-         * @param entity The entity that was removed from the application.
-         */
-        virtual void OnEntityRemoved(const AZ::EntityId& entityId) { (void)entityId; }
-    };
-
-    /**
-     * Used when dispatching a component application event. 
-     */
-    typedef AZ::EBus<ComponentApplicationEvents> ComponentApplicationEventBus;
 
     /**
      * Event bus that components use to make requests of the main application.
@@ -180,6 +148,12 @@ namespace AZ
          */
         virtual class BehaviorContext*  GetBehaviorContext() = 0;
         /**
+         * Returns the Json Registration context that was registered with the app.
+         * @return The Json Registration context, if there is one. JsonRegistrationContext is a class that contains
+         * the serializers used by the best-effort json serialization.
+         */
+        virtual class JsonRegistrationContext* GetJsonRegistrationContext() = 0;
+        /**
          * Gets the name of the working root folder that was registered with the app.
          * @return A pointer to the name of the app's root folder, if a root folder was registered.
          */
@@ -188,7 +162,15 @@ namespace AZ
          * Gets the path to the directory that contains the application's executable.
          * @return A pointer to the name of the path that contains the application's executable.
          */
-        virtual const char*             GetExecutableFolder() = 0;
+        virtual const char*             GetExecutableFolder() const = 0;
+
+        /**
+        * Gets the Bin folder name where the application is running from. The folder is relative to the engine root.
+        * @return A pointer to the bin folder name.
+        */
+        virtual const char*             GetBinFolder() const = 0;
+
+
         /**
          * Returns a pointer to the driller manager, if driller is enabled.
          * The driller manager manages all active driller sessions and driller factories.
@@ -212,6 +194,3 @@ namespace AZ
      */
     typedef AZ::EBus<ComponentApplicationRequests>  ComponentApplicationBus;
 }
-
-#endif // AZCORE_COMPONENT_APPLICATION_BUS_H
-#pragma once

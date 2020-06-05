@@ -13,6 +13,7 @@
 #define AZTOOLSFRAMEWORK_EDITORENTITYCONTEXTCOMPONENT_H
 
 #include <AzCore/Math/Uuid.h>
+#include <AzCore/Math/Quaternion.h>
 #include <AzCore/Component/Component.h>
 #include <AzCore/Component/ComponentApplicationBus.h>
 #include <AzCore/Asset/AssetCommon.h>
@@ -48,7 +49,6 @@ namespace AzToolsFramework
         , public AzFramework::EntityContext
         , private EditorEntityContextRequestBus::Handler
         , private EditorEntityContextPickingRequestBus::Handler
-        , private AzFramework::AssetCatalogEventBus::Handler
         , private AzFramework::SliceInstantiationResultBus::MultiHandler
     {
     public:
@@ -71,26 +71,55 @@ namespace AzToolsFramework
         AZ::SliceComponent* GetEditorRootSlice() override { return GetRootSlice(); }
         void ResetEditorContext() override;
 
+        AZ::EntityId CreateNewEditorEntity(const char* name) override;
+        // LUMBERYARD_DEPRECATED(LY-103316)
         AZ::Entity* CreateEditorEntity(const char* name) override;
+        // LUMBERYARD_DEPRECATED(LY-103316)
+        AZ::EntityId CreateNewEditorEntityWithId(const char* name, const AZ::EntityId& entityId) override;
+        // LUMBERYARD_DEPRECATED(LY-103316)
+        AZ::Entity* CreateEditorEntityWithId(const char* name, const AZ::EntityId& entityId) override;
+        // LUMBERYARD_DEPRECATED(LY-103316)
         void AddEditorEntity(AZ::Entity* entity) override;
-        void AddEditorEntities(const AzToolsFramework::EntityList& entities) override;
-        void AddEditorSliceEntities(const AzToolsFramework::EntityList& entities) override;
-        bool CloneEditorEntities(const AzToolsFramework::EntityIdList& sourceEntities, 
-                                 AzToolsFramework::EntityList& resultEntities,
+        void AddEditorEntities(const EntityList& entities) override;
+        void AddEditorSliceEntities(const EntityList& entities) override;
+        bool CloneEditorEntities(const EntityIdList& sourceEntities, 
+                                 EntityList& resultEntities,
                                  AZ::SliceComponent::EntityIdToEntityIdMap& sourceToCloneEntityIdMap) override;
         bool DestroyEditorEntity(AZ::EntityId entityId) override;
-        void DetachSliceEntities(const AzToolsFramework::EntityIdList& entities) override;
-        void ResetEntitiesToSliceDefaults(AzToolsFramework::EntityIdList entities) override;
+        void DetachSliceEntities(const EntityIdList& entities) override;
+        void DetachSliceInstances(const AZ::SliceComponent::SliceInstanceAddressSet& instances) override;
+        void DetachSubsliceInstances(const AZ::SliceComponent::SliceInstanceEntityIdRemapList& subsliceRootList) override;
+        void DetachFromSlice(const EntityIdList& entities, const char* undoMessage);
 
+        void ResetEntitiesToSliceDefaults(EntityIdList entities) override;
+
+        AZ::SliceComponent::SliceInstanceAddress CloneSubSliceInstance(
+            const AZ::SliceComponent::SliceInstanceAddress& sourceSliceInstanceAddress,
+            const AZStd::vector<AZ::SliceComponent::SliceInstanceAddress>& sourceSubSliceInstanceAncestry,
+            const AZ::SliceComponent::SliceInstanceAddress& sourceSubSliceInstanceAddress,
+            AZ::SliceComponent::EntityIdToEntityIdMap* out_sourceToCloneEntityIdMap) override;
+
+        //! Moves existing entities in the EditorEntityContext into a new SliceInstance based off of the provided SliceAsset
+        //! @param sliceAsset Asset of the slice that the entities will be promoted into
+        //! @param liveToAssetMap A mapping of the EntityIDs found in the provided SliceAsset and existing "live" EntityIDs found in the EditorEntityContext
+        //! @return A SliceInstanceAddress pointing to the new SliceInstance that wraps the entities provided in the liveToAssetMap
+        //!    Can return an empty invalid SliceInstanceAddress if an error occurs during the process
+        AZ::SliceComponent::SliceInstanceAddress PromoteEditorEntitiesIntoSlice(const AZ::Data::Asset<AZ::SliceAsset>& sliceAsset, const AZ::SliceComponent::EntityIdToEntityIdMap& liveToAssetMap) override;
 
         AzFramework::SliceInstantiationTicket InstantiateEditorSlice(const AZ::Data::Asset<AZ::Data::AssetData>& sliceAsset, const AZ::Transform& worldTransform) override;
         AZ::SliceComponent::SliceInstanceAddress CloneEditorSliceInstance(AZ::SliceComponent::SliceInstanceAddress sourceInstance, 
                                                                           AZ::SliceComponent::EntityIdToEntityIdMap& sourceToCloneEntityIdMap) override;
 
-        bool SaveToStreamForEditor(AZ::IO::GenericStream& stream) override;
+        bool SaveToStreamForEditor(
+            AZ::IO::GenericStream& stream,
+            const EntityList& entitiesInLayers,
+            AZ::SliceComponent::SliceReferenceToInstancePtrs& instancesInLayers) override;
+        void GetLooseEditorEntities(EntityList& entityList) override;
+        
         bool SaveToStreamForGame(AZ::IO::GenericStream& stream, AZ::DataStream::StreamType streamType) override;
         using EntityContext::LoadFromStream;
         bool LoadFromStream(AZ::IO::GenericStream& stream) override;
+        bool LoadFromStreamWithLayers(AZ::IO::GenericStream& stream, QString levelPakFile) override;
 
         void StartPlayInEditor() override;
         void StopPlayInEditor() override;
@@ -101,14 +130,7 @@ namespace AzToolsFramework
         void AddRequiredComponents(AZ::Entity& entity) override;
         const AZ::ComponentTypeList& GetRequiredComponentTypes() override;
 
-        void RestoreSliceEntity(AZ::Entity* entity, const AZ::SliceComponent::EntityRestoreInfo& info) override;
-
-        void QueueSliceReplacement(const char* targetPath, 
-            const AZStd::unordered_map<AZ::EntityId, AZ::EntityId>& selectedToAssetMap,
-            const AZStd::unordered_set<AZ::EntityId>& entitiesInSelection,
-            const AZ::EntityId& parentAfterReplacement,
-            const AZ::Vector3& offsetAfterReplacement,
-            bool rootAutoCreated) override;
+        void RestoreSliceEntity(AZ::Entity* entity, const AZ::SliceComponent::EntityRestoreInfo& info, SliceEntityRestoreType restoreType) override;
 
         bool MapEditorIdToRuntimeId(const AZ::EntityId& editorId, AZ::EntityId& runtimeId) override;
         bool MapRuntimeIdToEditorId(const AZ::EntityId& runtimeId, AZ::EntityId& editorId) override;
@@ -125,10 +147,11 @@ namespace AzToolsFramework
         void OnSliceInstantiated(const AZ::Data::AssetId& sliceAssetId, const AZ::SliceComponent::SliceInstanceAddress& sliceAddress) override;
         void OnSliceInstantiationFailed(const AZ::Data::AssetId& sliceAssetId) override;
         //////////////////////////////////////////////////////////////////////////
-        
+
         //////////////////////////////////////////////////////////////////////////
-        // AssetCatalogEventBus::Handler
-        void OnCatalogAssetAdded(const AZ::Data::AssetId& assetId) override;
+        // AzFramework::EntityContext
+        void PrepareForContextReset() override;
+        bool ValidateEntitiesAreValidForContext(const EntityList& entities) override;
         //////////////////////////////////////////////////////////////////////////
 
         static void Reflect(AZ::ReflectContext* context);
@@ -149,23 +172,28 @@ namespace AzToolsFramework
         }
 
     protected:
-
         void OnAssetReady(AZ::Data::Asset<AZ::Data::AssetData> asset) override;
         void OnAssetReloaded(AZ::Data::Asset<AZ::Data::AssetData> asset) override;
 
-        void OnContextEntitiesAdded(const AzToolsFramework::EntityList& entities) override;
+        void OnContextEntitiesAdded(const EntityList& entities) override;
         void OnContextEntityRemoved(const AZ::EntityId& id) override;
 
         void HandleNewMetadataEntitiesCreated(AZ::SliceComponent& slice) override;
 
+        // Helper function for creating editor ready entities.
+        void FinalizeEditorEntity(AZ::Entity* entity);
+
         void SetupEditorEntity(AZ::Entity* entity);
-        void SetupEditorEntities(const AzToolsFramework::EntityList& entities);
+        void SetupEditorEntities(const EntityList& entities);
+        void UpdateSelectedEntitiesInHierarchy(const EntityIdSet& entityIdSet);
+
+        void LoadFromStreamComplete(bool loadedSuccessfully);
 
         using InstantiatingSlicePair = AZStd::pair<AZ::Data::Asset<AZ::Data::AssetData>, AZ::Transform>;
         AZStd::vector<InstantiatingSlicePair> m_instantiatingSlices;
 
     private:
-		EditorEntityContextComponent(const EditorEntityContextComponent&) = delete;
+        EditorEntityContextComponent(const EditorEntityContextComponent&) = delete;
         //! Indicates whether or not the editor is simulating the game.
         bool m_isRunningGame;
 
@@ -177,59 +205,6 @@ namespace AzToolsFramework
         AZ::SliceComponent::EntityIdToEntityIdMap m_runtimeToEditorIdMap;
 
         /**
-         * Tracks a queued slice replacement, which is a deferred operation.
-         * If the asset has not yet been processed (a new asset), we need
-         * to defer before attempting a load.
-         */
-        struct QueuedSliceReplacement
-        {
-            ~QueuedSliceReplacement() = default;
-            QueuedSliceReplacement() = default;
-
-		private:
-			//! Workaround for VS2013 is_copy_constructible returning true for deleted copy constructors
-			//! https://connect.microsoft.com/VisualStudio/feedback/details/800328/std-is-copy-constructible-is-broken
-            QueuedSliceReplacement(const QueuedSliceReplacement&) = delete;
-            QueuedSliceReplacement& operator=(const QueuedSliceReplacement&) = delete;
-		public:
-
-            void Setup(const char* path,
-                const AZStd::unordered_map<AZ::EntityId, AZ::EntityId>& selectedToAssetMap,
-                const AZStd::unordered_set<AZ::EntityId>& entitiesInSelection,
-                const AZ::EntityId& parentAfterReplacement,
-                const AZ::Vector3& offsetAfterReplacement,
-                bool rootAutoCreated)
-            {
-                m_path = path;
-                m_selectedToAssetMap = selectedToAssetMap;
-                m_entitiesInSelection.clear();
-                m_entitiesInSelection.insert(entitiesInSelection.begin(), entitiesInSelection.end());
-                m_parentAfterReplacement = parentAfterReplacement;
-                m_offsetAfterReplacement = offsetAfterReplacement;
-                m_rootAutoCreated = rootAutoCreated;
-            }
-
-            bool IsValid() const;
-            void Reset();
-
-            bool OnCatalogAssetAdded(const AZ::Data::AssetId& assetId);
-
-            void OnSlicePreInstantiate();
-
-            void Finalize(const AZ::SliceComponent::SliceInstanceAddress& instanceAddress);
-
-            AZStd::string                                       m_path;
-            AZStd::unordered_map<AZ::EntityId, AZ::EntityId>    m_selectedToAssetMap;
-            AZStd::unordered_set<AZ::EntityId>                  m_entitiesInSelection;
-            AZ::EntityId                                        m_parentAfterReplacement;
-            AZ::Vector3                                         m_offsetAfterReplacement;
-            bool                                                m_rootAutoCreated;
-            AzFramework::SliceInstantiationTicket               m_ticket;
-        };
-
-        QueuedSliceReplacement m_queuedSliceReplacement;
-
-        /**
          * Slice entity restore requests, which can be deferred if asset wasn't loaded at request time.
          */
         struct SliceEntityRestoreRequest
@@ -237,6 +212,7 @@ namespace AzToolsFramework
             AZ::Entity* m_entity;
             AZ::SliceComponent::EntityRestoreInfo m_restoreInfo;
             AZ::Data::Asset<AZ::Data::AssetData> m_asset;
+            SliceEntityRestoreType m_restoreType;
         };
 
         AZStd::vector<SliceEntityRestoreRequest> m_queuedSliceEntityRestores;

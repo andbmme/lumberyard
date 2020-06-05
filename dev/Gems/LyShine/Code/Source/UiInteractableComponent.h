@@ -12,7 +12,8 @@
 #pragma once
 
 #include <LyShine/Bus/UiInteractableBus.h>
-#include <LyShine/Bus/UiUpdateBus.h>
+#include <LyShine/Bus/UiCanvasUpdateNotificationBus.h>
+#include <LyShine/Bus/UiElementBus.h>
 #include <LyShine/Bus/UiNavigationBus.h>
 #include <LyShine/Bus/UiInteractableActionsBus.h>
 #include "UiInteractableState.h"
@@ -32,7 +33,8 @@ class ISprite;
 class UiInteractableComponent
     : public AZ::Component
     , public UiInteractableBus::Handler
-    , public UiUpdateBus::Handler
+    , public UiCanvasUpdateNotificationBus::Handler
+    , public UiElementNotificationBus::Handler
     , public UiInteractableActionsBus::Handler
 {
 public: // member functions
@@ -47,22 +49,33 @@ public: // member functions
     bool CanHandleEvent(AZ::Vector2 point) override;
     bool HandlePressed(AZ::Vector2 point, bool& shouldStayActive) override;
     bool HandleReleased(AZ::Vector2 point) override;
+    bool HandleMultiTouchPressed(AZ::Vector2 point, int multiTouchIndex) override;
+    bool HandleMultiTouchReleased(AZ::Vector2 point, int multiTouchIndex) override;
     bool HandleEnterPressed(bool& shouldStayActive) override;
     bool HandleEnterReleased() override;
     void InputPositionUpdate(AZ::Vector2 point) override;
+    void MultiTouchPositionUpdate(AZ::Vector2 point, int multiTouchIndex) override;
     void LostActiveStatus() override;
     void HandleHoverStart() override;
     void HandleHoverEnd() override;
     void HandleReceivedHoverByNavigatingFromDescendant(AZ::EntityId descendantEntityId) override;
+    bool IsPressed() override;
     bool IsHandlingEvents() override;
     void SetIsHandlingEvents(bool isHandlingEvents) override;
+    bool IsHandlingMultiTouchEvents() override;
+    void SetIsHandlingMultiTouchEvents(bool isHandlingMultiTouchEvents) override;
     bool GetIsAutoActivationEnabled() override;
     void SetIsAutoActivationEnabled(bool isEnabled) override;
     // ~UiInteractableInterface
 
-    // UiUpdateInterface
+    // UiCanvasUpdateNotification
     void Update(float deltaTime) override;
-    // ~UiUpdateInterface
+    // ~UiCanvasUpdateNotification
+
+    // UiElementNotifications
+    void OnUiElementFixup(AZ::EntityId canvasEntityId, AZ::EntityId parentEntityId) override;
+    void OnUiElementAndAncestorsEnabledChanged(bool areElementAndAncestorsEnabled) override;
+    // ~UiElementNotifications
 
     // UiInteractableActionsInterface
     const LyShine::ActionName& GetHoverStartActionName() override;
@@ -149,6 +162,9 @@ protected: // data members
 
     //! True if this interactable is accepting input (i.e. not in disabled state)
     bool m_isHandlingEvents;
+
+    //! True if this interactable is handling multi-touch input events
+    bool m_isHandlingMultiTouchEvents;
 
     //! True if this interactable is being hovered (can be true at the same time as m_isPressed)
     bool m_isHover;

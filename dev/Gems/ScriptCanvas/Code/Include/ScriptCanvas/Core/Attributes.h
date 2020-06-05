@@ -22,23 +22,29 @@ namespace ScriptCanvas
 
         namespace Node
         {
+            const static AZ::Crc32 TitlePaletteOverride = AZ_CRC("TitlePaletteOverride", 0x2faad537);
+
             //! ScriptCanvas needs to know whether some nodes should be executed as soon as the graph is 
             //! activated. This is the case of the OnGraphStart event, but it's valid for any nodes
             //! that need to process without an explicit execution in signal.
             const static AZ::Crc32 GraphEntryPoint = AZ_CRC("ScriptCanvasGraphEntryPoint", 0xa3702458);
+
+            const static AZ::Crc32 NodeType = AZ_CRC("ScriptCanvasNodeType", 0xfe591c34);
         }
 
         namespace UIHandlers
         {
-            const static AZ::Crc32 GenericLineEdit = AZ_CRC("GenericLineEdit", 0xf6133796);
-            const static AZ::Crc32 GenericComboBox = AZ_CRC("GenericComboBox", 0x4c8bc9c5);
+            const static AZ::Crc32 GenericLineEdit = AZ_CRC("GenericLineEdit", 0xf6133796);            
         }
 
-        const static AZ::Crc32 GenericValue = AZ_CRC("GenericValue", 0x7a28c4bc);
-        const static AZ::Crc32 GenericValueList = AZ_CRC("GenericValueList", 0x6847012e);
+        namespace NodePalette
+        {
+            // Attribute that can be used to store a function which creates a custom NodePaletteTreeItem
+            const static AZ::Crc32 TreeItemOverride = AZ_CRC("TreeItemOverride", 0xd457505c);
+        }
+        
         const static AZ::Crc32 StringToProperty = AZ_CRC("StringToProperty", 0x3e76c0a2);
-        const static AZ::Crc32 PropertyToString = AZ_CRC("PropertyToString", 0x323fc400);
-        const static AZ::Crc32 PostChangeNotify = AZ_CRC("PostChangeNotify", 0x456e84c8);
+        const static AZ::Crc32 PropertyToString = AZ_CRC("PropertyToString", 0x323fc400);        
 
         const static AZ::Crc32 Input = AZ_CRC("Input", 0xd82832d7);
         const static AZ::Crc32 Output = AZ_CRC("Output", 0xccde149e);

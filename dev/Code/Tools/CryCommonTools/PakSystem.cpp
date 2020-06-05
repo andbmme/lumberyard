@@ -72,7 +72,8 @@ PakSystemFile* PakSystem::Open(const char* a_path, const char* a_mode)
     if (!bZip)
     {
         // Try to open the file.
-        FILE* const f = fopen(normalPath.c_str(), a_mode);
+        FILE* f = nullptr;
+        azfopen(&f, normalPath.c_str(), a_mode);
         if (f)
         {
             std::unique_ptr<PakSystemFile> file(new PakSystemFile());
@@ -92,7 +93,8 @@ PakSystemFile* PakSystem::Open(const char* a_path, const char* a_mode)
     if (bZip)
     {
         // a caller asked to open a .zip file. check if the .zip file on disk exist
-        FILE* const f = fopen(zipPath.c_str(), "rb");
+        FILE* f = nullptr;
+        azfopen(&f, zipPath.c_str(), "rb");
         if (f)
         {
             fclose(f);
@@ -198,7 +200,8 @@ bool PakSystem::ExtractNoOverwrite(const char* fileToExtract, const char* extrac
     }
 
     // Try to open a writable file
-    FILE* fFileOnDisk = fopen(extractToFile, "wb");
+    FILE* fFileOnDisk = nullptr;
+    azfopen(&fFileOnDisk, extractToFile, "wb");
     if (!fFileOnDisk)
     {
         Close(fileZip);
@@ -345,7 +348,7 @@ void PakSystem::CloseArchive(PakSystemArchive* archive)
     }
 }
 
-void PakSystem::AddToArchive(PakSystemArchive* archive, const char* path, void* data, int size, __time64_t modTime, int compressionLevel)
+void PakSystem::AddToArchive(PakSystemArchive* archive, const char* path, void* data, int size, int64 modTime, int compressionLevel)
 {
     int compressionMethod = ZipFile::METHOD_DEFLATE;
     if (compressionLevel == 0)
@@ -356,7 +359,7 @@ void PakSystem::AddToArchive(PakSystemArchive* archive, const char* path, void* 
 }
 
 //////////////////////////////////////////////////////////////////////////
-bool PakSystem::CheckIfFileExist(PakSystemArchive* archive, const char* path, __time64_t modTime)
+bool PakSystem::CheckIfFileExist(PakSystemArchive* archive, const char* path, int64 modTime)
 {
     assert(archive);
 

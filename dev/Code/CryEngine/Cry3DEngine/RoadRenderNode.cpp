@@ -16,26 +16,67 @@
 #include "3dEngine.h"
 #include "RoadRenderNode.h"
 #include "CullBuffer.h"
-#include "terrain.h"
+
+#include <AzFramework/Terrain/TerrainDataRequestBus.h>
+
 #include "ObjMan.h"
 #include "MatMan.h"
 #include "MeshCompiler/MeshCompiler.h"
 #include "MathConversion.h"
 
+#include "IGameFramework.h"
+#include <Terrain/Bus/TerrainBus.h>
+#include <AzCore/Jobs/JobManagerBus.h>
+#include <Terrain/Bus/TerrainProviderBus.h>
+#include <Terrain/Bus/LegacyTerrainBus.h>
+
 const float fRoadAreaZRange = 2.5f;
 const float fRoadTerrainZOffset = 0.06f;
 
-// tmp buffers used during road mesh creation
-PodArray<SVF_P3F_C4B_T2S> CRoadRenderNode::m_lstVerticesMerged;
-PodArray<vtx_idx> CRoadRenderNode::m_lstIndicesMerged;
-PodArray<SPipTangents> CRoadRenderNode::m_lstTangMerged;
-PodArray<Vec3> CRoadRenderNode::m_lstVerts;
-PodArray<vtx_idx> CRoadRenderNode::m_lstIndices;
-PodArray<SPipTangents> CRoadRenderNode::m_lstTang;
-PodArray<SVF_P3F_C4B_T2S> CRoadRenderNode::m_lstVertices;
-CPolygonClipContext CRoadRenderNode::s_tmpClipContext;
 ILINE Vec3 max(const Vec3& v0, const Vec3& v1) { return Vec3(max(v0.x, v1.x), max(v0.y, v1.y), max(v0.z, v1.z)); }
 ILINE Vec3 min(const Vec3& v0, const Vec3& v1) { return Vec3(min(v0.x, v1.x), min(v0.y, v1.y), min(v0.z, v1.z)); }
+
+struct RoadRenderNodeCompileInfo
+{
+    AZStd::atomic_bool m_bDirty;
+
+    enum class CompileState
+    {
+        NotReady_WaitingToCompile,
+        NotReady_RequestingTerrain,
+        NotReady_Compiling,
+        NotReady_CreatingRenderMesh,
+        Ready
+    };
+
+    CompileState m_state;
+    AZStd::mutex m_stateMutex;
+    AZStd::condition_variable m_compileFinishedNotify;
+
+    RoadRenderNodeCompileInfo()
+        : m_bDirty(false)
+        , m_state(CompileState::NotReady_WaitingToCompile)
+    {
+
+    }
+};
+
+namespace // anonymous
+{
+    namespace TerrainUtil
+    {
+        bool TerrainSystemEnabled()
+        {
+            return Terrain::TerrainProviderRequestBus::HasHandlers();
+        }
+
+        bool IsTerrainDataReady()
+        {
+            return AzFramework::Terrain::TerrainDataRequestBus::HasHandlers();
+        }
+
+    }
+}
 
 CRoadRenderNode::CRoadRenderNode()
 {
@@ -48,17 +89,31 @@ CRoadRenderNode::CRoadRenderNode()
     m_nLayerId = 0;
     m_bIgnoreTerrainHoles = false;
     m_bPhysicalize = false;
+    m_pCompileInfo = new RoadRenderNodeCompileInfo();
 
     GetInstCount(eERType_Road)++;
 }
 
 CRoadRenderNode::~CRoadRenderNode()
 {
+    {
+        AZStd::unique_lock<AZStd::mutex> lock(m_pCompileInfo->m_stateMutex);
+
+        // If we're specifically still compiling on another thread while trying to remove the render node,
+        // then wait for it to complete before allowing the destructor to finish.
+        while (m_pCompileInfo->m_state == RoadRenderNodeCompileInfo::CompileState::NotReady_Compiling)
+        {
+            m_pCompileInfo->m_compileFinishedNotify.wait(lock);
+        }
+    }
+    delete m_pCompileInfo;
+ 
     Dephysicalize();
     m_pRenderMesh = NULL;
+
     Get3DEngine()->FreeRenderNodeState(this);
 
-    Get3DEngine()->m_lstRoadRenderNodesForUpdate.Delete(this);
+    Get3DEngine()->RoadRenderNodeRebuildQueue_Remove(this);
 
     GetInstCount(eERType_Road)--;
 }
@@ -84,25 +139,28 @@ void CRoadRenderNode::SetVertices(const Vec3* pVertsAll, int nVertsNumAll,
         m_arrVerts.AddList((Vec3*)pVertsAll, nVertsNumAll);
 
         // work around for cracks between road segments
-        if (m_arrVerts.Count() >= 4)
+        if (m_addOverlapBetweenSectors)
         {
-            if (fTexCoordBegin != fTexCoordBeginGlobal)
+            if (m_arrVerts.Count() >= 4)
             {
-                Vec3 m0 = (m_arrVerts[0] + m_arrVerts[1]) * .5f;
-                Vec3 m1 = (m_arrVerts[2] + m_arrVerts[3]) * .5f;
-                Vec3 vDir = (m0 - m1).GetNormalized() * 0.01f;
-                m_arrVerts[0] += vDir;
-                m_arrVerts[1] += vDir;
-            }
+                if (fTexCoordBegin != fTexCoordBeginGlobal)
+                {
+                    Vec3 m0 = (m_arrVerts[0] + m_arrVerts[1]) * .5f;
+                    Vec3 m1 = (m_arrVerts[2] + m_arrVerts[3]) * .5f;
+                    Vec3 vDir = (m0 - m1).GetNormalized() * 0.01f;
+                    m_arrVerts[0] += vDir;
+                    m_arrVerts[1] += vDir;
+                }
 
-            if (fTexCoordEnd != fTexCoordEndGlobal)
-            {
-                int n = m_arrVerts.Count();
-                Vec3 m0 = (m_arrVerts[n - 1] + m_arrVerts[n - 2]) * .5f;
-                Vec3 m1 = (m_arrVerts[n - 3] + m_arrVerts[n - 4]) * .5f;
-                Vec3 vDir = (m0 - m1).GetNormalized() * 0.01f;
-                m_arrVerts[n - 1] += vDir;
-                m_arrVerts[n - 2] += vDir;
+                if (fTexCoordEnd != fTexCoordEndGlobal)
+                {
+                    int n = m_arrVerts.Count();
+                    Vec3 m0 = (m_arrVerts[n - 1] + m_arrVerts[n - 2]) * .5f;
+                    Vec3 m1 = (m_arrVerts[n - 3] + m_arrVerts[n - 4]) * .5f;
+                    Vec3 vDir = (m0 - m1).GetNormalized() * 0.01f;
+                    m_arrVerts[n - 1] += vDir;
+                    m_arrVerts[n - 2] += vDir;
+                }
             }
         }
     }
@@ -130,18 +188,124 @@ void CRoadRenderNode::SetVertices(const Vec3* pVertsAll, int nVertsNumAll,
     ScheduleRebuild();
 }
 
-void CRoadRenderNode::Compile() PREFAST_SUPPRESS_WARNING(6262) //function uses > 32k stack space
+void CRoadRenderNode::BuildListOfIndicesLocked(AzFramework::Terrain::TerrainDataRequests* terrain, int x1, int y1, int dx, int dy, int nUnitSizeX, int nUnitSizeY)
+{
+    auto legacyTerrainPtr = LegacyTerrain::LegacyTerrainDataRequestBus::FindFirstHandler();
+
+    for (int x = 0; x < dx; x++)
+    {
+        for (int y = 0; y < dy; y++)
+        {
+            int nIdx0 = (x * (dy + 1) + y);
+            int nIdx1 = (x * (dy + 1) + y + (dy + 1));
+            int nIdx2 = (x * (dy + 1) + y + 1);
+            int nIdx3 = (x * (dy + 1) + y + 1 + (dy + 1));
+
+            AZ_Assert(nIdx3 < m_lstVerts.Count(), "Indexing off the end of the vertex list:  nIdx3=%d, m_lstVerts.Count()=%d", nIdx3, m_lstVerts.Count());
+
+            int X_in_meters = x1 + x * nUnitSizeX;
+            int Y_in_meters = y1 + y * nUnitSizeY;
+
+            // NEW-TERRAIN LY-100052: add support for holes
+            // terrain has no holes
+            const bool ignoreTerrainHoles = m_bIgnoreTerrainHoles;
+            if (ignoreTerrainHoles || (terrain && !terrain->GetIsHoleFromFloats(aznumeric_cast<float>(X_in_meters), aznumeric_cast<float>(Y_in_meters))))
+            {
+                if (legacyTerrainPtr && legacyTerrainPtr->IsTerrainMeshQuadFlipped(X_in_meters, Y_in_meters, nUnitSizeX))
+                {
+                    m_lstIndices.Add(nIdx0);
+                    m_lstIndices.Add(nIdx1);
+                    m_lstIndices.Add(nIdx3);
+
+                    m_lstIndices.Add(nIdx0);
+                    m_lstIndices.Add(nIdx3);
+                    m_lstIndices.Add(nIdx2);
+                }
+                else
+                {
+                    m_lstIndices.Add(nIdx0);
+                    m_lstIndices.Add(nIdx1);
+                    m_lstIndices.Add(nIdx2);
+
+                    m_lstIndices.Add(nIdx1);
+                    m_lstIndices.Add(nIdx3);
+                    m_lstIndices.Add(nIdx2);
+                }
+            }
+        }
+    }
+}
+
+void CRoadRenderNode::BuildTangentListLocked(AzFramework::Terrain::TerrainDataRequests* terrain, const Plane arrPlanes[6], const float arrTexCoors[2], const Vec3* pVerts)
+{
+    // allocate tangent array
+    m_lstTang.Clear();
+    m_lstTang.PreAllocate(m_lstVerts.Count(), m_lstVerts.Count());
+
+    Vec3 vWSBoxCenter = m_WSBBox.GetCenter(); //vWSBoxCenter.z=0;
+
+    // make real vertex data
+    m_lstVertices.Clear();
+    m_lstVertices.PreAllocate(m_lstVerts.Count());
+    for (int i = 0; i < m_lstVerts.Count(); i++)
+    {
+        SVF_P3F_C4B_T2S tmp;
+
+        Vec3 vWSPos = m_lstVerts[i];
+
+        tmp.xyz = (m_lstVerts[i] - vWSBoxCenter);
+
+        // do texgen
+        float d0 = arrPlanes[0].DistFromPlane(vWSPos);
+        float d1 = arrPlanes[1].DistFromPlane(vWSPos);
+        float d2 = arrPlanes[2].DistFromPlane(vWSPos);
+        float d3 = arrPlanes[3].DistFromPlane(vWSPos);
+
+        float t = fabsf(d0 + d1) < FLT_EPSILON ? 0.0f : d0 / (d0 + d1);
+        tmp.st = Vec2f16((1 - t) * fabs(arrTexCoors[0]) + t * fabs(arrTexCoors[1]), fabsf(d2 + d3) < FLT_EPSILON ? 0.0f : d2 / (d2 + d3));
+
+        // calculate alpha value
+        float fAlpha = 1.f;
+        if (m_bAlphaBlendRoadEnds)
+        {
+            if (fabs(arrTexCoors[0] - m_arrTexCoorsGlobal[0]) < 0.01f)
+            {
+                fAlpha = CLAMP(t, 0, 1.f);
+            }
+            else if (fabs(arrTexCoors[1] - m_arrTexCoorsGlobal[1]) < 0.01f)
+            {
+                fAlpha = CLAMP(1.f - t, 0, 1.f);
+            }
+        }
+
+        tmp.color.bcolor[0] = 255;
+        tmp.color.bcolor[1] = 255;
+        tmp.color.bcolor[2] = 255;
+        tmp.color.bcolor[3] = uint8(255.f * fAlpha);
+        SwapEndian(tmp.color.dcolor, eLittleEndian);
+
+        m_lstVertices.Add(tmp);
+
+        Vec3 vTang = pVerts[2] - pVerts[0];
+        Vec3 vBitang = pVerts[1] - pVerts[0];
+        const AZ::Vector3 azNormal = terrain ? terrain->GetNormalFromFloats(vWSPos.x, vWSPos.y) : AzFramework::Terrain::TerrainDataRequests::GetDefaultTerrainNormal();
+        Vec3 vNormal = AZVec3ToLYVec3(azNormal);
+
+        // Orthogonalize Tangent Frame
+        vBitang = -vNormal.Cross(vTang);
+        vBitang.Normalize();
+        vTang = vNormal.Cross(vBitang);
+        vTang.Normalize();
+
+        m_lstTang[i] = SPipTangents(vTang, vBitang, -1);
+    }
+}
+
+void CRoadRenderNode::DoDeferredCompile() PREFAST_SUPPRESS_WARNING(6262) //function uses > 32k stack space
 {
     LOADING_TIME_PROFILE_SECTION;
 
     int nVertsNumAll = m_arrVerts.Count();
-
-    assert(!(nVertsNumAll & 1));
-
-    if (nVertsNumAll < 4)
-    {
-        return;
-    }
 
     // free old object and mesh
     m_pRenderMesh = NULL;
@@ -178,20 +342,55 @@ void CRoadRenderNode::Compile() PREFAST_SUPPRESS_WARNING(6262) //function uses >
     // update object bbox
     {
         m_WSBBox.Reset();
-        for (int i = 0; i < nVertsNumAll; i++)
         {
-            Vec3 vTmp(m_arrVerts[i].x, m_arrVerts[i].y, Get3DEngine()->GetTerrainElevation(m_arrVerts[i].x, m_arrVerts[i].y, m_nSID) + fRoadTerrainZOffset);
-            m_WSBBox.Add(vTmp);
+            bool isTerrainActive = false;
+            auto enumerationCallback = [&](AzFramework::Terrain::TerrainDataRequests* terrain) -> bool
+            {
+                isTerrainActive = true;
+                for (int i = 0; i < nVertsNumAll; i++)
+                {
+                    Vec3 vTmp(m_arrVerts[i].x, m_arrVerts[i].y, terrain->GetHeightFromFloats(m_arrVerts[i].x, m_arrVerts[i].y) + fRoadTerrainZOffset);
+                    m_WSBBox.Add(vTmp);
+                }
+                // Only one handler should exist.
+                return false;
+            };
+            AzFramework::Terrain::TerrainDataRequestBus::EnumerateHandlers(enumerationCallback);
+            if (!isTerrainActive)
+            {
+                const float defaultTerrainHeight = AzFramework::Terrain::TerrainDataRequests::GetDefaultTerrainHeight();
+                for (int i = 0; i < nVertsNumAll; i++)
+                {
+                    Vec3 vTmp(m_arrVerts[i].x, m_arrVerts[i].y, defaultTerrainHeight + fRoadTerrainZOffset);
+                    m_WSBBox.Add(vTmp);
+                }
+            }
         }
 
+        // max vertices to allow to limit memory usage
+        const int nMaxVerticesToMerge = 1024 * 32;
+
+        // initial vertices to start with - most roads will fit in this range, containers will be 
+        // dynamically resized if the contents end up not fitting.
+        const int nInitialVerticesToMerge = 1024 * 4;
+
         // prepare arrays for final mesh
-        const int nMaxVerticesToMerge = 1024 * 32; // limit memory usage
-        m_lstVerticesMerged.PreAllocate(nMaxVerticesToMerge, 0);
-        m_lstIndicesMerged.PreAllocate(nMaxVerticesToMerge * 6, 0);
-        m_lstTangMerged.PreAllocate(nMaxVerticesToMerge, 0);
+        m_lstVerticesMerged.PreAllocate(nInitialVerticesToMerge, 0);
+        m_lstIndicesMerged.PreAllocate(nInitialVerticesToMerge * 6, 0);
+        m_lstTangMerged.PreAllocate(nInitialVerticesToMerge, 0);
 
         float fChunksNum = (float)((nVertsNumAll - 2) / 2);
         float fTexStep = (m_arrTexCoors[1] - m_arrTexCoors[0]) / fChunksNum;
+
+        AZ::Aabb terrainAabb = AZ::Aabb::CreateFromPoint(AZ::Vector3::CreateZero());
+        AzFramework::Terrain::TerrainDataRequestBus::BroadcastResult(terrainAabb, &AzFramework::Terrain::TerrainDataRequests::GetTerrainAabb);
+        const float terrainSizeX = terrainAabb.GetWidth();
+        const float terrainSizeY = terrainAabb.GetHeight();
+
+        AZ::Vector2 gridResolution = AZ::Vector2::CreateOne();
+        AzFramework::Terrain::TerrainDataRequestBus::BroadcastResult(gridResolution, &AzFramework::Terrain::TerrainDataRequests::GetTerrainGridResolution);
+        const int nUnitSizeX = static_cast<int>(gridResolution.GetX());
+        const int nUnitSizeY = static_cast<int>(gridResolution.GetY());
 
         // for every trapezoid
         for (int nVertId = 0; nVertId <= nVertsNumAll - 4; nVertId += 2)
@@ -221,83 +420,93 @@ void CRoadRenderNode::Compile() PREFAST_SUPPRESS_WARNING(6262) //function uses >
                 WSBBox.Add(vTmp);
             }
 
+            // Ignore any trapezoids that are outside the terrain boundary.  Roads rely on terrain height to work.
+            if ((WSBBox.min.x > terrainSizeX) || (WSBBox.min.y > terrainSizeY) ||
+                (WSBBox.max.x < 0.0f) || (WSBBox.max.y < 0.0f))
+            {
+                continue;
+            }
+
+            // The trapezoid overlaps the terrain, so clamp the remaining bounding box to the terrain size.
+            WSBBox.min.x = AZStd::max(WSBBox.min.x, 0.0f);
+            WSBBox.min.y = AZStd::max(WSBBox.min.y, 0.0f);
+            WSBBox.max.x = AZStd::min(WSBBox.max.x, terrainSizeX);
+            WSBBox.max.y = AZStd::min(WSBBox.max.y, terrainSizeY);
+
             // make vert array
-            int nUnitSize = GetTerrain()->GetHeightMapUnitSize();
-            int x1 = int(WSBBox.min.x) / nUnitSize * nUnitSize;
-            int x2 = int(WSBBox.max.x) / nUnitSize * nUnitSize + nUnitSize;
-            int y1 = int(WSBBox.min.y) / nUnitSize * nUnitSize;
-            int y2 = int(WSBBox.max.y) / nUnitSize * nUnitSize + nUnitSize;
+            int x1 = int(WSBBox.min.x) / nUnitSizeX * nUnitSizeX;
+            int x2 = int(WSBBox.max.x) / nUnitSizeX * nUnitSizeX + nUnitSizeX;
+            int y1 = int(WSBBox.min.y) / nUnitSizeY * nUnitSizeY;
+            int y2 = int(WSBBox.max.y) / nUnitSizeY * nUnitSizeY + nUnitSizeY;
 
             // make arrays of verts and indices used in trapezoid area
             m_lstVerts.Clear();
             m_lstIndices.Clear();
+            m_lstClippedIndices.Clear();
 
-            for (int x = x1; x <= x2; x += nUnitSize)
+            // Reserve room for the vertices that we're about to add.
+            m_lstVerts.PreAllocate(((x2 - x1 + nUnitSizeX) / nUnitSizeX) * ((y2 - y1 + nUnitSizeY) / nUnitSizeY));
+
+            bool isTerrainActive = false;
+            auto enumerationCallback = [&](AzFramework::Terrain::TerrainDataRequests* terrain) -> bool
             {
-                for (int y = y1; y <= y2; y += nUnitSize)
+                isTerrainActive = true;
+                for (int x = x1; x <= x2; x += nUnitSizeX)
                 {
-                    Vec3 vTmp((float)x, (float)y, GetTerrain()->GetZ(x, y));
-                    m_lstVerts.Add(vTmp);
-                }
-            }
-            // make indices
-            int dx = (x2 - x1) / nUnitSize;
-            int dy = (y2 - y1) / nUnitSize;
-
-            for (int x = 0; x < dx; x++)
-            {
-                for (int y = 0; y < dy; y++)
-                {
-                    int nIdx0 = (x * (dy + 1) + y);
-                    int nIdx1 = (x * (dy + 1) + y + (dy + 1));
-                    int nIdx2 = (x * (dy + 1) + y + 1);
-                    int nIdx3 = (x * (dy + 1) + y + 1 + (dy + 1));
-
-                    assert(nIdx3 < m_lstVerts.Count());
-
-                    int X_in_meters = x1 + x * nUnitSize;
-                    int Y_in_meters = y1 + y * nUnitSize;
-
-                    CTerrain* pTerrain = GetTerrain();
-
-                    if (m_bIgnoreTerrainHoles || (pTerrain && !pTerrain->IsHole(X_in_meters, Y_in_meters)))
+                    for (int y = y1; y <= y2; y += nUnitSizeY)
                     {
-                        if (pTerrain && pTerrain->IsMeshQuadFlipped(X_in_meters, Y_in_meters, nUnitSize))
-                        {
-                            m_lstIndices.Add(nIdx0);
-                            m_lstIndices.Add(nIdx1);
-                            m_lstIndices.Add(nIdx3);
-
-                            m_lstIndices.Add(nIdx0);
-                            m_lstIndices.Add(nIdx3);
-                            m_lstIndices.Add(nIdx2);
-                        }
-                        else
-                        {
-                            m_lstIndices.Add(nIdx0);
-                            m_lstIndices.Add(nIdx1);
-                            m_lstIndices.Add(nIdx2);
-
-                            m_lstIndices.Add(nIdx1);
-                            m_lstIndices.Add(nIdx3);
-                            m_lstIndices.Add(nIdx2);
-                        }
+                        Vec3 vTmp((float)x, (float)y, terrain->GetHeightFromFloats((float)x, (float)y));
+                        m_lstVerts.Add(vTmp);
+                    }
+                }
+                // Only one handler should exist.
+                return false;
+            };
+            AzFramework::Terrain::TerrainDataRequestBus::EnumerateHandlers(enumerationCallback);
+            if (!isTerrainActive)
+            {
+                for (int x = x1; x <= x2; x += nUnitSizeX)
+                {
+                    for (int y = y1; y <= y2; y += nUnitSizeY)
+                    {
+                        Vec3 vTmp((float)x, (float)y, 0.0f);
+                        m_lstVerts.Add(vTmp);
                     }
                 }
             }
 
-            // clip triangles
-            int nOrigCount = m_lstIndices.Count();
-            for (int i = 0; i < nOrigCount; i += 3)
+            // make indices
+            int dx = (x2 - x1) / nUnitSizeX;
+            int dy = (y2 - y1) / nUnitSizeY;
+
+            // Reserve room for the indices we're about to add.
+            m_lstIndices.PreAllocate(dx * dy * 6);
+
+            isTerrainActive = false;
+            auto enumerationCallback2 = [&](AzFramework::Terrain::TerrainDataRequests* terrain) -> bool
             {
-                if (ClipTriangle(m_lstVerts, m_lstIndices, i, arrPlanes))
-                {
-                    i -= 3;
-                    nOrigCount -= 3;
-                }
+                isTerrainActive = true;
+                BuildListOfIndicesLocked(terrain, x1, y1, dx, dy, nUnitSizeX, nUnitSizeY);
+                // Only one handler should exist.
+                return false;
+            };
+            AzFramework::Terrain::TerrainDataRequestBus::EnumerateHandlers(enumerationCallback2);
+            if (!isTerrainActive)
+            {
+                BuildListOfIndicesLocked(nullptr, x1, y1, dx, dy, nUnitSizeX, nUnitSizeY);
             }
 
-            if (m_lstIndices.Count() < 3 || m_lstVerts.Count() < 3)
+            // Reserve room for the clipped indices we're about to add.
+            m_lstClippedIndices.PreAllocate(m_lstIndices.Count());
+
+            // clip triangles, saving off the indices of the new clipped triangles in a separate array for speed, at the cost of memory.
+            int indexCount = m_lstIndices.Count();
+            for (int i = 0; i < indexCount; i += 3)
+            {
+                ClipTriangle(m_tmpClipContext, m_lstVerts, m_lstIndices, m_lstClippedIndices, i, arrPlanes);
+            }
+
+            if (m_lstClippedIndices.Count() < 3 || m_lstVerts.Count() < 3)
             {
                 continue;
             }
@@ -308,9 +517,9 @@ void CRoadRenderNode::Compile() PREFAST_SUPPRESS_WARNING(6262) //function uses >
                 (n -= axis * (n * axis)).normalize();
                 gp.q = Quat(Matrix33::CreateFromVectors(axis, n ^ axis, n));
                 Vec3 BBox[] = { Vec3(VMAX), Vec3(VMIN) };
-                for (int j = 0; j < m_lstIndices.Count(); j++)
+                for (int j = 0; j < m_lstClippedIndices.Count(); j++)
                 {
-                    Vec3 ptloc = m_lstVerts[m_lstIndices[j]] * gp.q;
+                    Vec3 ptloc = m_lstVerts[m_lstClippedIndices[j]] * gp.q;
                     BBox[0] = min(BBox[0], ptloc);
                     BBox[1] = max(BBox[1], ptloc);
                 }
@@ -322,69 +531,24 @@ void CRoadRenderNode::Compile() PREFAST_SUPPRESS_WARNING(6262) //function uses >
                 pGeoman->UnregisterGeometry(physGeom);
             }
 
-            // allocate tangent array
-            m_lstTang.Clear();
-            m_lstTang.PreAllocate(m_lstVerts.Count(), m_lstVerts.Count());
-
-            int nStep = CTerrain::GetHeightMapUnitSize();
-
-            Vec3 vWSBoxCenter = m_WSBBox.GetCenter(); //vWSBoxCenter.z=0;
-
-            // make real vertex data
-            m_lstVertices.Clear();
-            for (int i = 0; i < m_lstVerts.Count(); i++)
+            isTerrainActive = false;
+            auto enumerationCallback3 = [&](AzFramework::Terrain::TerrainDataRequests* terrain) -> bool
             {
-                SVF_P3F_C4B_T2S tmp;
-
-                Vec3 vWSPos = m_lstVerts[i];
-
-                tmp.xyz = (m_lstVerts[i] - vWSBoxCenter);
-
-                // do texgen
-                float d0 = arrPlanes[0].DistFromPlane(vWSPos);
-                float d1 = arrPlanes[1].DistFromPlane(vWSPos);
-                float d2 = arrPlanes[2].DistFromPlane(vWSPos);
-                float d3 = arrPlanes[3].DistFromPlane(vWSPos);
-
-                float t = fabsf(d0 + d1) < FLT_EPSILON ? 0.0f : d0 / (d0 + d1);
-                tmp.st = Vec2f16((1 - t) * fabs(arrTexCoors[0]) + t * fabs(arrTexCoors[1]), fabsf(d2 + d3) < FLT_EPSILON ? 0.0f : d2 / (d2 + d3));
-
-                // calculate alpha value
-                float fAlpha = 1.f;
-                if (fabs(arrTexCoors[0] - m_arrTexCoorsGlobal[0]) < 0.01f)
-                {
-                    fAlpha = CLAMP(t, 0, 1.f);
-                }
-                else if (fabs(arrTexCoors[1] - m_arrTexCoorsGlobal[1]) < 0.01f)
-                {
-                    fAlpha = CLAMP(1.f - t, 0, 1.f);
-                }
-
-                tmp.color.bcolor[0] = 255;
-                tmp.color.bcolor[1] = 255;
-                tmp.color.bcolor[2] = 255;
-                tmp.color.bcolor[3] = uint8(255.f * fAlpha);
-                SwapEndian(tmp.color.dcolor, eLittleEndian);
-
-                m_lstVertices.Add(tmp);
-
-                Vec3 vTang   = pVerts[2] - pVerts[0];
-                Vec3 vBitang = pVerts[1] - pVerts[0];
-                Vec3 vNormal = GetTerrain()->GetTerrainSurfaceNormal(vWSPos, 0.25f);
-
-                // Orthogonalize Tangent Frame
-                vBitang = -vNormal.Cross(vTang);
-                vBitang.Normalize();
-                vTang = vNormal.Cross(vBitang);
-                vTang.Normalize();
-
-                m_lstTang[i] = SPipTangents(vTang, vBitang, -1);
+                isTerrainActive = true;
+                BuildTangentListLocked(terrain, arrPlanes, arrTexCoors, pVerts);
+                // Only one handler should exist.
+                return false;
+            };
+            AzFramework::Terrain::TerrainDataRequestBus::EnumerateHandlers(enumerationCallback3);
+            if (!isTerrainActive)
+            {
+                BuildTangentListLocked(nullptr, arrPlanes, arrTexCoors, pVerts);
             }
 
             // shift indices
-            for (int i = 0; i < m_lstIndices.Count(); i++)
+            for (int i = 0; i < m_lstClippedIndices.Count(); i++)
             {
-                m_lstIndices[i] += m_lstVerticesMerged.Count();
+                m_lstClippedIndices[i] += m_lstVerticesMerged.Count();
             }
 
             if (m_lstVerticesMerged.Count() + m_lstVertices.Count() > nMaxVerticesToMerge)
@@ -394,7 +558,7 @@ void CRoadRenderNode::Compile() PREFAST_SUPPRESS_WARNING(6262) //function uses >
                 return;
             }
 
-            m_lstIndicesMerged.AddList(m_lstIndices);
+            m_lstIndicesMerged.AddList(m_lstClippedIndices);
             m_lstVerticesMerged.AddList(m_lstVertices);
             m_lstTangMerged.AddList(m_lstTang);
         }
@@ -404,53 +568,183 @@ void CRoadRenderNode::Compile() PREFAST_SUPPRESS_WARNING(6262) //function uses >
         mesh_compiler::CMeshCompiler meshCompiler;
         meshCompiler.WeldPos_VF_P3X(m_lstVerticesMerged, m_lstTangMerged, listNormalsDummy, m_lstIndicesMerged, VEC_EPSILON, GetBBox());
 
-        // make render mesh
-        if (m_lstIndicesMerged.Count())
+    }
+}
+
+void CRoadRenderNode::MakeRenderMesh()
+{
+    // no road indices, no render mesh to build!
+    if (!m_lstIndicesMerged.Count())
+    {
+        return;
+    }
+
+    // NOTE:  This needs to happen on the main thread, or else it's possible to get graphics driver lockups due to
+    // the way GPU buffer pools are created and managed.  Specifically, what can happen is that DevBuffer::BeginWrite()
+    // can lock up or crash inside of GetDeviceContext().Map(), while the main thread is in a spinlock in the midst of
+    // rendering a rendermesh also using one of these memory buffer pools.
+    // CL#695819 contains a potential fix to this issue, but might also bring other side effects with it.
+    m_pRenderMesh = GetRenderer()->CreateRenderMeshInitialized(
+        m_lstVerticesMerged.GetElements(), m_lstVerticesMerged.Count(), eVF_P3F_C4B_T2S,
+        m_lstIndicesMerged.GetElements(), m_lstIndicesMerged.Count(), prtTriangleList,
+        "RoadRenderNode", GetName(), eRMT_Static, 1, 0, NULL, NULL, false, true, m_lstTangMerged.GetElements());
+
+    float texelAreaDensity = 1.0f;
+    {
+        const size_t indexCount = m_lstIndicesMerged.size();
+        const size_t vertexCount = m_lstVerticesMerged.size();
+
+        if ((indexCount > 0) && (vertexCount > 0))
         {
-            m_pRenderMesh = GetRenderer()->CreateRenderMeshInitialized(
-                    m_lstVerticesMerged.GetElements(), m_lstVerticesMerged.Count(), eVF_P3F_C4B_T2S,
-                    m_lstIndicesMerged.GetElements(), m_lstIndicesMerged.Count(), prtTriangleList,
-                    "RoadRenderNode", GetName(), eRMT_Static, 1, 0, NULL, NULL, false, true, m_lstTangMerged.GetElements());
+            float posArea;
+            float texArea;
+            const char* errorText = "";
 
-            float texelAreaDensity = 1.0f;
+            const bool ok = CMeshHelpers::ComputeTexMappingAreas(
+                indexCount, &m_lstIndicesMerged[0],
+                vertexCount,
+                &m_lstVerticesMerged[0].xyz, sizeof(m_lstVerticesMerged[0]),
+                &m_lstVerticesMerged[0].st, sizeof(m_lstVerticesMerged[0]),
+                posArea, texArea, errorText);
+
+            if (ok)
             {
-                const size_t indexCount = m_lstIndicesMerged.size();
-                const size_t vertexCount = m_lstVerticesMerged.size();
-
-                if ((indexCount > 0) && (vertexCount > 0))
-                {
-                    float posArea;
-                    float texArea;
-                    const char* errorText = "";
-
-                    const bool ok = CMeshHelpers::ComputeTexMappingAreas(
-                            indexCount, &m_lstIndicesMerged[0],
-                            vertexCount,
-                            &m_lstVerticesMerged[0].xyz, sizeof(m_lstVerticesMerged[0]),
-                            &m_lstVerticesMerged[0].st, sizeof(m_lstVerticesMerged[0]),
-                            posArea, texArea, errorText);
-
-                    if (ok)
-                    {
-                        texelAreaDensity = texArea / posArea;
-                    }
-                    else
-                    {
-                        gEnv->pLog->LogError("Failed to compute texture mapping density for mesh '%s': %s", GetName(), errorText);
-                    }
-                }
+                texelAreaDensity = texArea / posArea;
             }
-
-            m_pRenderMesh->SetChunk((m_pMaterial != NULL) ? m_pMaterial : GetMatMan()->GetDefaultMaterial(),
-                0, m_lstVerticesMerged.Count(), 0, m_lstIndicesMerged.Count(), texelAreaDensity, eVF_P3F_C4B_T2S);
-            Vec3 vWSBoxCenter = m_WSBBox.GetCenter(); //vWSBoxCenter.z=0;
-            AABB OSBBox(m_WSBBox.min - vWSBoxCenter, m_WSBBox.max - vWSBoxCenter);
-            m_pRenderMesh->SetBBox(OSBBox.min, OSBBox.max);
+            else
+            {
+                gEnv->pLog->LogError("Failed to compute texture mapping density for mesh '%s': %s", GetName(), errorText);
+            }
         }
     }
 
-    // activate rendering
-    Get3DEngine()->RegisterEntity(this);
+    m_pRenderMesh->SetChunk((m_pMaterial != NULL) ? m_pMaterial : GetMatMan()->GetDefaultMaterial(),
+        0, m_lstVerticesMerged.Count(), 0, m_lstIndicesMerged.Count(), texelAreaDensity, eVF_P3F_C4B_T2S);
+    Vec3 vWSBoxCenter = m_WSBBox.GetCenter(); //vWSBoxCenter.z=0;
+    AABB OSBBox(m_WSBBox.min - vWSBoxCenter, m_WSBBox.max - vWSBoxCenter);
+    m_pRenderMesh->SetBBox(OSBBox.min, OSBBox.max);
+}
+
+namespace
+{
+    class RoadRenderNodeCompileJob : public AZ::Job
+    {
+    public:
+        AZ_CLASS_ALLOCATOR(RoadRenderNodeCompileJob, AZ::ThreadPoolAllocator, 0);
+
+        RoadRenderNodeCompileJob(AZ::JobContext* context, CRoadRenderNode* road)
+            : AZ::Job(true, context)
+            , m_road(road)
+        {
+
+        }
+
+    protected:
+        void Process() override
+        {
+            m_road->DoDeferredCompile();
+            m_road->NotifyCompileFinished();
+        }
+
+    private:
+        CRoadRenderNode* m_road;
+    };
+}
+
+bool CRoadRenderNode::Compile()
+{
+    LOADING_TIME_PROFILE_SECTION;
+
+    int nVertsNumAll = m_arrVerts.Count();
+
+    AZ_Assert(!(nVertsNumAll & 1), "Invalid number of vertices:  %d", nVertsNumAll);
+
+    if (nVertsNumAll < 4)
+    {
+        // Degenerate road render node
+        return true;
+    }
+
+    AZStd::unique_lock<AZStd::mutex> lock(m_pCompileInfo->m_stateMutex);
+
+    switch (m_pCompileInfo->m_state)
+    {
+        case RoadRenderNodeCompileInfo::CompileState::NotReady_WaitingToCompile: 
+        {
+            m_pCompileInfo->m_state = RoadRenderNodeCompileInfo::CompileState::NotReady_RequestingTerrain;
+
+            return false;
+        }
+        case RoadRenderNodeCompileInfo::CompileState::NotReady_RequestingTerrain:
+        {
+            // wait for terrain to be ready - Terrain will be ready soon or immediately.
+            if (!TerrainUtil::IsTerrainDataReady())
+            {
+                return false;
+            }
+
+            m_pCompileInfo->m_state = RoadRenderNodeCompileInfo::CompileState::NotReady_Compiling;
+
+            AZ::JobContext* jobContext = nullptr;
+            AZ::JobManagerBus::BroadcastResult(jobContext, &AZ::JobManagerEvents::GetGlobalContext);
+
+            RoadRenderNodeCompileJob* job = aznew RoadRenderNodeCompileJob(jobContext, this);
+            job->Start();
+
+            return false;
+        }
+        case RoadRenderNodeCompileInfo::CompileState::NotReady_Compiling:
+        {
+            // Wait for the job thread to change the state.
+            return false;
+        }
+        case RoadRenderNodeCompileInfo::CompileState::NotReady_CreatingRenderMesh:
+        {
+            // We've returned from the job thread, finalize the render mesh creation back on the main
+            // thread to avoid contention over GPU buffers.
+            MakeRenderMesh();
+            m_pCompileInfo->m_state = RoadRenderNodeCompileInfo::CompileState::Ready;
+            m_pCompileInfo->m_bDirty = false;
+            return false;
+        }
+        case RoadRenderNodeCompileInfo::CompileState::Ready:
+        {
+            if (m_pCompileInfo->m_bDirty)
+            {
+                // dirty here means a rebuild was requested and we're finished with the current work.
+                m_pCompileInfo->m_state = RoadRenderNodeCompileInfo::CompileState::NotReady_WaitingToCompile;
+                m_pCompileInfo->m_bDirty = false;
+                return false;
+            }
+
+            // clear temp buffers
+            m_lstVerticesMerged.Reset();
+            m_lstIndicesMerged.Reset();
+            m_lstTangMerged.Reset();
+
+            m_lstVerts.Reset();
+            m_lstIndices.Reset();
+
+            m_lstTang.Reset();
+            m_lstVertices.Reset();
+
+            m_tmpClipContext.Reset();
+        
+            // activate rendering
+            Get3DEngine()->RegisterEntity(this);
+
+            return true;
+        }
+    }
+
+    return true;
+}
+
+void CRoadRenderNode::NotifyCompileFinished()
+{
+    AZStd::unique_lock<AZStd::mutex> lock(m_pCompileInfo->m_stateMutex);
+    m_pCompileInfo->m_state = RoadRenderNodeCompileInfo::CompileState::NotReady_CreatingRenderMesh;
+    m_pCompileInfo->m_compileFinishedNotify.notify_all();
 }
 
 void CRoadRenderNode::SetSortPriority(uint8 sortPrio)
@@ -460,7 +754,11 @@ void CRoadRenderNode::SetSortPriority(uint8 sortPrio)
 
 void CRoadRenderNode::SetIgnoreTerrainHoles(bool bVal)
 {
-    m_bIgnoreTerrainHoles = bVal;
+    if (bVal != m_bIgnoreTerrainHoles)
+    {
+        m_bIgnoreTerrainHoles = bVal;
+        ScheduleRebuild();
+    }
 }
 
 void CRoadRenderNode::Render(const SRendParams& _RendParams, const SRenderingPassInfo& passInfo)
@@ -504,9 +802,9 @@ void CRoadRenderNode::Render(const SRendParams& _RendParams, const SRenderingPas
     }
 }
 
-bool CRoadRenderNode::ClipTriangle(PodArray<Vec3>& lstVerts, PodArray<vtx_idx>& lstInds, int nStartIdxId, Plane* pPlanes)
+void CRoadRenderNode::ClipTriangle(CPolygonClipContext& clipContext, PodArray<Vec3>& lstVerts, const PodArray<vtx_idx>& lstInds, PodArray<vtx_idx>& lstClippedInds, int nStartIdxId, const Plane* pPlanes)
 {
-    const PodArray<Vec3>& clipped = s_tmpClipContext.Clip(
+    const PodArray<Vec3>& clipped = clipContext.Clip(
             lstVerts[lstInds[nStartIdxId + 0]],
             lstVerts[lstInds[nStartIdxId + 1]],
             lstVerts[lstInds[nStartIdxId + 2]],
@@ -514,8 +812,7 @@ bool CRoadRenderNode::ClipTriangle(PodArray<Vec3>& lstVerts, PodArray<vtx_idx>& 
 
     if (clipped.Count() < 3)
     {
-        lstInds.Delete(nStartIdxId, 3);
-        return true; // entire triangle is clipped away
+        return; // entire triangle is clipped away
     }
 
     if (clipped.Count() == 3)
@@ -526,7 +823,11 @@ bool CRoadRenderNode::ClipTriangle(PodArray<Vec3>& lstVerts, PodArray<vtx_idx>& 
             {
                 if (clipped[2].IsEquivalent(lstVerts[lstInds[nStartIdxId + 2]]))
                 {
-                    return false; // entire triangle is in
+                    // The original triangle remains as-is, so add it to the clipped index list.
+                    lstClippedInds.Add(nStartIdxId + 0);
+                    lstClippedInds.Add(nStartIdxId + 1);
+                    lstClippedInds.Add(nStartIdxId + 2);
+                    return;
                 }
             }
         }
@@ -535,20 +836,15 @@ bool CRoadRenderNode::ClipTriangle(PodArray<Vec3>& lstVerts, PodArray<vtx_idx>& 
     int nStartId = lstVerts.Count();
     lstVerts.AddList(clipped);
 
-    // put first new triangle into position of original one
-    lstInds[nStartIdxId + 0] = nStartId + 0;
-    lstInds[nStartIdxId + 1] = nStartId + 1;
-    lstInds[nStartIdxId + 2] = nStartId + 2;
-
-    // put others in the end
-    for (int i = 1; i < clipped.Count() - 2; i++)
+    // Add all the new triangle indices to our clipped index list
+    for (int i = 0; i < clipped.Count() - 2; i++)
     {
-        lstInds.Add(nStartId + 0);
-        lstInds.Add(nStartId + i + 1);
-        lstInds.Add(nStartId + i + 2);
+        lstClippedInds.Add(nStartId + 0);
+        lstClippedInds.Add(nStartId + i + 1);
+        lstClippedInds.Add(nStartId + i + 2);
     }
 
-    return false;
+    return;
 }
 
 void CRoadRenderNode::SetMaterial(_smart_ptr<IMaterial> pMat)
@@ -574,32 +870,30 @@ void CRoadRenderNode::GetMemoryUsage(ICrySizer* pSizer) const
 
 void CRoadRenderNode::ScheduleRebuild()
 {
-    if (Get3DEngine()->m_lstRoadRenderNodesForUpdate.Find(this) < 0)
-    {
-        Get3DEngine()->m_lstRoadRenderNodesForUpdate.Add(this);
-    }
+    m_pCompileInfo->m_bDirty = true;
+    Get3DEngine()->RoadRenderNodeRebuildQueue_Add(this);
 }
 
 void CRoadRenderNode::OnTerrainChanged()
 {
+#ifdef LY_TERRAIN_RUNTIME
+    // Update road meshes when terrain is deformed
+
+    if (TerrainUtil::TerrainSystemEnabled())
+    {
+        // Currently unsupported by new terrain
+        // NEW-TERRAIN LY-103228: Make roads update correctly when new terrain system updates dynamically.
+        return;
+    }
+#endif
+
     if (!m_pRenderMesh)
     {
         return;
     }
 
-    int nPosStride = 0;
-
     IRenderMesh::ThreadAccessLock lock(m_pRenderMesh);
 
-    byte* pPos = m_pRenderMesh->GetPosPtr(nPosStride, FSL_SYSTEM_UPDATE);
-
-    Vec3 vWSBoxCenter = m_WSBBox.GetCenter(); //vWSBoxCenter.z=0;
-
-    for (int i = 0, nVertsNum = m_pRenderMesh->GetVerticesCount(); i < nVertsNum; i++)
-    {
-        Vec3& vPos = *(Vec3*)&pPos[i * nPosStride];
-        vPos.z = GetTerrain()->GetBilinearZ(vWSBoxCenter.x + vPos.x, vWSBoxCenter.y + vPos.y) + 0.01f - vWSBoxCenter.z;
-    }
     m_pRenderMesh->UnlockStream(VSF_GENERAL);
     ScheduleRebuild();
 }

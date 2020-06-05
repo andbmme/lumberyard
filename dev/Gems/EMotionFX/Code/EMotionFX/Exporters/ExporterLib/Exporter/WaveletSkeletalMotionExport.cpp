@@ -18,7 +18,7 @@
 #include <MCore/Source/D4Wavelet.h>
 #include <MCore/Source/CDF97Wavelet.h>
 #include <MCore/Source/DiskFile.h>
-#include <MCore/Source/AttributeSet.h>
+#include <MCore/Source/LogManager.h>
 #include <EMotionFX/Source/WaveletSkeletalMotion.h>
 #include <EMotionFX/Source/Importer/Importer.h>
 
@@ -36,11 +36,16 @@ namespace ExporterLib
 
         // the mapping chunk
         EMotionFX::FileFormat::Motion_WaveletMapping mappingChunk;
+        memset(&mappingChunk, 0, sizeof(EMotionFX::FileFormat::Motion_WaveletMapping));
 
         mappingChunk.mPosIndex      = mapping.mPosIndex;
         mappingChunk.mRotIndex      = mapping.mRotIndex;
         //mappingChunk.mScaleRotIndex   = MCORE_INVALIDINDEX16;//mapping.mScaleRotIndex;
-        mappingChunk.mScaleIndex    = mapping.mScaleIndex;
+        #ifndef EMFX_SCALE_DISABLED
+            mappingChunk.mScaleIndex = mapping.mScaleIndex;
+        #else
+            mappingChunk.mScaleIndex = MCORE_INVALIDINDEX16;
+        #endif
 
         // log it
         MCore::LogDetailedInfo("    + SubMotion #%d = (posIndex:%d, rotIndex:%d, scaleIndex:%d", subMotionIndex, mappingChunk.mPosIndex, mappingChunk.mRotIndex, mappingChunk.mScaleIndex);
@@ -78,10 +83,16 @@ namespace ExporterLib
         // get the animation start pose and the bind pose transformation information
         AZ::PackedVector3f                  posePosition    = AZ::PackedVector3f(subMotion->GetPosePos() * invScale);
         MCore::Compressed16BitQuaternion    poseRotation    = subMotion->GetCompressedPoseRot();
-        AZ::PackedVector3f                  poseScale       = AZ::PackedVector3f(subMotion->GetPoseScale());
         AZ::PackedVector3f                  bindPosePosition = AZ::PackedVector3f(subMotion->GetBindPosePos() * invScale);
         MCore::Compressed16BitQuaternion    bindPoseRotation = subMotion->GetCompressedBindPoseRot();
-        AZ::PackedVector3f                  bindPoseScale   = AZ::PackedVector3f(subMotion->GetBindPoseScale());
+
+        #ifndef EMFX_SCALE_DISABLED
+            AZ::PackedVector3f poseScale = AZ::PackedVector3f(subMotion->GetPoseScale());
+            AZ::PackedVector3f bindPoseScale = AZ::PackedVector3f(subMotion->GetBindPoseScale());
+        #else
+            AZ::PackedVector3f poseScale(1.0f, 1.0f, 1.0f);
+            AZ::PackedVector3f bindPoseScale(1.0f, 1.0f, 1.0f);
+        #endif
 
         EMotionFX::FileFormat::Motion_WaveletSkeletalSubMotion subMotionChunk;
 
@@ -96,17 +107,17 @@ namespace ExporterLib
         CopyVector(subMotionChunk.mBindPoseScale, bindPoseScale);
 
         // create an uncompressed version of the fixed and compessed rotation quaternions
-        MCore::Quaternion uncompressedPoseRot       = MCore::Compressed16BitQuaternion(subMotionChunk.mPoseRot.mX, subMotionChunk.mPoseRot.mY, subMotionChunk.mPoseRot.mZ, subMotionChunk.mPoseRot.mW).ToQuaternion();
-        MCore::Quaternion uncompressedBindPoseRot   = MCore::Compressed16BitQuaternion(subMotionChunk.mBindPoseRot.mX, subMotionChunk.mBindPoseRot.mY, subMotionChunk.mBindPoseRot.mZ, subMotionChunk.mBindPoseRot.mW).ToQuaternion();
+        AZ::Quaternion uncompressedPoseRot       = MCore::Compressed16BitQuaternion(subMotionChunk.mPoseRot.mX, subMotionChunk.mPoseRot.mY, subMotionChunk.mPoseRot.mZ, subMotionChunk.mPoseRot.mW).ToQuaternion();
+        AZ::Quaternion uncompressedBindPoseRot   = MCore::Compressed16BitQuaternion(subMotionChunk.mBindPoseRot.mX, subMotionChunk.mBindPoseRot.mY, subMotionChunk.mBindPoseRot.mZ, subMotionChunk.mBindPoseRot.mW).ToQuaternion();
 
         //subMotionChunk.mMaxError = subMotion->GetMotionLODMaxError() * motionImportanceFactor;
 
         MCore::LogDetailedInfo("- Wavelet Skeletal SubMotion = '%s'", subMotion->GetName());
         MCore::LogDetailedInfo("    + Pose Position:         x=%f, y=%f, z=%f", subMotionChunk.mPosePos.mX, subMotionChunk.mPosePos.mY, subMotionChunk.mPosePos.mZ);
-        MCore::LogDetailedInfo("    + Pose Rotation:         x=%f, y=%f, z=%f, w=%f", uncompressedPoseRot.x, uncompressedPoseRot.y, uncompressedPoseRot.z, uncompressedPoseRot.w);
+        MCore::LogDetailedInfo("    + Pose Rotation:         x=%f, y=%f, z=%f, w=%f", static_cast<float>(uncompressedPoseRot.GetX()), static_cast<float>(uncompressedPoseRot.GetY()), static_cast<float>(uncompressedPoseRot.GetZ()), static_cast<float>(uncompressedPoseRot.GetW()));
         MCore::LogDetailedInfo("    + Pose Scale:            x=%f, y=%f, z=%f", subMotionChunk.mPoseScale.mX, subMotionChunk.mPoseScale.mY, subMotionChunk.mPoseScale.mZ);
         MCore::LogDetailedInfo("    + Bind Pose Position:    x=%f, y=%f, z=%f", subMotionChunk.mBindPosePos.mX, subMotionChunk.mBindPosePos.mY, subMotionChunk.mBindPosePos.mZ);
-        MCore::LogDetailedInfo("    + Bind Pose Rotation:    x=%f, y=%f, z=%f, w=%f", uncompressedBindPoseRot.x, uncompressedBindPoseRot.y, uncompressedBindPoseRot.z, uncompressedBindPoseRot.w);
+        MCore::LogDetailedInfo("    + Bind Pose Rotation:    x=%f, y=%f, z=%f, w=%f", static_cast<float>(uncompressedBindPoseRot.GetX()), static_cast<float>(uncompressedBindPoseRot.GetY()), static_cast<float>(uncompressedBindPoseRot.GetZ()), static_cast<float>(uncompressedBindPoseRot.GetW()));
         MCore::LogDetailedInfo("    + Bind Pose Scale:       x=%f, y=%f, z=%f", subMotionChunk.mBindPoseScale.mX, subMotionChunk.mBindPoseScale.mY, subMotionChunk.mBindPoseScale.mZ);
 
         // convert endian
@@ -162,13 +173,13 @@ namespace ExporterLib
         for (uint32 i = 0; i < numMorphSubMotions; i++)
         {
             EMotionFX::MorphSubMotion* subMotion = motion->GetMorphSubMotion(i);
-            const MCore::String& nameString = MCore::GetStringIDGenerator().GetName(subMotion->GetID());
+            const AZStd::string& nameString = MCore::GetStringIdPool().GetName(subMotion->GetID());
 
             EMotionFX::FileFormat::Motion_WaveletMorphSubMotion fileSubMorphMotion;
             fileSubMorphMotion.mPoseWeight = subMotion->GetPoseWeight();
 
             MCore::LogDetailedInfo("- Wavelet Morph SubMotion:");
-            MCore::LogDetailedInfo("    + Name:         %s", nameString.AsChar());
+            MCore::LogDetailedInfo("    + Name:         %s", nameString.c_str());
             MCore::LogDetailedInfo("    + Pose Weight:  %f", fileSubMorphMotion.mPoseWeight);
 
             // convert endian
@@ -190,7 +201,7 @@ namespace ExporterLib
         const uint32 numSubMotions = motion->GetNumMorphSubMotions();
         for (uint32 i = 0; i < numSubMotions; ++i)
         {
-            const MCore::String& name = MCore::GetStringIDGenerator().GetName(motion->GetMorphSubMotion(i)->GetID());
+            const AZStd::string& name = MCore::GetStringIdPool().GetName(motion->GetMorphSubMotion(i)->GetID());
             sizeInBytes += GetStringChunkSize(name);
         }
 
@@ -206,17 +217,24 @@ namespace ExporterLib
 
         waveletChunk.mRotQuantScale             = chunk->mRotQuantScale;
         waveletChunk.mPosQuantScale             = chunk->mPosQuantScale;
-        waveletChunk.mScaleQuantScale           = chunk->mScaleQuantScale;
         waveletChunk.mMorphQuantScale           = chunk->mMorphQuantScale;
         waveletChunk.mStartTime                 = chunk->mStartTime;
         waveletChunk.mCompressedRotNumBytes     = chunk->mCompressedRotNumBytes;
         waveletChunk.mCompressedPosNumBytes     = chunk->mCompressedPosNumBytes;
-        waveletChunk.mCompressedScaleNumBytes   = chunk->mCompressedScaleNumBytes;
         waveletChunk.mCompressedMorphNumBytes   = chunk->mCompressedMorphNumBytes;
         waveletChunk.mCompressedPosNumBits      = chunk->mCompressedPosNumBits;
         waveletChunk.mCompressedRotNumBits      = chunk->mCompressedRotNumBits;
-        waveletChunk.mCompressedScaleNumBits    = chunk->mCompressedScaleNumBits;
         waveletChunk.mCompressedMorphNumBits    = chunk->mCompressedMorphNumBits;
+
+        #ifndef EMFX_SCALE_DISABLED
+            waveletChunk.mScaleQuantScale           = chunk->mScaleQuantScale;
+            waveletChunk.mCompressedScaleNumBytes   = chunk->mCompressedScaleNumBytes;
+            waveletChunk.mCompressedScaleNumBits    = chunk->mCompressedScaleNumBits;
+        #else
+            waveletChunk.mScaleQuantScale           = 1.0f;
+            waveletChunk.mCompressedScaleNumBytes   = 0;
+            waveletChunk.mCompressedScaleNumBits    = 0;
+        #endif
 
         // log it
         MCore::LogDetailedInfo("- Wavelet Chunk");
@@ -256,7 +274,10 @@ namespace ExporterLib
         file->Write(chunk->mCompressedRotData, chunk->mCompressedRotNumBytes);
         file->Write(chunk->mCompressedPosData, chunk->mCompressedPosNumBytes);
         file->Write(chunk->mCompressedMorphData, chunk->mCompressedMorphNumBytes);
-        file->Write(chunk->mCompressedScaleData, chunk->mCompressedScaleNumBytes);
+        EMFX_SCALECODE
+        (
+            file->Write(chunk->mCompressedScaleData, chunk->mCompressedScaleNumBytes);
+        )
     }
 
 
@@ -299,8 +320,11 @@ namespace ExporterLib
             sizeInBytes += sizeof(EMotionFX::FileFormat::Motion_WaveletChunk);
             sizeInBytes += chunk->mCompressedRotNumBytes;
             sizeInBytes += chunk->mCompressedPosNumBytes;
-            sizeInBytes += chunk->mCompressedScaleNumBytes;
             sizeInBytes += chunk->mCompressedMorphNumBytes;
+            EMFX_SCALECODE
+            (
+                sizeInBytes += chunk->mCompressedScaleNumBytes;
+            )
         }
 
         return sizeInBytes;
@@ -312,19 +336,17 @@ namespace ExporterLib
     {
         // the wavelet skeletal info chunk
         EMotionFX::FileFormat::Motion_WaveletInfo waveletInfoChunk;
+        memset(&waveletInfoChunk, 0, sizeof(EMotionFX::FileFormat::Motion_WaveletInfo));
 
         waveletInfoChunk.mNumChunks                     = motion->GetNumChunks();
         waveletInfoChunk.mSamplesPerChunk               = motion->GetSamplesPerChunk();
         waveletInfoChunk.mDecompressedRotNumBytes       = motion->GetNumDecompressedRotBytes();
         waveletInfoChunk.mDecompressedPosNumBytes       = motion->GetNumDecompressedPosBytes();
-        waveletInfoChunk.mDecompressedScaleNumBytes     = motion->GetNumDecompressedScaleBytes();
         waveletInfoChunk.mDecompressedMorphNumBytes     = motion->GetNumDecompressedMorphBytes();
         waveletInfoChunk.mPosQuantFactor                = motion->GetPosQuantFactor();
         waveletInfoChunk.mRotQuantFactor                = motion->GetRotQuantFactor();
-        waveletInfoChunk.mScaleQuantFactor              = motion->GetScaleQuantFactor();
         waveletInfoChunk.mMorphQuantFactor              = motion->GetMorphQuantFactor();
         waveletInfoChunk.mNumRotTracks                  = motion->GetNumRotTracks();
-        waveletInfoChunk.mNumScaleTracks                = motion->GetNumScaleTracks();
         waveletInfoChunk.mNumPosTracks                  = motion->GetNumPosTracks();
         waveletInfoChunk.mNumMorphTracks                = motion->GetNumMorphTracks();
         waveletInfoChunk.mChunkOverhead                 = motion->GetChunkOverhead();
@@ -339,6 +361,16 @@ namespace ExporterLib
         waveletInfoChunk.mCompressorID                  = EMotionFX::FileFormat::MOTION_COMPRESSOR_HUFFMAN;
         waveletInfoChunk.mUnitType                      = static_cast<uint8>(motion->GetUnitType());
         waveletInfoChunk.mScale                         = motion->GetScale();
+
+        #ifndef EMFX_SCALE_DISABLED
+            waveletInfoChunk.mDecompressedScaleNumBytes     = motion->GetNumDecompressedScaleBytes();
+            waveletInfoChunk.mScaleQuantFactor              = motion->GetScaleQuantFactor();
+            waveletInfoChunk.mNumScaleTracks                = motion->GetNumScaleTracks();
+        #else
+            waveletInfoChunk.mDecompressedScaleNumBytes     = 0;
+            waveletInfoChunk.mScaleQuantFactor              = 1.0f;
+            waveletInfoChunk.mNumScaleTracks                = 0;
+        #endif
 
         // get the wavelet type
         EMotionFX::WaveletSkeletalMotion::EWaveletType wavelet = motion->GetWavelet();
@@ -480,13 +512,13 @@ namespace ExporterLib
 
 
     // convert the given skeletal motion file to a wavelet motion
-    bool ConvertToWaveletSkeletalMotion(const MCore::String& fileName, EMotionFX::WaveletSkeletalMotion::Settings* settings, MCore::Endian::EEndianType targetEndianType)
+    bool ConvertToWaveletSkeletalMotion(const AZStd::string& fileName, EMotionFX::WaveletSkeletalMotion::Settings* settings, MCore::Endian::EEndianType targetEndianType)
     {
         // load the skeletal motion from disk
         EMotionFX::Importer::SkeletalMotionSettings loadSettings;
         loadSettings.mForceLoading = true;
         loadSettings.mUnitTypeConvert = false;
-        EMotionFX::SkeletalMotion* skeletalMotion = EMotionFX::GetImporter().LoadSkeletalMotion(fileName.AsChar(), &loadSettings);
+        EMotionFX::SkeletalMotion* skeletalMotion = EMotionFX::GetImporter().LoadSkeletalMotion(fileName.c_str(), &loadSettings);
         if (skeletalMotion == nullptr)
         {
             return false;
@@ -501,7 +533,7 @@ namespace ExporterLib
 
         // overwrite the disk file with the new wavelet motion
         MCore::DiskFile diskFile;
-        if (diskFile.Open(fileName.AsChar(), MCore::DiskFile::WRITE) == false)
+        if (diskFile.Open(fileName.c_str(), MCore::DiskFile::WRITE) == false)
         {
             return false;
         }

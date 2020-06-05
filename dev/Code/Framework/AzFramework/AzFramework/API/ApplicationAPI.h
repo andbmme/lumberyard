@@ -15,8 +15,12 @@
 
 #pragma once
 
+#include <AzCore/base.h>
 #include <AzCore/EBus/EBus.h>
 #include <AzCore/Component/Component.h>
+#include <AzCore/std/chrono/chrono.h>
+#include <AzCore/std/functional.h>
+#include <AzCore/std/parallel/thread.h>
 #include <AzCore/std/string/string.h>
 
 #include <AzFramework/CommandLine/CommandLine.h>
@@ -34,6 +38,30 @@ namespace AZ
 
 namespace AzFramework
 {
+    struct ApplicationTypeQuery
+    {
+        bool IsEditor() const;
+        bool IsTool() const;
+        bool IsGame() const;
+        bool IsValid() const;
+
+        enum class Masks
+        {
+            Invalid = 0,
+            Editor = 1 << 0,
+            Tool = 1 << 1,
+            Game = 1 << 2,
+        };
+        Masks m_maskValue = Masks::Invalid;
+    };
+    AZ_DEFINE_ENUM_BITWISE_OPERATORS(ApplicationTypeQuery::Masks);
+
+    // use of the Masks operator&(Masks, Masks) needs to be after the definition above.
+    inline bool ApplicationTypeQuery::IsEditor() const { return (m_maskValue & Masks::Editor) == Masks::Editor; }
+    inline bool ApplicationTypeQuery::IsTool() const   { return (m_maskValue & Masks::Tool)   == Masks::Tool; }
+    inline bool ApplicationTypeQuery::IsGame() const   { return (m_maskValue & Masks::Game)   == Masks::Game; }
+    inline bool ApplicationTypeQuery::IsValid() const  { return m_maskValue != Masks::Invalid; }
+
     class ApplicationRequests
         : public AZ::EBusTraits
     {
@@ -87,6 +115,11 @@ namespace AzFramework
         /// Pump the system event loop until there are no events left to process.
         virtual void PumpSystemEventLoopUntilEmpty() {}
 
+        /// Execute a function in a new thread and pump the system event loop at the specified frequency until the thread returns.
+        virtual void PumpSystemEventLoopWhileDoingWorkInNewThread(const AZStd::chrono::milliseconds& /*eventPumpFrequency*/,
+                                                                  const AZStd::function<void()>& /*workForNewThread*/,
+                                                                  const char* /*newThreadName*/) {}
+
         /// Run the main loop until ExitMainLoop is called.
         virtual void RunMainLoop() {}
 
@@ -95,6 +128,9 @@ namespace AzFramework
 
         /// Returns true is ExitMainLoop has been called, false otherwise.
         virtual bool WasExitMainLoopRequested() { return false; }
+
+        /// Terminate the application due to an error
+        virtual void TerminateOnError(int errorCode) { exit(errorCode); }
 
         /// Check to see if the application is running against an engine that is external to the application path
         virtual bool IsEngineExternal() const { return false; }
@@ -107,7 +143,7 @@ namespace AzFramework
 
         /*!
         * Returns a Type Uuid of the component for the given componentId and entityId.
-        * if no comopnent matches the entity and component Id pair, a Null Uuid is returned
+        * if no component matches the entity and component Id pair, a Null Uuid is returned
         * \param entityId - the Id of the entity containing the component
         * \param componentId - the Id of the component whose TypeId you wish to get
         */
@@ -118,7 +154,12 @@ namespace AzFramework
         {
             RegisterComponent(new ComponentFactoryType());
         }
+
+        //! Returns all the flags that are true for the current application.
+        virtual void QueryApplicationType(ApplicationTypeQuery& appType) const = 0;
+
     };
+
 
     class ApplicationLifecycleEvents
         : public AZ::EBusTraits
@@ -161,6 +202,11 @@ namespace AzFramework
         // rendering context.
         virtual void OnApplicationWindowCreated() {}
         virtual void OnApplicationWindowDestroy() {}
+
+        // Event triggered when an orientation change occurs.
+        // This is currently only supported on Android so the 
+        // renderer can handle orientation changes.
+        virtual void OnApplicationWindowRedrawNeeded() {}
     };
 } // namespace AzFramework
 

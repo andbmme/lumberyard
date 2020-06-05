@@ -23,7 +23,8 @@
 GeomCacheDiskWriteThread::GeomCacheDiskWriteThread(const string& fileName)
     : m_bExit(false)
 {
-    m_fileHandle = fopen(fileName, "w+b");
+    m_fileHandle = nullptr; 
+    azfopen(&m_fileHandle, fileName, "w+b");
 }
 
 GeomCacheDiskWriteThread::~GeomCacheDiskWriteThread()
@@ -57,9 +58,15 @@ void GeomCacheDiskWriteThread::EndThread()
 
 uint64 GeomCacheDiskWriteThread::GetCurrentPosition() const
 {
+#if defined(AZ_PLATFORM_LINUX)
+    off_t position;
+    position = ftello(m_fileHandle);
+    return static_cast<uint64>(position);
+#else
     fpos_t position;
     fgetpos(m_fileHandle, &position);
     return static_cast<uint64>(position);
+#endif
 }
 
 GeomCacheBlockCompressionWriter::GeomCacheBlockCompressionWriter(IGeomCacheBlockCompressor* pBlockCompressor, GeomCacheDiskWriteThread& diskWriteThread)
@@ -151,6 +158,9 @@ GeomCacheWriter::GeomCacheWriter(const string& filename, GeomCacheFile::EBlockCo
         break;
     case GeomCacheFile::eBlockCompressionFormat_LZ4HC:
         m_pBlockCompressor.reset(new GeomCacheLZ4HCBlockCompressor);
+        break;
+    case GeomCacheFile::eBlockCompressionFormat_ZSTD:
+        m_pBlockCompressor.reset(new GeomCacheZStdBlockCompressor);
         break;
     }
 

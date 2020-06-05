@@ -14,7 +14,7 @@
 #include "LuaEditor.h"
 #include <Woodpecker/LuaIDEApplication.h>
 
-#if defined(AZ_PLATFORM_WINDOWS)
+#if defined(AZ_COMPILER_MSVC)
 #include "resource.h"
 #endif
 
@@ -51,7 +51,7 @@ int main(int argc, char* argv[])
             procName = QFileInfo(qca.applicationFilePath()).fileName();
         }
 
-        LegacyFramework::ApplicationDesc desc(procName.toUtf8().data());
+        LegacyFramework::ApplicationDesc desc(procName.toUtf8().data(), argc, argv);
         desc.m_applicationModule = NULL;
         desc.m_enableProjectManager = false;
 
@@ -72,6 +72,11 @@ int main(int argc, char* argv[])
         // calling UserWantsToQuit will simply queue the quit, so its safe to call from any thread.
         // your components can query EBUS_EVENT_RESULT(res, LegacyFramework::FrameworkApplicationMessages::IsRunningInGUIMode) to determine
         // if its in GUI mode or not.
+    }
+
+    if (AZ::AllocatorInstance<AZ::OSAllocator>::IsReady())
+    {
+        AZ::AllocatorInstance<AZ::OSAllocator>::Destroy();
     }
 
     return exitCode;

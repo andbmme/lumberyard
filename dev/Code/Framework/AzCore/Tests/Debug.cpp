@@ -10,8 +10,6 @@
 *
 */
 
-#include "TestTypes.h"
-
 #include <AzCore/Debug/Timer.h>
 #include <AzCore/Debug/StackTracer.h>
 #include <AzCore/Debug/TraceMessagesDrillerBus.h>
@@ -20,6 +18,8 @@
 #include <AzCore/Math/Crc.h>
 #include <AzCore/std/time.h>
 #include <AzCore/std/chrono/clocks.h>
+#include <AzCore/std/string/conversions.h>
+#include <AzCore/UnitTest/TestTypes.h>
 
 using namespace AZ;
 using namespace AZ::Debug;
@@ -42,7 +42,7 @@ namespace UnitTest
                 }
             }
             AZ_TEST_ASSERT(numValidFrames == numFrames);
-#if defined(AZ_PLATFORM_WINDOWS) || defined(AZ_PLATFORM_LINUX) || defined(AZ_PLATFORM_ANDROID) || defined(AZ_PLATFORM_APPLE)
+#if AZ_TRAIT_OS_STACK_FRAMES_VALID
             // We have:
             // StackTracer::run
             // DebugSuite::run
@@ -54,13 +54,17 @@ namespace UnitTest
             AZ_TEST_ASSERT(numValidFrames == 0);
 #endif
 
-#ifdef AZ_PLATFORM_WINDOWS  // Symbols are available only on windows.
+#if AZ_TRAIT_OS_STACK_FRAMES_TRACE  // Symbols are available only on windows.
             {
                 //// We should have loaded at least AZCore_tests.exe module
                 int isFoundModule = 0;
                 for (u32 i = 0; i < SymbolStorage::GetNumLoadedModules(); ++i)
                 {
-                    if (strstr(SymbolStorage::GetModuleInfo(i)->m_fileName, "AzCoreTests.dll"))
+                    char nameBuffer[AZ_ARRAY_SIZE(SymbolStorage::ModuleInfo::m_modName)];
+                    azstrncpy(nameBuffer, SymbolStorage::GetModuleInfo(i)->m_fileName, AZ_ARRAY_SIZE(nameBuffer));
+                    AZStd::to_lower(nameBuffer, nameBuffer + AZ_ARRAY_SIZE(nameBuffer));
+
+                    if (strstr(nameBuffer, "azcoretests.dll"))
                     {
                         isFoundModule = 1;
                         break;
@@ -79,7 +83,7 @@ namespace UnitTest
                 }
                 AZ_TracePrintf("StackTracer", "====================================\n");
             }
-#elif defined(AZ_PLATFORM_LINUX) || defined(AZ_PLATFORM_APPLE)
+#elif AZ_TRAIT_OS_STACK_FRAMES_PRINT
             {
                 SymbolStorage::StackLine stackLines[AZ_ARRAY_SIZE(frames)];
                 printf("\n====================================\n");
@@ -134,30 +138,8 @@ namespace UnitTest
             // Regular warning
             AZ_Warning("Streamer", falseExp, "Test Message");
 
-            // Whenever a warning occurs, the trace system automatically sends the callstack to AZ_Traceprintf.
-            // this means that there is actually more than one TracePrintF for every warning given since it includes
-            // all of the stack frames on a line each.
-            AZ_TEST_ASSERT(m_numTracePrintfs > 1); 
-
-            // This should print a warning only once
-            int oldNumTracePrintfs = m_numTracePrintfs;
-            for (s32 i = 0; i < 5; ++i)
-            {
-                AZ_WarningOnce("AZCore | Warning once", i < 0, "Warning only once %d", m_data);
-                if (i == 0)
-                {
-                    // the first time we hit the above warning it should increase the number of traceprintfs (includes callstack).
-                    AZ_TEST_ASSERT(m_numTracePrintfs > oldNumTracePrintfs);
-                    oldNumTracePrintfs = m_numTracePrintfs;
-                }
-                else
-                {
-                    // the number of printfs executed should not change after the first warning dumps its call stack.
-                    AZ_TEST_ASSERT(oldNumTracePrintfs == m_numTracePrintfs);
-                }
-            }
-
             // Printf
+            int oldNumTracePrintfs = m_numTracePrintfs;
             AZ_Printf("AI | A*", "Test Message");
             // only one traceprintf should have occurred here.
             AZ_TEST_ASSERT(m_numTracePrintfs == oldNumTracePrintfs + 1);
@@ -175,6 +157,8 @@ namespace UnitTest
             AZ_VerifyWarning("Test", result = true, "Expression should execute even in release!");
             AZ_TEST_ASSERT(result == true);
             (void)result;
+
+            BusDisconnect();
         }
     };
 

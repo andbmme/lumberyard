@@ -11,6 +11,11 @@
 */
 
 #include "UserTypes.h"
+#include <AzCore/std/typetraits/internal/is_template_copy_constructible.h>
+#include <AzCore/std/containers/set.h>
+#include <AzCore/std/containers/unordered_set.h>
+#include <AzCore/std/containers/map.h>
+#include <AzCore/std/containers/unordered_map.h>
 
 using namespace AZStd;
 using namespace UnitTestInternal;
@@ -139,14 +144,12 @@ namespace UnitTest
         AZ_TEST_STATIC_ASSERT((is_member_function_pointer<int (MyStruct::*)() const>::value));
         AZ_TEST_STATIC_ASSERT((is_member_function_pointer<int (MyStruct::*)() volatile>::value));
         AZ_TEST_STATIC_ASSERT((is_member_function_pointer<int (MyStruct::*)() const volatile>::value));
-#if !defined(AZ_COMPILER_MSVC) || AZ_COMPILER_MSVC >= 1900
         AZ_TEST_STATIC_ASSERT((is_member_function_pointer<int (MyStruct::*)() &>::value));
         AZ_TEST_STATIC_ASSERT((is_member_function_pointer<int (MyStruct::*)() const&>::value));
         AZ_TEST_STATIC_ASSERT((is_member_function_pointer<int (MyStruct::*)() const volatile&>::value));
         AZ_TEST_STATIC_ASSERT((is_member_function_pointer<int (MyStruct::*)() &&>::value));
         AZ_TEST_STATIC_ASSERT((is_member_function_pointer<int (MyStruct::*)() const&&>::value));
         AZ_TEST_STATIC_ASSERT((is_member_function_pointer<int (MyStruct::*)() const volatile&&>::value));
-#endif
 
         // is_enum
         AZ_TEST_STATIC_ASSERT(is_enum<int>::value == false);
@@ -232,9 +235,7 @@ namespace UnitTest
 
         // is_empty
         AZ_TEST_STATIC_ASSERT(is_empty<MyStruct>::value == false);
-#if !(defined(AZ_COMPILER_GCC) && (AZ_COMPILER_GCC < 3))
         AZ_TEST_STATIC_ASSERT(is_empty<MyEmptyStruct>::value == true);
-#endif
         AZ_TEST_STATIC_ASSERT(is_empty<int>::value == false);
 
         // is_polymorphic
@@ -334,10 +335,10 @@ namespace UnitTest
         };
 
         using LambdaType = decltype(lambdaFunction);
-        AZ_TEST_STATIC_ASSERT((AZStd::is_same<typename AZStd::function_traits<decltype(lambdaFunction)>::raw_fp_type, bool(*)(FunctionTestStruct, int)>::value));
-        AZ_TEST_STATIC_ASSERT((AZStd::is_same<typename AZStd::function_traits<decltype(lambdaFunction)>::class_fp_type, bool(LambdaType::*)(FunctionTestStruct, int) const>::value));
-        AZ_TEST_STATIC_ASSERT((AZStd::is_same<typename AZStd::function_traits<decltype(lambdaFunction)>::class_type, LambdaType>::value));
+        AZ_TEST_STATIC_ASSERT((AZStd::is_same<typename AZStd::function_traits<LambdaType>::raw_fp_type, bool(*)(FunctionTestStruct, int)>::value));
+        AZ_TEST_STATIC_ASSERT((AZStd::is_same<typename AZStd::function_traits<LambdaType>::class_fp_type, bool(LambdaType::*)(FunctionTestStruct, int) const>::value));
         AZ_TEST_STATIC_ASSERT((AZStd::function_traits<LambdaType>::arity == 2));
+        static_assert(AZStd::is_same<AZStd::function_traits<LambdaType>::return_type, bool>::value, "Lambda result type should be bool");
 
         AZStd::function<void(LambdaType*, ComplexFunction&)> stdFunction;
         using StdFunctionType = decay_t<decltype(stdFunction)>;
@@ -351,6 +352,104 @@ namespace UnitTest
         void NonConstMethod() { }
     };
 
-    AZ_TEST_STATIC_ASSERT(is_method_t_const<decltype(&ConstMethodTestStruct::ConstMethod)>::value);
-    AZ_TEST_STATIC_ASSERT(!is_method_t_const<decltype(&ConstMethodTestStruct::NonConstMethod)>::value);
+    AZ_TEST_STATIC_ASSERT((static_cast<uint32_t>(function_traits<decltype(&ConstMethodTestStruct::ConstMethod)>::qual_flags) & static_cast<uint32_t>(Internal::qualifier_flags::const_)) != 0);
+    AZ_TEST_STATIC_ASSERT((static_cast<uint32_t>(function_traits<decltype(&ConstMethodTestStruct::NonConstMethod)>::qual_flags) & static_cast<uint32_t>(Internal::qualifier_flags::const_)) == 0);
+}
+
+TEST(TypeTraits, StdRemoveConstCompiles)
+{
+    static_assert(AZStd::is_same_v<int, AZStd::remove_const_t<const int>>, "C++11 std::remove_const_t has failed");
+    static_assert(AZStd::is_same_v<int, AZStd::remove_const_t<int>>, "C++11 std::remove_const_t has failed");
+    static_assert(AZStd::is_same_v<int*, AZStd::remove_const_t<int* const>>, "C++11 std::remove_const_t has failed");
+    static_assert(AZStd::is_same_v<const int*, AZStd::remove_const_t<const int*>>, "C++11 std::remove_const_t has failed");
+    static_assert(AZStd::is_same_v<const volatile int*, AZStd::remove_const_t<const volatile int* const>>, "C++11 std::remove_const_t has failed");
+    static_assert(AZStd::is_same_v<int, AZStd::remove_const_t<AZStd::remove_reference_t<const int&>>>, "C++11 std::remove_const_t has failed");
+}
+
+TEST(TypeTraits, StdRemoveVolatileCompiles)
+{
+    static_assert(AZStd::is_same_v<int, AZStd::remove_volatile_t<volatile int>>, "C++11 std::remove_volatile_t has failed");
+    static_assert(AZStd::is_same_v<int, AZStd::remove_volatile_t<int>>, "C++11 std::remove_volatile_t has failed");
+    static_assert(AZStd::is_same_v<int*, AZStd::remove_volatile_t<int* volatile>>, "C++11 std::remove_volatile_t has failed");
+    static_assert(AZStd::is_same_v<volatile int*, AZStd::remove_volatile_t<volatile int*>>, "C++11 std::remove_volatile_t has failed");
+    static_assert(AZStd::is_same_v<const volatile int*, AZStd::remove_volatile_t<const volatile int*>>, "C++11 std::remove_volatile_t has failed");
+    static_assert(AZStd::is_same_v<const int*, AZStd::remove_volatile_t<const int* volatile>>, "C++11 std::remove_volatile_t has failed");
+    static_assert(AZStd::is_same_v<int, AZStd::remove_volatile_t<AZStd::remove_reference_t<volatile int&>>>, "C++11 std::remove_volatile_t has failed");
+}
+
+TEST(TypeTraits, StdIsConstCompiles)
+{
+    static_assert(!AZStd::is_const_v<int>, "C++11 std::is_const has failed");
+    static_assert(AZStd::is_const_v<const int>, "C++11 std::is_const has failed");
+    // references are never const
+    static_assert(!AZStd::is_const_v<const int&>, "C++11 std::is_const has failed");
+    // pointer checks for constness
+    static_assert(!AZStd::is_const_v<const int*>, "C++11 std::is_const has failed");
+    static_assert(AZStd::is_const_v<const int* const>, "C++11 std::is_const has failed");
+    static_assert(AZStd::is_const_v<int* const>, "C++11 std::is_const has failed");
+}
+
+TEST(TypeTraits, StdIsVolatileCompiles)
+{
+    static_assert(!AZStd::is_volatile_v<int>, "C++11 std::is_volatile has failed");
+    static_assert(AZStd::is_volatile_v<volatile int>, "C++11 std::is_volatile has failed");
+    // references are never volatile
+    static_assert(!AZStd::is_volatile_v<volatile int&>, "C++11 std::is_volatile has failed");
+    // pointer checks for volatile
+    static_assert(!AZStd::is_volatile_v<volatile int*>, "C++11 std::is_volatile has failed");
+    static_assert(AZStd::is_volatile_v<const int* volatile>, "C++11 std::is_volatile has failed");
+    static_assert(!AZStd::is_volatile_v<volatile int* const>, "C++11 std::is_volatile has failed");
+    static_assert(AZStd::is_volatile_v<int* volatile>, "C++11 std::is_volatile has failed");
+}
+
+TEST(TypeTraits, TemplateIsCopyConstructible_WithCopyConstructibleValueType_ReturnsTrue)
+{
+    static_assert(AZStd::Internal::template_is_copy_constructible<AZStd::vector<int>>::value, "");
+    static_assert(AZStd::Internal::template_is_copy_constructible<AZStd::list<int>>::value, "");
+    static_assert(AZStd::Internal::template_is_copy_constructible<AZStd::forward_list<int>>::value, "");
+    static_assert(AZStd::Internal::template_is_copy_constructible<AZStd::map<int, int>>::value, "");
+    static_assert(AZStd::Internal::template_is_copy_constructible<AZStd::multimap<int, int>>::value, "");
+    static_assert(AZStd::Internal::template_is_copy_constructible<AZStd::unordered_map<int, int>>::value, "");
+    static_assert(AZStd::Internal::template_is_copy_constructible<AZStd::unordered_multimap<int, int>>::value, "");
+    static_assert(AZStd::Internal::template_is_copy_constructible<AZStd::set<int>>::value, "");
+    static_assert(AZStd::Internal::template_is_copy_constructible<AZStd::multiset<int>>::value, "");
+    static_assert(AZStd::Internal::template_is_copy_constructible<AZStd::unordered_set<int>>::value, "");
+    static_assert(AZStd::Internal::template_is_copy_constructible<AZStd::unordered_multiset<int>>::value, "");
+    static_assert(AZStd::Internal::template_is_copy_constructible<AZStd::pair<int, int>>::value, "");
+
+    struct CopyableType
+    {
+        CopyableType() = default;
+        CopyableType(const CopyableType&) = default;
+    };
+    static_assert(AZStd::Internal::template_is_copy_constructible<CopyableType>::value, "");
+}
+
+TEST(TypeTraits, TemplateIsCopyConstructible_WithOutCopyConstructibleValueType_ReturnsFalse)
+{
+    static_assert(!AZStd::Internal::template_is_copy_constructible<AZStd::vector<AZStd::unique_ptr<int>>>::value, "");
+    static_assert(!AZStd::Internal::template_is_copy_constructible<AZStd::list<AZStd::unique_ptr<int>>>::value, "");
+    static_assert(!AZStd::Internal::template_is_copy_constructible<AZStd::forward_list<AZStd::unique_ptr<int>>>::value, "");
+    static_assert(!AZStd::Internal::template_is_copy_constructible<AZStd::map<AZStd::unique_ptr<int>, int>>::value, "");
+    static_assert(!AZStd::Internal::template_is_copy_constructible<AZStd::map<int, AZStd::unique_ptr<int>>>::value, "");
+    static_assert(!AZStd::Internal::template_is_copy_constructible<AZStd::multimap<AZStd::unique_ptr<int>, int>>::value, "");
+    static_assert(!AZStd::Internal::template_is_copy_constructible<AZStd::multimap<int, AZStd::unique_ptr<int>>>::value, "");
+    static_assert(!AZStd::Internal::template_is_copy_constructible<AZStd::unordered_map<AZStd::unique_ptr<int>, int>>::value, "");
+    static_assert(!AZStd::Internal::template_is_copy_constructible<AZStd::unordered_map<int, AZStd::unique_ptr<int>>>::value, "");
+    static_assert(!AZStd::Internal::template_is_copy_constructible<AZStd::unordered_multimap<AZStd::unique_ptr<int>, int>>::value, "");
+    static_assert(!AZStd::Internal::template_is_copy_constructible<AZStd::unordered_multimap<int, AZStd::unique_ptr<int>>>::value, "");
+    static_assert(!AZStd::Internal::template_is_copy_constructible<AZStd::set<AZStd::unique_ptr<int>>>::value, "");
+    static_assert(!AZStd::Internal::template_is_copy_constructible<AZStd::multiset<AZStd::unique_ptr<int>>>::value, "");
+    static_assert(!AZStd::Internal::template_is_copy_constructible<AZStd::unordered_set<AZStd::unique_ptr<int>>>::value, "");
+    static_assert(!AZStd::Internal::template_is_copy_constructible<AZStd::unordered_multiset<AZStd::unique_ptr<int>>>::value, "");
+    static_assert(!AZStd::Internal::template_is_copy_constructible<AZStd::pair<AZStd::unique_ptr<int>, int>>::value, "");
+    static_assert(!AZStd::Internal::template_is_copy_constructible<AZStd::pair<int, AZStd::unique_ptr<int>>>::value, "");
+
+    struct MoveOnly
+    {
+        MoveOnly() = default;
+        MoveOnly(const MoveOnly&) = delete;
+        MoveOnly(MoveOnly&&) = default;
+    };
+    static_assert(!AZStd::Internal::template_is_copy_constructible<MoveOnly>::value, "");
 }

@@ -10,7 +10,18 @@
 #
 import json
 import os
-import urllib
+
+try:
+    # Python 3
+    import urllib.request, urllib.parse, urllib.error
+    url_quote_func = urllib.parse.quote
+except:
+    # Fallback to Python 2
+    import urllib
+    url_quote_func = urllib.quote
+
+
+
 from xml.etree import ElementTree
 from collections import namedtuple
 
@@ -152,8 +163,12 @@ def aggregate_results(scan_results):
     duration = 0.0
 
     for result in scan_results:
-        if result.return_code not in [0, 1]:
+        if result.return_code not in [RunnerReturnCodes.TESTS_SUCCEEDED, RunnerReturnCodes.TESTS_FAILED,
+                                      RunnerReturnCodes.MODULE_SKIPPED]:
             errors += 1
+            continue
+
+        if result.return_code == RunnerReturnCodes.MODULE_SKIPPED:
             continue
 
         module_agg = aggregate_module(result.xml_path)
@@ -301,7 +316,7 @@ def create_html_report(scan_results, output_dir, failures_only=False):
     :param scan_results: iterable of ScanResult
     :param output_dir: output directory of report generation
     :param failures_only: when True, only output failures
-    :return: None
+    :return: filename of the report
     """
     filename = os.path.abspath(os.path.join(output_dir,
                                             "{}report.html".format("failure_" if failures_only else "")))
@@ -335,7 +350,7 @@ def create_html_report(scan_results, output_dir, failures_only=False):
 
         def generate_anchor_name(path):
             """ Generate an on-page anchor name from the input path. """
-            return urllib.quote(path)
+            return url_quote_func(path)
 
         f.write("<html><head><style>{}</style></head><body>\n".format(css))
         f.write("<h1>AzTestScanner Report</h1>")
@@ -353,12 +368,18 @@ def create_html_report(scan_results, output_dir, failures_only=False):
         f.write('<div><table style="float: left">')
         tr_from_list(["Module", "Tests", "Failures", "Errors", "Disabled", "Success Rate", "Time"], ["header"])
         for scan_result in scan_results:
+
+            module = os.path.basename(scan_result.path)
+
+            if scan_result.return_code == RunnerReturnCodes.MODULE_SKIPPED:
+                if not failures_only:
+                    tr_from_list(["skipped: {}".format(module), 0, 0, 0, 0, 0, 0])
+                continue
+
             agg = aggregate_module(scan_result.xml_path)
 
             if failures_only and agg.success_rate >= 1.0:
                 continue  # skip successes if failure-only specified
-
-            module = os.path.basename(scan_result.path)
 
             if agg.tests == 0:
                 css_classes = ['error']
@@ -393,6 +414,9 @@ def create_html_report(scan_results, output_dir, failures_only=False):
             if failures_only and scan_result.return_code == 0:
                 continue
 
+            if scan_result.return_code == RunnerReturnCodes.MODULE_SKIPPED:
+                continue
+
             module = os.path.basename(scan_result.path)
 
             f.write('<div class="module">'.format(css_class))
@@ -414,9 +438,11 @@ def create_html_report(scan_results, output_dir, failures_only=False):
             f.write("</div>")
         f.write("</body></html>\n")
 
+    return filename
+
 
 def create_html_failure_report(files, output_dir):
-    create_html_report(files, output_dir, True)
+    return create_html_report(files, output_dir, True)
 
 
 def generate_standalone_report(args, extra):

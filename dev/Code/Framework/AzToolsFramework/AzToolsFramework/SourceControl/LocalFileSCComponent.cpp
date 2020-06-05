@@ -18,6 +18,12 @@
 #include <AzCore/Jobs/JobFunction.h>
 #include <AzCore/IO/SystemFile.h>
 #include <AzCore/Serialization/SerializeContext.h>
+#include <AzCore/std/string/regex.h>
+#include <AzCore/StringFunc/StringFunc.h>
+AZ_PUSH_DISABLE_WARNING(4251, "-Wunknown-warning-option") // 4251: 'QFileInfo::d_ptr': class 'QSharedDataPointer<QFileInfoPrivate>' needs to have dll-interface to be used by clients of class 'QFileInfo'
+#include <QDir>
+#include <QDirIterator>
+AZ_POP_DISABLE_WARNING
 
 namespace AzToolsFramework
 {
@@ -71,6 +77,10 @@ namespace AzToolsFramework
         job->Start();
     }
 
+    void LocalFileSCComponent::GetBulkFileInfo(const AZStd::unordered_set<AZStd::string>& /*fullFilePaths*/, const SourceControlResponseCallbackBulk& /*respCallback*/)
+    {
+    }
+
     void LocalFileSCComponent::RequestEdit(const char* fullFilePath, bool /*allowMultiCheckout*/, const SourceControlResponseCallback& respCallback)
     {
         SourceControlFileInfo fileInfo(fullFilePath);
@@ -90,6 +100,10 @@ namespace AzToolsFramework
         job->Start();
     }
 
+    void LocalFileSCComponent::RequestEditBulk(const AZStd::unordered_set<AZStd::string>& /*fullFilePaths*/, const SourceControlResponseCallbackBulk& /*respCallback*/)
+    {
+    }
+
     void LocalFileSCComponent::RequestDelete(const char* fullFilePath, const SourceControlResponseCallback& respCallback)
     {
         SourceControlFileInfo fileInfo(fullFilePath);
@@ -104,6 +118,10 @@ namespace AzToolsFramework
         job->Start();
     }
 
+    void LocalFileSCComponent::RequestDeleteBulk(const char* /*fullFilePath*/, const SourceControlResponseCallbackBulk& /*respCallback*/)
+    {
+    }
+
     void LocalFileSCComponent::RequestRevert(const char* fullFilePath, const SourceControlResponseCallback& respCallback)
     {
         // Get the info, and fail if the file doesn't exist.
@@ -113,7 +131,7 @@ namespace AzToolsFramework
     void LocalFileSCComponent::RequestLatest(const char* fullFilePath, const SourceControlResponseCallback& respCallback)
     {
         SourceControlFileInfo fileInfo(fullFilePath);
-        auto job = AZ::CreateJobFunction([fileInfo, respCallback, this]() mutable
+        auto job = AZ::CreateJobFunction([fileInfo, respCallback]() mutable
         {
             RefreshInfoFromFileSystem(fileInfo);
             AZ::TickBus::QueueFunction(respCallback, true, fileInfo);
@@ -125,7 +143,7 @@ namespace AzToolsFramework
     {
         SourceControlFileInfo fileInfoSrc(sourcePathFull);
         SourceControlFileInfo fileInfoDst(destPathFull);
-        auto job = AZ::CreateJobFunction([fileInfoSrc, fileInfoDst, respCallback, this]() mutable
+        auto job = AZ::CreateJobFunction([fileInfoSrc, fileInfoDst, respCallback]() mutable
         {
             RefreshInfoFromFileSystem(fileInfoSrc);
             auto succeeded = AZ::IO::SystemFile::Rename(fileInfoSrc.m_filePath.c_str(), fileInfoDst.m_filePath.c_str());
@@ -136,13 +154,17 @@ namespace AzToolsFramework
         job->Start();
     }
 
+    void LocalFileSCComponent::RequestRenameBulk(const char* /*sourcePathFull*/, const char* /*destPathFull*/, const SourceControlResponseCallbackBulk& /*respCallback*/)
+    {
+    }
+
     void LocalFileSCComponent::Reflect(AZ::ReflectContext* context)
     {
         AZ::SerializeContext* serialize = azrtti_cast<AZ::SerializeContext*>(context);
         if (serialize)
         {
             serialize->Class<LocalFileSCComponent, AZ::Component>()
-                ->SerializerForEmptyClass()
+
             ;
         }
     }

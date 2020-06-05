@@ -3,9 +3,9 @@
 * its licensors.
 *
 * For complete copyright and license terms please see the LICENSE at the root of this
-* distribution(the "License").All use of this software is governed by the License,
-* or, if provided, by the license below or the license accompanying this file.Do not
-* remove or modify any license notices.This file is distributed on an "AS IS" BASIS,
+* distribution (the "License"). All use of this software is governed by the License,
+* or, if provided, by the license below or the license accompanying this file. Do not
+* remove or modify any license notices. This file is distributed on an "AS IS" BASIS,
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
@@ -596,7 +596,7 @@ namespace DX12
         if (!result->Init(params))
         {
             DX12_ERROR("Could not create root signature!");
-            nullptr;
+            return nullptr;
         }
 
         m_RootSignatureMap[hash] = result;
@@ -618,7 +618,7 @@ namespace DX12
         if (!result->Init(params))
         {
             DX12_ERROR("Could not create root signature!");
-            nullptr;
+            return nullptr;
         }
 
         m_RootSignatureMap[hash] = result;

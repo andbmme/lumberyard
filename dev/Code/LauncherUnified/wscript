@@ -1,0 +1,135 @@
+########################################################################################
+# All or portions of this file Copyright (c) Amazon.com, Inc. or its affiliates or
+# its licensors.
+#
+# For complete copyright and license terms please see the LICENSE at the root of this
+# distribution (the "License"). All use of this software is governed by the License,
+# or, if provided, by the license below or the license accompanying this file. Do not
+# remove or modify any license notices. This file is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#
+########################################################################################
+
+
+def build(bld):
+
+    if bld.is_target_platform_enabled('android'):
+        bld.recurse(['Platform/Android'], mandatory=True)
+
+    bld.CryLauncher(
+        # Common
+        target              = 'ClientLauncher',
+        file_list           = 'launcher.waf_files',
+        pch                 = 'Launcher_precompiled.cpp',
+        client_only         = True,
+        exclude_test        = False,
+        use                 = ['AzGameFramework'],
+        includes            = [bld.Path('Code/CryEngine/CryCommon')],
+
+        # Platform Specific
+        platform_roots      = [{'root': 'Platform', 'export_includes': False}],
+    
+        test_file_list      = ['launcher_test.waf_files'],
+        test_use            = ['AzTest'],
+        test_uselib         = ['GMOCK'],
+        test_win_linkflags  = ['/SUBSYSTEM:CONSOLE']
+    )
+
+    bld.CryDedicatedServer(
+        target          = 'ServerLauncher',
+        file_list       = 'launcher.waf_files',
+        platforms       = ['linux', 'win'],
+        server_only     = True,
+        exclude_test    = True,
+        use             = ['AzGameFramework'],
+        includes        = [bld.Path('Code/CryEngine/CryCommon')],
+
+        # Platform Specific
+        platform_roots      = [{'root': 'Platform', 'export_includes': False}],
+    )
+
+    # Setup the bootstrapping executables for external projects
+    if bld.is_engine_local():
+        return
+
+    active_game_projects = bld.get_enabled_game_project_list()
+    assert len(active_game_projects) == 1, 'Multiple game projects cannot be active while running from an external folder'
+    project = active_game_projects[0]
+
+    common_launcher_tool_settings = dict(
+        vs_filter       = 'ToolLaunchers',
+
+        file_list       = ['tool_launcher.waf_files'],
+        use             = ['AzFramework'],
+        includes        = bld.Path('Code/Tools/ToolsLauncher'),
+
+        # Platform Roots
+        platform_roots  = [bld.PlatformRoot('@ENGINE@/Code/Tools/ToolsLauncher/Platform', export_includes=True)],
+
+        # for icon generation
+        resource_path   = bld.get_launch_node().make_node([bld.game_code_folder(project), 'Resources']),
+    )
+
+    bld.LYToolLauncher(
+        target              = 'ClientBootstrapper',
+        launch_target       = bld.get_executable_name(project),
+        platforms           = ['darwin', 'linux', 'win'],
+        client_only         = True,
+        exclude_monolithic  = True,
+
+        is_launcher         = True,
+
+        **common_launcher_tool_settings
+    )
+
+    bld.LYToolLauncher(
+        target              = 'ServerBootstrapper',
+        launch_target       = bld.get_dedicated_server_executable_name(project),
+        platforms           = ['linux', 'win'],
+        server_only         = True,
+        exclude_test        = True,
+        exclude_monolithic  = True,
+
+        is_dedicated_server = True,
+
+        **common_launcher_tool_settings
+    )
+
+
+def package(pkg):
+    build(pkg) # Need to execute this to generate our task_generator...
+    pkg.init_dirs() # initialize the directory paths for packaging
+
+    pkg.package_game(
+        target          = '{}Launcher'.format(pkg.project),
+        task_gen_name   = '{}ClientLauncher'.format(pkg.project),
+        platforms       = ['appletv', 'darwin', 'ios'],
+        client_only     = True,
+        exclude_test    = True,
+    )
+
+    pkg.package_game_legacy(
+        target              = 'ClientLauncher',
+        platforms           = ['android'],
+        client_only         = True,
+        exclude_test        = False,
+        restricted_script   = 'update_restricted_non_build_parameters',
+    )
+
+
+def deploy(ctx):
+    ctx.deploy_game_legacy(
+        target              = 'ClientLauncher',
+        platforms           = ['android'],
+        client_only         = True,
+        exclude_test        = False,
+        restricted_script   = 'update_restricted_non_build_parameters',
+    )    
+
+def run_unit_test(ctx):
+    ctx.run_unit_test(
+        target              = 'ClientLauncher',
+        test_only           = True,
+        platforms           = ['android', 'win'],
+        restricted_script   = 'update_restricted_non_build_parameters',
+    )

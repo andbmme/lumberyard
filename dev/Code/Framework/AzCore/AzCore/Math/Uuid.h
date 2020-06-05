@@ -15,7 +15,7 @@
 #include <AzCore/base.h>
 #include <AzCore/std/hash.h>
 
-#if defined(AZ_PLATFORM_WINDOWS) || defined(AZ_PLATFORM_APPLE_OSX)
+#if AZ_TRAIT_UUID_SUPPORTS_GUID_CONVERSION
 struct  _GUID;
 typedef _GUID GUID;
 #endif
@@ -84,6 +84,22 @@ namespace AZ
          */
         int ToString(char* output, int outputSize, bool isBrackets = true, bool isDashes = true) const;
 
+        /**
+         * Outputs to a string in one of the following formats
+         * 0123456789abcdef0123456789abcdef
+         * 01234567-89ab-cdef-0123-456789abcdef
+         * {01234567-89ab-cdef-0123-456789abcdef}
+         * {0123456789abcdef0123456789abcdef}
+         * \returns if positive number of characters written to the buffer (including terminate)
+         * if negative the the number of characters required for output (nothing is writen to the output),
+         * including terminating character.
+         */
+        template<size_t SizeT>
+        int ToString(char(&output)[SizeT], bool isBrackets = true, bool isDashes = true) const
+        {
+            return ToString(output, SizeT, isBrackets, isDashes);
+        }
+
         /// The only requirements is that StringType can be constructed from char* and it can copied.
         template<class StringType>
         inline StringType ToString(bool isBrackets = true, bool isDashes = true) const
@@ -114,15 +130,17 @@ namespace AZ
         AZ_MATH_FORCE_INLINE bool operator!=(const Uuid& rhs) const { return !(*this == rhs); }
         bool operator<(const Uuid& rhs) const;
         bool operator>(const Uuid& rhs) const;
+        bool operator<=(const Uuid& rhs) const { return !(*this > rhs); }
+        bool operator>=(const Uuid& rhs) const { return !(*this < rhs); }
 
-    #if defined(AZ_PLATFORM_WINDOWS) || defined(AZ_PLATFORM_APPLE_OSX)
+    #if AZ_TRAIT_UUID_SUPPORTS_GUID_CONVERSION
         // Add some conversion to from windows
         Uuid(const GUID& guid);
         operator GUID() const;
         AZ_MATH_FORCE_INLINE Uuid& operator=(const GUID& guid)          { *this = Uuid(guid); return *this; }
         AZ_MATH_FORCE_INLINE bool operator==(const GUID& guid) const    { return *this == Uuid(guid); }
         AZ_MATH_FORCE_INLINE bool operator!=(const GUID& guid) const    { return !(*this == guid);  }
-    #endif // AZ_PLATFORM_WINDOWS
+    #endif
 
         /// Adding two UUID generates SHA1 Uuid based on the data of both uuids
         Uuid operator+(const Uuid& rhs) const;
@@ -154,11 +172,7 @@ namespace AZ
         }
 
         // or _m128i and VMX ???
-#if defined(AZ_PLATFORM_WINDOWS) && !defined(AZ_PLATFORM_WINDOWS_X64)
-        unsigned char data[16];
-#else
         AZ_ALIGN(unsigned char data[16], 16);
-#endif
     };
 } // namespace AZ
 

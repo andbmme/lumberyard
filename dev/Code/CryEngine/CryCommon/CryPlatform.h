@@ -14,9 +14,7 @@
 // Description : Interface for the platfrom specific function libraries
 //               Include this file instead of windows h and similar platfrom specific header files
 
-
-#ifndef _CRY_PLATFORM_H_
-#define _CRY_PLATFORM_H_
+#pragma once
 
 ////////////////////////////////////////////////////////////////////////////
 // this define allows including the detail headers which are setting platfrom specific settings
@@ -24,14 +22,36 @@
 
 // this file can't include azcore since it is included by tools that use ancient compilers
 
+#if defined(AZ_RESTRICTED_PLATFORM)
+#undef AZ_RESTRICTED_SECTION
+#define CRYPLATFORM_H_SECTION_1 1
+#define CRYPLATFORM_H_SECTION_2 2
+#endif
+
 #if defined(IOS)
 #define CURRENT_PLATFORM_NAME "ios"
+#define AZ_RESTRICTED_SECTION_IMPLEMENTED
 #elif defined(APPLETV)
 #define CURRENT_PLATFORM_NAME "appletv"
+#define AZ_RESTRICTED_SECTION_IMPLEMENTED
 #elif defined(DARWIN)
 #define CURRENT_PLATFORM_NAME "osx"
+#define AZ_RESTRICTED_SECTION_IMPLEMENTED
 #elif defined(LINUX) && !defined(ANDROID)
 #define CURRENT_PLATFORM_NAME "linux"
+#define AZ_RESTRICTED_SECTION_IMPLEMENTED
+#elif defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION CRYPLATFORM_H_SECTION_1
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/CryPlatform_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/CryPlatform_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/CryPlatform_h_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
 #elif defined(WIN32)
 #define CURRENT_PLATFORM_NAME "windows"
 #elif defined(ANDROID)
@@ -41,9 +61,22 @@
 #endif
 
 ////////////////////////////////////////////////////////////////////////////
-// some ifdef selection to include the correct platfrom implementation
+// some ifdef selection to include the correct platform implementation
 #if defined(WIN64)
 #   include "CryPlatform.Win64.h"
+#define AZ_RESTRICTED_SECTION_IMPLEMENTED
+#elif defined(AZ_RESTRICTED_PLATFORM)
+#define AZ_RESTRICTED_SECTION CRYPLATFORM_H_SECTION_2
+    #if defined(AZ_PLATFORM_XENIA)
+        #include "Xenia/CryPlatform_h_xenia.inl"
+    #elif defined(AZ_PLATFORM_PROVO)
+        #include "Provo/CryPlatform_h_provo.inl"
+    #elif defined(AZ_PLATFORM_SALEM)
+        #include "Salem/CryPlatform_h_salem.inl"
+    #endif
+#endif
+#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
+#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
 #elif defined(WIN32)
 #   include "CryPlatform.Win32.h"
 #elif defined(LINUX)
@@ -75,10 +108,6 @@
 
 #if !defined(CRYPLATFORM_INTERLOCKEDSLIST_ELEMENT_ALIGNMENT)
 #   error CRYPLATFORM_INTERLOCKEDSLIST_ELEMENT_ALIGNMENT not defined for current platform
-#endif
-
-#if !defined(__DETAIL__LINK_THIRD_PARTY_LIBRARY)
-#   error __DETAIL__LINK_THIRD_PARTY_LIBRARY not defined for current platform
 #endif
 
 #if !defined(__DETAIL__LINK_SYSTEM_PARTY_LIBRARY)
@@ -140,18 +169,9 @@ inline CryMT::SInterlockedSListElement* CryMT::InterlockedSListPop(CryMT::SInter
 }
 
 ////////////////////////////////////////////////////////////////////////////
-// Include a third party library. The path has to be specificed
-// relative to the Code/ folder. In addition the path has to be specified
-// as a liternal, not as a string, and forward slashes have to be used eg:
-// LINK_THIRD_PARTY_LIBRARY(SDK/MyLib/lib/MyLib.a)
-#define LINK_THIRD_PARTY_LIBRARY(name) __DETAIL__LINK_THIRD_PARTY_LIBRARY(name)
-
-////////////////////////////////////////////////////////////////////////////
 // Include a platform library.
 #define LINK_SYSTEM_LIBRARY(name) __DETAIL__LINK_SYSTEM_PARTY_LIBRARY(name)
 
 ////////////////////////////////////////////////////////////////////////////
 // disallow including of detail header
 #undef CRYPLATFROM_ALLOW_DETAIL_INCLUDES
-
-#endif // _CRY_PLATFORM_H_

@@ -11,9 +11,9 @@
 */
 // Original file Copyright Crytek GMBH or its affiliates, used under license.
 
-#include "StdAfx.h"
+#include "stdafx.h"
 #include "ZipFileFormat.h"
-#include "ZipDirStructures.h"
+#include "zipdirstructures.h"
 #include "ZipDirTree.h"
 
 

@@ -20,6 +20,7 @@
 #include <MysticQt/Source/RecentFiles.h>
 #include <EMotionFX/Source/ActorManager.h>
 #include <EMotionFX/CommandSystem/Source/ActorInstanceCommands.h>
+#include "RenderPlugin.h"
 
 
 namespace EMStudio
@@ -68,7 +69,7 @@ namespace EMStudio
                             commandGroup.AddCommandString( "Unselect -actorInstanceID SELECT_ALL" );
 
                         String command;
-                        command.Format("Select -actorInstanceID %i", actorInstance->GetID());
+                        command = AZStd::string::format("Select -actorInstanceID %i", actorInstance->GetID());
                         commandGroup.AddCommandString( command.AsChar() );
 
                         // execute the commands
@@ -134,15 +135,6 @@ namespace EMStudio
             connect(removeAction,      SIGNAL(triggered()), renderWidget, SLOT(RemoveSelectedActorInstances()));
         }
 
-
-        if (GetCommandManager()->GetCurrentSelection().GetNumSelectedActors() > 0)
-        {
-            QAction* scaleAction = menu.addAction("Scale Actor Data");
-            connect(scaleAction, SIGNAL(triggered()), GetMainWindow(), SLOT(OnScaleSelectedActors()));
-            menu.addSeparator();
-        }
-
-
         // add actions for loading actors
         QAction* openAction         = menu.addAction("Open Actor");
         QAction* mergeAction        = menu.addAction("Merge Actor");
@@ -150,18 +142,18 @@ namespace EMStudio
         // create recent actors sub menu
         MysticQt::RecentFiles recentActors;
         recentActors.Init(&menu, maxRecentFiles, "Recent Actors", "recentActorFiles");
-        connect(&recentActors, SIGNAL(OnRecentFile(QAction*)), (QObject*)mainWindow, SLOT(OnRecentFile(QAction*)));
+        connect(&recentActors, &MysticQt::RecentFiles::OnRecentFile, mainWindow, &MainWindow::OnRecentFile);
 
         // add a separator line
         menu.addSeparator();
 
         // for opening projects
-        QAction* openProjectAction = menu.addAction("Open Project");
+        QAction* openProjectAction = menu.addAction("Open Workspace");
 
         // create recent projects sub menu
         MysticQt::RecentFiles recentProjects;
-        recentProjects.Init(&menu, maxRecentFiles, "Recent Projects", "recentProjectFiles");
-        connect(&recentProjects, SIGNAL(OnRecentFile(QAction*)), (QObject*)mainWindow, SLOT(OnRecentFile(QAction*)));
+        recentProjects.Init(&menu, maxRecentFiles, "Recent Workspaces", "recentWorkspaces");
+        connect(&recentProjects, &MysticQt::RecentFiles::OnRecentFile, mainWindow, &MainWindow::OnRecentFile);
 
         // add a separator line
         menu.addSeparator();
@@ -189,13 +181,13 @@ namespace EMStudio
         scaleAction->setIcon(MysticQt::GetMysticQt()->FindIcon("Images/Rendering/Scale.png"));
 
         // connect the context menu to the corresponding slots
-        connect(openAction,         SIGNAL(triggered()), (QObject*)mainWindow,  SLOT(OnFileOpenActor()));
-        connect(mergeAction,        SIGNAL(triggered()), (QObject*)mainWindow,  SLOT(OnFileMergeActor()));
-        connect(openProjectAction,  SIGNAL(triggered()), (QObject*)mainWindow,  SLOT(OnFileOpenWorkspace()));
-        connect(selectAction,       SIGNAL(triggered()), (QObject*)plugin,      SLOT(SetSelectionMode()));
-        connect(translateAction,    SIGNAL(triggered()), (QObject*)plugin,      SLOT(SetTranslationMode()));
-        connect(rotateAction,       SIGNAL(triggered()), (QObject*)plugin,      SLOT(SetRotationMode()));
-        connect(scaleAction,        SIGNAL(triggered()), (QObject*)plugin,      SLOT(SetScaleMode()));
+        connect(openAction,         &QAction::triggered, mainWindow,  &MainWindow::OnFileOpenActor);
+        connect(mergeAction,        &QAction::triggered, mainWindow,  &MainWindow::OnFileMergeActor);
+        connect(openProjectAction,  &QAction::triggered, mainWindow,  &MainWindow::OnFileOpenWorkspace);
+        connect(selectAction,       &QAction::triggered, plugin,      &RenderPlugin::SetSelectionMode);
+        connect(translateAction,    &QAction::triggered, plugin,      &RenderPlugin::SetTranslationMode);
+        connect(rotateAction,       &QAction::triggered, plugin,      &RenderPlugin::SetRotationMode);
+        connect(scaleAction,        &QAction::triggered, plugin,      &RenderPlugin::SetScaleMode);
 
         // show the menu at the given position
         menu.exec(globalMousePos);

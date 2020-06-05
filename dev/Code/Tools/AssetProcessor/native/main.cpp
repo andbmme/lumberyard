@@ -19,6 +19,8 @@
 
 #if defined(AZ_TESTS_ENABLED)
 #include <AzTest/AzTest.h>
+#include <AzTest/Utils.h>
+#include <native/tests/BaseAssetProcessorTest.h>
 #endif
 
 #if defined(AZ_TESTS_ENABLED)
@@ -40,17 +42,51 @@ namespace AssetProcessor
     }
 }
 
+#if defined(AZ_TESTS_ENABLED)
+int RunUnitTests(int argc, char* argv[], bool& ranUnitTests)
+{
+    ranUnitTests = true;
+
+    INVOKE_AZ_UNIT_TEST_MAIN(nullptr);  // nullptr turns off default test environment used to catch stray asserts
+
+    // This looks a bit weird, but the macro returns conditionally, so *if* we get here, it means the unit tests didn't run
+    ranUnitTests = false;
+    return 0;
+}
+#endif
+
 int main(int argc, char* argv[])
 {
     qputenv("QT_MAC_DISABLE_FOREGROUND_APPLICATION_TRANSFORM", "1");
 #if defined(AZ_TESTS_ENABLED)
     // If "--unittest" is present on the command line, run unit testing
     // and return immediately. Otherwise, continue as normal.
-    INVOKE_AZ_UNIT_TEST_MAIN();
+    AZ::Test::addTestEnvironment(new BaseAssetProcessorTestEnvironment());
+    
+    bool pauseOnComplete = false;
+
+    if (AZ::Test::ContainsParameter(argc, argv, "--pause-on-completion"))
+    {
+        pauseOnComplete = true;
+    }
+    
+    bool ranUnitTests;
+    int result = RunUnitTests(argc, argv, ranUnitTests);
+
+    if (ranUnitTests)
+    {
+        if (pauseOnComplete)
+        {
+            system("pause");
+        }
+
+        return result;
+    }
 #endif
 
 #if defined(BATCH_MODE)
     BatchApplicationManager applicationManager(&argc, &argv);
+    setvbuf(stdout, NULL, _IONBF, 0); // Disabling output buffering to fix test failures due to incomplete logs
 #else
     GUIApplicationManager applicationManager(&argc, &argv);
 #endif

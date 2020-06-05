@@ -75,7 +75,7 @@ namespace EMStudio
         MCORE_DEFINECOMMANDCALLBACK(CommandRemoveAttachmentCallback);
         MCORE_DEFINECOMMANDCALLBACK(CommandClearAttachmentsCallback);
         MCORE_DEFINECOMMANDCALLBACK(CommandAdjustActorCallback);
-
+        MCORE_DEFINECOMMANDCALLBACK(CommandRemoveActorInstanceCallback);
 
         CommandSelectCallback*                      mSelectCallback;
         CommandUnselectCallback*                    mUnselectCallback;
@@ -85,8 +85,8 @@ namespace EMStudio
         CommandRemoveAttachmentCallback*            mRemoveAttachmentCallback;
         CommandClearAttachmentsCallback*            mClearAttachmentsCallback;
         CommandAdjustActorCallback*                 mAdjustActorCallback;
+        CommandRemoveActorInstanceCallback*         mRemoveActorInstanceCallback;
 
-        QWidget*                                    mWaitingForAttachmentWidget;
         QWidget*                                    mNoSelectionWidget;
         MysticQt::DialogStack*                      mDialogStack;
         AttachmentsWindow*                          mAttachmentsWindow;

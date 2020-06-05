@@ -20,7 +20,9 @@
 #include "3dEngine.h"
 #include "ObjMan.h"
 #include "Vegetation.h"
-#include "terrain.h"
+
+#include <Terrain/Bus/LegacyTerrainBus.h>
+#include <AzFramework/Terrain/TerrainDataRequestBus.h>
 
 IGeometry* CDecal::s_pSphere = 0;
 
@@ -313,47 +315,6 @@ void CDecal::Render(const float fCurTime, int nAfterWater, float fDistanceFading
         pObj->m_nTextureID = -1;
         //pObj->m_nTextureID1 = -1;
         pObj->m_II.m_AmbColor = m_vAmbient;
-        if (GetCVars()->e_DecalsScissor)
-        {
-            Matrix44 view;
-            GetRenderer()->GetModelViewMatrix(view.GetData());
-
-            Matrix44 proj;
-            GetRenderer()->GetProjectionMatrix(proj.GetData());
-
-            Vec4 viewspacePos = Vec4(m_vWSPos, 1) * view;
-            //if (fabsf(viewspacePos.z) >= 1e-4f && fabsf(proj.m23) == 1)
-            if (viewspacePos.z < -1e-4f)
-            {
-                int width = GetRenderer()->GetWidth();
-                int height = GetRenderer()->GetHeight();
-
-                float corner1x = viewspacePos.x - 1.5f * m_fWSSize;
-                float corner1y = viewspacePos.y + 1.5f * m_fWSSize;
-                float corner2x = viewspacePos.x + 1.5f * m_fWSSize;
-                float corner2y = viewspacePos.y - 1.5f * m_fWSSize;
-
-                float w = 0.5f / viewspacePos.z * proj.m23;
-                float scissorMinX =  (corner1x * proj.m00) * w;
-                float scissorMinY = -(corner1y * proj.m11) * w;
-                float scissorMaxX =  (corner2x * proj.m00) * w;
-                float scissorMaxY = -(corner2y * proj.m11) * w;
-
-                uint16 scissorX1 = max(min((int)(width  * (scissorMinX + 0.5f)), width), 0);
-                uint16 scissorY1 = max(min((int)(height * (scissorMinY + 0.5f)), height), 0);
-                uint16 scissorX2 = max(min((int)(width  * (scissorMaxX + 0.5f)), width), 0);
-                uint16 scissorY2 = max(min((int)(height * (scissorMaxY + 0.5f)), height), 0);
-
-                if (scissorX1 < scissorX2 && scissorY1 < scissorY2)
-                {
-                    SRenderObjData* pOD = GetRenderer()->EF_GetObjData(pObj, true, passInfo.ThreadID());
-                    pOD->m_scissorX = scissorX1;
-                    pOD->m_scissorY = scissorY1;
-                    pOD->m_scissorWidth = scissorX2 - scissorX1;
-                    pOD->m_scissorHeight = scissorY2 - scissorY1;
-                }
-            }
-        }
         m_pRenderMesh->SetREUserData(m_arrBigDecalRMCustomData, 0, fAlpha);
         m_pRenderMesh->AddRenderElements(m_pMaterial, pObj, passInfo, EFSLIST_GENERAL, nAfterWater);
     }
@@ -427,15 +388,27 @@ void CDecal::RenderBigDecalOnTerrain(float fAlpha, float fScale, const SRenderin
     {
         return;
     }
-    if (m_vPos.x >= CTerrain::GetTerrainSize() + fRadius || m_vPos.y >= CTerrain::GetTerrainSize() + fRadius)
+    auto terrain = AzFramework::Terrain::TerrainDataRequestBus::FindFirstHandler();
+    if (!terrain)
     {
         return;
     }
 
-    const int nUsintSize = CTerrain::GetHeightMapUnitSize();
+    const AZ::Aabb terrainAabb = terrain->GetTerrainAabb();
+    const float terrainSizeX = terrainAabb.GetWidth();
+    const float terrainSizeY = terrainAabb.GetHeight();
+
+    if (m_vPos.x >= terrainSizeX + fRadius || m_vPos.y >= terrainSizeY + fRadius)
+    {
+        return;
+    }
+
+    const AZ::Vector2 terrainGridResolution = terrain->GetTerrainGridResolution();
+    const int nUsintSize = static_cast<int>(AZ::GetMax(terrainGridResolution.GetX(), terrainGridResolution.GetY()));
     fRadius += nUsintSize;
 
-    if (fabs(m_vPos.z - Get3DEngine()->GetTerrainZ(int(m_vPos.x), int(m_vPos.y))) > fRadius)
+    const float terrainHeight = terrain->GetHeightFromFloats(m_vPos.x, m_vPos.y, AzFramework::Terrain::TerrainDataRequests::Sampler::CLAMP);
+    if (fabs(m_vPos.z - terrainHeight) > fRadius)
     {
         return; // too far from ground surface
     }
@@ -521,6 +494,7 @@ void CDecal::RenderBigDecalOnTerrain(float fAlpha, float fScale, const SRenderin
     planes[3].SetPlane(-m_vUp,   -m_vUp * m_fSize    + m_vPos);
 
     // m_pRenderMesh might get updated by the following function
-    GetTerrain()->RenderArea(m_vPos, fRadius, m_pRenderMesh,
+    LegacyTerrain::LegacyTerrainDataRequestBus::Broadcast(&LegacyTerrain::LegacyTerrainDataRequests::RenderArea
+        , m_vPos, fRadius, m_pRenderMesh,
         pObj, m_pMaterial, "BigDecalOnTerrain", m_arrBigDecalRMCustomData, GetCVars()->e_DecalsClip ? planes : NULL, passInfo);
 }

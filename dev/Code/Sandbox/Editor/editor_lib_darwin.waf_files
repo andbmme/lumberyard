@@ -5,7 +5,12 @@
             "LogFile_mac.mm",
             "WindowObserver_mac.h",
             "WindowObserver_mac.mm",
-            "MainWindow_mac.mm"
+            "MainWindow_mac.mm",
+            "RenderViewport_mac.mm",
+            "EditorLoadDependencies_Default.cpp"
+        ],
+        "QtUI": [
+            "QtUI/ColorButton_mac.mm"
         ]
     }
 }

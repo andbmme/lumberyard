@@ -1221,7 +1221,6 @@ static void TranslateVariableNameWithMask(HLSLCrossCompilerContext* psContext, c
 				{
 					// Array of matrices is treated as array of vec4s in HLSL,
 					// but that would mess up uniform types in GLSL. Do gymnastics.
-					SHADER_VARIABLE_TYPE eType = GetOperandDataType(psContext, psOperand->psSubOperand[0]);
 					uint32_t opFlags = TO_FLAG_INTEGER;
 
 					if (psVarType && (psVarType->Class == SVC_MATRIX_COLUMNS || psVarType->Class == SVC_MATRIX_ROWS) && (psVarType->Elements > 1))
@@ -1302,7 +1301,6 @@ static void TranslateVariableNameWithMask(HLSLCrossCompilerContext* psContext, c
                 }
 				else if(psOperand->psSubOperand[1] != NULL)
 				{
-					SHADER_VARIABLE_TYPE eType = GetOperandDataType(psContext, psOperand->psSubOperand[1]);
 					bcatcstr(glsl, "[");
 					TranslateOperand(psContext, psOperand->psSubOperand[1], TO_FLAG_INTEGER);
 					bcatcstr(glsl, "]");
@@ -1564,7 +1562,7 @@ SHADER_VARIABLE_TYPE GetOperandDataTypeEx(HLSLCrossCompilerContext* psContext, c
 	{
 		case OPERAND_TYPE_TEMP:
 		{
-			SHADER_VARIABLE_TYPE eCurrentType;
+			SHADER_VARIABLE_TYPE eCurrentType = SVT_VOID;
 			int i = 0;
 
 			if(psOperand->eSelMode == OPERAND_4_COMPONENT_SELECT_1_MODE)
